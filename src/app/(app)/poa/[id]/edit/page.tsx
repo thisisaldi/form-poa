@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canEdit } from "@/lib/authz";
 import { submitPoaAction } from "@/app/actions/poa";
-import { getCustomers, getProducts } from "@/lib/masterData";
+import { getOutletsByUser, getProducts } from "@/lib/masterData";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -22,15 +22,19 @@ export default async function EditPoaPage({
   if (!session) redirect("/login");
 
   const { id } = await params;
-  const [poa, actor, customers, products] = await Promise.all([
+  const [poa, actor, rawOutlets, products] = await Promise.all([
     prisma.poaForm.findUnique({
       where: { id },
       include: { owner: true, items: { orderBy: { createdAt: "asc" } } },
     }),
     prisma.user.findUniqueOrThrow({ where: { nip: session.userId } }),
-    getCustomers(),
+    getOutletsByUser(session.userId),
     getProducts(),
   ]);
+
+  const outlets = rawOutlets
+    .filter((o) => o.kodePI != null)
+    .map((o) => ({ kodePI: o.kodePI as string, namaOutlet: o.namaOutlet }));
 
   if (!poa) notFound();
   if (!canEdit(actor, poa)) redirect(`/poa/${id}`);
@@ -62,7 +66,7 @@ export default async function EditPoaPage({
         <LineItemEditor
           poaId={id}
           initialItems={poa.items as PoaLineItem[]}
-          customers={customers}
+          outlets={outlets}
           products={products}
         />
       </Card>

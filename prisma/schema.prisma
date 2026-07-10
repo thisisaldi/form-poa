@@ -94,14 +94,44 @@ model PoaForm {
   @@index([status])
 }
 
+model Customer {
+  id           String   @id @default(uuid())
+  kodeCustomer String?  @unique
+  namaCustomer String
+  spesialisasi String
+  syncedAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  outlets      CustomerOutlet[]
+
+  @@index([spesialisasi])
+  @@index([namaCustomer])
+}
+
+model CustomerOutlet {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  kodePI     String
+  outlet     Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  isFokus    Boolean  @default(false)
+  syncedAt   DateTime?
+
+  @@unique([customerId, kodePI])
+  @@index([kodePI])
+  @@index([customerId])
+  @@index([kodePI, isFokus])
+}
+
 model PoaLineItem {
   id     String  @id @default(uuid())
   poaId  String
   poa    PoaForm @relation(fields: [poaId], references: [id], onDelete: Cascade)
 
-  // ── Customer group (auto-filled from Kode Request lookup) ────────────────
-  kodeRequest    String   // kode kontrak PSSP, groups one doctor × N products
-  kodeCust       String
+  // ── Customer group (auto-filled from Customer lookup) ────────────────────
+  kodeRequest    String?  // legacy PSSP contract code — nullable
+  kodeCust       String?  // Customer.kodeCustomer
   namaCust       String
   role           String   // e.g. "Dokter Spesialis"
   spesialisasi   String
@@ -195,7 +225,8 @@ model Outlet {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  assignments  MrOutletAssignment[]
+  assignments      MrOutletAssignment[]
+  customerOutlets  CustomerOutlet[]
 
   @@index([statusOutlet])
   @@index([sector])

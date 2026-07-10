@@ -201,9 +201,9 @@ export function Combobox({
                     className="flex items-center gap-2 px-3 py-2 cursor-pointer"
                     style={{
                       background: isHighlighted
-                        ? "var(--color-primary)"
+                        ? "var(--color-blue)"
                         : isSelected
-                        ? "var(--color-bg-subtle)"
+                        ? "var(--color-blue-light)"
                         : "transparent",
                       color: isHighlighted ? "#fff" : "var(--color-text)",
                     }}
@@ -213,7 +213,7 @@ export function Combobox({
                       {option.sublabel && (
                         <span
                           className="block text-xs truncate"
-                          style={{ color: isHighlighted ? "rgba(255,255,255,0.75)" : "var(--color-text-muted)" }}
+                          style={{ color: isHighlighted ? "rgba(255,255,255,0.8)" : "var(--color-text-muted)" }}
                         >
                           {option.sublabel}
                         </span>
@@ -222,7 +222,7 @@ export function Combobox({
                     {isSelected && (
                       <span
                         className="text-xs shrink-0"
-                        style={{ color: isHighlighted ? "#fff" : "var(--color-primary)" }}
+                        style={{ color: isHighlighted ? "#fff" : "var(--color-blue)" }}
                       >
                         ✓
                       </span>

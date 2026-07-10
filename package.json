@@ -9,6 +9,7 @@
     "lint": "eslint",
     "sync:org": "tsx scripts/syncOrg.ts",
     "sync:products": "tsx scripts/syncProducts.ts",
+    "sync:customers": "tsx scripts/syncCustomers.ts",
     "db:studio": "prisma studio",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate"
