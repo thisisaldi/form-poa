@@ -31,7 +31,7 @@ export async function getCustomers(): Promise<MockCustomer[]> {
   });
 
   return outlets.map((o: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null }) => ({
-    kodeRequest: "",   // kodeRequest comes from the VB system, not MSSQL
+    kodeRequest: o.kodePI,
     kodeCust: o.kodePI,
     namaCust: o.namaOutlet,
     role: o.sector ?? "",
@@ -44,8 +44,9 @@ export async function getCustomers(): Promise<MockCustomer[]> {
 
 export async function getCustomerByKodeRequest(kodeRequest: string): Promise<MockCustomer | null> {
   if (isMock) return MOCK_CUSTOMERS.find((c) => c.kodeRequest === kodeRequest) ?? null;
-  // In production kodeRequest comes from the VB system — not queryable from Outlet table
-  return null;
+
+  // In production, kodeRequest is stored as kodePI (see getOutletsByUser)
+  return getOutletByKodePI(kodeRequest);
 }
 
 export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> {
@@ -58,7 +59,7 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
   });
 
   return assignments.map(({ outlet: o }: { outlet: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null } }) => ({
-    kodeRequest: "",
+    kodeRequest: o.kodePI,
     kodeCust: o.kodePI,
     namaCust: o.namaOutlet,
     role: o.sector ?? "",
@@ -77,7 +78,7 @@ export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | 
   if (!o) return null;
 
   return {
-    kodeRequest: "",
+    kodeRequest: o.kodePI,
     kodeCust: o.kodePI,
     namaCust: o.namaOutlet,
     role: o.sector ?? "",
