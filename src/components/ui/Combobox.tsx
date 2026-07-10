@@ -1,0 +1,244 @@
+"use client";
+
+import { useState, useRef, useEffect, useId, useCallback, useMemo } from "react";
+
+export interface ComboboxOption {
+  value: string;
+  label: string;
+  sublabel?: string;
+}
+
+interface Props {
+  name: string;
+  options: ComboboxOption[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  required?: boolean;
+  emptyMessage?: string;
+}
+
+export function Combobox({
+  name,
+  options,
+  value,
+  onChange,
+  placeholder = "Ketik untuk mencari…",
+  disabled = false,
+  required = false,
+  emptyMessage = "Tidak ada pilihan.",
+}: Props) {
+  const id = useId();
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selected = useMemo(() => options.find((o) => o.value === value) ?? null, [options, value]);
+
+  // When closed, display shows the selected label; when open, shows the typed query
+  const displayValue = open ? query : (selected?.label ?? "");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        o.value.toLowerCase().includes(q) ||
+        (o.sublabel?.toLowerCase().includes(q) ?? false)
+    );
+  }, [options, query]);
+
+  // Visible slice — cap at 80 to avoid rendering hundreds of DOM nodes
+  const MAX_VISIBLE = 80;
+  const visibleOptions = filtered.length > MAX_VISIBLE ? filtered.slice(0, MAX_VISIBLE) : filtered;
+  const hiddenCount = filtered.length - visibleOptions.length;
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (!open) return;
+    const item = listRef.current?.children[highlighted] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest" });
+  }, [highlighted, open]);
+
+  // Close on outside click
+  useEffect(() => {
+    function handlePointerDown(e: PointerEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
+
+  const select = useCallback(
+    (option: ComboboxOption) => {
+      onChange(option.value);
+      setQuery("");
+      setOpen(false);
+      inputRef.current?.blur();
+    },
+    [onChange]
+  );
+
+  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setQuery(e.target.value);
+    setHighlighted(0);
+    if (!open) setOpen(true);
+    if (e.target.value === "") onChange("");
+  }
+
+  function handleInputFocus() {
+    setOpen(true);
+    setQuery("");
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open) {
+      if (e.key === "ArrowDown" || e.key === "Enter") setOpen(true);
+      return;
+    }
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setHighlighted((h) => Math.min(h + 1, filtered.length - 1));
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setHighlighted((h) => Math.max(h - 1, 0));
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (filtered[highlighted]) select(filtered[highlighted]);
+        break;
+      case "Escape":
+        setOpen(false);
+        setQuery("");
+        break;
+      case "Tab":
+        setOpen(false);
+        setQuery("");
+        break;
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      {/* Hidden input for form submission */}
+      <input type="hidden" name={name} value={value} required={required} />
+
+      {/* Visible search input */}
+      <div
+        className="flex items-center input-field gap-2 cursor-text"
+        style={{ padding: 0 }}
+        onClick={() => inputRef.current?.focus()}
+      >
+        <input
+          ref={inputRef}
+          id={id}
+          type="text"
+          autoComplete="off"
+          value={displayValue}
+          onChange={handleInputChange}
+          onFocus={handleInputFocus}
+          onKeyDown={handleKeyDown}
+          disabled={disabled}
+          placeholder={placeholder}
+          className="flex-1 bg-transparent outline-none text-sm px-3 py-2"
+          style={{ color: "var(--color-text)" }}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-autocomplete="list"
+        />
+        {/* Chevron icon */}
+        <span
+          className="pr-2.5 text-xs shrink-0 transition-transform duration-150"
+          style={{
+            color: "var(--color-text-faint)",
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+          }}
+          aria-hidden
+        >
+          ▾
+        </span>
+      </div>
+
+      {/* Dropdown list */}
+      {open && (
+        <ul
+          ref={listRef}
+          role="listbox"
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute z-50 w-full mt-1 rounded-md border shadow-lg overflow-auto"
+          style={{
+            background: "var(--color-bg)",
+            borderColor: "var(--color-border)",
+            maxHeight: "14rem",
+          }}
+        >
+          {filtered.length === 0 ? (
+            <li className="px-3 py-2 text-sm" style={{ color: "var(--color-text-faint)" }}>
+              {emptyMessage}
+            </li>
+          ) : (
+            <>
+              {visibleOptions.map((option, i) => {
+                const isHighlighted = i === highlighted;
+                const isSelected = option.value === value;
+                return (
+                  <li
+                    key={option.value}
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => select(option)}
+                    onMouseEnter={() => setHighlighted(i)}
+                    className="flex items-center gap-2 px-3 py-2 cursor-pointer"
+                    style={{
+                      background: isHighlighted
+                        ? "var(--color-primary)"
+                        : isSelected
+                        ? "var(--color-bg-subtle)"
+                        : "transparent",
+                      color: isHighlighted ? "#fff" : "var(--color-text)",
+                    }}
+                  >
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium truncate">{option.label}</span>
+                      {option.sublabel && (
+                        <span
+                          className="block text-xs truncate"
+                          style={{ color: isHighlighted ? "rgba(255,255,255,0.75)" : "var(--color-text-muted)" }}
+                        >
+                          {option.sublabel}
+                        </span>
+                      )}
+                    </span>
+                    {isSelected && (
+                      <span
+                        className="text-xs shrink-0"
+                        style={{ color: isHighlighted ? "#fff" : "var(--color-primary)" }}
+                      >
+                        ✓
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+              {hiddenCount > 0 && (
+                <li className="px-3 py-2 text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  +{hiddenCount} lainnya — ketik lebih spesifik untuk mempersempit
+                </li>
+              )}
+            </>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  MR
+  ASM
+  SM
+  NSM
+  ADMIN
+}
+
+enum PoaStatus {
+  DRAFT
+  SUBMITTED_TO_ASM
+  APPROVED_BY_ASM
+  SUBMITTED_TO_SM
+  APPROVED_BY_SM
+  SUBMITTED_TO_NSM
+  APPROVED_BY_NSM
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  SUBMIT
+  APPROVE
+}
+
+enum StatusStandarisasi {
+  SUDAH_STANDARISASI
+  PROSES_PENGAJUAN
+  BELUM_STANDARISASI
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  nip         String    @id
+  name        String
+  role        Role
+  email       String?
+  isActive    Boolean   @default(true)
+  syncedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Self-relation for org hierarchy
+  nipAtasan    String?
+  namaAtasan   String?
+  reportsTo    User?    @relation("OrgHierarchy", fields: [nipAtasan], references: [nip])
+  subordinates User[]   @relation("OrgHierarchy")
+
+  // POA ownership
+  ownedPoas    PoaForm[] @relation("PoaOwner")
+  heldPoas     PoaForm[] @relation("PoaCurrentHolder")
+
+  // Audit activity
+  auditLogs    PoaAuditLog[]
+
+  // Outlet assignments (synced from MSSQL)
+  outletAssignments MrOutletAssignment[]
+
+  @@index([nipAtasan])
+  @@index([role])
+}
+
+model PoaForm {
+  id        String    @id @default(uuid())
+  period    String    // e.g. "2026-07" — flexible, not locked to monthly
+  status    PoaStatus @default(DRAFT)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  ownerId   String
+  owner     User      @relation("PoaOwner", fields: [ownerId], references: [nip])
+
+  // Null in DRAFT (owner holds it implicitly) or once fully approved
+  currentHolderId String?
+  currentHolder   User?   @relation("PoaCurrentHolder", fields: [currentHolderId], references: [nip])
+
+  auditLogs PoaAuditLog[]
+  items     PoaLineItem[]
+
+  @@index([ownerId])
+  @@index([currentHolderId])
+  @@index([status])
+}
+
+model PoaLineItem {
+  id     String  @id @default(uuid())
+  poaId  String
+  poa    PoaForm @relation(fields: [poaId], references: [id], onDelete: Cascade)
+
+  // ── Customer group (auto-filled from Kode Request lookup) ────────────────
+  kodeRequest    String   // kode kontrak PSSP, groups one doctor × N products
+  kodeCust       String
+  namaCust       String
+  role           String   // e.g. "Dokter Spesialis"
+  spesialisasi   String
+  historisPSSP   String?
+  kodePI         String?
+  namaOutlet     String
+
+  // ── Product group (auto-filled from kodeProduk lookup) ───────────────────
+  kodeProduk            String
+  namaProduk            String
+  kategoriProdukFokus   String
+  itemKode              String
+  satuanTerkecil        String
+
+  // ── MR manual input ───────────────────────────────────────────────────────
+  produkKompetitor      String?
+  statusStandarisasi    StatusStandarisasi?
+
+  // tentative fields (C20-C23) — nullable
+  hariKerjaBulan   Int?
+  jumlahPasienHari Int?
+  jumlahResepHari  Int?
+  qtyProdukResep   Int?
+
+  lamaPeriode      Int     // 1, 3, 6, or 12
+  periodeAwal      String  // YYYYMM
+  // periodeAkhir is NOT stored — computed as periodeAwal + (lamaPeriode-1) months
+
+  rencanaTotalBiaya   Decimal  @db.Decimal(18, 2)
+  rencanaVisitMinggu  Int
+
+  // ── Master data (auto from sync) ─────────────────────────────────────────
+  nilaiR             Decimal?  @db.Decimal(18, 2)
+  historySales3Bln   Decimal?  @db.Decimal(18, 2)
+  avgDiskon          Decimal?  @db.Decimal(18, 4)
+
+  // ── Formula placeholder columns (all nullable, computed externally) ───────
+  hargaSatuanTerkecil           Decimal?  @db.Decimal(18, 2)
+  estimasiPSSPBulan             Decimal?  @db.Decimal(18, 2)
+  totalEstimasiPSSPBulan        Decimal?  @db.Decimal(18, 2)
+  pengaliNilaiR                 Decimal?  @db.Decimal(18, 4)
+  rekomendasiBiayaBulan         Decimal?  @db.Decimal(18, 2)
+  totalRekomendasiBiayaBulan    Decimal?  @db.Decimal(18, 2)
+  estimasiPSSPPeriode           Decimal?  @db.Decimal(18, 2)
+  totalEstimasiPSSPPeriode      Decimal?  @db.Decimal(18, 2)
+  rekomendasiBiayaPeriode       Decimal?  @db.Decimal(18, 2)
+  totalRekomendasiBiayaPeriode  Decimal?  @db.Decimal(18, 2)
+  rasioRekomenEstimasi          Decimal?  @db.Decimal(18, 4)
+  rasioRencanaBiayaEstimasi     Decimal?  @db.Decimal(18, 4)
+  totalPersenBudget             Decimal?  @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([poaId])
+  @@index([kodeRequest])
+}
+
+model PoaAuditLog {
+  id         String      @id @default(uuid())
+  action     AuditAction
+  fromStatus PoaStatus?
+  toStatus   PoaStatus?
+  snapshot   Json        @default("{}")  // metadata at time of action (status, actor)
+  createdAt  DateTime    @default(now())
+
+  poaId   String
+  poa     PoaForm @relation(fields: [poaId], references: [id])
+
+  actorId String
+  actor   User    @relation(fields: [actorId], references: [nip])
+
+  @@index([poaId])
+  @@index([actorId])
+}
+
+// ─── Outlet Master Data ───────────────────────────────────────────────────────
+// Synced from Struktur_Marketing_PI (Divisi KAM1, latest Periode).
+
+model Outlet {
+  kodePI       String  @id
+  namaOutlet   String
+  outCode      String?
+  statusOutlet String? // 'A' = active, 'M' = merged/inactive
+  namaChannel  String?
+  sector       String?
+  subSektor    String?
+  kota         String?
+  propinsi     String?
+  syncedAt     DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assignments  MrOutletAssignment[]
+
+  @@index([statusOutlet])
+  @@index([sector])
+}
+
+// ─── Product Master Data ──────────────────────────────────────────────────────
+// Synced from "LIST PRODUK PI" Excel file.
+
+model Product {
+  kodeProduk     String   @id
+  namaGroupBrand String
+  namaProduk     String
+  zatAktif       String?
+  satuan         String
+  hna            Decimal  @db.Decimal(18, 2)
+  syncedAt       DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([namaGroupBrand])
+}
+
+// Junction: which MRs are assigned to which outlets per periode (from Struktur_Marketing_PI)
+model MrOutletAssignment {
+  id        String   @id @default(uuid())
+  nipMR     String
+  user      User     @relation(fields: [nipMR], references: [nip], onDelete: Cascade)
+  kodePI    String
+  outlet    Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  periode   Int      // YYYYMM, e.g. 202607
+  syncedAt  DateTime
+
+  @@unique([nipMR, kodePI, periode])
+  @@index([nipMR])
+  @@index([kodePI])
+  @@index([periode])
+}
