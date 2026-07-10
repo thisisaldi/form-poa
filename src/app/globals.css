@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+/* ─── Brand Design Tokens ─── */
+:root {
+  /* backgrounds */
+  --color-bg: #FAF8F4;
+  --color-bg-subtle: #F2EDE4;
+  --color-surface: #FFFFFF;
+  --color-surface-raised: #FFFDF9;
+
+  /* text */
+  --color-text: #2B2822;
+  --color-text-muted: #6B6560;
+  --color-text-faint: #9C948A;
+
+  /* brand accents */
+  --color-blue: #0063a0;
+  --color-blue-hover: #00518A;
+  --color-blue-light: #E6F0F8;
+  --color-green: #008f42;
+  --color-green-hover: #007836;
+  --color-green-light: #E6F5EC;
+
+  /* borders */
+  --color-border: #E8E3D8;
+  --color-border-strong: #C8C0B0;
+
+  /* status badges (muted so they don't compete with accents) */
+  --color-status-draft: #9C948A;
+  --color-status-draft-bg: #F2EDE4;
+  --color-status-pending: #C99A3D;
+  --color-status-pending-bg: #FBF3E3;
+  --color-status-approved: #008f42;
+  --color-status-approved-bg: #E6F5EC;
+
+  /* feedback */
+  --color-error: #C0392B;
+  --color-error-bg: #FDECEA;
+  --color-warning: #C99A3D;
+  --color-warning-bg: #FBF3E3;
+}
+
+@theme inline {
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+/* ─── Base Resets ─── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-font-smoothing: antialiased; }
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 0.9375rem; /* 15px — slightly tighter than default for data-dense UI */
+  line-height: 1.6;
+}
+
+/* ─── Typography Scale ─── */
+h1, h2, h3, h4, h5 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--color-text);
+}
+h1 { font-size: 1.75rem; }
+h2 { font-size: 1.375rem; }
+h3 { font-size: 1.125rem; }
+h4 { font-size: 0.9375rem; }
+
+a { color: var(--color-blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ─── Scrollbar (subtle) ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }
+
+/* ─── Form Controls ─── */
+.input-field {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0.375rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-field:focus { border-color: var(--color-blue); }
+.input-field:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Feedback colors (missing from root) ─── */
+:root {
+  --color-red: var(--color-error);
+  --color-red-light: var(--color-error-bg);
+}
