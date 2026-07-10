@@ -45,3 +45,6 @@ next-env.d.ts
 AGENTS.md
 CLAUDE.md
 *.xlsx
+
+# generated mock data (contains real customer/product data from Excel)
+src/lib/mock/generated-data.json

@@ -202,9 +202,10 @@ function LineItemsTable({ items }: { items: PoaLineItem[] }) {
   // Group by kodeRequest
   const groups = new Map<string, PoaLineItem[]>();
   for (const item of items) {
-    const g = groups.get(item.kodeRequest) ?? [];
+    const key = item.kodePI ?? item.kodeRequest ?? item.id;
+    const g = groups.get(key) ?? [];
     g.push(item);
-    groups.set(item.kodeRequest, g);
+    groups.set(key, g);
   }
 
   return (

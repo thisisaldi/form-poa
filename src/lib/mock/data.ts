@@ -243,6 +243,83 @@ export const MOCK_PRODUCTS: MockProduct[] = [
   },
 ];
 
+// ─── Outlets ─────────────────────────────────────────────────────────────────
+
+export interface MockOutlet {
+  kodePI: string;
+  namaOutlet: string;
+  sector: string | null;
+  subSektor: string | null;
+  statusOutlet: string;
+}
+
+export const MOCK_OUTLETS: MockOutlet[] = [
+  { kodePI: "PI-001", namaOutlet: "RS Medika Utama", sector: "RS", subSektor: null, statusOutlet: "A" },
+  { kodePI: "PI-002", namaOutlet: "Klinik Jantung Sehat", sector: "Klinik", subSektor: null, statusOutlet: "A" },
+  { kodePI: "PI-005", namaOutlet: "RS Ibu dan Anak Bunda", sector: "RS", subSektor: null, statusOutlet: "A" },
+];
+
+// ─── Customer (Dokter) ────────────────────────────────────────────────────────
+
+export interface MockCustomerRecord {
+  id: string;
+  kodeCustomer: string | null;
+  namaCustomer: string;
+  spesialisasi: string;
+  syncedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export const MOCK_CUSTOMER_RECORDS: MockCustomerRecord[] = [
+  // Existing customers (from CDB, isFokus=false)
+  { id: "cust-001", kodeCustomer: "K001", namaCustomer: "dr. Andi Kusuma, Sp.PD", spesialisasi: "Penyakit Dalam", syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { id: "cust-002", kodeCustomer: "K002", namaCustomer: "dr. Dewi Lestari, Sp.JP", spesialisasi: "Kardiologi", syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { id: "cust-003", kodeCustomer: "K003", namaCustomer: "dr. Hendra Gunawan, Sp.S", spesialisasi: "Neurologi", syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { id: "cust-004", kodeCustomer: "K004", namaCustomer: "dr. Irma Suryani, Sp.OG", spesialisasi: "Kebidanan", syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  // Focus targets (from RS GROUP, isFokus=true — not yet customers)
+  { id: "cust-005", kodeCustomer: null, namaCustomer: "Prof. dr. Santoso, Sp.PD-KGH", spesialisasi: "Penyakit Dalam", syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { id: "cust-006", kodeCustomer: null, namaCustomer: "dr. Rina Kusumawati, Sp.JP", spesialisasi: "Kardiologi", syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { id: "cust-007", kodeCustomer: null, namaCustomer: "dr. Ahmad Fauzi, Sp.OG", spesialisasi: "Kebidanan", syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+];
+
+// ─── CustomerOutlet (many-to-many) ───────────────────────────────────────────
+
+export interface MockCustomerOutlet {
+  id: string;
+  customerId: string;
+  kodePI: string;
+  isFokus: boolean;
+  syncedAt: Date | null;
+}
+
+export const MOCK_CUSTOMER_OUTLETS: MockCustomerOutlet[] = [
+  // PI-001 (RS Medika Utama)
+  { id: "co-001", customerId: "cust-001", kodePI: "PI-001", isFokus: false, syncedAt: NOW },
+  { id: "co-002", customerId: "cust-003", kodePI: "PI-001", isFokus: false, syncedAt: NOW },
+  { id: "co-003", customerId: "cust-005", kodePI: "PI-001", isFokus: true,  syncedAt: NOW },
+  // PI-002 (Klinik Jantung Sehat)
+  { id: "co-004", customerId: "cust-002", kodePI: "PI-002", isFokus: false, syncedAt: NOW },
+  { id: "co-005", customerId: "cust-006", kodePI: "PI-002", isFokus: true,  syncedAt: NOW },
+  // PI-005 (RS Ibu dan Anak Bunda)
+  { id: "co-006", customerId: "cust-004", kodePI: "PI-005", isFokus: false, syncedAt: NOW },
+  { id: "co-007", customerId: "cust-007", kodePI: "PI-005", isFokus: true,  syncedAt: NOW },
+];
+
+// ─── MR Outlet Assignments ────────────────────────────────────────────────────
+
+export interface MockMrAssignment {
+  id: string;
+  nipMR: string;
+  kodePI: string;
+}
+
+export const MOCK_MR_ASSIGNMENTS: MockMrAssignment[] = [
+  { id: "asgn-001", nipMR: "MR001", kodePI: "PI-001" },
+  { id: "asgn-002", nipMR: "MR001", kodePI: "PI-002" },
+  { id: "asgn-003", nipMR: "MR002", kodePI: "PI-005" },
+];
+
 // ─── POA Line Items ───────────────────────────────────────────────────────────
 
 export const MOCK_LINE_ITEMS: PoaLineItem[] = [
