@@ -316,7 +316,7 @@ function AddPanel({
         <div>
           <SectionLabel>Outlet &amp; Produk</SectionLabel>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
               <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Outlet</span>
               <Combobox
                 name="kodeRequest"
@@ -326,19 +326,19 @@ function AddPanel({
                 required
                 options={customerOptions}
               />
-            </label>
-            <label className="flex flex-col gap-1">
+            </div>
+            <div className="flex flex-col gap-1">
               <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk</span>
               <Combobox
                 name="kodeProduk"
                 value={form.kodeProduk}
                 onChange={(v) => set("kodeProduk", v)}
-                placeholder={form.kodeRequest ? "Cari produk…" : "Pilih outlet dulu"}
+                placeholder="Cari produk…"
                 required
                 disabled={!form.kodeRequest}
                 options={productOptions}
               />
-            </label>
+            </div>
           </div>
 
           {/* Info customer setelah pilih */}
