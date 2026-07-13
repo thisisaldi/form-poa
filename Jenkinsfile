@@ -52,6 +52,10 @@ pipeline {
 		}
 
 		stage('Build') {
+			tools {
+				nodejs 'node-v20'
+			}
+
 			steps {
 				echo '> Installing dependencies ...'
 				sh 'npm install --frozen-lockfile'
