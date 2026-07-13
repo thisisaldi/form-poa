@@ -54,16 +54,16 @@ pipeline {
 		stage('Build') {
 			steps {
 				echo '> Installing dependencies ...'
-				sh 'bun install --frozen-lockfile'
+				sh 'npm install --frozen-lockfile'
 
 				script {
 					echo '> Building application ...'
 					parallel (
 						"staging": {
-							sh 'bun build:staging'
+							sh 'npm build:staging'
 						},
 						"production": {
-							sh 'bun build:production'
+							sh 'npm build:production'
 						}
 					)
 				}
