@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
-    "build": "next build",
+    "build:development": "node --env-file=.env.development -- next build",
+    "build:staging": "node --env-file=.env.staging -- next build",
+    "build:production": "node --env-file=.env.production -- next build",
     "start": "next start",
     "lint": "eslint",
     "sync:org": "tsx scripts/syncOrg.ts",
