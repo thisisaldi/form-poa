@@ -64,10 +64,10 @@ pipeline {
 					echo '> Building application ...'
 					parallel (
 						"staging": {
-							sh 'npm build:staging'
+							sh 'npm run build:staging'
 						},
 						"production": {
-							sh 'npm build:production'
+							sh 'npm run build:production'
 						}
 					)
 				}
