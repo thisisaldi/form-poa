@@ -1,0 +1,21 @@
+{{- if and (or (contains "development" .Release.Namespace) (contains "staging" .Release.Namespace)) .Values.httpScaledObject.enabled }}
+apiVersion: http.keda.sh/v1alpha1
+kind: HTTPScaledObject
+metadata:
+  name: {{ include "k8s.name" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - {{ include "k8s.httpScaledObjectExposedHost" . }}
+    - {{ include "k8s.name" . }}.{{ .Release.Namespace }}
+  pathPrefixes:
+    {{- toYaml .Values.httpScaledObject.pathPrefixes | nindent 4 }}
+  scaleTargetRef:
+    deployment: {{ include "k8s.name" . }}
+    service: {{ include "k8s.serviceName" . }}
+    port: {{ .Values.service.externalPort }}
+  replicas:
+    min: {{ .Values.httpScaledObject.minReplicas }}
+    max: {{ .Values.httpScaledObject.maxReplicas }}
+  scaledownPeriod: {{ .Values.httpScaledObject.scaledownPeriod }}
+{{- end }}

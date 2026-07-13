@@ -1,0 +1,84 @@
+{{- $jobName := "migrate" -}}
+{{- $nameContext := dict "Chart" .Chart "Values" .Values "Release" .Release "Context" (dict "name" $jobName) -}}
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "k8s.jobName" $nameContext }}
+  labels:
+    {{- include "k8s.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.job.migrate.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: {{ .Values.job.migrate.backoffLimit | default 1 }}
+  {{- with .Values.job.migrate.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      annotations:
+        {{- if and .Values.vault.agentInject.enabled (or (contains "production" .Release.Namespace) (contains "staging" .Release.Namespace)) }}
+        {{- include "k8s.vaultAgentInjectPodAnnotations" . | nindent 8 }}
+        {{- end -}}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "k8s.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if and .Values.serviceAccount.create (not (contains "development" .Release.Namespace)) }}
+      serviceAccountName: {{ include "k8s.serviceAccountName" . }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.job.migrate.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.env }}
+          env:
+          {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.job.migrate.restartPolicy }}
+      restartPolicy: {{ . }}
+      {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- include "k8s.deploymentTolerations" . | nindent 8 }}
+      tolerations:
+        {{- $tolerations := include "k8s.deploymentTolerations" . | fromYaml }}
+        {{- range $key, $value := $tolerations }}
+        - key: {{ $key | quote }}
+          operator: "Equal"
+          value: {{ $value | quote }}
+          effect: "NoSchedule"
+        {{- end }}

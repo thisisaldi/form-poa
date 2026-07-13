@@ -1,49 +1,62 @@
-# ─── Stage 1: deps ───────────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:20-alpine AS base
+
+RUN addgroup --gid 1001 --system nodejs && \
+    adduser --system --uid 1001 --ingroup nodejs appuser
+
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci
+# Copy common dir
+COPY --chown=appuser:nodejs ./scripts ./scripts/
+COPY --chown=appuser:nodejs ./public ./public/
 
-# ─── Stage 2: builder ────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
-WORKDIR /app
+# ===========================================================================
+# Note:
+# Below is the target to build, please enabled Docker BuildKit by setting
+# DOCKER_BUILDKIT=1 in environment variable, then give the build command
+# an argument to choose which target to be build.
+# ===========================================================================
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+# ========================================
+# Development only stage
+# ========================================
+FROM base AS development
 
-# Generate Prisma client from schema (no DB connection needed at build time)
-RUN npx prisma generate
+# Copy standalone server file
+COPY --chown=appuser:nodejs ./dist/development/standalone/server.js ./development-server.js
 
-# Build Next.js (standalone output)
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+# Copy standalone dist dir
+COPY --chown=appuser:nodejs ./dist/development/standalone/dist ./dist
 
-# ─── Stage 3: runner ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
-WORKDIR /app
+# Copy static dir
+COPY --chown=appuser:nodejs ./dist/development/static/ ./dist/development/static/
 
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+# Copy node modules
+COPY --chown=appuser:nodejs ./dist/development/standalone/node_modules/ ./node_modules/
 
-# Non-root user for security
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
+USER appuser
 
-# Copy standalone build output
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+ENTRYPOINT [ "sh", "./scripts/start.sh" ]
 
-# Copy Prisma schema + generated client (needed at runtime for migrations)
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# ========================================
+# Staging and Production stage
+# ========================================
+FROM base AS staging-production
 
-USER nextjs
+# Copy standalone server file
+COPY --chown=appuser:nodejs ./dist/staging/standalone/server.js ./staging-server.js
+COPY --chown=appuser:nodejs ./dist/production/standalone/server.js ./production-server.js
 
-EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
+# Copy standalone dist dir
+COPY --chown=appuser:nodejs ./dist/staging/standalone/dist ./dist
+COPY --chown=appuser:nodejs ./dist/production/standalone/dist ./dist
 
-CMD ["node", "server.js"]
+# Copy static dir
+COPY --chown=appuser:nodejs ./dist/staging/static/ ./dist/staging/static/
+COPY --chown=appuser:nodejs ./dist/production/static/ ./dist/production/static/
+
+# Copy node modules
+COPY --chown=appuser:nodejs ./dist/production/standalone/node_modules/ ./node_modules/
+
+USER appuser
+
+ENTRYPOINT [ "sh", "./scripts/start.sh" ]
