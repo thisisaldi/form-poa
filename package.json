@@ -6,7 +6,7 @@
     "dev": "next dev --hostname 0.0.0.0",
     "build:development": "next build",
     "build:staging": "next build",
-    "build:production": "node --env-file=.env.production -- next build",
+    "build:production": "next build",
     "start": "next start",
     "lint": "eslint",
     "sync:org": "tsx scripts/syncOrg.ts",
