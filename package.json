@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
-    "build:development": "node --env-file=.env.development -- next build",
-    "build:staging": "node --env-file=.env.staging -- next build",
+    "build:development": "next build",
+    "build:staging": "next build",
     "build:production": "node --env-file=.env.production -- next build",
     "start": "next start",
     "lint": "eslint",
