@@ -39,7 +39,23 @@ export async function runSalesHistorySync(
 
   const errors: string[] = [];
 
-  const pool = await sql.connect(connectionString);
+  // Parse connection string into config so we can set requestTimeout
+  const csMap: Record<string, string> = {};
+  for (const part of connectionString.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq > 0) csMap[part.slice(0, eq).trim().toLowerCase()] = part.slice(eq + 1).trim();
+  }
+  const pool = await sql.connect({
+    server:   csMap["server"] ?? "",
+    database: csMap["database"] ?? "mkt_insight",
+    user:     csMap["user id"] ?? csMap["user"] ?? "",
+    password: csMap["password"] ?? "",
+    requestTimeout: 120000,
+    options: {
+      encrypt:                csMap["encrypt"]?.toLowerCase() !== "false",
+      trustServerCertificate: csMap["trustservercertificate"]?.toLowerCase() === "true",
+    },
+  });
   const { recordset } = await pool.request().query<{
     KodePI: string;
     ItemKode: string;
@@ -48,12 +64,13 @@ export async function runSalesHistorySync(
     SELECT
       KodePI,
       [Item Kode] AS ItemKode,
-      SUM([Value Sales])  AS TotalSales
+      SUM([Value Sales]) AS TotalSales
     FROM mkt_insight.dbo.DIR10001B
     WHERE Periode >= '${periodeFrom}'
       AND Periode <= '${periodeTo}'
       AND KodePI IS NOT NULL
       AND [Item Kode] IS NOT NULL
+      AND DIVISI = 'KAM1'
     GROUP BY KodePI, [Item Kode]
   `);
   await pool.close();
