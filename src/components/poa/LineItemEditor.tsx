@@ -69,8 +69,9 @@ function emptyProdukEntry(): ProdukEntry {
     uid: Math.random().toString(36).slice(2),
     kodeProduk: "", jumlahPasienHari: "", jumlahResepHari: "", qtyProdukResep: "",
     produkKompetitor: "", statusStandarisasi: "",
-    persenPsspDokter: "", persenPsspKpdm: "",
-    persenDiskon: "", persenDp: "", persenListingFee: "", persenEntertain: "",
+    // Dummy defaults — akan diganti auto-compute dari DB
+    persenPsspDokter: "15", persenPsspKpdm: "5",
+    persenDiskon: "10", persenDp: "5", persenListingFee: "2.5", persenEntertain: "2.5",
   };
 }
 
