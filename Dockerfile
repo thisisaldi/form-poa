@@ -1,5 +1,7 @@
 FROM node:20-alpine AS base
 
+RUN apk add --no-cache openssl
+
 RUN addgroup --gid 1001 --system nodejs && \
     adduser --system --uid 1001 --ingroup nodejs appuser
 
