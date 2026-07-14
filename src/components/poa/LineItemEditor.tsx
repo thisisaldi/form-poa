@@ -367,23 +367,33 @@ function ProdukEntryRow({
           className="input-field text-xs" />
       </label>
 
-      {/* Estimasi Sales */}
+      {/* Estimasi Sales card */}
       {perBulan != null && (
-        <div className="text-xs text-right space-y-0.5">
-          <p style={{ color: "var(--color-text-faint)" }}>
-            Estimasi Sales:{" "}
-            <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(perBulan)}/bln</strong>
-            {" · "}
-            <strong style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}/{lama}bln</strong>
-          </p>
+        <div className="rounded-lg border px-3 py-2.5 space-y-2"
+          style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+          <p className="text-xs font-semibold uppercase tracking-wider"
+            style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
+          <div className="flex gap-6">
+            <div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Per Bulan</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{formatRp(perBulan)}</div>
+            </div>
+            <div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total {lama} Bulan</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
+            </div>
+          </div>
           {growthPct != null && (
-            <p style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-              Growth vs PSSP lama:{" "}
-              <strong>{growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%</strong>
-              <span style={{ color: "var(--color-text-faint)", marginLeft: 4 }}>
-                (lama {formatRp(Math.round(oldEstPerMonth!))}/bln)
+            <div className="flex items-center justify-between pt-1.5 border-t"
+              style={{ borderColor: "var(--color-border)" }}>
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                Growth vs PSSP lama &nbsp;·&nbsp; {formatRp(Math.round(oldEstPerMonth!))}/bln
               </span>
-            </p>
+              <span className="text-sm font-semibold"
+                style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+              </span>
+            </div>
           )}
         </div>
       )}
@@ -1359,21 +1369,31 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
               onChange={(patch) => setProdukEntry((prev) => ({ ...prev, ...patch }))}
             />
             {perBulan != null && (
-              <div className="text-xs text-right space-y-0.5 pt-1">
-                <p style={{ color: "var(--color-text-faint)" }}>
-                  Estimasi Sales:{" "}
-                  <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(perBulan)}/bln</strong>
-                  {" · "}
-                  <strong style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}/{lama}bln</strong>
-                </p>
+              <div className="rounded-lg border px-3 py-2.5 space-y-2"
+                style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+                <p className="text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
+                <div className="flex gap-6">
+                  <div>
+                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Per Bulan</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{formatRp(perBulan)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total {lama} Bulan</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
+                  </div>
+                </div>
                 {growthPctE != null && (
-                  <p style={{ color: growthPctE >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                    Growth vs PSSP lama:{" "}
-                    <strong>{growthPctE >= 0 ? "+" : ""}{growthPctE.toFixed(1)}%</strong>
-                    <span style={{ color: "var(--color-text-faint)", marginLeft: 4 }}>
-                      (lama {formatRp(Math.round(oldEstPerMonthE!))}/bln)
+                  <div className="flex items-center justify-between pt-1.5 border-t"
+                    style={{ borderColor: "var(--color-border)" }}>
+                    <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                      Growth vs PSSP lama &nbsp;·&nbsp; {formatRp(Math.round(oldEstPerMonthE!))}/bln
                     </span>
-                  </p>
+                    <span className="text-sm font-semibold"
+                      style={{ color: growthPctE >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      {growthPctE >= 0 ? "+" : ""}{growthPctE.toFixed(1)}%
+                    </span>
+                  </div>
                 )}
               </div>
             )}
