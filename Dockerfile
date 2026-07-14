@@ -1,5 +1,7 @@
 FROM node:20-alpine AS base
 
+ARG PROJECT_NAME="form-poa"
+
 RUN addgroup --gid 1001 --system nodejs && \
     adduser --system --uid 1001 --ingroup nodejs appuser
 
@@ -22,16 +24,24 @@ COPY --chown=appuser:nodejs ./public ./public/
 FROM base AS development
 
 # Copy standalone server file
-COPY --chown=appuser:nodejs ./dist/development/standalone/server.js ./development-server.js
+COPY --chown=appuser:nodejs \
+    ./dist/development/standalone/${PROJECT_NAME}/server.js \
+    ./development-server.js
 
 # Copy standalone dist dir
-COPY --chown=appuser:nodejs ./dist/development/standalone/dist ./dist
+COPY --chown=appuser:nodejs \
+    ./dist/development/standalone/${PROJECT_NAME}/dist \
+    ./dist
 
 # Copy static dir
-COPY --chown=appuser:nodejs ./dist/development/static/ ./dist/development/static/
+COPY --chown=appuser:nodejs \
+    ./dist/development/static/ \
+    ./dist/development/static/
 
 # Copy node modules
-COPY --chown=appuser:nodejs ./dist/development/standalone/node_modules/ ./node_modules/
+COPY --chown=appuser:nodejs \
+    ./dist/development/standalone/${PROJECT_NAME}/node_modules/ \
+    ./node_modules/
 
 USER appuser
 
@@ -43,19 +53,29 @@ ENTRYPOINT [ "sh", "./scripts/start.sh" ]
 FROM base AS staging-production
 
 # Copy standalone server file
-COPY --chown=appuser:nodejs ./dist/staging/standalone/server.js ./staging-server.js
-COPY --chown=appuser:nodejs ./dist/production/standalone/server.js ./production-server.js
+COPY --chown=appuser:nodejs \
+    ./dist/staging/standalone/${PROJECT_NAME}/server.js \
+    ./staging-server.js
+COPY --chown=appuser:nodejs \
+    ./dist/production/standalone/${PROJECT_NAME}/server.js \
+    ./production-server.js
 
 # Copy standalone dist dir
-COPY --chown=appuser:nodejs ./dist/staging/standalone/dist ./dist
-COPY --chown=appuser:nodejs ./dist/production/standalone/dist ./dist
+COPY --chown=appuser:nodejs \
+    ./dist/staging/standalone/${PROJECT_NAME}/dist \
+    ./dist
+COPY --chown=appuser:nodejs \
+    ./dist/production/standalone/${PROJECT_NAME}/dist \
+    ./dist
 
 # Copy static dir
 COPY --chown=appuser:nodejs ./dist/staging/static/ ./dist/staging/static/
 COPY --chown=appuser:nodejs ./dist/production/static/ ./dist/production/static/
 
 # Copy node modules
-COPY --chown=appuser:nodejs ./dist/production/standalone/node_modules/ ./node_modules/
+COPY --chown=appuser:nodejs \
+    ./dist/production/standalone/${PROJECT_NAME}/node_modules/ \
+    ./node_modules/
 
 USER appuser
 

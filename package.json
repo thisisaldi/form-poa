@@ -5,10 +5,9 @@
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "next dev --hostname 0.0.0.0",
-    "build": "next build",
-    "build:development": "next build",
-    "build:staging": "next build",
-    "build:production": "next build",
+    "build:development": "APP_ENV=dev next build",
+    "build:staging": "APP_ENV=staging next build",
+    "build:production": "APP_ENV=production next build",
     "start": "next start",
     "lint": "eslint",
     "sync:org": "tsx scripts/syncOrg.ts",

@@ -144,8 +144,11 @@ vault.hashicorp.com/agent-inject-status: "{{ .Values.vault.agentInject.reRenderO
 vault.hashicorp.com/agent-revoke-on-shutdown: "{{ .Values.vault.agentInject.revoke.enabled }}"
 vault.hashicorp.com/agent-revoke-grace: "{{ .Values.vault.agentInject.revoke.gracePeriodInSec }}"
 vault.hashicorp.com/agent-inject-secret-config: "{{ .Values.vault.agentInject.secret }}"
-vault.hashicorp.com/secret-volume-path-config: "/app/files/config"
-vault.hashicorp.com/agent-inject-file-config: "{{ .Release.Namespace }}.yaml"
-vault.hashicorp.com/agent-inject-template-config: |
-  {{- include "k8s.vaultAgentInjectConfigTemplate" . | nindent 4 }}
+vault.hashicorp.com/agent-inject-file-env-staging: ".env.staging"
+vault.hashicorp.com/agent-inject-template-env-staging: |
+  {{- include "k8s.vaultAgentInjectConfigTemplate.env.staging" . | nindent 4 }}
+vault.hashicorp.com/agent-inject-secret-env-production: "{{ .Values.vault.agentInject.secret }}"
+vault.hashicorp.com/agent-inject-file-env-production: ".env.production"
+vault.hashicorp.com/agent-inject-template-env-production: |
+  {{- include "k8s.vaultAgentInjectConfigTemplate.env.production" . | nindent 4 }}
 {{- end }}
