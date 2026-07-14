@@ -1,7 +1,5 @@
 FROM node:20-alpine AS base
 
-ARG PROJECT_NAME="form-poa"
-
 RUN addgroup --gid 1001 --system nodejs && \
     adduser --system --uid 1001 --ingroup nodejs appuser
 
@@ -25,12 +23,12 @@ FROM base AS development
 
 # Copy standalone server file
 COPY --chown=appuser:nodejs \
-    ./dist/development/standalone/${PROJECT_NAME}/server.js \
+    ./dist/development/standalone/server.js \
     ./development-server.js
 
 # Copy standalone dist dir
 COPY --chown=appuser:nodejs \
-    ./dist/development/standalone/${PROJECT_NAME}/dist \
+    ./dist/development/standalone/dist \
     ./dist
 
 # Copy static dir
@@ -40,7 +38,7 @@ COPY --chown=appuser:nodejs \
 
 # Copy node modules
 COPY --chown=appuser:nodejs \
-    ./dist/development/standalone/${PROJECT_NAME}/node_modules/ \
+    ./dist/development/standalone/node_modules/ \
     ./node_modules/
 
 USER appuser
@@ -54,18 +52,18 @@ FROM base AS staging-production
 
 # Copy standalone server file
 COPY --chown=appuser:nodejs \
-    ./dist/staging/standalone/${PROJECT_NAME}/server.js \
+    ./dist/staging/standalone/server.js \
     ./staging-server.js
 COPY --chown=appuser:nodejs \
-    ./dist/production/standalone/${PROJECT_NAME}/server.js \
+    ./dist/production/standalone/server.js \
     ./production-server.js
 
 # Copy standalone dist dir
 COPY --chown=appuser:nodejs \
-    ./dist/staging/standalone/${PROJECT_NAME}/dist \
+    ./dist/staging/standalone/dist \
     ./dist
 COPY --chown=appuser:nodejs \
-    ./dist/production/standalone/${PROJECT_NAME}/dist \
+    ./dist/production/standalone/dist \
     ./dist
 
 # Copy static dir
@@ -74,7 +72,7 @@ COPY --chown=appuser:nodejs ./dist/production/static/ ./dist/production/static/
 
 # Copy node modules
 COPY --chown=appuser:nodejs \
-    ./dist/production/standalone/${PROJECT_NAME}/node_modules/ \
+    ./dist/production/standalone/node_modules/ \
     ./node_modules/
 
 USER appuser
