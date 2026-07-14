@@ -53,7 +53,7 @@ pipeline {
 
 		stage('Build') {
 			tools {
-				nodejs 'node-v20'
+				nodejs 'node-v20.19.4'
 			}
 
 			steps {
