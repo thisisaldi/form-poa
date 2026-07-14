@@ -10,6 +10,8 @@ COPY --chown=appuser:nodejs ./scripts ./scripts/
 COPY --chown=appuser:nodejs ./public ./public/
 COPY --chown=appuser:nodejs ./prisma ./prisma/
 
+COPY --chown=appuser:nodejs ./package.json ./package.json
+
 RUN chown -R appuser:nodejs /app
 
 # ===========================================================================
