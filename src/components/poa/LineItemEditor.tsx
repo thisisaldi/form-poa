@@ -96,6 +96,18 @@ function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Prod
   return Math.round(pasien * resep * qty * hari * hna * lama);
 }
 
+// Returns the per-month estimate from the most recent PSSP contract for a given product.
+// estBaris is the full-period total, so we divide by number of months.
+function computeOldEstPerMonth(kodeProduk: string, history: PsspKontrakSummary[]): number | null {
+  const rows = history.filter((r) => r.kdProduk === kodeProduk);
+  if (rows.length === 0) return null;
+  const latest = rows[0]; // already sorted desc by prdAkhir from query
+  const sy = parseInt(latest.prdAwal.slice(0, 4)), sm = parseInt(latest.prdAwal.slice(4));
+  const ey = parseInt(latest.prdAkhir.slice(0, 4)), em = parseInt(latest.prdAkhir.slice(4));
+  const months = (ey - sy) * 12 + (em - sm) + 1;
+  return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
+}
+
 function computeLabelCustomer(history: PsspKontrakSummary[]): string {
   if (history.length === 0) return "Dokter Baru";
   const now = new Date();
@@ -227,12 +239,13 @@ function DokterFieldsSection({ fields, onChange }: {
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, products, dokterFields, spesialisasi, onChange, onRemove, showRemove,
+  entry, products, dokterFields, spesialisasi, psspHistory, onChange, onRemove, showRemove,
 }: {
   entry: ProdukEntry;
   products: Product[];
   dokterFields: DokterFields;
   spesialisasi?: string;
+  psspHistory?: PsspKontrakSummary[];
   onChange: (patch: Partial<ProdukEntry>) => void;
   onRemove: () => void;
   showRemove: boolean;
@@ -270,6 +283,14 @@ function ProdukEntryRow({
   const canCalc = pasien > 0 && resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(pasien * resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
+
+  const oldEstPerMonth = (psspHistory && entry.kodeProduk)
+    ? computeOldEstPerMonth(entry.kodeProduk, psspHistory)
+    : null;
+  const growthRatio = (perBulan != null && oldEstPerMonth != null && oldEstPerMonth > 0)
+    ? perBulan / oldEstPerMonth
+    : null;
+  const growthPct = growthRatio != null ? (growthRatio - 1) * 100 : null;
 
   return (
     <div className="rounded-lg border p-3 space-y-3"
@@ -346,13 +367,44 @@ function ProdukEntryRow({
           className="input-field text-xs" />
       </label>
 
-      {/* Estimasi kalau semua field terisi */}
-      {totalEst != null && (
-        <p className="text-xs text-right" style={{ color: "var(--color-text-faint)" }}>
-          Est: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(perBulan)}/bln</strong>
-          {" · "}
-          <strong style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}/{lama}bln</strong>
-        </p>
+      {/* Estimasi Sales card */}
+      {perBulan != null && (
+        <div className="rounded-lg border px-3 py-2.5 space-y-2"
+          style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+          <p className="text-xs font-semibold uppercase tracking-wider"
+            style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
+          <div className="flex gap-6">
+            <div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Per Bulan</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{formatRp(perBulan)}</div>
+            </div>
+            <div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total {lama} Bulan</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
+            </div>
+          </div>
+          <div className="flex items-center justify-between pt-1.5 border-t"
+            style={{ borderColor: "var(--color-border)" }}>
+            <div>
+              <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
+              {oldEstPerMonth != null && (
+                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  PSSP lama {formatRp(Math.round(oldEstPerMonth))}/bln
+                </div>
+              )}
+            </div>
+            {growthPct != null ? (
+              <span className="text-sm font-semibold"
+                style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+              </span>
+            ) : (
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                Belum ada data PSSP
+              </span>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Budget % per produk */}
@@ -416,7 +468,11 @@ function BudgetFieldsRow({
 
 // ─── PsspHistoryPanel ─────────────────────────────────────────────────────────
 
-function PsspHistoryPanel({ kodeCustomer, onLabel }: { kodeCustomer: string; onLabel?: (label: string) => void }) {
+function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
+  kodeCustomer: string;
+  onLabel?: (label: string) => void;
+  onHistory?: (rows: PsspKontrakSummary[]) => void;
+}) {
   const [history, setHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [loading, startLoad] = useTransition();
 
@@ -425,6 +481,7 @@ function PsspHistoryPanel({ kodeCustomer, onLabel }: { kodeCustomer: string; onL
       const rows = await getPsspHistory(kodeCustomer);
       setHistory(rows);
       onLabel?.(computeLabelCustomer(rows));
+      onHistory?.(rows);
     });
   }, [kodeCustomer]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -560,10 +617,12 @@ function PsspSidebar({
   kodeCustomer,
   doctorName,
   onLabel,
+  onHistory,
 }: {
   kodeCustomer: string;
   doctorName?: string;
   onLabel?: (label: string) => void;
+  onHistory?: (rows: PsspKontrakSummary[]) => void;
 }) {
   const [open, setOpen] = useState(true);
   const [label, setLabel] = useState("");
@@ -630,7 +689,7 @@ function PsspSidebar({
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
-        <PsspHistoryPanel kodeCustomer={kodeCustomer} onLabel={handleLabel} />
+        <PsspHistoryPanel kodeCustomer={kodeCustomer} onLabel={handleLabel} onHistory={onHistory} />
       </div>
     </div>
   );
@@ -654,6 +713,7 @@ function AddPanel({
   const [dokterFields, setDokterFields] = useState<DokterFields>(emptyDokterFields(""));
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
   const [labelCustomer, setLabelCustomer] = useState("");
+  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[]>([]);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -715,7 +775,12 @@ function AddPanel({
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("rencanaTotalBiaya", String(computeEstimasi(entry, dokterFields, product)));
+    const totalBiaya = computeEstimasi(entry, dokterFields, product);
+    fd.set("rencanaTotalBiaya", String(totalBiaya));
+    const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
+    const oldEst = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory) : null;
+    const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
+    fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
   }
 
@@ -816,6 +881,7 @@ function AddPanel({
                 products={products}
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
+                psspHistory={psspHistory}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
                 showRemove={produkList.length > 1}
@@ -849,6 +915,7 @@ function AddPanel({
           kodeCustomer={selectedCustomer.kodeCustomer}
           doctorName={selectedCustomer.namaCustomer}
           onLabel={setLabelCustomer}
+          onHistory={setPsspHistory}
         />
       )}
     </div>
@@ -996,6 +1063,7 @@ function AddProductPanel({
   const [dokterFields, setDokterFields] = useState<DokterFields>(emptyDokterFields(defaultPeriode));
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
   const [labelCustomer, setLabelCustomer] = useState("");
+  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1033,7 +1101,12 @@ function AddProductPanel({
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("rencanaTotalBiaya", String(computeEstimasi(entry, dokterFields, product)));
+    const totalBiayaAP = computeEstimasi(entry, dokterFields, product);
+    fd.set("rencanaTotalBiaya", String(totalBiayaAP));
+    const perBulanAP = dokterFields.lamaPeriode > 0 ? totalBiayaAP / dokterFields.lamaPeriode : 0;
+    const oldEstAP = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory) : null;
+    const rasioAP = perBulanAP > 0 && oldEstAP && oldEstAP > 0 ? perBulanAP / oldEstAP : null;
+    fd.set("rasioEstimasiGrowth", rasioAP != null ? rasioAP.toFixed(4) : "");
     return fd;
   }
 
@@ -1100,6 +1173,7 @@ function AddProductPanel({
                 products={products}
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
+                psspHistory={psspHistory}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
                 showRemove={produkList.length > 1}
@@ -1133,6 +1207,7 @@ function AddProductPanel({
           kodeCustomer={kodeCust}
           doctorName={namaCust}
           onLabel={setLabelCustomer}
+          onHistory={setPsspHistory}
         />
       )}
     </div>
@@ -1144,6 +1219,7 @@ function AddProductPanel({
 function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poaId: string; products: Product[]; onCancel: () => void }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[]>([]);
   const [dokterFields, setDokterFields] = useState<DokterFields>({
     periodeAwal: item.periodeAwal,
     lamaPeriode: item.lamaPeriode,
@@ -1186,7 +1262,12 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     fd.set("persenDp", produkEntry.persenDp);
     fd.set("persenListingFee", produkEntry.persenListingFee);
     fd.set("persenEntertain", produkEntry.persenEntertain);
-    fd.set("rencanaTotalBiaya", String(computeEstimasi(produkEntry, dokterFields, product)));
+    const totalBiayaE = computeEstimasi(produkEntry, dokterFields, product);
+    fd.set("rencanaTotalBiaya", String(totalBiayaE));
+    const perBulanE = dokterFields.lamaPeriode > 0 ? totalBiayaE / dokterFields.lamaPeriode : 0;
+    const oldEstE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory) : null;
+    const rasioE = perBulanE > 0 && oldEstE && oldEstE > 0 ? perBulanE / oldEstE : null;
+    fd.set("rasioEstimasiGrowth", rasioE != null ? rasioE.toFixed(4) : "");
     startTransition(async () => {
       try {
         await updateLineItemAction(poaId, item.id, fd);
@@ -1207,6 +1288,10 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
   const canCalc = pasien > 0 && resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(pasien * resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
+  const oldEstPerMonthE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory) : null;
+  const growthRatioE = (perBulan != null && oldEstPerMonthE != null && oldEstPerMonthE > 0)
+    ? perBulan / oldEstPerMonthE : null;
+  const growthPctE = growthRatioE != null ? (growthRatioE - 1) * 100 : null;
 
   return (
     <div className="rounded-xl border p-4 space-y-5"
@@ -1292,6 +1377,44 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
               entry={produkEntry}
               onChange={(patch) => setProdukEntry((prev) => ({ ...prev, ...patch }))}
             />
+            {perBulan != null && (
+              <div className="rounded-lg border px-3 py-2.5 space-y-2"
+                style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+                <p className="text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
+                <div className="flex gap-6">
+                  <div>
+                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Per Bulan</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{formatRp(perBulan)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total {lama} Bulan</div>
+                    <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between pt-1.5 border-t"
+                  style={{ borderColor: "var(--color-border)" }}>
+                  <div>
+                    <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
+                    {oldEstPerMonthE != null && (
+                      <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                        PSSP lama {formatRp(Math.round(oldEstPerMonthE))}/bln
+                      </div>
+                    )}
+                  </div>
+                  {growthPctE != null ? (
+                    <span className="text-sm font-semibold"
+                      style={{ color: growthPctE >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      {growthPctE >= 0 ? "+" : ""}{growthPctE.toFixed(1)}%
+                    </span>
+                  ) : (
+                    <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                      Belum ada data PSSP
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1301,7 +1424,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
         </div>
       </form>
       {item.kodeCust && (
-        <PsspSidebar kodeCustomer={item.kodeCust} doctorName={item.namaCust} />
+        <PsspSidebar kodeCustomer={item.kodeCust} doctorName={item.namaCust} onHistory={setPsspHistory} />
       )}
     </div>
   );
