@@ -9,6 +9,8 @@ WORKDIR /app
 COPY --chown=appuser:nodejs ./scripts ./scripts/
 COPY --chown=appuser:nodejs ./public ./public/
 
+RUN chown -R appuser:nodejs /app
+
 # ===========================================================================
 # Note:
 # Below is the target to build, please enabled Docker BuildKit by setting
