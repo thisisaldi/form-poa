@@ -143,6 +143,7 @@ vault.hashicorp.com/agent-pre-populate-only: "{{ .Values.vault.agentInject.prePo
 vault.hashicorp.com/agent-inject-status: "{{ .Values.vault.agentInject.reRenderOnStatus }}"
 vault.hashicorp.com/agent-revoke-on-shutdown: "{{ .Values.vault.agentInject.revoke.enabled }}"
 vault.hashicorp.com/agent-revoke-grace: "{{ .Values.vault.agentInject.revoke.gracePeriodInSec }}"
+vault.hashicorp.com/agent-run-as-same-user: "true"
 vault.hashicorp.com/agent-inject-secret-env-staging: "{{ .Values.vault.agentInject.secret }}"
 vault.hashicorp.com/agent-inject-file-env-staging: ".env.staging"
 vault.hashicorp.com/agent-inject-template-env-staging: |
