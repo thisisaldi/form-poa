@@ -77,6 +77,8 @@ pipeline {
 		stage('Dockerize') {
 			steps {
 				script {
+					sh 'ls -la dist'
+
 					echo '''
 						> Configure docker auth for artifact registry push ...
 					'''

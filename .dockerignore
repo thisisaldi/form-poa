@@ -1,4 +1,5 @@
 .gitignore
+.git
 npm-debug.log*
 
 # env files — never bake into image, inject via Cloud Run env vars
