@@ -96,18 +96,19 @@ function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Prod
   return Math.round(pasien * resep * qty * hari * hna * lama);
 }
 
-// Returns the per-month estimate from the most recent PSSP contract for a given product.
-// estBaris is the full-period total, so we divide by number of months.
-// Tries matching by kdProduk (item kode) first; falls back to namaProduk because
-// Product.kodeProduk is Procode while PsspKontrak.kdProduk is Item Kode — different systems.
-function computeOldEstPerMonth(kodeProduk: string, history: PsspKontrakSummary[], namaProduk?: string): number | null {
-  let rows = history.filter((r) => r.kdProduk === kodeProduk);
-  if (rows.length === 0 && namaProduk) {
-    const norm = namaProduk.toLowerCase().trim();
-    rows = history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm);
-  }
+// Returns the per-month estimate from the most recent COMPLETED PSSP contract for a product.
+// Matches by product name only (Procode ≠ Item Kode across systems).
+// estBaris is the full-period total, divided by months to get per-month baseline.
+function computeOldEstPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const norm = namaProduk.toLowerCase().trim();
+  // Only expired contracts, matched by name
+  const rows = history.filter(
+    (r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir < currentPeriod
+  );
   if (rows.length === 0) return null;
-  const latest = rows[0]; // already sorted desc by prdAkhir from query
+  const latest = rows[0]; // sorted desc by prdAkhir from query — most recent expired
   const sy = parseInt(latest.prdAwal.slice(0, 4)), sm = parseInt(latest.prdAwal.slice(4));
   const ey = parseInt(latest.prdAkhir.slice(0, 4)), em = parseInt(latest.prdAkhir.slice(4));
   const months = (ey - sy) * 12 + (em - sm) + 1;
@@ -290,8 +291,8 @@ function ProdukEntryRow({
   const perBulan = canCalc ? Math.round(pasien * resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
 
-  const oldEstPerMonth = (psspHistory && entry.kodeProduk)
-    ? computeOldEstPerMonth(entry.kodeProduk, psspHistory, product?.namaProduk ?? undefined)
+  const oldEstPerMonth = (psspHistory && psspHistory.length > 0 && product)
+    ? computeOldEstPerMonth(psspHistory, product.namaProduk)
     : null;
   const growthRatio = (perBulan != null && oldEstPerMonth != null && oldEstPerMonth > 0)
     ? perBulan / oldEstPerMonth
@@ -784,7 +785,7 @@ function AddPanel({
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
-    const oldEst = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory, product?.namaProduk ?? undefined) : null;
+    const oldEst = (product && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
     const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
     fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
@@ -1110,7 +1111,7 @@ function AddProductPanel({
     const totalBiayaAP = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiayaAP));
     const perBulanAP = dokterFields.lamaPeriode > 0 ? totalBiayaAP / dokterFields.lamaPeriode : 0;
-    const oldEstAP = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory, product?.namaProduk ?? undefined) : null;
+    const oldEstAP = (product && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
     const rasioAP = perBulanAP > 0 && oldEstAP && oldEstAP > 0 ? perBulanAP / oldEstAP : null;
     fd.set("rasioEstimasiGrowth", rasioAP != null ? rasioAP.toFixed(4) : "");
     return fd;
@@ -1271,7 +1272,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     const totalBiayaE = computeEstimasi(produkEntry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiayaE));
     const perBulanE = dokterFields.lamaPeriode > 0 ? totalBiayaE / dokterFields.lamaPeriode : 0;
-    const oldEstE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory, item.namaProduk) : null;
+    const oldEstE = psspHistory.length > 0 ? computeOldEstPerMonth(psspHistory, item.namaProduk) : null;
     const rasioE = perBulanE > 0 && oldEstE && oldEstE > 0 ? perBulanE / oldEstE : null;
     fd.set("rasioEstimasiGrowth", rasioE != null ? rasioE.toFixed(4) : "");
     startTransition(async () => {
@@ -1294,7 +1295,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
   const canCalc = pasien > 0 && resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(pasien * resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
-  const oldEstPerMonthE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory, item.namaProduk) : null;
+  const oldEstPerMonthE = psspHistory.length > 0 ? computeOldEstPerMonth(psspHistory, item.namaProduk) : null;
   const growthRatioE = (perBulan != null && oldEstPerMonthE != null && oldEstPerMonthE > 0)
     ? perBulan / oldEstPerMonthE : null;
   const growthPctE = growthRatioE != null ? (growthRatioE - 1) * 100 : null;
