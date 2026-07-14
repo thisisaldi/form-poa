@@ -478,11 +478,13 @@ function PsspHistoryPanel({ kodeCustomer, onLabel }: { kodeCustomer: string; onL
       <div className="rounded-lg border px-3 py-2 space-y-2"
         style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <span className="text-xs font-mono font-semibold" style={{ color: "var(--color-text)" }}>{cUrut}</span>
-            <span className="ml-2 text-xs" style={{ color: "var(--color-text-faint)" }}>
-              {first.prdAwal} – {first.prdAkhir}
-            </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-mono font-semibold" style={{ color: "var(--color-text)" }}>{cUrut}</span>
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                {first.prdAwal} – {first.prdAkhir}
+              </span>
+            </div>
           </div>
           <span className="text-xs font-semibold shrink-0" style={{ color: pctColor }}>
             {pct != null ? `${pct}%` : "—"}
@@ -508,8 +510,8 @@ function PsspHistoryPanel({ kodeCustomer, onLabel }: { kodeCustomer: string; onL
             return (
               <div key={r.id} className="flex items-center justify-between text-xs gap-2">
                 <span style={{ color: "var(--color-text-muted)" }} className="truncate min-w-0">{r.nmProduk ?? r.kdProduk}</span>
-                <span className="shrink-0 tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                  {formatRp(r.totalLunas)} / {formatRp(r.estBaris)}
+                <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
+                  {formatRp(r.totalLunas)}
                   {rowPct != null && (
                     <span className="ml-1" style={{ color: rowPct >= 80 ? "var(--color-success, #16a34a)" : rowPct >= 40 ? "var(--color-warning, #f59e0b)" : "var(--color-red)" }}>
                       ({rowPct}%)
@@ -615,8 +617,8 @@ function PsspSidebar({
               {doctorName}
             </p>
           )}
+          {label && <div style={{ marginTop: 4 }}><LabelCustomerBadge label={label} /></div>}
         </div>
-        {label && <LabelCustomerBadge label={label} />}
         <button
           type="button"
           onClick={() => setOpen(false)}
