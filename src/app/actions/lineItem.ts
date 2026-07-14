@@ -34,6 +34,8 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const rencanaTotalBiayaRaw = (formData.get("rencanaTotalBiaya") as string | null)?.trim() ?? "0";
   const rencanaVisitMinggu = parseInt(formData.get("rencanaVisitMinggu") as string, 10) || 0;
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
+  const labelCustomer = (formData.get("labelCustomer") as string | null)?.trim() || null;
+  const kriteriaProduk = (formData.get("kriteriaProduk") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
   const jumlahPasienHari = parseInt(formData.get("jumlahPasienHari") as string, 10) || null;
@@ -114,6 +116,8 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       hargaSatuanTerkecil: new Prisma.Decimal(product.hna.toString()),
       historySales3Bln: salesHistory?.totalSales12Bln ?? null,
       produkKompetitor,
+      labelCustomer,
+      kriteriaProduk,
       statusStandarisasi,
       lamaPeriode: lamaPeriodeRaw,
       periodeAwal,
@@ -146,6 +150,8 @@ export async function updateLineItemAction(
   const rencanaTotalBiayaRaw = (formData.get("rencanaTotalBiaya") as string | null)?.trim() ?? "0";
   const rencanaVisitMinggu = parseInt(formData.get("rencanaVisitMinggu") as string, 10) || 0;
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
+  const labelCustomerU = (formData.get("labelCustomer") as string | null)?.trim() || null;
+  const kriteriaProdukU = (formData.get("kriteriaProduk") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
   const lamaPeriodeRaw = parseInt(formData.get("lamaPeriode") as string, 10);
   const periodeAwal = (formData.get("periodeAwal") as string | null)?.trim() ?? "";
@@ -175,6 +181,8 @@ export async function updateLineItemAction(
     where: { id: lineItemId },
     data: {
       produkKompetitor,
+      labelCustomer: labelCustomerU,
+      kriteriaProduk: kriteriaProdukU,
       statusStandarisasi,
       lamaPeriode: isNaN(lamaPeriodeRaw) ? undefined : lamaPeriodeRaw,
       periodeAwal: periodeAwal || undefined,

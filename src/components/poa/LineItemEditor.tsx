@@ -15,7 +15,23 @@ const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
   PROSES_PENGAJUAN: "Proses Pengajuan",
   BELUM_STANDARISASI: "Belum Standarisasi",
+  TIDAK_TAHU: "Tidak Tahu/(Blank)",
 };
+
+const LABEL_CUSTOMER_OPTIONS = [
+  "Dokter Baru",
+  "Akan Selesai, Pelunasan Bagus",
+  "Akan Selesai, Pelunasan Buruk",
+  "Pernah PSSP, Pelunasan Bagus",
+  "Pernah PSSP, Pelunasan Buruk",
+  "Rekomendasi PM",
+];
+
+const KRITERIA_PRODUK_OPTIONS = [
+  "Low Hanging Fruit",
+  "Blue Ocean",
+  "Red Ocean",
+];
 
 interface OutletOption { kodePI: string; namaOutlet: string }
 
@@ -35,13 +51,15 @@ interface DokterFields {
   jumlahPasienHari: string;
   rencanaVisitMinggu: string;
   produkKompetitor: string;
+  labelCustomer: string;
 }
 
 function emptyDokterFields(periodeAwal = ""): DokterFields {
   return {
     periodeAwal, lamaPeriode: 3,
     hariKerjaBulan: "", jumlahPasienHari: "",
-    rencanaVisitMinggu: "", produkKompetitor: "",
+    rencanaVisitMinggu: "4", produkKompetitor: "",
+    labelCustomer: "",
   };
 }
 
@@ -50,6 +68,7 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
 interface ProdukEntry {
   uid: string; // local react key
   kodeProduk: string;
+  kriteriaProduk: string;
   jumlahResepHari: string;
   qtyProdukResep: string;
   statusStandarisasi: string;
@@ -65,7 +84,7 @@ interface ProdukEntry {
 function emptyProdukEntry(): ProdukEntry {
   return {
     uid: Math.random().toString(36).slice(2),
-    kodeProduk: "", jumlahResepHari: "", qtyProdukResep: "", statusStandarisasi: "",
+    kodeProduk: "", kriteriaProduk: "", jumlahResepHari: "", qtyProdukResep: "", statusStandarisasi: "",
     rasioEstimasiGrowth: "", persenPsspDokter: "", persenPsspKpdm: "",
     persenDiskon: "", persenDp: "", persenListingFee: "", persenEntertain: "",
   };
@@ -168,10 +187,10 @@ function DokterFieldsSection({ fields, onChange }: {
         </label>
       </div>
 
-      {/* Visit & kompetitor */}
+      {/* Visit, kompetitor & label customer */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Visit / Bulan</span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Rencana Visit / Bulan</span>
           <input type="number" min="0"
             value={fields.rencanaVisitMinggu}
             onChange={(e) => onChange({ rencanaVisitMinggu: e.target.value })}
@@ -185,6 +204,19 @@ function DokterFieldsSection({ fields, onChange }: {
             className="input-field" />
         </label>
       </div>
+
+      {/* Label Customer */}
+      <label className="flex flex-col gap-1">
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Label Customer</span>
+        <select value={fields.labelCustomer}
+          onChange={(e) => onChange({ labelCustomer: e.target.value })}
+          className="input-field text-xs">
+          <option value="">— Pilih —</option>
+          {LABEL_CUSTOMER_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 }
@@ -266,6 +298,19 @@ function ProdukEntryRow({
           </button>
         )}
       </div>
+
+      {/* Kriteria Produk */}
+      <label className="flex flex-col gap-1">
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Kriteria Produk</span>
+        <select value={entry.kriteriaProduk}
+          onChange={(e) => onChange({ kriteriaProduk: e.target.value })}
+          className="input-field text-xs">
+          <option value="">— Pilih —</option>
+          {KRITERIA_PRODUK_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </label>
 
       {/* Per-product inputs */}
       <div className="grid grid-cols-3 gap-2">
@@ -561,6 +606,8 @@ function AddPanel({
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
     fd.set("produkKompetitor", dokterFields.produkKompetitor);
+    fd.set("labelCustomer", dokterFields.labelCustomer);
+    fd.set("kriteriaProduk", entry.kriteriaProduk);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
     fd.set("rasioEstimasiGrowth", entry.rasioEstimasiGrowth);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
@@ -877,6 +924,8 @@ function AddProductPanel({
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
     fd.set("produkKompetitor", dokterFields.produkKompetitor);
+    fd.set("labelCustomer", dokterFields.labelCustomer);
+    fd.set("kriteriaProduk", entry.kriteriaProduk);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
     fd.set("rasioEstimasiGrowth", entry.rasioEstimasiGrowth);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
@@ -1001,10 +1050,12 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     jumlahPasienHari: item.jumlahPasienHari?.toString() ?? "",
     rencanaVisitMinggu: item.rencanaVisitMinggu.toString(),
     produkKompetitor: item.produkKompetitor ?? "",
+    labelCustomer: item.labelCustomer ?? "",
   });
   const [produkEntry, setProdukEntry] = useState<ProdukEntry>({
     uid: "edit",
     kodeProduk: item.kodeProduk,
+    kriteriaProduk: item.kriteriaProduk ?? "",
     jumlahResepHari: item.jumlahResepHari?.toString() ?? "",
     qtyProdukResep: item.qtyProdukResep?.toString() ?? "",
     statusStandarisasi: item.statusStandarisasi ?? "",
@@ -1030,6 +1081,8 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     fd.set("qtyProdukResep", produkEntry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
     fd.set("produkKompetitor", dokterFields.produkKompetitor);
+    fd.set("labelCustomer", dokterFields.labelCustomer);
+    fd.set("kriteriaProduk", produkEntry.kriteriaProduk);
     fd.set("statusStandarisasi", produkEntry.statusStandarisasi);
     fd.set("rasioEstimasiGrowth", produkEntry.rasioEstimasiGrowth);
     fd.set("persenPsspDokter", produkEntry.persenPsspDokter);
@@ -1091,6 +1144,17 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
           <SectionLabel>Data Produk</SectionLabel>
           <div className="rounded-lg border p-3 space-y-3"
             style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Kriteria Produk</span>
+              <select value={produkEntry.kriteriaProduk}
+                onChange={(e) => setProdukEntry((prev) => ({ ...prev, kriteriaProduk: e.target.value }))}
+                className="input-field text-xs">
+                <option value="">— Pilih —</option>
+                {KRITERIA_PRODUK_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </label>
             <div className="grid grid-cols-3 gap-2">
               <label className="flex flex-col gap-1">
                 <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Resep / Hari</span>
