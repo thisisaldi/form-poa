@@ -45,6 +45,10 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     const v = parseFloat(formData.get(key) as string);
     return isNaN(v) || v === 0 ? null : new Prisma.Decimal((v / 100).toFixed(4));
   }
+  const rasioEstimasiGrowth = (() => {
+    const v = parseFloat(formData.get("rasioEstimasiGrowth") as string);
+    return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
+  })();
   const persenPsspDokter = parsePct("persenPsspDokter");
   const persenPsspKpdm   = parsePct("persenPsspKpdm");
   const persenDiskon     = parsePct("persenDiskon");
@@ -124,6 +128,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       jumlahPasienHari,
       jumlahResepHari,
       qtyProdukResep,
+      rasioEstimasiGrowth,
       persenPsspDokter,
       persenPsspKpdm,
       persenDiskon,
@@ -158,6 +163,10 @@ export async function updateLineItemAction(
     const v = parseFloat(formData.get(key) as string);
     return isNaN(v) || v === 0 ? null : new Prisma.Decimal((v / 100).toFixed(4));
   }
+  const rasioEstimasiGrowthU = (() => {
+    const v = parseFloat(formData.get("rasioEstimasiGrowth") as string);
+    return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
+  })();
   const persenPsspDokterU = parsePctU("persenPsspDokter");
   const persenPsspKpdmU   = parsePctU("persenPsspKpdm");
   const persenDiskonU     = parsePctU("persenDiskon");
@@ -183,6 +192,7 @@ export async function updateLineItemAction(
       jumlahPasienHari,
       jumlahResepHari,
       qtyProdukResep,
+      rasioEstimasiGrowth: rasioEstimasiGrowthU,
       persenPsspDokter: persenPsspDokterU,
       persenPsspKpdm: persenPsspKpdmU,
       persenDiskon: persenDiskonU,
