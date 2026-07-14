@@ -549,6 +549,90 @@ function PsspHistoryPanel({ kodeCustomer, onLabel }: { kodeCustomer: string; onL
   );
 }
 
+// ─── PsspSidebar ─────────────────────────────────────────────────────────────
+// Fixed right-side panel showing PSSP history for the currently-selected doctor.
+// Freezes on scroll (position:fixed), collapsible to a thin tab.
+
+function PsspSidebar({
+  kodeCustomer,
+  doctorName,
+  onLabel,
+}: {
+  kodeCustomer: string;
+  doctorName?: string;
+  onLabel?: (label: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [label, setLabel] = useState("");
+
+  function handleLabel(l: string) {
+    setLabel(l);
+    onLabel?.(l);
+  }
+
+  if (!open) {
+    return (
+      <div style={{ position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", zIndex: 40 }}>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            padding: "12px 6px", gap: 2,
+            background: "var(--color-bg)",
+            border: "1px solid var(--color-border)", borderRight: "none",
+            borderRadius: "6px 0 0 6px",
+            color: "var(--color-text-muted)", fontSize: 10, cursor: "pointer",
+            writingMode: "vertical-rl", letterSpacing: "0.05em",
+          }}>
+          PSSP
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      position: "fixed", right: 0, top: 0, bottom: 0, zIndex: 40,
+      width: 300,
+      background: "var(--color-bg)",
+      borderLeft: "1px solid var(--color-border)",
+      display: "flex", flexDirection: "column",
+      boxShadow: "-4px 0 16px rgba(0,0,0,0.06)",
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: "10px 14px",
+        borderBottom: "1px solid var(--color-border)",
+        display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)" }}>
+            Histori PSSP
+          </p>
+          {doctorName && (
+            <p className="truncate" style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginTop: 1 }}>
+              {doctorName}
+            </p>
+          )}
+        </div>
+        {label && <LabelCustomerBadge label={label} />}
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          style={{ color: "var(--color-text-faint)", fontSize: 18, lineHeight: 1, padding: "0 2px", cursor: "pointer", flexShrink: 0 }}>
+          ›
+        </button>
+      </div>
+
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+        <PsspHistoryPanel kodeCustomer={kodeCustomer} onLabel={handleLabel} />
+      </div>
+    </div>
+  );
+}
+
 // ─── AddPanel (new dokter + multi-produk) ─────────────────────────────────────
 
 function AddPanel({
@@ -705,13 +789,6 @@ function AddPanel({
                 {selectedCustomer.isFokus && <span style={{ color: "var(--color-primary)" }}>⭐ Dokter Fokus</span>}
                 {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
               </div>
-              {selectedCustomer.kodeCustomer && (
-                <div className="mt-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2"
-                    style={{ color: "var(--color-text-faint)" }}>Histori PSSP</p>
-                  <PsspHistoryPanel kodeCustomer={selectedCustomer.kodeCustomer} onLabel={setLabelCustomer} />
-                </div>
-              )}
             </>
           )}
         </div>
@@ -764,6 +841,13 @@ function AddPanel({
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
         </div>
       </form>
+      {selectedCustomer?.kodeCustomer && (
+        <PsspSidebar
+          kodeCustomer={selectedCustomer.kodeCustomer}
+          doctorName={selectedCustomer.namaCustomer}
+          onLabel={setLabelCustomer}
+        />
+      )}
     </div>
   );
 }
@@ -979,23 +1063,15 @@ function AddProductPanel({
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Tambah Produk</p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-            {namaCust} · {spesLabel(spesialisasi)} · {namaOutlet}
-          </p>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              {namaCust} · {spesLabel(spesialisasi)} · {namaOutlet}
+            </span>
+            {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
+          </div>
         </div>
         <button type="button" onClick={onCancel} className="text-xs" style={{ color: "var(--color-text-faint)" }}>✕</button>
       </div>
-
-      {kodeCust && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <p className="text-xs font-semibold uppercase tracking-wider"
-              style={{ color: "var(--color-text-faint)" }}>Histori PSSP</p>
-            {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
-          </div>
-          <PsspHistoryPanel kodeCustomer={kodeCust} onLabel={setLabelCustomer} />
-        </div>
-      )}
 
       {error && (
         <p className="text-sm px-3 py-2 rounded-md"
@@ -1049,6 +1125,13 @@ function AddProductPanel({
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
         </div>
       </form>
+      {kodeCust && (
+        <PsspSidebar
+          kodeCustomer={kodeCust}
+          doctorName={namaCust}
+          onLabel={setLabelCustomer}
+        />
+      )}
     </div>
   );
 }
@@ -1214,6 +1297,9 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
         </div>
       </form>
+      {item.kodeCust && (
+        <PsspSidebar kodeCustomer={item.kodeCust} doctorName={item.namaCust} />
+      )}
     </div>
   );
 }
