@@ -383,18 +383,27 @@ function ProdukEntryRow({
               <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
             </div>
           </div>
-          {growthPct != null && (
-            <div className="flex items-center justify-between pt-1.5 border-t"
-              style={{ borderColor: "var(--color-border)" }}>
-              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                Growth vs PSSP lama &nbsp;·&nbsp; {formatRp(Math.round(oldEstPerMonth!))}/bln
-              </span>
+          <div className="flex items-center justify-between pt-1.5 border-t"
+            style={{ borderColor: "var(--color-border)" }}>
+            <div>
+              <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
+              {oldEstPerMonth != null && (
+                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  PSSP lama {formatRp(Math.round(oldEstPerMonth))}/bln
+                </div>
+              )}
+            </div>
+            {growthPct != null ? (
               <span className="text-sm font-semibold"
                 style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                 {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
               </span>
-            </div>
-          )}
+            ) : (
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                Belum ada data PSSP
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -1383,18 +1392,27 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
                     <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
                   </div>
                 </div>
-                {growthPctE != null && (
-                  <div className="flex items-center justify-between pt-1.5 border-t"
-                    style={{ borderColor: "var(--color-border)" }}>
-                    <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                      Growth vs PSSP lama &nbsp;·&nbsp; {formatRp(Math.round(oldEstPerMonthE!))}/bln
-                    </span>
+                <div className="flex items-center justify-between pt-1.5 border-t"
+                  style={{ borderColor: "var(--color-border)" }}>
+                  <div>
+                    <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
+                    {oldEstPerMonthE != null && (
+                      <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                        PSSP lama {formatRp(Math.round(oldEstPerMonthE))}/bln
+                      </div>
+                    )}
+                  </div>
+                  {growthPctE != null ? (
                     <span className="text-sm font-semibold"
                       style={{ color: growthPctE >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                       {growthPctE >= 0 ? "+" : ""}{growthPctE.toFixed(1)}%
                     </span>
-                  </div>
-                )}
+                  ) : (
+                    <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                      Belum ada data PSSP
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>
