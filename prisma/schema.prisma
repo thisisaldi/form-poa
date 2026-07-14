@@ -52,6 +52,11 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // Territory assignment (derived from org structure CSV)
+  // MR → GT, SPV (MR) → Sub, ASM → Area, SM → Reg
+  kodeWilayah  String?
+  namaWilayah  String?
+
   // Self-relation for org hierarchy
   nipAtasan    String?
   namaAtasan   String?
@@ -64,6 +69,9 @@ model User {
 
   // Audit activity
   auditLogs    PoaAuditLog[]
+
+  // Doctor registration submissions
+  pengajuanCustomer CustomerPengajuan[] @relation("CustomerPengajuanSubmitter")
 
   // Outlet assignments (synced from MSSQL)
   outletAssignments MrOutletAssignment[]
@@ -221,6 +229,17 @@ model Outlet {
   subSektor    String?
   kota         String?
   propinsi     String?
+
+  // Territory hierarchy (from org structure CSV)
+  kodeGT   String?
+  namaGT   String?
+  kodeSub  String?
+  namaSub  String?
+  kodeArea String?
+  namaArea String?
+  kodeReg  String?
+  namaReg  String?
+
   syncedAt     DateTime
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -247,6 +266,105 @@ model Product {
   updatedAt      DateTime @updatedAt
 
   @@index([namaGroupBrand])
+}
+
+// ─── PSSP Contract Data ───────────────────────────────────────────────────────
+// One row per (C_URUT × KD_PRODUK). Imported from Pelunasan Excel snapshots.
+// kdCust links to Customer.kodeCustomer for history lookup.
+
+model PsspKontrak {
+  id         String   @id @default(uuid())
+
+  // Contract identity
+  kdCust     String              // KD_CUST — links to Customer.kodeCustomer
+  nmCust     String
+  cUrut      String              // contract number
+  kdSpc      String?
+  nmSpc      String?
+  role       String?
+  nDivisi    Int?
+  divKode    String?
+  biaya      Decimal  @db.Decimal(18, 2)
+  prdAwal    String              // YYYYMM
+  prdAkhir   String              // YYYYMM
+  nipUsul    String?
+  nmUsul     String?
+  kdOutlet   String?
+  nmOutlet   String?
+  divProd    String?
+  kdProduk   String?
+  nmProduk   String?
+
+  // Computed scalars (from ETL)
+  estBaris   Decimal? @db.Decimal(18, 2)
+  bmBaris    Decimal? @db.Decimal(18, 2)
+
+  // Pre-computed period totals (sum across all months)
+  totalEst   Decimal? @db.Decimal(18, 2)
+  totalBm    Decimal? @db.Decimal(18, 2)
+  totalLunas Decimal? @db.Decimal(18, 2)
+
+  // Per-period detail as JSONB: { "202501": 1475000, "202502": 1475000, ... }
+  estByPeriod   Json @default("{}")
+  bmByPeriod    Json @default("{}")
+  lunasByPeriod Json @default("{}")
+
+  snapshotDate DateTime?       // date of source Excel file
+  importedAt   DateTime @default(now())
+
+  @@unique([cUrut, kdProduk])
+  @@index([kdCust])
+  @@index([kdOutlet])
+  @@index([prdAwal, prdAkhir])
+}
+
+// ─── Customer Pengajuan ───────────────────────────────────────────────────────
+// Submission form for registering a new doctor. On submit, Customer + CustomerOutlet
+// records are created and customerId is populated.
+
+model CustomerPengajuan {
+  id              String    @id @default(uuid())
+
+  // Step 1 — Informasi Umum
+  namaLengkap     String
+  namaPanggilan   String
+  jabatan         String
+  tipeCustomer    String    // "NEGERI" | "SWASTA"
+  tanggalLahir    DateTime?
+  jenisKelamin    String?   // "L" | "P"
+  alamatRumah     String?
+  kota            String?
+  nik             String?
+  email           String?
+  nomorHp1        String
+  nomorHp2        String?
+  rekening        Json      @default("[]")  // [{pemilik, nomor, bank, relasi}]
+
+  // Step 2 — Pendidikan, Spesialisasi & Organisasi
+  universitasS1       String?
+  spesialisasi        String
+  universitasSpesialis String?
+  subSpesialisasi     String?
+  organisasi          Json   @default("[]")  // [{namaOrganisasi, jabatanOrganisasi}]
+
+  // Step 3 — Outlet
+  outletsPengajuan    Json   @default("[]")
+  // [{kodePI, namaOutlet, jadwalPraktik: [{hari, mulai, selesai, jumlahPasien}]}]
+
+  // Status & tracking
+  status          String    @default("DRAFT")  // "DRAFT" | "SUBMITTED"
+  submittedBy     String
+  submitter       User      @relation("CustomerPengajuanSubmitter", fields: [submittedBy], references: [nip])
+
+  // Populated after submit creates the Customer
+  customerId      String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([submittedBy])
+  @@index([status])
+  @@index([spesialisasi])
 }
 
 // Junction: which MRs are assigned to which outlets per periode (from Struktur_Marketing_PI)

@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { formatPeriodeRange } from "@/lib/poaUtils";
+import { spesLabel } from "@/lib/spesialisasi";
 
 export const metadata = { title: "Detail POA · POA System" };
 
@@ -48,6 +49,7 @@ export default async function PoaDetailPage({
 
   const isApprover = ["ASM", "SM", "NSM"].includes(session.role);
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
+  const isDraft = poa.status === "DRAFT";
 
   return (
     <div className="max-w-2xl space-y-5">
@@ -102,9 +104,16 @@ export default async function PoaDetailPage({
                 <Button size="sm" variant="secondary">Edit</Button>
               </Link>
             )}
-            <a href={`/api/poa/${id}/export`}>
-              <Button size="sm" variant="ghost">↓ Export Excel</Button>
-            </a>
+            {!isDraft ? (
+              <a href={`/api/poa/${id}/export`}>
+                <Button size="sm" variant="ghost">↓ Export Excel</Button>
+              </a>
+            ) : (
+              <span className="text-xs px-3 py-1.5 rounded"
+                style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+                Export tersedia setelah submit
+              </span>
+            )}
           </div>
         </CardHeader>
         {(poa as typeof poa & { items: PoaLineItem[] }).items.length === 0 ? (
@@ -222,14 +231,14 @@ function LineItemsTable({ items }: { items: PoaLineItem[] }) {
               className="px-4 py-2 text-xs font-semibold uppercase tracking-wide"
               style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}
             >
-              {first.kodeRequest} · {first.namaCust} · {first.spesialisasi} · {first.namaOutlet}
+              {first.kodeRequest} · {first.namaCust} · {spesLabel(first.spesialisasi)} · {first.namaOutlet}
             </div>
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>Produk</th>
                   <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>Periode</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>Rencana Biaya</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi</th>
                   <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>Visit/Minggu</th>
                   <th className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>Standarisasi</th>
                 </tr>

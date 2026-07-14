@@ -5,24 +5,19 @@
  * without touching session creation logic.
  */
 import { prisma } from "@/lib/prisma";
-import { MOCK_USERS } from "@/lib/mock/data";
 import { getSession } from "@/lib/session";
 import type { User } from "@prisma/client";
-
-const USE_MOCK = process.env.USE_MOCK_DB === "true";
 
 export type VerifyResult =
   | { ok: true; user: User }
   | { ok: false; error: "not_found" | "inactive" };
 
 /**
- * Verify a NIP against the users table.
+ * Verify a NIP against the users table (or mock client in USE_MOCK_DB mode).
  * This is the only identity-check gate — once replaced with OTP, only this function changes.
  */
 export async function verifyNip(nip: string): Promise<VerifyResult> {
-  const user: User | null = USE_MOCK
-    ? (MOCK_USERS.find((u) => u.nip === nip) ?? null)
-    : await prisma.user.findUnique({ where: { nip } });
+  const user: User | null = await prisma.user.findUnique({ where: { nip } });
   if (!user) return { ok: false, error: "not_found" };
   if (!user.isActive) return { ok: false, error: "inactive" };
   return { ok: true, user };

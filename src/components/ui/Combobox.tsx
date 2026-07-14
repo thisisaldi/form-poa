@@ -6,6 +6,10 @@ export interface ComboboxOption {
   value: string;
   label: string;
   sublabel?: string;
+  /** Group label — when it changes between consecutive options a non-interactive header row is inserted. */
+  group?: string;
+  /** Highlight this option with primary color + star badge (tier-0 focus products). */
+  accent?: boolean;
 }
 
 interface Props {
@@ -61,7 +65,7 @@ export function Combobox({
   // Scroll highlighted item into view
   useEffect(() => {
     if (!open) return;
-    const item = listRef.current?.children[highlighted] as HTMLElement | undefined;
+    const item = listRef.current?.querySelector(`[data-option-idx="${highlighted}"]`) as HTMLElement | undefined;
     item?.scrollIntoView({ block: "nearest" });
   }, [highlighted, open]);
 
@@ -188,48 +192,76 @@ export function Combobox({
             </li>
           ) : (
             <>
-              {visibleOptions.map((option, i) => {
-                const isHighlighted = i === highlighted;
-                const isSelected = option.value === value;
-                return (
-                  <li
-                    key={option.value}
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => select(option)}
-                    onMouseEnter={() => setHighlighted(i)}
-                    className="flex items-center gap-2 px-3 py-2 cursor-pointer"
-                    style={{
-                      background: isHighlighted
-                        ? "var(--color-blue)"
-                        : isSelected
-                        ? "var(--color-blue-light)"
-                        : "transparent",
-                      color: isHighlighted ? "#fff" : "var(--color-text)",
-                    }}
-                  >
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-medium truncate">{option.label}</span>
-                      {option.sublabel && (
-                        <span
-                          className="block text-xs truncate"
-                          style={{ color: isHighlighted ? "rgba(255,255,255,0.8)" : "var(--color-text-muted)" }}
+              {(() => {
+                let lastGroup: string | undefined = undefined;
+                return visibleOptions.map((option, i) => {
+                  const isHighlighted = i === highlighted;
+                  const isSelected = option.value === value;
+                  const showGroupHeader = option.group !== undefined && option.group !== lastGroup;
+                  if (showGroupHeader) lastGroup = option.group;
+                  return (
+                    <>
+                      {showGroupHeader && (
+                        <li
+                          key={`grp-${option.group}`}
+                          aria-hidden
+                          className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide select-none"
+                          style={{ color: "var(--color-text-faint)", borderTop: i > 0 ? "1px solid var(--color-border)" : undefined }}
                         >
-                          {option.sublabel}
-                        </span>
+                          {option.group}
+                        </li>
                       )}
-                    </span>
-                    {isSelected && (
-                      <span
-                        className="text-xs shrink-0"
-                        style={{ color: isHighlighted ? "#fff" : "var(--color-blue)" }}
+                      <li
+                        key={option.value}
+                        data-option-idx={i}
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => select(option)}
+                        onMouseEnter={() => setHighlighted(i)}
+                        className="flex items-center gap-2 px-3 py-2 cursor-pointer"
+                        style={{
+                          background: isHighlighted
+                            ? "var(--color-blue)"
+                            : isSelected
+                            ? "var(--color-blue-light)"
+                            : option.accent
+                            ? "var(--color-primary-faint, rgba(59,130,246,0.06))"
+                            : "transparent",
+                          color: isHighlighted ? "#fff" : "var(--color-text)",
+                        }}
                       >
-                        ✓
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
+                        {option.accent && !isHighlighted && (
+                          <span className="text-xs shrink-0" style={{ color: "var(--color-primary)" }}>★</span>
+                        )}
+                        <span className="flex-1 min-w-0">
+                          <span
+                            className="block text-sm font-medium truncate"
+                            style={{ color: isHighlighted ? "#fff" : option.accent ? "var(--color-primary)" : "var(--color-text)" }}
+                          >
+                            {option.label}
+                          </span>
+                          {option.sublabel && (
+                            <span
+                              className="block text-xs truncate"
+                              style={{ color: isHighlighted ? "rgba(255,255,255,0.8)" : "var(--color-text-muted)" }}
+                            >
+                              {option.sublabel}
+                            </span>
+                          )}
+                        </span>
+                        {isSelected && (
+                          <span
+                            className="text-xs shrink-0"
+                            style={{ color: isHighlighted ? "#fff" : "var(--color-blue)" }}
+                          >
+                            ✓
+                          </span>
+                        )}
+                      </li>
+                    </>
+                  );
+                });
+              })()}
               {hiddenCount > 0 && (
                 <li className="px-3 py-2 text-xs" style={{ color: "var(--color-text-faint)" }}>
                   +{hiddenCount} lainnya — ketik lebih spesifik untuk mempersempit

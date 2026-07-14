@@ -41,7 +41,7 @@ export default async function LoginPage(props: {
             <Input
               name="nip"
               label="NIP (Nomor Induk Pegawai)"
-              placeholder="Contoh: MR001"
+
               autoComplete="username"
               autoFocus
               required

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getVisiblePoaFilter, getPendingActionFilter } from "@/lib/authz";
+import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa } from "@/lib/authz";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -9,22 +9,40 @@ import type { Role, PoaForm as PoaFormType, User as UserType } from "@prisma/cli
 
 export const metadata = { title: "Dashboard · POA System" };
 
-export default async function DashboardPage() {
-  const session = (await getCurrentUser())!;
-  // Layout already validated this user exists — use findUnique with null-guard
-  // rather than findUniqueOrThrow to avoid a crash on stale sessions mid-render.
-  const actor = await prisma.user.findUnique({ where: { nip: session.userId } });
-  if (!actor) return null; // layout redirect handles this, component won't render
+function formatRp(n: number) {
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000)     return `Rp${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return "Rp" + n.toLocaleString("id-ID");
+}
 
-  const [visibleFilter, pendingFilter] = await Promise.all([
+type PoaWithMeta = PoaFormType & {
+  owner: UserType;
+  _count: { items: number };
+  _totalEst: number;
+  _dokterCount: number;
+};
+
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const session = (await getCurrentUser())!;
+  const actor = await prisma.user.findUnique({ where: { nip: session.userId } });
+  if (!actor) return null;
+
+  const params = await searchParams;
+  const isMR = session.role === "MR";
+
+  const [visibleFilter, pendingFilter, eligible] = await Promise.all([
     getVisiblePoaFilter(actor),
     Promise.resolve(getPendingActionFilter(actor)),
+    isMR ? canCreatePoa(session.userId) : Promise.resolve(false),
   ]);
 
-  const [recentPoas, pendingPoas] = await Promise.all([
+  const [recentRaw, pendingPoas] = await Promise.all([
     prisma.poaForm.findMany({
       where: visibleFilter,
-      include: { owner: true },
+      include: {
+        owner: true,
+        items: { select: { rencanaTotalBiaya: true, namaCust: true } },
+      },
       orderBy: { updatedAt: "desc" },
       take: 10,
     }),
@@ -36,35 +54,52 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  const isMR = session.role === "MR";
+  type RawItem = { rencanaTotalBiaya: { toString(): string }; namaCust: string };
+  type RawPoa = typeof recentRaw[number] & { items: RawItem[] };
+
+  // Compute per-POA aggregates
+  const recentPoas: PoaWithMeta[] = (recentRaw as RawPoa[]).map((poa) => {
+    const items = poa.items;
+    const totalEst = items.reduce((s: number, it: RawItem) => s + parseFloat(it.rencanaTotalBiaya.toString()), 0);
+    const dokterCount = new Set(items.map((it: RawItem) => it.namaCust)).size;
+    return {
+      ...poa,
+      _count: { items: items.length },
+      _totalEst: totalEst,
+      _dokterCount: dokterCount,
+    };
+  });
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
+      {params.error === "no_outlets" && (
+        <div className="rounded-md px-4 py-3 text-sm"
+          style={{ background: "var(--color-warning-light, #fff7ed)", color: "var(--color-warning, #92400e)", border: "1px solid var(--color-warning-border, #fcd34d)" }}>
+          Akun Anda belum memiliki outlet yang ditugaskan. Hubungi admin untuk mendapatkan akses.
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1>Dashboard</h1>
           <p style={{ color: "var(--color-text-muted)" }} className="mt-0.5 text-sm">
             Selamat datang, {session.name}
-            <span
-              className="ml-2 rounded px-1.5 py-0.5 text-xs font-medium"
-              style={{
-                background: "var(--color-blue-light)",
-                color: "var(--color-blue)",
-              }}
-            >
+            <span className="ml-2 rounded px-1.5 py-0.5 text-xs font-medium"
+              style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
               {session.role}
             </span>
           </p>
         </div>
-        {isMR && (
-          <Link href="/poa/new">
-            <Button>+ Buat POA Baru</Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {isMR && (
+            <Link href="/customers/new"><Button variant="secondary" size="sm">+ Daftar Dokter Baru</Button></Link>
+          )}
+          {isMR && eligible && (
+            <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
+          )}
+        </div>
       </div>
 
-      {/* Pending action (managers) */}
       {!isMR && pendingPoas.length > 0 && (
         <Card>
           <CardHeader>
@@ -99,13 +134,12 @@ export default async function DashboardPage() {
         </Card>
       )}
 
-      {/* All visible POAs */}
       <Card>
         <CardHeader>
           <CardTitle>{isMR ? "POA Saya" : "Semua POA"}</CardTitle>
         </CardHeader>
         {recentPoas.length === 0 ? (
-          <EmptyState isMR={isMR} role={session.role as Role} />
+          <EmptyState isMR={isMR} eligible={eligible} role={session.role as Role} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -114,12 +148,15 @@ export default async function DashboardPage() {
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>MR</th>
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Periode</th>
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Status</th>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi</th>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Dokter</th>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Produk</th>
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Update</th>
                   <th className="pb-3" />
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-                {(recentPoas as (PoaFormType & { owner: UserType })[]).map((poa) => (
+                {recentPoas.map((poa) => (
                   <tr key={poa.id}>
                     <td className="py-3">
                       <p className="font-medium" style={{ color: "var(--color-text)" }}>{poa.owner.name}</p>
@@ -127,6 +164,15 @@ export default async function DashboardPage() {
                     </td>
                     <td className="py-3" style={{ color: "var(--color-text)" }}>{poa.period}</td>
                     <td className="py-3"><StatusBadge status={poa.status} /></td>
+                    <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text)" }}>
+                      {poa._totalEst > 0 ? formatRp(poa._totalEst) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                    </td>
+                    <td className="py-3 text-right text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      {poa._dokterCount > 0 ? poa._dokterCount : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                    </td>
+                    <td className="py-3 text-right text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      {poa._count.items > 0 ? poa._count.items : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                    </td>
                     <td className="py-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
                       {new Date(poa.updatedAt).toLocaleDateString("id-ID")}
                     </td>
@@ -146,7 +192,7 @@ export default async function DashboardPage() {
   );
 }
 
-function EmptyState({ isMR, role }: { isMR: boolean; role: Role }) {
+function EmptyState({ isMR, eligible, role }: { isMR: boolean; eligible: boolean; role: Role }) {
   return (
     <div className="py-10 text-center">
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -154,7 +200,7 @@ function EmptyState({ isMR, role }: { isMR: boolean; role: Role }) {
           ? "Belum ada POA. Buat POA pertama Anda."
           : `Belum ada POA yang perlu ditinjau sebagai ${role}.`}
       </p>
-      {isMR && (
+      {isMR && eligible && (
         <Link href="/poa/new" className="mt-3 inline-block">
           <Button size="sm">Buat POA</Button>
         </Link>

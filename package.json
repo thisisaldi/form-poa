@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
     "build:development": "next build",
     "build:staging": "next build",
     "build:production": "next build",
@@ -12,7 +13,8 @@
     "sync:org": "tsx scripts/syncOrg.ts",
     "sync:products": "tsx scripts/syncProducts.ts",
     "sync:customers": "tsx scripts/syncCustomers.ts",
-    "mock:generate": "tsx scripts/generateMockData.ts",
+    "mock:generate": "tsx scripts/generateMockData.ts excel/\"STRUKTUR JULI.csv\" excel/Customer_Database_20260710.xlsx excel/\"RS GROUP - PHAROS INDONESIA.xlsx\" excel/\"LIST PRODUK PI update 15 Juni 2026.xlsx\"",
+    "seed:local": "tsx scripts/seedLocal.ts",
     "db:studio": "prisma studio",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate"

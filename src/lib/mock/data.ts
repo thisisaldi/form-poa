@@ -14,66 +14,11 @@ const EARLIER = new Date("2026-07-01T08:00:00Z");
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export const MOCK_USERS: User[] = [
-  {
-    nip: "NSM001",
-    name: "Budi Santoso",
-    role: Role.NSM,
-    email: "budi@example.com",
-    nipAtasan: null,
-    namaAtasan: null,
-    isActive: true,
-    syncedAt: NOW,
-    createdAt: EARLIER,
-    updatedAt: NOW,
-  },
-  {
-    nip: "SM001",
-    name: "Rina Wulandari",
-    role: Role.SM,
-    email: "rina@example.com",
-    nipAtasan: "NSM001",
-    namaAtasan: "Budi Santoso",
-    isActive: true,
-    syncedAt: NOW,
-    createdAt: EARLIER,
-    updatedAt: NOW,
-  },
-  {
-    nip: "ASM001",
-    name: "Agus Pratama",
-    role: Role.ASM,
-    email: "agus@example.com",
-    nipAtasan: "SM001",
-    namaAtasan: "Rina Wulandari",
-    isActive: true,
-    syncedAt: NOW,
-    createdAt: EARLIER,
-    updatedAt: NOW,
-  },
-  {
-    nip: "MR001",
-    name: "Siti Rahayu",
-    role: Role.MR,
-    email: "siti@example.com",
-    nipAtasan: "ASM001",
-    namaAtasan: "Agus Pratama",
-    isActive: true,
-    syncedAt: NOW,
-    createdAt: EARLIER,
-    updatedAt: NOW,
-  },
-  {
-    nip: "MR002",
-    name: "Dodi Prasetyo",
-    role: Role.MR,
-    email: "dodi@example.com",
-    nipAtasan: "ASM001",
-    namaAtasan: "Agus Pratama",
-    isActive: true,
-    syncedAt: NOW,
-    createdAt: EARLIER,
-    updatedAt: NOW,
-  },
+  { nip: "NSM001", name: "Budi Santoso",   role: Role.NSM, email: "budi@example.com",  nipAtasan: null,     namaAtasan: null,            kodeWilayah: null,      namaWilayah: null,          isActive: true, syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { nip: "SM001",  name: "Rina Wulandari", role: Role.SM,  email: "rina@example.com",  nipAtasan: "NSM001", namaAtasan: "Budi Santoso",  kodeWilayah: "REG-01",  namaWilayah: "REG JAWA",    isActive: true, syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { nip: "ASM001", name: "Agus Pratama",   role: Role.ASM, email: "agus@example.com",  nipAtasan: "SM001",  namaAtasan: "Rina Wulandari",kodeWilayah: "AREA-01", namaWilayah: "AREA JAKARTA",isActive: true, syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { nip: "MR001",  name: "Siti Rahayu",    role: Role.MR,  email: "siti@example.com",  nipAtasan: "ASM001", namaAtasan: "Agus Pratama",  kodeWilayah: "GT-01",   namaWilayah: "GT JAKARTA 1",isActive: true, syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
+  { nip: "MR002",  name: "Dodi Prasetyo",  role: Role.MR,  email: "dodi@example.com",  nipAtasan: "ASM001", namaAtasan: "Agus Pratama",  kodeWilayah: "GT-02",   namaWilayah: "GT JAKARTA 2",isActive: true, syncedAt: NOW, createdAt: EARLIER, updatedAt: NOW },
 ];
 
 // ─── POA Forms ───────────────────────────────────────────────────────────────
@@ -251,12 +196,20 @@ export interface MockOutlet {
   sector: string | null;
   subSektor: string | null;
   statusOutlet: string;
+  kodeGT: string | null;
+  namaGT: string | null;
+  kodeSub: string | null;
+  namaSub: string | null;
+  kodeArea: string | null;
+  namaArea: string | null;
+  kodeReg: string | null;
+  namaReg: string | null;
 }
 
 export const MOCK_OUTLETS: MockOutlet[] = [
-  { kodePI: "PI-001", namaOutlet: "RS Medika Utama", sector: "RS", subSektor: null, statusOutlet: "A" },
-  { kodePI: "PI-002", namaOutlet: "Klinik Jantung Sehat", sector: "Klinik", subSektor: null, statusOutlet: "A" },
-  { kodePI: "PI-005", namaOutlet: "RS Ibu dan Anak Bunda", sector: "RS", subSektor: null, statusOutlet: "A" },
+  { kodePI: "PI-001", namaOutlet: "RS Medika Utama", sector: "RS", subSektor: null, statusOutlet: "A", kodeGT: "GT-01", namaGT: "GT JAKARTA 1", kodeSub: "SUB-01", namaSub: "SUB JAKARTA", kodeArea: "AREA-01", namaArea: "AREA JAKARTA", kodeReg: "REG-01", namaReg: "REG JAWA" },
+  { kodePI: "PI-002", namaOutlet: "Klinik Jantung Sehat", sector: "Klinik", subSektor: null, statusOutlet: "A", kodeGT: "GT-01", namaGT: "GT JAKARTA 1", kodeSub: "SUB-01", namaSub: "SUB JAKARTA", kodeArea: "AREA-01", namaArea: "AREA JAKARTA", kodeReg: "REG-01", namaReg: "REG JAWA" },
+  { kodePI: "PI-005", namaOutlet: "RS Ibu dan Anak Bunda", sector: "RS", subSektor: null, statusOutlet: "A", kodeGT: "GT-02", namaGT: "GT JAKARTA 2", kodeSub: "SUB-01", namaSub: "SUB JAKARTA", kodeArea: "AREA-01", namaArea: "AREA JAKARTA", kodeReg: "REG-01", namaReg: "REG JAWA" },
 ];
 
 // ─── Customer (Dokter) ────────────────────────────────────────────────────────

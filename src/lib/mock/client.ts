@@ -23,14 +23,14 @@ function loadGenerated<T>(key: string, fallback: T[]): T[] {
 }
 
 // Mutable copies so write ops work within a dev session
-const users: User[] = [...MOCK_USERS];
+const users: User[] = loadGenerated<User>("users", MOCK_USERS);
 const poas: PoaForm[] = [...MOCK_POAS];
 const auditLogs: PoaAuditLog[] = [...MOCK_AUDIT_LOGS];
 const lineItems: PoaLineItem[] = [...MOCK_LINE_ITEMS];
 const outlets: MockOutlet[] = loadGenerated("outlets", MOCK_OUTLETS);
 const customers: MockCustomerRecord[] = loadGenerated("customers", MOCK_CUSTOMER_RECORDS);
 const customerOutlets: MockCustomerOutlet[] = loadGenerated("customerOutlets", MOCK_CUSTOMER_OUTLETS);
-const mrAssignments: MockMrAssignment[] = [...MOCK_MR_ASSIGNMENTS];
+const mrAssignments: MockMrAssignment[] = loadGenerated("mrAssignments", MOCK_MR_ASSIGNMENTS);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -185,6 +185,9 @@ const userModel = {
     let count = 0;
     users.forEach((u, i) => { if (matchesWhere(u, where)) { users[i] = { ...u, ...data }; count++; } });
     return { count };
+  },
+  async count({ where }: { where?: Record<string, unknown> } = {}) {
+    return where ? users.filter((u) => matchesWhere(u, where)).length : users.length;
   },
 };
 
@@ -438,6 +441,28 @@ const customerOutletModel = {
   },
 };
 
+// ─── Mock Product Model ───────────────────────────────────────────────────────
+
+interface MockProduct {
+  kodeProduk: string;
+  namaGroupBrand: string;
+  namaProduk: string;
+  zatAktif: string | null;
+  satuan: string;
+  hna: string;
+}
+
+const products: MockProduct[] = loadGenerated("products", []);
+
+const productModel = {
+  async findMany({ orderBy }: { orderBy?: Record<string, string> } = {}) {
+    return applyOrderBy([...products], orderBy);
+  },
+  async findUnique({ where }: { where: Record<string, unknown> }) {
+    return products.find((p) => matchesWhere(p, where)) ?? null;
+  },
+};
+
 // ─── Mock MrOutletAssignment Model ───────────────────────────────────────────
 
 const mrOutletAssignmentModel = {
@@ -472,6 +497,9 @@ const mrOutletAssignmentModel = {
     mrAssignments.push(a);
     return a;
   },
+  async count({ where }: { where?: Record<string, unknown> } = {}) {
+    return where ? mrAssignments.filter((a) => matchesWhere(a, where)).length : mrAssignments.length;
+  },
 };
 
 // ─── $transaction ────────────────────────────────────────────────────────────
@@ -488,6 +516,7 @@ export const mockPrismaClient = {
   poaAuditLog: poaAuditLogModel,
   poaLineItem: poaLineItemModel,
   outlet: outletModel,
+  product: productModel,
   customer: customerModel,
   customerOutlet: customerOutletModel,
   mrOutletAssignment: mrOutletAssignmentModel,

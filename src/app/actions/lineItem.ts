@@ -40,19 +40,38 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
 
-  if (!customerId || !kodePI || !kodeProduk || !periodeAwal || isNaN(lamaPeriodeRaw)) {
+  // Direct mode: caller already knows dokter info (e.g. adding a product to an existing doctor row)
+  const directNamaCust = (formData.get("directNamaCust") as string | null)?.trim() ?? "";
+  const directSpesialisasi = (formData.get("directSpesialisasi") as string | null)?.trim() ?? "";
+  const directKodeCust = (formData.get("directKodeCust") as string | null)?.trim() || null;
+
+  const isDirect = !customerId && !!directNamaCust && !!directSpesialisasi;
+
+  if (!kodePI || !kodeProduk || !periodeAwal || isNaN(lamaPeriodeRaw)) {
+    redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent("Field wajib belum lengkap."));
+  }
+  if (!isDirect && !customerId) {
     redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent("Field wajib belum lengkap."));
   }
 
-  const [customer, outlet, product] = await Promise.all([
-    prisma.customer.findUnique({ where: { id: customerId } }),
+  const [customerResult, outlet, product] = await Promise.all([
+    isDirect
+      ? Promise.resolve(null)
+      : prisma.customer.findUnique({ where: { id: customerId } }),
     prisma.outlet.findUnique({ where: { kodePI } }),
     getProductByKode(kodeProduk),
   ]);
 
-  if (!customer || !outlet || !product) {
-    redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent("Customer, outlet, atau produk tidak ditemukan."));
+  if (!outlet || !product) {
+    redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent("Outlet atau produk tidak ditemukan."));
   }
+  if (!isDirect && !customerResult) {
+    redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent("Customer tidak ditemukan."));
+  }
+
+  const namaCust = isDirect ? directNamaCust : customerResult!.namaCustomer;
+  const kodeCust = isDirect ? directKodeCust : customerResult!.kodeCustomer;
+  const spesialisasi = isDirect ? directSpesialisasi : customerResult!.spesialisasi;
 
   const statusStandarisasi =
     statusStandarisasiRaw && Object.values(StatusStandarisasi).includes(statusStandarisasiRaw as StatusStandarisasi)
@@ -63,10 +82,10 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     data: {
       poaId,
       kodeRequest: null,
-      kodeCust: customer.kodeCustomer,
-      namaCust: customer.namaCustomer,
-      role: "Dokter Spesialis",
-      spesialisasi: customer.spesialisasi,
+      kodeCust,
+      namaCust,
+      role: spesialisasi?.toLowerCase().includes("spesialis") ? "Dokter Spesialis" : "Dokter Umum",
+      spesialisasi,
       historisPSSP: null,
       kodePI: outlet.kodePI,
       namaOutlet: outlet.namaOutlet,

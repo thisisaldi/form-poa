@@ -49,6 +49,18 @@ async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]
   return mrIds;
 }
 
+/** Public: returns all MR nips in the subtree of the given user (for monitoring, PM dashboard). */
+export async function getSubordinateMRNips(user: User): Promise<string[]> {
+  if (user.role === Role.MR) return [user.nip];
+  if (user.role === Role.ADMIN) {
+    const mrs = await prisma.user.findMany({ where: { role: Role.MR, isActive: true }, select: { nip: true } });
+    return mrs.map((m: { nip: string }) => m.nip);
+  }
+  const depthByRole: Record<string, number> = { [Role.ASM]: 1, [Role.SM]: 2, [Role.NSM]: 3 };
+  const depth = depthByRole[user.role] ?? 0;
+  return getMrIdsUnder(user.nip, depth);
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -143,6 +155,18 @@ export function canEdit(user: User, poa: PoaForm): boolean {
   }
 
   return false;
+}
+
+/**
+ * Can this user create a new POA?
+ * Only leaf nodes (no active subordinates) who hold at least one outlet.
+ */
+export async function canCreatePoa(userId: string): Promise<boolean> {
+  const [subordinateCount, assignmentCount] = await Promise.all([
+    prisma.user.count({ where: { nipAtasan: userId, isActive: true } }),
+    prisma.mrOutletAssignment.count({ where: { nipMR: userId } }),
+  ]);
+  return subordinateCount === 0 && assignmentCount > 0;
 }
 
 /**

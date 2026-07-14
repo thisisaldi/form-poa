@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { createPoaDraft, submitPoa, approvePoa } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
-import { canEdit } from "@/lib/authz";
+import { canEdit, canCreatePoa } from "@/lib/authz";
 
 function requireSession() {
   return getCurrentUser().then((session) => {
@@ -19,6 +19,7 @@ export async function createPoaAction(formData: FormData): Promise<void> {
 
   if (!period) redirect("/poa/new?error=" + encodeURIComponent("Period wajib diisi."));
   if (session.role !== "MR") redirect("/dashboard");
+  if (!(await canCreatePoa(session.userId))) redirect("/dashboard?error=no_outlets");
 
   const poa = await createPoaDraft(session.userId, period);
   redirect(`/poa/${poa.id}/edit`);

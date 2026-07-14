@@ -36,6 +36,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: <IconChart />,
     roles: ["ASM", "SM", "NSM", "ADMIN"],
   },
+  {
+    href: "/pm-dashboard",
+    label: "PM Dashboard",
+    icon: <IconTable />,
+    roles: ["NSM", "ADMIN"],
+  },
 ];
 
 interface SidebarProps {
@@ -218,6 +224,14 @@ function IconChart() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
       <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+    </svg>
+  );
+}
+
+function IconTable() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+      <path fillRule="evenodd" d="M5 4a3 3 0 00-3 3v6a3 3 0 003 3h10a3 3 0 003-3V7a3 3 0 00-3-3H5zm-1 9v-1h5v2H5a1 1 0 01-1-1zm7 1h4a1 1 0 001-1v-1h-5v2zm0-4h5V8h-5v2zM9 8H4v2h5V8z" clipRule="evenodd" />
     </svg>
   );
 }

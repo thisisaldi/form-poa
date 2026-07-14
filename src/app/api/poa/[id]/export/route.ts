@@ -40,6 +40,10 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  if (poa.status === "DRAFT") {
+    return NextResponse.json({ error: "Draft POA tidak dapat diekspor. Submit terlebih dahulu." }, { status: 403 });
+  }
+
   const wb = new ExcelJS.Workbook();
   wb.creator = "POA System";
   wb.created = new Date();
@@ -84,7 +88,7 @@ export async function GET(
     { header: "Lama Periode (bln)", key: "lamaPeriode", width: 18 },
     { header: "Periode Awal", key: "periodeAwal", width: 14 },
     { header: "Periode Akhir", key: "periodeAkhir", width: 14 },
-    { header: "Rencana Total Biaya", key: "rencanaTotalBiaya", width: 20 },
+    { header: "Estimasi", key: "rencanaTotalBiaya", width: 20 },
     { header: "Rencana Visit/Minggu", key: "rencanaVisitMinggu", width: 20 },
     { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
   ];
