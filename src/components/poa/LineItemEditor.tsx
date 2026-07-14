@@ -15,23 +15,9 @@ const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
   PROSES_PENGAJUAN: "Proses Pengajuan",
   BELUM_STANDARISASI: "Belum Standarisasi",
-  TIDAK_TAHU: "Tidak Tahu/(Blank)",
+  TIDAK_TAHU: "Tidak Tahu",
 };
 
-const LABEL_CUSTOMER_OPTIONS = [
-  "Dokter Baru",
-  "Akan Selesai, Pelunasan Bagus",
-  "Akan Selesai, Pelunasan Buruk",
-  "Pernah PSSP, Pelunasan Bagus",
-  "Pernah PSSP, Pelunasan Buruk",
-  "Rekomendasi PM",
-];
-
-const KRITERIA_PRODUK_OPTIONS = [
-  "Low Hanging Fruit",
-  "Blue Ocean",
-  "Red Ocean",
-];
 
 interface OutletOption { kodePI: string; namaOutlet: string }
 
@@ -48,18 +34,14 @@ interface DokterFields {
   periodeAwal: string;
   lamaPeriode: number;
   hariKerjaBulan: string;
-  jumlahPasienHari: string;
   rencanaVisitMinggu: string;
-  produkKompetitor: string;
-  labelCustomer: string;
 }
 
 function emptyDokterFields(periodeAwal = ""): DokterFields {
   return {
     periodeAwal, lamaPeriode: 3,
-    hariKerjaBulan: "", jumlahPasienHari: "",
-    rencanaVisitMinggu: "4", produkKompetitor: "",
-    labelCustomer: "",
+    hariKerjaBulan: "",
+    rencanaVisitMinggu: "4",
   };
 }
 
@@ -68,24 +50,26 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
 interface ProdukEntry {
   uid: string; // local react key
   kodeProduk: string;
-  kriteriaProduk: string;
+  jumlahPasienHari: string;  // per produk karena tiap produk bisa beda estimasi pasien
   jumlahResepHari: string;
   qtyProdukResep: string;
+  produkKompetitor: string;  // per produk
   statusStandarisasi: string;
-  rasioEstimasiGrowth: string;   // multiplier, e.g. "1.0" / "1.2"
-  persenPsspDokter: string;      // % as 0-100
+  persenPsspDokter: string;  // % as 0-100
   persenPsspKpdm: string;
   persenDiskon: string;
   persenDp: string;
   persenListingFee: string;
   persenEntertain: string;
+  // kriteriaProduk & rasioEstimasiGrowth: auto (not user input)
 }
 
 function emptyProdukEntry(): ProdukEntry {
   return {
     uid: Math.random().toString(36).slice(2),
-    kodeProduk: "", kriteriaProduk: "", jumlahResepHari: "", qtyProdukResep: "", statusStandarisasi: "",
-    rasioEstimasiGrowth: "", persenPsspDokter: "", persenPsspKpdm: "",
+    kodeProduk: "", jumlahPasienHari: "", jumlahResepHari: "", qtyProdukResep: "",
+    produkKompetitor: "", statusStandarisasi: "",
+    persenPsspDokter: "", persenPsspKpdm: "",
     persenDiskon: "", persenDp: "", persenListingFee: "", persenEntertain: "",
   };
 }
@@ -102,13 +86,61 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
 function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Product | null): number {
   if (!product) return 0;
   const hna    = parseFloat(product.hna) || 0;
-  const pasien = parseFloat(dokter.jumlahPasienHari) || 0;
+  const pasien = parseFloat(entry.jumlahPasienHari) || 0;
   const resep  = parseFloat(entry.jumlahResepHari) || 0;
   const qty    = parseFloat(entry.qtyProdukResep) || 0;
   const hari   = parseFloat(dokter.hariKerjaBulan) || 0;
   const lama   = dokter.lamaPeriode || 1;
   if (!hna || !pasien || !resep || !qty || !hari) return 0;
   return Math.round(pasien * resep * qty * hari * hna * lama);
+}
+
+function computeLabelCustomer(history: PsspKontrakSummary[]): string {
+  if (history.length === 0) return "Dokter Baru";
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const byContract = new Map<string, PsspKontrakSummary[]>();
+  for (const row of history) {
+    const bucket = byContract.get(row.cUrut) ?? [];
+    bucket.push(row);
+    byContract.set(row.cUrut, bucket);
+  }
+  let hasActive = false;
+  let activeEst = 0, activeLunas = 0, allEst = 0, allLunas = 0;
+  for (const rows of byContract.values()) {
+    const est = rows.reduce((s, r) => s + r.estBaris, 0);
+    const lunas = rows.reduce((s, r) => s + r.totalLunas, 0);
+    allEst += est; allLunas += lunas;
+    if (rows[0].prdAkhir >= currentPeriod) { hasActive = true; activeEst += est; activeLunas += lunas; }
+  }
+  if (hasActive) {
+    const pct = activeEst > 0 ? activeLunas / activeEst * 100 : 0;
+    return pct >= 80 ? "Akan Selesai, Pelunasan Bagus" : "Akan Selesai, Pelunasan Buruk";
+  }
+  const pct = allEst > 0 ? allLunas / allEst * 100 : 0;
+  return pct >= 80 ? "Pernah PSSP, Pelunasan Bagus" : "Pernah PSSP, Pelunasan Buruk";
+}
+
+function LabelCustomerBadge({ label }: { label: string }) {
+  const isNew = label === "Dokter Baru";
+  const isGood = label.includes("Bagus");
+  const isBad = label.includes("Buruk");
+  const color = isNew
+    ? "var(--color-primary)"
+    : isGood ? "var(--color-success, #16a34a)"
+    : isBad ? "var(--color-red)"
+    : "var(--color-text-muted)";
+  const bg = isNew
+    ? "var(--color-primary-light, #eff6ff)"
+    : isGood ? "var(--color-success-bg, #dcfce7)"
+    : isBad ? "var(--color-red-light)"
+    : "var(--color-bg-subtle)";
+  return (
+    <span className="text-xs font-medium px-2 py-0.5 rounded"
+      style={{ color, background: bg, border: `1px solid ${color}` }}>
+      {label}
+    </span>
+  );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -169,7 +201,7 @@ function DokterFieldsSection({ fields, onChange }: {
         )}
       </div>
 
-      {/* Produktivitas dokter-level */}
+      {/* Hari Praktek & Visit */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Praktek / Bln</span>
@@ -179,44 +211,13 @@ function DokterFieldsSection({ fields, onChange }: {
             className="input-field" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Pasien / Hari</span>
-          <input type="number" min="0" placeholder="10"
-            value={fields.jumlahPasienHari}
-            onChange={(e) => onChange({ jumlahPasienHari: e.target.value })}
-            className="input-field" />
-        </label>
-      </div>
-
-      {/* Visit, kompetitor & label customer */}
-      <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Rencana Visit / Bulan</span>
           <input type="number" min="0"
             value={fields.rencanaVisitMinggu}
             onChange={(e) => onChange({ rencanaVisitMinggu: e.target.value })}
             className="input-field" required />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kompetitor</span>
-          <input type="text"
-            value={fields.produkKompetitor}
-            onChange={(e) => onChange({ produkKompetitor: e.target.value })}
-            className="input-field" />
-        </label>
       </div>
-
-      {/* Label Customer */}
-      <label className="flex flex-col gap-1">
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Label Customer</span>
-        <select value={fields.labelCustomer}
-          onChange={(e) => onChange({ labelCustomer: e.target.value })}
-          className="input-field text-xs">
-          <option value="">— Pilih —</option>
-          {LABEL_CUSTOMER_OPTIONS.map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-      </label>
     </div>
   );
 }
@@ -259,7 +260,7 @@ function ProdukEntryRow({
 
   const product = useMemo(() => products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null, [products, entry.kodeProduk]);
 
-  const pasien = parseFloat(dokterFields.jumlahPasienHari) || 0;
+  const pasien = parseFloat(entry.jumlahPasienHari) || 0;
   const resep  = parseFloat(entry.jumlahResepHari) || 0;
   const qty    = parseFloat(entry.qtyProdukResep) || 0;
   const hari   = parseFloat(dokterFields.hariKerjaBulan) || 0;
@@ -299,21 +300,15 @@ function ProdukEntryRow({
         )}
       </div>
 
-      {/* Kriteria Produk */}
-      <label className="flex flex-col gap-1">
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Kriteria Produk</span>
-        <select value={entry.kriteriaProduk}
-          onChange={(e) => onChange({ kriteriaProduk: e.target.value })}
-          className="input-field text-xs">
-          <option value="">— Pilih —</option>
-          {KRITERIA_PRODUK_OPTIONS.map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-      </label>
-
       {/* Per-product inputs */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Pasien / Hari</span>
+          <input type="number" min="0" placeholder="10"
+            value={entry.jumlahPasienHari}
+            onChange={(e) => onChange({ jumlahPasienHari: e.target.value })}
+            className="input-field" />
+        </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Resep / Hari</span>
           <input type="number" min="0" placeholder="3"
@@ -341,7 +336,25 @@ function ProdukEntryRow({
         </label>
       </div>
 
-      {/* Growth & Budget % per produk */}
+      {/* Produk Kompetitor */}
+      <label className="flex flex-col gap-1">
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kompetitor</span>
+        <input type="text" placeholder="Nama produk kompetitor"
+          value={entry.produkKompetitor}
+          onChange={(e) => onChange({ produkKompetitor: e.target.value })}
+          className="input-field text-xs" />
+      </label>
+
+      {/* Estimasi kalau semua field terisi */}
+      {totalEst != null && (
+        <p className="text-xs text-right" style={{ color: "var(--color-text-faint)" }}>
+          Est: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(perBulan)}/bln</strong>
+          {" · "}
+          <strong style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}/{lama}bln</strong>
+        </p>
+      )}
+
+      {/* Budget % per produk */}
       <BudgetFieldsRow entry={entry} onChange={onChange} />
     </div>
   );
@@ -377,8 +390,7 @@ function BudgetFieldsRow({
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-        {numInput("Growth Estimasi (×)", "rasioEstimasiGrowth", "1.0")}
+      <div className="grid grid-cols-3 gap-2">
         {numInput("% PSSP Dokter", "persenPsspDokter")}
         {numInput("% PSSP KPDM", "persenPsspKpdm")}
         {numInput("% Diskon (DPL/DPF)", "persenDiskon")}
@@ -403,7 +415,7 @@ function BudgetFieldsRow({
 
 // ─── PsspHistoryPanel ─────────────────────────────────────────────────────────
 
-function PsspHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
+function PsspHistoryPanel({ kodeCustomer, onLabel }: { kodeCustomer: string; onLabel?: (label: string) => void }) {
   const [history, setHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [loading, startLoad] = useTransition();
 
@@ -411,8 +423,9 @@ function PsspHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
     startLoad(async () => {
       const rows = await getPsspHistory(kodeCustomer);
       setHistory(rows);
+      onLabel?.(computeLabelCustomer(rows));
     });
-  }, [kodeCustomer]);
+  }, [kodeCustomer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading || history === null) {
     return (
@@ -553,6 +566,7 @@ function AddPanel({
 
   const [dokterFields, setDokterFields] = useState<DokterFields>(emptyDokterFields(""));
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
+  const [labelCustomer, setLabelCustomer] = useState("");
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -601,15 +615,13 @@ function AddPanel({
     fd.set("periodeAwal", dokterFields.periodeAwal);
     fd.set("lamaPeriode", String(dokterFields.lamaPeriode));
     fd.set("hariKerjaBulan", dokterFields.hariKerjaBulan);
-    fd.set("jumlahPasienHari", dokterFields.jumlahPasienHari);
+    fd.set("jumlahPasienHari", entry.jumlahPasienHari);
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
-    fd.set("produkKompetitor", dokterFields.produkKompetitor);
-    fd.set("labelCustomer", dokterFields.labelCustomer);
-    fd.set("kriteriaProduk", entry.kriteriaProduk);
+    fd.set("produkKompetitor", entry.produkKompetitor);
+    fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
-    fd.set("rasioEstimasiGrowth", entry.rasioEstimasiGrowth);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("persenDiskon", entry.persenDiskon);
@@ -683,7 +695,7 @@ function AddPanel({
           </div>
           {selectedCustomer && (
             <>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 rounded-lg px-3 py-2 text-xs"
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 items-center rounded-lg px-3 py-2 text-xs"
                 style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
                 {selectedCustomer.kodeCustomer && (
                   <span><span style={{ color: "var(--color-text-faint)" }}>Kode:</span> {selectedCustomer.kodeCustomer}</span>
@@ -691,12 +703,13 @@ function AddPanel({
                 <span><span style={{ color: "var(--color-text-faint)" }}>Outlet:</span> {selectedOutlet?.namaOutlet}</span>
                 <span><span style={{ color: "var(--color-text-faint)" }}>Spesialisasi:</span> {spesLabel(selectedCustomer.spesialisasi)}</span>
                 {selectedCustomer.isFokus && <span style={{ color: "var(--color-primary)" }}>⭐ Dokter Fokus</span>}
+                {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
               </div>
               {selectedCustomer.kodeCustomer && (
                 <div className="mt-3">
                   <p className="text-xs font-semibold uppercase tracking-wider mb-2"
                     style={{ color: "var(--color-text-faint)" }}>Histori PSSP</p>
-                  <PsspHistoryPanel kodeCustomer={selectedCustomer.kodeCustomer} />
+                  <PsspHistoryPanel kodeCustomer={selectedCustomer.kodeCustomer} onLabel={setLabelCustomer} />
                 </div>
               )}
             </>
@@ -895,6 +908,7 @@ function AddProductPanel({
 }) {
   const [dokterFields, setDokterFields] = useState<DokterFields>(emptyDokterFields(defaultPeriode));
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
+  const [labelCustomer, setLabelCustomer] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -919,15 +933,13 @@ function AddProductPanel({
     fd.set("periodeAwal", dokterFields.periodeAwal);
     fd.set("lamaPeriode", String(dokterFields.lamaPeriode));
     fd.set("hariKerjaBulan", dokterFields.hariKerjaBulan);
-    fd.set("jumlahPasienHari", dokterFields.jumlahPasienHari);
+    fd.set("jumlahPasienHari", entry.jumlahPasienHari);
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
-    fd.set("produkKompetitor", dokterFields.produkKompetitor);
-    fd.set("labelCustomer", dokterFields.labelCustomer);
-    fd.set("kriteriaProduk", entry.kriteriaProduk);
+    fd.set("produkKompetitor", entry.produkKompetitor);
+    fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
-    fd.set("rasioEstimasiGrowth", entry.rasioEstimasiGrowth);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("persenDiskon", entry.persenDiskon);
@@ -976,9 +988,12 @@ function AddProductPanel({
 
       {kodeCust && (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider mb-2"
-            style={{ color: "var(--color-text-faint)" }}>Histori PSSP</p>
-          <PsspHistoryPanel kodeCustomer={kodeCust} />
+          <div className="flex items-center gap-2 mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: "var(--color-text-faint)" }}>Histori PSSP</p>
+            {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
+          </div>
+          <PsspHistoryPanel kodeCustomer={kodeCust} onLabel={setLabelCustomer} />
         </div>
       )}
 
@@ -1047,19 +1062,16 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     periodeAwal: item.periodeAwal,
     lamaPeriode: item.lamaPeriode,
     hariKerjaBulan: item.hariKerjaBulan?.toString() ?? "",
-    jumlahPasienHari: item.jumlahPasienHari?.toString() ?? "",
     rencanaVisitMinggu: item.rencanaVisitMinggu.toString(),
-    produkKompetitor: item.produkKompetitor ?? "",
-    labelCustomer: item.labelCustomer ?? "",
   });
   const [produkEntry, setProdukEntry] = useState<ProdukEntry>({
     uid: "edit",
     kodeProduk: item.kodeProduk,
-    kriteriaProduk: item.kriteriaProduk ?? "",
+    jumlahPasienHari: item.jumlahPasienHari?.toString() ?? "",
     jumlahResepHari: item.jumlahResepHari?.toString() ?? "",
     qtyProdukResep: item.qtyProdukResep?.toString() ?? "",
+    produkKompetitor: item.produkKompetitor ?? "",
     statusStandarisasi: item.statusStandarisasi ?? "",
-    rasioEstimasiGrowth: item.rasioEstimasiGrowth?.toString() ?? "",
     persenPsspDokter: item.persenPsspDokter ? (parseFloat(item.persenPsspDokter.toString()) * 100).toFixed(2) : "",
     persenPsspKpdm: item.persenPsspKpdm ? (parseFloat(item.persenPsspKpdm.toString()) * 100).toFixed(2) : "",
     persenDiskon: item.persenDiskon ? (parseFloat(item.persenDiskon.toString()) * 100).toFixed(2) : "",
@@ -1076,15 +1088,12 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     fd.set("periodeAwal", dokterFields.periodeAwal);
     fd.set("lamaPeriode", String(dokterFields.lamaPeriode));
     fd.set("hariKerjaBulan", dokterFields.hariKerjaBulan);
-    fd.set("jumlahPasienHari", dokterFields.jumlahPasienHari);
+    fd.set("jumlahPasienHari", produkEntry.jumlahPasienHari);
     fd.set("jumlahResepHari", produkEntry.jumlahResepHari);
     fd.set("qtyProdukResep", produkEntry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
-    fd.set("produkKompetitor", dokterFields.produkKompetitor);
-    fd.set("labelCustomer", dokterFields.labelCustomer);
-    fd.set("kriteriaProduk", produkEntry.kriteriaProduk);
+    fd.set("produkKompetitor", produkEntry.produkKompetitor);
     fd.set("statusStandarisasi", produkEntry.statusStandarisasi);
-    fd.set("rasioEstimasiGrowth", produkEntry.rasioEstimasiGrowth);
     fd.set("persenPsspDokter", produkEntry.persenPsspDokter);
     fd.set("persenPsspKpdm", produkEntry.persenPsspKpdm);
     fd.set("persenDiskon", produkEntry.persenDiskon);
@@ -1103,7 +1112,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
   }
 
   const product = products.find((p) => p.kodeProduk === produkEntry.kodeProduk) ?? null;
-  const pasien = parseFloat(dokterFields.jumlahPasienHari) || 0;
+  const pasien = parseFloat(produkEntry.jumlahPasienHari) || 0;
   const resep  = parseFloat(produkEntry.jumlahResepHari) || 0;
   const qty    = parseFloat(produkEntry.qtyProdukResep) || 0;
   const hari   = parseFloat(dokterFields.hariKerjaBulan) || 0;
@@ -1128,6 +1137,14 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
           <InfoField label="Dokter" value={item.namaCust} />
           <InfoField label="Spesialisasi" value={spesLabel(item.spesialisasi)} />
           <InfoField label="Produk" value={item.namaProduk} />
+          {item.labelCustomer && (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Label Customer</span>
+              <div className="flex items-center px-2 py-1.5">
+                <LabelCustomerBadge label={item.labelCustomer} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1144,18 +1161,14 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
           <SectionLabel>Data Produk</SectionLabel>
           <div className="rounded-lg border p-3 space-y-3"
             style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Kriteria Produk</span>
-              <select value={produkEntry.kriteriaProduk}
-                onChange={(e) => setProdukEntry((prev) => ({ ...prev, kriteriaProduk: e.target.value }))}
-                className="input-field text-xs">
-                <option value="">— Pilih —</option>
-                {KRITERIA_PRODUK_OPTIONS.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Pasien / Hari</span>
+                <input type="number" min="0" placeholder="10"
+                  value={produkEntry.jumlahPasienHari}
+                  onChange={(e) => setProdukEntry((prev) => ({ ...prev, jumlahPasienHari: e.target.value }))}
+                  className="input-field" />
+              </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Resep / Hari</span>
                 <input type="number" min="0" placeholder="3"
@@ -1182,6 +1195,13 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
                 </select>
               </label>
             </div>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kompetitor</span>
+              <input type="text" placeholder="Nama produk kompetitor"
+                value={produkEntry.produkKompetitor}
+                onChange={(e) => setProdukEntry((prev) => ({ ...prev, produkKompetitor: e.target.value }))}
+                className="input-field text-xs" />
+            </label>
             <BudgetFieldsRow
               entry={produkEntry}
               onChange={(patch) => setProdukEntry((prev) => ({ ...prev, ...patch }))}

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "postinstall": "prisma generate",
-    "dev": "next dev --hostname 0.0.0.0",
+    "dev": "next dev",
     "build:development": "APP_ENV=dev next build",
     "build:staging": "APP_ENV=staging next build",
     "build:production": "APP_ENV=production next build",
