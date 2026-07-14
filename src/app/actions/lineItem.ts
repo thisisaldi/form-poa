@@ -40,6 +40,18 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
 
+  function parsePct(key: string) {
+    const v = parseFloat(formData.get(key) as string);
+    return isNaN(v) || v === 0 ? null : new Prisma.Decimal((v / 100).toFixed(4));
+  }
+  const rasioEstimasiGrowth = (() => { const v = parseFloat(formData.get("rasioEstimasiGrowth") as string); return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4)); })();
+  const persenPsspDokter = parsePct("persenPsspDokter");
+  const persenPsspKpdm   = parsePct("persenPsspKpdm");
+  const persenDiskon     = parsePct("persenDiskon");
+  const persenDp         = parsePct("persenDp");
+  const persenListingFee = parsePct("persenListingFee");
+  const persenEntertain  = parsePct("persenEntertain");
+
   // Direct mode: caller already knows dokter info (e.g. adding a product to an existing doctor row)
   const directNamaCust = (formData.get("directNamaCust") as string | null)?.trim() ?? "";
   const directSpesialisasi = (formData.get("directSpesialisasi") as string | null)?.trim() ?? "";
@@ -54,12 +66,17 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent("Field wajib belum lengkap."));
   }
 
-  const [customerResult, outlet, product] = await Promise.all([
+  const itemKode = kodeProduk; // itemKode matches kodeProduk in our schema
+
+  const [customerResult, outlet, product, salesHistory] = await Promise.all([
     isDirect
       ? Promise.resolve(null)
       : prisma.customer.findUnique({ where: { id: customerId } }),
     prisma.outlet.findUnique({ where: { kodePI } }),
     getProductByKode(kodeProduk),
+    prisma.outletSalesHistory.findUnique({
+      where: { kodePI_itemKode: { kodePI, itemKode } },
+    }),
   ]);
 
   if (!outlet || !product) {
@@ -95,6 +112,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       itemKode: product.kodeProduk,
       satuanTerkecil: product.satuan,
       hargaSatuanTerkecil: new Prisma.Decimal(product.hna.toString()),
+      historySales3Bln: salesHistory?.totalSales12Bln ?? null,
       produkKompetitor,
       statusStandarisasi,
       lamaPeriode: lamaPeriodeRaw,
@@ -105,6 +123,13 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       jumlahPasienHari,
       jumlahResepHari,
       qtyProdukResep,
+      rasioEstimasiGrowth,
+      persenPsspDokter,
+      persenPsspKpdm,
+      persenDiskon,
+      persenDp,
+      persenListingFee,
+      persenEntertain,
     },
   });
 
@@ -129,6 +154,18 @@ export async function updateLineItemAction(
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
 
+  function parsePctU(key: string) {
+    const v = parseFloat(formData.get(key) as string);
+    return isNaN(v) || v === 0 ? null : new Prisma.Decimal((v / 100).toFixed(4));
+  }
+  const rasioEstimasiGrowthU = (() => { const v = parseFloat(formData.get("rasioEstimasiGrowth") as string); return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4)); })();
+  const persenPsspDokterU = parsePctU("persenPsspDokter");
+  const persenPsspKpdmU   = parsePctU("persenPsspKpdm");
+  const persenDiskonU     = parsePctU("persenDiskon");
+  const persenDpU         = parsePctU("persenDp");
+  const persenListingFeeU = parsePctU("persenListingFee");
+  const persenEntertainU  = parsePctU("persenEntertain");
+
   const statusStandarisasi =
     statusStandarisasiRaw && Object.values(StatusStandarisasi).includes(statusStandarisasiRaw as StatusStandarisasi)
       ? (statusStandarisasiRaw as StatusStandarisasi)
@@ -147,6 +184,13 @@ export async function updateLineItemAction(
       jumlahPasienHari,
       jumlahResepHari,
       qtyProdukResep,
+      rasioEstimasiGrowth: rasioEstimasiGrowthU,
+      persenPsspDokter: persenPsspDokterU,
+      persenPsspKpdm: persenPsspKpdmU,
+      persenDiskon: persenDiskonU,
+      persenDp: persenDpU,
+      persenListingFee: persenListingFeeU,
+      persenEntertain: persenEntertainU,
     },
   });
 

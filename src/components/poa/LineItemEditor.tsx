@@ -53,10 +53,22 @@ interface ProdukEntry {
   jumlahResepHari: string;
   qtyProdukResep: string;
   statusStandarisasi: string;
+  rasioEstimasiGrowth: string;   // multiplier, e.g. "1.0" / "1.2"
+  persenPsspDokter: string;      // % as 0-100
+  persenPsspKpdm: string;
+  persenDiskon: string;
+  persenDp: string;
+  persenListingFee: string;
+  persenEntertain: string;
 }
 
 function emptyProdukEntry(): ProdukEntry {
-  return { uid: Math.random().toString(36).slice(2), kodeProduk: "", jumlahResepHari: "", qtyProdukResep: "", statusStandarisasi: "" };
+  return {
+    uid: Math.random().toString(36).slice(2),
+    kodeProduk: "", jumlahResepHari: "", qtyProdukResep: "", statusStandarisasi: "",
+    rasioEstimasiGrowth: "", persenPsspDokter: "", persenPsspKpdm: "",
+    persenDiskon: "", persenDp: "", persenListingFee: "", persenEntertain: "",
+  };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -141,14 +153,14 @@ function DokterFieldsSection({ fields, onChange }: {
       {/* Produktivitas dokter-level */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Kerja / Bln</span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Praktek / Bln</span>
           <input type="number" min="0" placeholder="22"
             value={fields.hariKerjaBulan}
             onChange={(e) => onChange({ hariKerjaBulan: e.target.value })}
             className="input-field" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pasien / Hari</span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Pasien / Hari</span>
           <input type="number" min="0" placeholder="10"
             value={fields.jumlahPasienHari}
             onChange={(e) => onChange({ jumlahPasienHari: e.target.value })}
@@ -159,7 +171,7 @@ function DokterFieldsSection({ fields, onChange }: {
       {/* Visit & kompetitor */}
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Visit / Minggu</span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Visit / Bulan</span>
           <input type="number" min="0"
             value={fields.rencanaVisitMinggu}
             onChange={(e) => onChange({ rencanaVisitMinggu: e.target.value })}
@@ -265,7 +277,7 @@ function ProdukEntryRow({
             className="input-field" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Qty / Resep</span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Produk ST / Resep</span>
           <input type="number" min="0" placeholder="1"
             value={entry.qtyProdukResep}
             onChange={(e) => onChange({ qtyProdukResep: e.target.value })}
@@ -284,7 +296,62 @@ function ProdukEntryRow({
         </label>
       </div>
 
-      {/* Grey calculator — disabled */}
+      {/* Growth & Budget % per produk */}
+      <BudgetFieldsRow entry={entry} onChange={onChange} />
+    </div>
+  );
+}
+
+// ─── BudgetFieldsRow ─────────────────────────────────────────────────────────
+
+function BudgetFieldsRow({
+  entry,
+  onChange,
+}: {
+  entry: ProdukEntry;
+  onChange: (patch: Partial<ProdukEntry>) => void;
+}) {
+  const totalPct =
+    [entry.persenPsspDokter, entry.persenPsspKpdm, entry.persenDiskon,
+     entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+      .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+  const hasTotal = totalPct > 0;
+  const overBudget = totalPct > 42.5;
+
+  function numInput(label: string, key: keyof ProdukEntry, placeholder = "0") {
+    return (
+      <label className="flex flex-col gap-1">
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{label}</span>
+        <input type="number" min="0" step="0.01" placeholder={placeholder}
+          value={entry[key] as string}
+          onChange={(e) => onChange({ [key]: e.target.value } as Partial<ProdukEntry>)}
+          className="input-field" />
+      </label>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+        {numInput("Growth Estimasi (×)", "rasioEstimasiGrowth", "1.0")}
+        {numInput("% PSSP Dokter", "persenPsspDokter")}
+        {numInput("% PSSP KPDM", "persenPsspKpdm")}
+        {numInput("% Diskon (DPL/DPF)", "persenDiskon")}
+        {numInput("% DP", "persenDp")}
+        {numInput("% Listing Fee", "persenListingFee")}
+        {numInput("% Entertain", "persenEntertain")}
+      </div>
+      {hasTotal && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded text-xs"
+          style={{
+            background: overBudget ? "var(--color-red-light)" : "var(--color-bg)",
+            border: `1px solid ${overBudget ? "var(--color-red)" : "var(--color-border)"}`,
+            color: overBudget ? "var(--color-red)" : "var(--color-text-muted)",
+          }}>
+          <span>Total % Budget: <strong>{totalPct.toFixed(2)}%</strong></span>
+          <span style={{ fontWeight: 600 }}>{overBudget ? "⚠ OVER BUDGET" : "✓ SAFE"}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -495,6 +562,13 @@ function AddPanel({
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
     fd.set("produkKompetitor", dokterFields.produkKompetitor);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
+    fd.set("rasioEstimasiGrowth", entry.rasioEstimasiGrowth);
+    fd.set("persenPsspDokter", entry.persenPsspDokter);
+    fd.set("persenPsspKpdm", entry.persenPsspKpdm);
+    fd.set("persenDiskon", entry.persenDiskon);
+    fd.set("persenDp", entry.persenDp);
+    fd.set("persenListingFee", entry.persenListingFee);
+    fd.set("persenEntertain", entry.persenEntertain);
     fd.set("rencanaTotalBiaya", String(computeEstimasi(entry, dokterFields, product)));
     return fd;
   }
@@ -804,6 +878,13 @@ function AddProductPanel({
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
     fd.set("produkKompetitor", dokterFields.produkKompetitor);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
+    fd.set("rasioEstimasiGrowth", entry.rasioEstimasiGrowth);
+    fd.set("persenPsspDokter", entry.persenPsspDokter);
+    fd.set("persenPsspKpdm", entry.persenPsspKpdm);
+    fd.set("persenDiskon", entry.persenDiskon);
+    fd.set("persenDp", entry.persenDp);
+    fd.set("persenListingFee", entry.persenListingFee);
+    fd.set("persenEntertain", entry.persenEntertain);
     fd.set("rencanaTotalBiaya", String(computeEstimasi(entry, dokterFields, product)));
     return fd;
   }
@@ -927,6 +1008,13 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     jumlahResepHari: item.jumlahResepHari?.toString() ?? "",
     qtyProdukResep: item.qtyProdukResep?.toString() ?? "",
     statusStandarisasi: item.statusStandarisasi ?? "",
+    rasioEstimasiGrowth: item.rasioEstimasiGrowth?.toString() ?? "",
+    persenPsspDokter: item.persenPsspDokter ? (parseFloat(item.persenPsspDokter.toString()) * 100).toFixed(2) : "",
+    persenPsspKpdm: item.persenPsspKpdm ? (parseFloat(item.persenPsspKpdm.toString()) * 100).toFixed(2) : "",
+    persenDiskon: item.persenDiskon ? (parseFloat(item.persenDiskon.toString()) * 100).toFixed(2) : "",
+    persenDp: item.persenDp ? (parseFloat(item.persenDp.toString()) * 100).toFixed(2) : "",
+    persenListingFee: item.persenListingFee ? (parseFloat(item.persenListingFee.toString()) * 100).toFixed(2) : "",
+    persenEntertain: item.persenEntertain ? (parseFloat(item.persenEntertain.toString()) * 100).toFixed(2) : "",
   });
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -943,6 +1031,13 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
     fd.set("produkKompetitor", dokterFields.produkKompetitor);
     fd.set("statusStandarisasi", produkEntry.statusStandarisasi);
+    fd.set("rasioEstimasiGrowth", produkEntry.rasioEstimasiGrowth);
+    fd.set("persenPsspDokter", produkEntry.persenPsspDokter);
+    fd.set("persenPsspKpdm", produkEntry.persenPsspKpdm);
+    fd.set("persenDiskon", produkEntry.persenDiskon);
+    fd.set("persenDp", produkEntry.persenDp);
+    fd.set("persenListingFee", produkEntry.persenListingFee);
+    fd.set("persenEntertain", produkEntry.persenEntertain);
     fd.set("rencanaTotalBiaya", String(computeEstimasi(produkEntry, dokterFields, product)));
     startTransition(async () => {
       try {
@@ -1005,7 +1100,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
                   className="input-field" />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Qty / Resep</span>
+                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Produk ST / Resep</span>
                 <input type="number" min="0" placeholder="1"
                   value={produkEntry.qtyProdukResep}
                   onChange={(e) => setProdukEntry((prev) => ({ ...prev, qtyProdukResep: e.target.value }))}
@@ -1023,20 +1118,10 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
                 </select>
               </label>
             </div>
-            {canCalc && totalEst != null ? (
-              <div className="rounded px-3 py-2 text-xs"
-                style={{ background: "var(--color-bg)", color: "var(--color-text-faint)", border: "1px solid var(--color-border)" }}>
-                {pasien} × {resep} × {qty} × {hari} × {formatRp(hna)}
-                {" = "}<span style={{ color: "var(--color-text-muted)" }}>{formatRp(perBulan)}/bln</span>
-                {" × "}{lama} bln
-                {" = "}<strong style={{ color: "var(--color-text)" }}>{formatRp(totalEst)}</strong>
-              </div>
-            ) : (
-              <div className="rounded px-3 py-2 text-xs"
-                style={{ background: "var(--color-bg)", color: "var(--color-text-faint)", border: "1px solid var(--color-border)" }}>
-                Isi Hari Kerja, Pasien/Hari, Resep/Hari, dan Qty/Resep untuk estimasi
-              </div>
-            )}
+            <BudgetFieldsRow
+              entry={produkEntry}
+              onChange={(patch) => setProdukEntry((prev) => ({ ...prev, ...patch }))}
+            />
           </div>
         </div>
 

@@ -176,6 +176,15 @@ model PoaLineItem {
   historySales3Bln   Decimal?  @db.Decimal(18, 2)
   avgDiskon          Decimal?  @db.Decimal(18, 4)
 
+  // ── MR input per produk ───────────────────────────────────────────────────
+  rasioEstimasiGrowth   Decimal?  @db.Decimal(18, 4)  // multiplier growth (e.g. 1.0 / 1.2)
+  persenPsspDokter      Decimal?  @db.Decimal(18, 4)
+  persenPsspKpdm        Decimal?  @db.Decimal(18, 4)
+  persenDiskon          Decimal?  @db.Decimal(18, 4)
+  persenDp              Decimal?  @db.Decimal(18, 4)
+  persenListingFee      Decimal?  @db.Decimal(18, 4)
+  persenEntertain       Decimal?  @db.Decimal(18, 4)
+
   // ── Formula placeholder columns (all nullable, computed externally) ───────
   hargaSatuanTerkecil           Decimal?  @db.Decimal(18, 2)
   estimasiPSSPBulan             Decimal?  @db.Decimal(18, 2)
@@ -365,6 +374,24 @@ model CustomerPengajuan {
   @@index([submittedBy])
   @@index([status])
   @@index([spesialisasi])
+}
+
+// ─── Outlet Sales History ─────────────────────────────────────────────────────
+// Synced from mkt_insight.dbo.DIR10001B. One row per (kodePI × itemKode).
+// totalSales12Bln = SUM([Value Sales]) for the 12 completed months before current.
+
+model OutletSalesHistory {
+  id              String   @id @default(uuid())
+  kodePI          String
+  itemKode        String
+  totalSales12Bln Decimal  @db.Decimal(18, 2)
+  periodeFrom     String   // YYYYMM — start of 12-month window
+  periodeTo       String   // YYYYMM — end of 12-month window
+  syncedAt        DateTime
+
+  @@unique([kodePI, itemKode])
+  @@index([kodePI])
+  @@index([itemKode])
 }
 
 // Junction: which MRs are assigned to which outlets per periode (from Struktur_Marketing_PI)
