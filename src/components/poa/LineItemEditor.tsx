@@ -98,8 +98,14 @@ function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Prod
 
 // Returns the per-month estimate from the most recent PSSP contract for a given product.
 // estBaris is the full-period total, so we divide by number of months.
-function computeOldEstPerMonth(kodeProduk: string, history: PsspKontrakSummary[]): number | null {
-  const rows = history.filter((r) => r.kdProduk === kodeProduk);
+// Tries matching by kdProduk (item kode) first; falls back to namaProduk because
+// Product.kodeProduk is Procode while PsspKontrak.kdProduk is Item Kode — different systems.
+function computeOldEstPerMonth(kodeProduk: string, history: PsspKontrakSummary[], namaProduk?: string): number | null {
+  let rows = history.filter((r) => r.kdProduk === kodeProduk);
+  if (rows.length === 0 && namaProduk) {
+    const norm = namaProduk.toLowerCase().trim();
+    rows = history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm);
+  }
   if (rows.length === 0) return null;
   const latest = rows[0]; // already sorted desc by prdAkhir from query
   const sy = parseInt(latest.prdAwal.slice(0, 4)), sm = parseInt(latest.prdAwal.slice(4));
@@ -285,7 +291,7 @@ function ProdukEntryRow({
   const totalEst = perBulan != null ? perBulan * lama : null;
 
   const oldEstPerMonth = (psspHistory && entry.kodeProduk)
-    ? computeOldEstPerMonth(entry.kodeProduk, psspHistory)
+    ? computeOldEstPerMonth(entry.kodeProduk, psspHistory, product?.namaProduk ?? undefined)
     : null;
   const growthRatio = (perBulan != null && oldEstPerMonth != null && oldEstPerMonth > 0)
     ? perBulan / oldEstPerMonth
@@ -778,7 +784,7 @@ function AddPanel({
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
-    const oldEst = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory) : null;
+    const oldEst = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory, product?.namaProduk ?? undefined) : null;
     const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
     fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
@@ -1104,7 +1110,7 @@ function AddProductPanel({
     const totalBiayaAP = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiayaAP));
     const perBulanAP = dokterFields.lamaPeriode > 0 ? totalBiayaAP / dokterFields.lamaPeriode : 0;
-    const oldEstAP = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory) : null;
+    const oldEstAP = entry.kodeProduk ? computeOldEstPerMonth(entry.kodeProduk, psspHistory, product?.namaProduk ?? undefined) : null;
     const rasioAP = perBulanAP > 0 && oldEstAP && oldEstAP > 0 ? perBulanAP / oldEstAP : null;
     fd.set("rasioEstimasiGrowth", rasioAP != null ? rasioAP.toFixed(4) : "");
     return fd;
@@ -1265,7 +1271,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
     const totalBiayaE = computeEstimasi(produkEntry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiayaE));
     const perBulanE = dokterFields.lamaPeriode > 0 ? totalBiayaE / dokterFields.lamaPeriode : 0;
-    const oldEstE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory) : null;
+    const oldEstE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory, item.namaProduk) : null;
     const rasioE = perBulanE > 0 && oldEstE && oldEstE > 0 ? perBulanE / oldEstE : null;
     fd.set("rasioEstimasiGrowth", rasioE != null ? rasioE.toFixed(4) : "");
     startTransition(async () => {
@@ -1288,7 +1294,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
   const canCalc = pasien > 0 && resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(pasien * resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
-  const oldEstPerMonthE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory) : null;
+  const oldEstPerMonthE = item.kodeProduk ? computeOldEstPerMonth(item.kodeProduk, psspHistory, item.namaProduk) : null;
   const growthRatioE = (perBulan != null && oldEstPerMonthE != null && oldEstPerMonthE > 0)
     ? perBulan / oldEstPerMonthE : null;
   const growthPctE = growthRatioE != null ? (growthRatioE - 1) * 100 : null;
