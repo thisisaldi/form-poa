@@ -58,7 +58,7 @@ service:
 # This is for setting up an HTTPScaledObject more information can be found here: https://github.com/kedacore/http-add-on
 httpScaledObject:
   enabled: true
-  exposedHost: izmo.chc.pharmalink.id
+  exposedHost: form-poa.chc.pharmalink.id
   pathPrefixes:
     - /
   minReplicas: 0
@@ -152,12 +152,12 @@ job:
 tolerations:
   deployment:
     development:
-      env: hc-intelligence
+      env: staging-century
     staging:
-      env: hc-intelligence
+      env: staging-century
     production:
-      env: healthyone
+      env: prod-canvasser
   cronjob:
-    env: healthyone
+    env: prod-canvasser
 
 terminationGracePeriodSeconds: 30
