@@ -13,6 +13,7 @@ COPY --chown=appuser:nodejs ./prisma ./prisma/
 COPY --chown=appuser:nodejs ./package.json ./package.json
 
 RUN chown -R appuser:nodejs /app
+RUN npm install -g prisma@5.22.0
 
 # ===========================================================================
 # Note:

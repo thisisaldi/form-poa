@@ -3,9 +3,7 @@
 WORKDIR=/app
 NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
 
-mv /vault/secrets/.env.${NAMESPACE} $WORKDIR/.env.${NAMESPACE}
+cp /vault/secrets/.env.${NAMESPACE} $WORKDIR/.env.${NAMESPACE}
 
-ls -la /app/node_modules
-ls -la /app/node_modules/@prisma
-
+npx prisma generate
 npm run db:migrate
