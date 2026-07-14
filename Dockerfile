@@ -8,6 +8,7 @@ WORKDIR /app
 # Copy common dir
 COPY --chown=appuser:nodejs ./scripts ./scripts/
 COPY --chown=appuser:nodejs ./public ./public/
+COPY --chown=appuser:nodejs ./prisma ./prisma/
 
 RUN chown -R appuser:nodejs /app
 
