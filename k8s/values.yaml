@@ -20,9 +20,8 @@ serviceAccount:
   automount: true
   # Annotations to add to the service account
   annotations:
-    helm.sh/hook: pre-install
-    helm.sh/hook-delete-policy: before-hook-creation
-    helm.sh/hook-weight: "-1"
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
   # The name of the service account to use.
   # If not set and create is true, a name is generated using the fullname template
   name: v-chc-pharmalogic-form-poa
@@ -145,7 +144,7 @@ job:
     command: ["sh", "scripts/migrate.sh"]
     annotations:
       helm.sh/hook: pre-install,pre-upgrade
-      helm.sh/hook-weight: "0"
+      helm.sh/hook-weight: "1"
       helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
     ttlSecondsAfterFinished: 120
 
