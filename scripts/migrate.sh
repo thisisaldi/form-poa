@@ -3,6 +3,6 @@
 WORKDIR=/app
 NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
 
-mv /vault/secrets/.env.${NAMESPACE} $WORKDIR/${NAMESPACE}/.env.${NAMESPACE}
+mv /vault/secrets/.env.${NAMESPACE} $WORKDIR/.env.${NAMESPACE}
 
-cd $WORKDIR/$NAMESPACE && npx prisma migrate deploy
+npx prisma migrate deploy
