@@ -38,6 +38,7 @@ enum StatusStandarisasi {
   SUDAH_STANDARISASI
   PROSES_PENGAJUAN
   BELUM_STANDARISASI
+  TIDAK_TAHU
 }
 
 // ─── Models ──────────────────────────────────────────────────────────────────
@@ -155,7 +156,9 @@ model PoaLineItem {
   satuanTerkecil        String
 
   // ── MR manual input ───────────────────────────────────────────────────────
+  labelCustomer         String?
   produkKompetitor      String?
+  kriteriaProduk        String?
   statusStandarisasi    StatusStandarisasi?
 
   // tentative fields (C20-C23) — nullable
