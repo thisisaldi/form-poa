@@ -31,11 +31,12 @@ const SUBMIT_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
   [PoaStatus.APPROVED_BY_NSM]: null,
 };
 
+// Approve goes directly to the next level — no separate "submit upward" step.
 const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
-  [PoaStatus.SUBMITTED_TO_ASM]: { toStatus: PoaStatus.APPROVED_BY_ASM, nextHolderRole: null },
-  [PoaStatus.SUBMITTED_TO_SM]: { toStatus: PoaStatus.APPROVED_BY_SM, nextHolderRole: null },
-  [PoaStatus.SUBMITTED_TO_NSM]: { toStatus: PoaStatus.APPROVED_BY_NSM, nextHolderRole: null },
-  // Invalid approve sources
+  [PoaStatus.SUBMITTED_TO_ASM]: { toStatus: PoaStatus.SUBMITTED_TO_SM,  nextHolderRole: "SM"  },
+  [PoaStatus.SUBMITTED_TO_SM]:  { toStatus: PoaStatus.SUBMITTED_TO_NSM, nextHolderRole: "NSM" },
+  [PoaStatus.SUBMITTED_TO_NSM]: { toStatus: PoaStatus.APPROVED_BY_NSM,  nextHolderRole: null  },
+  // Intermediate statuses kept for backward compat but unreachable in normal flow
   [PoaStatus.DRAFT]: null,
   [PoaStatus.APPROVED_BY_ASM]: null,
   [PoaStatus.APPROVED_BY_SM]: null,

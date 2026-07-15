@@ -46,7 +46,7 @@ export default async function PoaDetailPage({
   const submitWithId = submitPoaAction.bind(null, id);
   const approveWithId = approvePoaAction.bind(null, id);
 
-  const isApprover = ["ASM", "SM", "NSM"].includes(session.role);
+  const isMR = session.role === "MR";
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
 
@@ -125,25 +125,18 @@ export default async function PoaDetailPage({
       {userCanEdit && !isFullyApproved && (
         <Card>
           <CardHeader>
-            <CardTitle>
-              {isApprover ? "Tindakan Persetujuan" : "Submit"}
-            </CardTitle>
+            <CardTitle>{isMR ? "Ajukan POA" : "Tindakan"}</CardTitle>
           </CardHeader>
           <div className="flex gap-3">
-            {isApprover ? (
-              <>
-                <form action={approveWithId}>
-                  <Button type="submit" style={{ background: "var(--color-green)" }}>
-                    Approve
-                  </Button>
-                </form>
-                <form action={submitWithId}>
-                  <Button type="submit">Submit ke Atas</Button>
-                </form>
-              </>
-            ) : (
+            {isMR ? (
               <form action={submitWithId}>
-                <Button type="submit">Submit ke Atasan</Button>
+                <Button type="submit">Ajukan ke Atasan</Button>
+              </form>
+            ) : (
+              <form action={approveWithId}>
+                <Button type="submit" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+                  Approve &amp; Teruskan
+                </Button>
               </form>
             )}
           </div>
@@ -159,40 +152,47 @@ export default async function PoaDetailPage({
         </div>
       )}
 
-      {/* Audit log */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Riwayat Aktivitas</CardTitle>
-        </CardHeader>
-        {poa.auditLogs.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Belum ada aktivitas.</p>
-        ) : (
-          <ol className="relative space-y-4 pl-5 border-l" style={{ borderColor: "var(--color-border)" }}>
-            {(poa.auditLogs as (AuditLogType & { actor: UserType })[]).map((log) => (
-              <li key={log.id} className="relative">
-                <span
-                  className="absolute left-[-1.4rem] mt-1 h-2.5 w-2.5 rounded-full border-2 border-white"
-                  style={{ background: "var(--color-blue)" }}
-                />
-                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                  {new Date(log.createdAt).toLocaleString("id-ID")}
-                </p>
-                <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-                  {log.actor.name}
-                  <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
-                    {log.action.toLowerCase()}
-                  </span>
-                </p>
-                {log.toStatus && (
-                  <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                    → {log.toStatus.replace(/_/g, " ")}
+      {/* Audit log — hidden by default */}
+      <details>
+        <summary className="cursor-pointer select-none list-none">
+          <Card>
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Riwayat Aktivitas</p>
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Klik untuk lihat ▼</p>
+            </div>
+          </Card>
+        </summary>
+        <Card className="mt-2">
+          {poa.auditLogs.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Belum ada aktivitas.</p>
+          ) : (
+            <ol className="relative space-y-4 pl-5 border-l" style={{ borderColor: "var(--color-border)" }}>
+              {(poa.auditLogs as (AuditLogType & { actor: UserType })[]).map((log) => (
+                <li key={log.id} className="relative">
+                  <span
+                    className="absolute left-[-1.4rem] mt-1 h-2.5 w-2.5 rounded-full border-2 border-white"
+                    style={{ background: "var(--color-blue)" }}
+                  />
+                  <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                    {new Date(log.createdAt).toLocaleString("id-ID")}
                   </p>
-                )}
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
+                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+                    {log.actor.name}
+                    <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
+                      {log.action.toLowerCase()}
+                    </span>
+                  </p>
+                  {log.toStatus && (
+                    <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                      → {log.toStatus.replace(/_/g, " ")}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+      </details>
     </div>
   );
 }

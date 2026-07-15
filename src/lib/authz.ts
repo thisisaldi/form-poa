@@ -140,8 +140,7 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
  * Can this user edit this specific POA right now?
  *
  * MR: only while DRAFT
- * ASM: only when poa.currentHolderId === user.nip (status SUBMITTED_TO_ASM)
- * SM/NSM: read-only — they approve/forward but cannot edit line items
+ * ASM/SM/NSM: when the POA is currently in their hands (currentHolderId)
  */
 export function canEdit(user: User, poa: PoaForm): boolean {
   if (user.role === Role.ADMIN) return true;
@@ -150,7 +149,7 @@ export function canEdit(user: User, poa: PoaForm): boolean {
     return poa.ownerId === user.nip && poa.status === PoaStatus.DRAFT;
   }
 
-  if (user.role === Role.ASM) {
+  if (([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role)) {
     return poa.currentHolderId === user.nip;
   }
 
