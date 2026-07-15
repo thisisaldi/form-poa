@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import type { PoaLineItem } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { spesLabel } from "@/lib/spesialisasi";
+import { getAllPakets } from "@/lib/paketProduk";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ function computeStats(items: PoaLineItem[]) {
   return {
     estimasiTotal, psspTotal, discountTotal, entertainTotal,
     budgetTotal: psspTotal + discountTotal + entertainTotal,
-    productCount: new Set(items.map((i) => i.kodeProduk)).size,
+    productCount: new Set(items.filter((i) => getAllPakets(i.namaProduk).length > 0).map((i) => i.kodeProduk)).size,
     totalPengajuan: items.length,
     sudahStandar: sudah,
     prosesStandar: proses,
@@ -218,7 +219,7 @@ function StatsPanel({
             danger: selectedDoctorCount < 30,
           },
           {
-            label: "Produk",
+            label: "Produk Fokus",
             value: `${s.productCount}/22`,
             sub: s.productCount >= 22 ? "terpenuhi ✓" : `kurang ${22 - s.productCount}`,
             danger: s.productCount < 22,
