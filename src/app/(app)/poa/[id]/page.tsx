@@ -68,8 +68,8 @@ export default async function PoaDetailPage({
     }
     const ratio = estimasiTotal > 0 ? budgetTotal / estimasiTotal : 0;
     if (ratio <= 0) return null;
-    if (ratio > 0.35) return { level: "danger"  as const, pct: (ratio * 100).toFixed(1) };
-    if (ratio > 0.28) return { level: "warning" as const, pct: (ratio * 100).toFixed(1) };
+    if (ratio > 0.425) return { level: "danger"  as const, pct: (ratio * 100).toFixed(1) };
+    if (ratio > 0.38)  return { level: "warning" as const, pct: (ratio * 100).toFixed(1) };
     return               { level: "ok"      as const, pct: (ratio * 100).toFixed(1) };
   })();
 
@@ -137,10 +137,10 @@ export default async function PoaDetailPage({
             </p>
             <p className="text-xs mt-0.5 opacity-80">
               {budgetWarning.level === "danger"
-                ? "Total budget (PSSP + Discount + Entertain) melebihi 35% dari estimasi. Perlu ditinjau."
+                ? "Total budget (PSSP + Discount + Entertain) melebihi batas 42,5% dari estimasi. Perlu ditinjau."
                 : budgetWarning.level === "warning"
-                ? "Total budget di atas 28% dari estimasi. Perhatikan agar tidak melebihi batas."
-                : "Total budget di bawah 28% dari estimasi."}
+                ? "Total budget mendekati batas 42,5%. Perhatikan agar tidak melebihi batas."
+                : "Total budget di bawah 38% dari estimasi."}
             </p>
           </div>
         </div>
