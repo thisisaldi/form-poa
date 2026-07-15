@@ -13,6 +13,148 @@ import { spesLabel } from "@/lib/spesialisasi";
 
 export const metadata = { title: "Detail POA · POA System" };
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatRp(n: number) {
+  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+}
+
+function toNum(v: unknown): number {
+  return parseFloat(String(v ?? 0)) || 0;
+}
+
+// ─── Stats computation ───────────────────────────────────────────────────────
+
+function computePoaStats(items: PoaLineItem[]) {
+  let estimasiTotal = 0;
+  let psspTotal = 0;
+  let discountTotal = 0;
+  let entertainTotal = 0;
+
+  for (const it of items) {
+    const base = toNum(it.rencanaTotalBiaya);
+    estimasiTotal += base;
+    psspTotal += base * (toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm));
+    discountTotal += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
+    entertainTotal += base * toNum(it.persenEntertain);
+  }
+
+  const budgetTotal = psspTotal + discountTotal + entertainTotal;
+
+  const customerSet = new Set(items.map((i) => i.namaCust));
+  const productSet = new Set(items.map((i) => i.kodeProduk));
+
+  const sudah = items.filter((i) => i.statusStandarisasi === "SUDAH_STANDARISASI").length;
+  const proses = items.filter((i) => i.statusStandarisasi === "PROSES_PENGAJUAN").length;
+  const gap = items.length - sudah;
+
+  return {
+    estimasiTotal,
+    psspTotal,
+    discountTotal,
+    entertainTotal,
+    budgetTotal,
+    customerCount: customerSet.size,
+    productCount: productSet.size,
+    totalPengajuan: items.length,
+    sudahStandar: sudah,
+    prosesStandar: proses,
+    gap,
+  };
+}
+
+// ─── Stats Panel ─────────────────────────────────────────────────────────────
+
+function StatCell({
+  label, value, sub, warn,
+}: { label: string; value: React.ReactNode; sub?: string; warn?: boolean }) {
+  return (
+    <div className="space-y-0.5">
+      <div className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+        {label}
+      </div>
+      <div className="text-sm font-semibold" style={{ color: warn ? "var(--color-red, #dc2626)" : "var(--color-text)" }}>
+        {value}
+      </div>
+      {sub && <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>{sub}</div>}
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="col-span-full text-xs font-semibold uppercase tracking-wider pt-1"
+      style={{ color: "var(--color-text-faint)", borderTop: "1px solid var(--color-border)" }}>
+      {children}
+    </div>
+  );
+}
+
+function PoaStats({ items }: { items: PoaLineItem[] }) {
+  if (items.length === 0) return null;
+
+  const s = computePoaStats(items);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Ringkasan POA</CardTitle>
+        <span className="text-xs px-2 py-0.5 rounded" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
+          {items.length} baris
+        </span>
+      </CardHeader>
+
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+
+        {/* ── Estimasi ── */}
+        <SectionLabel>Estimasi Penjualan</SectionLabel>
+        <StatCell label="Total Estimasi" value={formatRp(s.estimasiTotal)} />
+        <StatCell label="Target Area" value="—" sub="pending" />
+        <StatCell label="Ratio Estimasi" value="—" sub="min 140%" />
+
+        {/* ── Budget ── */}
+        <SectionLabel>Anggaran</SectionLabel>
+        <StatCell label="Biaya PSSP" value={formatRp(s.psspTotal)}
+          sub={s.estimasiTotal > 0 ? `${((s.psspTotal / s.estimasiTotal) * 100).toFixed(1)}% estimasi` : undefined} />
+        <StatCell label="Discount + DPL + DPF" value={formatRp(s.discountTotal)}
+          sub={s.estimasiTotal > 0 ? `${((s.discountTotal / s.estimasiTotal) * 100).toFixed(1)}% estimasi` : undefined} />
+        <StatCell label="Entertain" value={formatRp(s.entertainTotal)}
+          sub={s.estimasiTotal > 0 ? `${((s.entertainTotal / s.estimasiTotal) * 100).toFixed(1)}% estimasi` : undefined} />
+        <StatCell label="Total Budget" value={formatRp(s.budgetTotal)} />
+        <StatCell label="Ratio Budget / Target" value="—" sub="pending" />
+
+        {/* ── Cakupan ── */}
+        <SectionLabel>Cakupan</SectionLabel>
+        <StatCell label="Jumlah Customer" value={s.customerCount}
+          warn={s.customerCount < 30}
+          sub={s.customerCount < 30 ? "⚠ kurang dari 30" : "≥ 30 ✓"} />
+        <StatCell label="Variasi Produk" value={`${s.productCount} / 22`}
+          warn={s.productCount < 22}
+          sub={s.productCount < 22 ? `gap ${22 - s.productCount} produk` : "target terpenuhi ✓"} />
+        <StatCell label="Total Pengajuan" value={s.totalPengajuan} />
+
+        {/* ── Standarisasi ── */}
+        <SectionLabel>Standarisasi / Listing</SectionLabel>
+        <StatCell label="Sudah Listing" value={s.sudahStandar}
+          sub={`${s.totalPengajuan > 0 ? ((s.sudahStandar / s.totalPengajuan) * 100).toFixed(0) : 0}% dari total`} />
+        <StatCell label="Proses Pengajuan" value={s.prosesStandar} />
+        <StatCell label="Gap (Belum)" value={s.gap} warn={s.gap > 0}
+          sub={s.gap > 0 ? "perlu distandarisasi" : "semua listing ✓"} />
+
+        {/* ── Sales (pending) ── */}
+        <SectionLabel>Data Sales</SectionLabel>
+        <StatCell label="Historis 2025" value="—" sub="pending data" />
+        <StatCell label="Sales YTD 2026" value="—" sub="pending data" />
+        <StatCell label="Sales YTD + Estimasi" value="—" sub="pending data" />
+        <StatCell label="Growth YTD" value="—" sub="pending data" />
+        <StatCell label="Achievement YTD + Est" value="—" sub="pending data" />
+      </div>
+    </Card>
+  );
+}
+
 export default async function PoaDetailPage({
   params,
 }: {
@@ -51,8 +193,10 @@ export default async function PoaDetailPage({
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
 
+  const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
+
   return (
-    <div className="max-w-2xl space-y-5">
+    <div className="max-w-3xl space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -94,6 +238,9 @@ export default async function PoaDetailPage({
         </dl>
       </Card>
 
+      {/* Stats summary */}
+      <PoaStats items={allItems} />
+
       {/* Line items */}
       <Card>
         <CardHeader>
@@ -116,12 +263,12 @@ export default async function PoaDetailPage({
             )}
           </div>
         </CardHeader>
-        {(poa as typeof poa & { items: PoaLineItem[] }).items.length === 0 ? (
+        {allItems.length === 0 ? (
           <p className="text-sm py-4" style={{ color: "var(--color-text-muted)" }}>
             Belum ada baris.{userCanEdit && " Klik Edit untuk menambahkan."}
           </p>
         ) : (
-          <LineItemsTable items={(poa as typeof poa & { items: PoaLineItem[] }).items} />
+          <LineItemsTable items={allItems} />
         )}
       </Card>
 
