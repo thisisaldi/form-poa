@@ -423,46 +423,63 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
   const allChecked = checked.size === allKeys.length;
 
   return (
-    <div className="space-y-4">
-      <StatsPanel
-        items={selectedItems}
-        selectedDoctorCount={checked.size}
-        totalDoctorCount={allKeys.length}
-        targetArea={targetArea}
-        dummySales={salesDummy}
-      />
+    <div className="flex gap-5 items-start">
+      {/* Left: stats panel — sticky so it stays visible while scrolling checklist */}
+      <div className="hidden md:block w-80 shrink-0 sticky top-8">
+        <StatsPanel
+          items={selectedItems}
+          selectedDoctorCount={checked.size}
+          totalDoctorCount={allKeys.length}
+          targetArea={targetArea}
+          dummySales={salesDummy}
+        />
+      </div>
 
-      <Card>
-        {/* Checklist header */}
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Daftar User</p>
-            <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-              Centang user yang ingin dihitung statistiknya
-            </p>
+      {/* Right: checklist */}
+      <div className="flex-1 min-w-0 space-y-4">
+        {/* Stats visible on mobile (below checklist header) */}
+        <div className="md:hidden">
+          <StatsPanel
+            items={selectedItems}
+            selectedDoctorCount={checked.size}
+            totalDoctorCount={allKeys.length}
+            targetArea={targetArea}
+            dummySales={salesDummy}
+          />
+        </div>
+
+        <Card>
+          {/* Checklist header */}
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Daftar User</p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                Centang user yang ingin dihitung statistiknya
+              </p>
+            </div>
+            <button
+              type="button"
+              className="text-xs px-2.5 py-1 rounded-md font-medium"
+              style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
+              onClick={toggleAll}
+            >
+              {allChecked ? "Batal semua" : "Pilih semua"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="text-xs px-2.5 py-1 rounded-md font-medium"
-            style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
-            onClick={toggleAll}
-          >
-            {allChecked ? "Batal semua" : "Pilih semua"}
-          </button>
-        </div>
 
-        <div className="space-y-0.5">
-          {[...groups.entries()].map(([key, doctorItems]) => (
-            <DoctorRow
-              key={key}
-              doctorItems={doctorItems}
-              checked={checked.has(key)}
-              onToggle={() => toggle(key)}
-              totalEstimasi={selectedEstimasi}
-            />
-          ))}
-        </div>
-      </Card>
+          <div className="space-y-0.5">
+            {[...groups.entries()].map(([key, doctorItems]) => (
+              <DoctorRow
+                key={key}
+                doctorItems={doctorItems}
+                checked={checked.has(key)}
+                onToggle={() => toggle(key)}
+                totalEstimasi={selectedEstimasi}
+              />
+            ))}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

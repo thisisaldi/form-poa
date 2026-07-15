@@ -74,7 +74,7 @@ export default async function PoaDetailPage({
   })();
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
