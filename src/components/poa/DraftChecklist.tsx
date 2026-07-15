@@ -136,21 +136,22 @@ function StatsPanel({
       </div>
 
       {/* ── 1. Estimasi vs Target ── */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 gap-3 mb-5">
         {[
-          { label: "Estimasi POA",  value: s.estimasiTotal > 0 ? formatRp(s.estimasiTotal) : "—" },
-          { label: "Target Area ★", value: formatRp(targetArea) },
+          { label: "Estimasi POA",  value: s.estimasiTotal > 0 ? formatRp(s.estimasiTotal) : "—", span: false },
+          { label: "Target Area ★", value: formatRp(targetArea), span: false },
           {
             label: "Rasio Estimasi",
             value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "—",
             sub: ratioEst >= 140 ? "Memenuhi target" : ratioEst > 0 ? "Di bawah 140%" : undefined,
             danger: ratioEst > 0 && ratioEst < 140,
+            span: true,
           },
-        ].map(({ label, value, sub, danger }) => (
-          <div key={label} className="rounded-lg p-3 space-y-0.5"
+        ].map(({ label, value, sub, danger, span }) => (
+          <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`}
             style={{ background: BG, border: `1px solid ${BORDER}` }}>
             <p className="text-xs" style={{ color: MUTED }}>{label}</p>
-            <p className="text-base font-bold leading-tight" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
+            <p className={`font-bold leading-tight ${span ? "text-lg" : "text-base"}`} style={{ color: danger ? DANGER : TEXT }}>{value}</p>
             {sub && <p className="text-xs" style={{ color: danger ? DANGER : FAINT }}>{sub}</p>}
           </div>
         ))}
@@ -210,7 +211,7 @@ function StatsPanel({
 
       {/* ── 3. Cakupan ── */}
       <SectionTitle>Cakupan</SectionTitle>
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 gap-3 mb-5">
         {[
           {
             label: "User",
@@ -224,7 +225,6 @@ function StatsPanel({
             sub: s.productCount >= 22 ? "terpenuhi ✓" : `kurang ${22 - s.productCount}`,
             danger: s.productCount < 22,
           },
-          { label: "Pengajuan", value: s.totalPengajuan, sub: "total baris" },
         ].map(({ label, value, sub, danger }) => (
           <div key={label} className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
             <p className="text-xs mb-0.5" style={{ color: MUTED }}>{label}</p>
@@ -232,6 +232,11 @@ function StatsPanel({
             {sub && <p className="text-xs mt-0.5" style={{ color: danger ? DANGER : FAINT }}>{sub}</p>}
           </div>
         ))}
+        <div className="col-span-2 flex justify-between items-center rounded-lg px-3 py-2"
+          style={{ background: BG, border: `1px solid ${BORDER}` }}>
+          <p className="text-xs" style={{ color: MUTED }}>Total baris pengajuan</p>
+          <p className="text-sm font-bold" style={{ color: TEXT }}>{s.totalPengajuan}</p>
+        </div>
       </div>
 
       {/* ── 4. Listing / Standarisasi ── */}
@@ -425,7 +430,7 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
   return (
     <div className="flex gap-5 items-start">
       {/* Left: stats panel — sticky so it stays visible while scrolling checklist */}
-      <div className="hidden md:block w-80 shrink-0 sticky top-8">
+      <div className="hidden md:block w-96 shrink-0 sticky top-8">
         <StatsPanel
           items={selectedItems}
           selectedDoctorCount={checked.size}
