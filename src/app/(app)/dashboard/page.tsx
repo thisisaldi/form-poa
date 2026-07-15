@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import type { Role, PoaForm as PoaFormType, User as UserType } from "@prisma/client";
 
-export const metadata = { title: "Dashboard · POA System" };
+export const metadata = { title: "Dashboard · Form POA" };
 
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;

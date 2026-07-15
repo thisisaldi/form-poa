@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LineItemEditor } from "@/components/poa/LineItemEditor";
 
-export const metadata = { title: "Edit POA · POA System" };
+export const metadata = { title: "Edit POA · Form POA" };
 
 export default async function EditPoaPage({
   params,
@@ -61,7 +61,6 @@ export default async function EditPoaPage({
           outlets={outlets}
           products={products}
           formOnly
-          redirectTo={`/poa/${id}`}
         />
       </Card>
     </div>

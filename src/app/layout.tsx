@@ -9,8 +9,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "POA System",
+  title: "Form POA",
   description: "Plan of Action approval workflow",
+  icons: { icon: "/logo.svg" },
 };
 
 export default function RootLayout({

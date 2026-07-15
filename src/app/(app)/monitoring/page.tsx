@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { Card } from "@/components/ui/Card";
 
-export const metadata = { title: "Monitoring · POA System" };
+export const metadata = { title: "Monitoring · Form POA" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

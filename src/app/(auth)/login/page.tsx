@@ -4,7 +4,7 @@ import { loginAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
-export const metadata = { title: "Login · POA System" };
+export const metadata = { title: "Login · Form POA" };
 
 export default async function LoginPage(props: {
   searchParams: Promise<{ error?: string }>;

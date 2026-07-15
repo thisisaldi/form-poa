@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
-export const metadata = { title: "Finalisasi POA · POA System" };
+export const metadata = { title: "Finalisasi POA · Form POA" };
 
 /**
  * Review page shown to the MR before submitting their draft.

@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 
-export const metadata = { title: "Persetujuan · POA System" };
+export const metadata = { title: "Persetujuan · Form POA" };
 
 export default async function ApprovalsPage() {
   const session = await getCurrentUser();

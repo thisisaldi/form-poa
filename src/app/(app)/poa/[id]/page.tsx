@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DraftChecklist } from "@/components/poa/DraftChecklist";
 
-export const metadata = { title: "Detail POA · POA System" };
+export const metadata = { title: "Detail POA · Form POA" };
 
 export default async function PoaDetailPage({
   params,

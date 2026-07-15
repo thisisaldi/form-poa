@@ -5,7 +5,7 @@ import { getSubordinateMRNips } from "@/lib/authz";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { spesLabel } from "@/lib/spesialisasi";
 
-export const metadata = { title: "PM Dashboard · POA System" };
+export const metadata = { title: "PM Dashboard · Form POA" };
 
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(2).replace(".", ",")} M`;
