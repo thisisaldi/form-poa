@@ -3,13 +3,10 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canEdit } from "@/lib/authz";
-import { submitPoaAction } from "@/app/actions/poa";
 import { getOutletsByUser, getProducts } from "@/lib/masterData";
-import { Button } from "@/components/ui/Button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { LineItemEditor } from "@/components/poa/LineItemEditor";
-import type { PoaLineItem } from "@prisma/client";
 
 export const metadata = { title: "Edit POA · POA System" };
 
@@ -25,7 +22,7 @@ export default async function EditPoaPage({
   const [poa, actor, rawOutlets, products] = await Promise.all([
     prisma.poaForm.findUnique({
       where: { id },
-      include: { owner: true, items: { orderBy: { createdAt: "asc" } } },
+      include: { owner: true },
     }),
     prisma.user.findUniqueOrThrow({ where: { nip: session.userId } }),
     getOutletsByUser(session.userId),
@@ -39,15 +36,16 @@ export default async function EditPoaPage({
   if (!poa) notFound();
   if (!canEdit(actor, poa)) redirect(`/poa/${id}`);
 
-  const isMR = session.role === "MR";
-  const submitWithId = submitPoaAction.bind(null, id);
-
   return (
     <div className="max-w-3xl space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1>Edit POA</h1>
+          <Link href={`/poa/${id}`} className="text-xs mb-1 inline-flex items-center gap-1"
+            style={{ color: "var(--color-text-faint)" }}>
+            ← Kembali ke Draft
+          </Link>
+          <h1>Tambah Rencana POA</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
             Periode {poa.period} · {poa.owner.name}
           </p>
@@ -55,62 +53,16 @@ export default async function EditPoaPage({
         <StatusBadge status={poa.status} />
       </div>
 
-      {/* Line items editor */}
+      {/* Input form only — no list. List is visible on the draft/detail page. */}
       <Card>
-        <CardHeader>
-          <CardTitle>Baris POA (Customer × Produk)</CardTitle>
-          <Link href={`/poa/${id}`} className="text-xs" style={{ color: "var(--color-blue)" }}>
-            Lihat detail →
-          </Link>
-        </CardHeader>
         <LineItemEditor
           poaId={id}
-          initialItems={poa.items as PoaLineItem[]}
+          initialItems={[]}
           outlets={outlets}
           products={products}
+          formOnly
+          redirectTo={`/poa/${id}`}
         />
-      </Card>
-
-      {/* Action area — different for MR vs approver */}
-      <Card>
-        {isMR ? (
-          <>
-            <CardHeader>
-              <CardTitle>Submit POA</CardTitle>
-            </CardHeader>
-            <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              Pastikan semua baris sudah lengkap sebelum submit ke atasan.
-              POA tidak dapat diedit kembali setelah disubmit.
-            </p>
-            <div className="flex gap-3">
-              <form action={submitWithId}>
-                <Button type="submit" disabled={poa.items.length === 0}>
-                  Submit ke Atasan
-                </Button>
-              </form>
-              <Link href={`/poa/${id}`}>
-                <Button variant="secondary" type="button">Lihat Draft</Button>
-              </Link>
-            </div>
-            {poa.items.length === 0 && (
-              <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                Tambahkan minimal satu baris sebelum submit.
-              </p>
-            )}
-          </>
-        ) : (
-          <>
-            <CardHeader>
-              <CardTitle>Selesai Mengedit</CardTitle>
-            </CardHeader>
-            <p className="mb-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              Perubahan tersimpan otomatis. Kembali ke halaman detail untuk melakukan approve atau forward.
-            </p>
-            <Link href={`/poa/${id}`}>
-              <Button>Kembali ke Detail</Button>
-            </Link>
-          </>
-        )}
       </Card>
     </div>
   );

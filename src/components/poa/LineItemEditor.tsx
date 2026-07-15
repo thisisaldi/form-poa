@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, useMemo, useEffect } from "react";
+import { useState, useTransition, useMemo, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
@@ -26,6 +27,8 @@ interface Props {
   initialItems: PoaLineItem[];
   outlets: OutletOption[];
   products: Product[];
+  formOnly?: boolean;   // hides the item list; form is always visible
+  redirectTo?: string;  // after save, navigate here instead of reloading
 }
 
 // ─── Per-dokter shared fields ────────────────────────────────────────────────
@@ -705,9 +708,11 @@ function PsspSidebar({
 // ─── AddPanel (new dokter + multi-produk) ─────────────────────────────────────
 
 function AddPanel({
-  poaId, outlets, products, onCancel,
+  poaId, outlets, products, onCancel, onSuccess,
 }: {
-  poaId: string; outlets: OutletOption[]; products: Product[]; onCancel: () => void;
+  poaId: string; outlets: OutletOption[]; products: Product[];
+  onCancel?: () => void;
+  onSuccess?: () => void;
 }) {
   const [kodePI, setKodePI] = useState("");
   const [spesialisasi, setSpesialisasi] = useState("");
@@ -804,7 +809,8 @@ function AddPanel({
           await addLineItemAction(poaId, buildFormData(validEntries[i]));
           setProgress({ done: i + 1, total: validEntries.length });
         }
-        window.location.reload();
+        // onSuccess redirects to draft page; fallback reloads to refresh the list
+        if (onSuccess) onSuccess(); else window.location.reload();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal menyimpan.");
         setProgress(null);
@@ -914,7 +920,9 @@ function AddPanel({
               ? (progress ? `Menyimpan ${progress.done}/${progress.total}…` : "Menyimpan…")
               : `Simpan (${filledCount} produk)`}
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
+          {onCancel && (
+            <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
+          )}
         </div>
       </form>
       {selectedCustomer?.kodeCustomer && (
@@ -1439,9 +1447,15 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function LineItemEditor({ poaId, initialItems, outlets, products }: Props) {
+export function LineItemEditor({ poaId, initialItems, outlets, products, formOnly, redirectTo }: Props) {
+  const router = useRouter();
   const [items, setItems] = useState<PoaLineItem[]>(initialItems);
-  const [mode, setMode] = useState<"none" | "add" | "addBaru">("none");
+  const [mode, setMode] = useState<"none" | "add" | "addBaru">(formOnly ? "add" : "none");
+
+  const handleSuccess = useCallback(() => {
+    if (redirectTo) router.push(redirectTo);
+    else window.location.reload();
+  }, [redirectTo, router]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addingProductFor, setAddingProductFor] = useState<{
     kodePI: string; namaOutlet: string; kodeCust: string | null;
@@ -1484,7 +1498,7 @@ export function LineItemEditor({ poaId, initialItems, outlets, products }: Props
           style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</div>
       )}
 
-      {grouped.size === 0 ? (
+      {!formOnly && (grouped.size === 0 ? (
         <div className="rounded-xl border-2 border-dashed py-10 text-center"
           style={{ borderColor: "var(--color-border)" }}>
           <p className="text-sm" style={{ color: "var(--color-text-faint)" }}>Belum ada baris POA.</p>
@@ -1633,18 +1647,22 @@ export function LineItemEditor({ poaId, initialItems, outlets, products }: Props
             );
           })}
         </div>
-      )}
+      ))}
 
       {/* Add panels */}
       {mode === "add" && (
-        <AddPanel poaId={poaId} outlets={outlets} products={products} onCancel={() => setMode("none")} />
+        <AddPanel
+          poaId={poaId} outlets={outlets} products={products}
+          onCancel={formOnly ? undefined : () => setMode("none")}
+          onSuccess={formOnly ? handleSuccess : undefined}
+        />
       )}
       {mode === "addBaru" && (
         <AddDokterBaruPanel outlets={outlets} onCancel={() => setMode("none")} />
       )}
 
-      {/* Action buttons */}
-      {mode === "none" && (
+      {/* "+ Tambah" button — hidden in formOnly mode */}
+      {!formOnly && mode === "none" && (
         <Button type="button" variant="secondary" size="sm"
           onClick={() => { setMode("add"); setAddingProductFor(null); setEditingId(null); }}>
           + Tambah Rencana POA
