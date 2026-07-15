@@ -136,8 +136,8 @@ function StatsPanel({
             color: allSelected ? "var(--color-text-faint)" : BLUE,
           }}>
           {allSelected
-            ? `${totalDoctorCount} dokter dipilih`
-            : `${selectedDoctorCount} dari ${totalDoctorCount} dokter`}
+            ? `${totalDoctorCount} user dipilih`
+            : `${selectedDoctorCount} dari ${totalDoctorCount} user`}
         </span>
       </div>
 
@@ -239,7 +239,7 @@ function StatsPanel({
           </span>
           <div>
             <p className="text-xs font-medium leading-none" style={{ color: selectedDoctorCount >= 30 ? GREEN : ORANGE }}>
-              Dokter
+              User
             </p>
             <p className="text-xs leading-none mt-0.5" style={{ color: "var(--color-text-faint)" }}>
               {selectedDoctorCount >= 30 ? "cukup ✓" : "min. 30"}
@@ -518,9 +518,9 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
         {/* Checklist header */}
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Daftar Dokter</p>
+            <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Daftar User</p>
             <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-              Centang dokter yang ingin dihitung statistiknya
+              Centang user yang ingin dihitung statistiknya
             </p>
           </div>
           <button

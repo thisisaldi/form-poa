@@ -52,6 +52,27 @@ export default async function PoaDetailPage({
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
 
+  // Budget warning — computed server-side so atasan bisa lihat tanpa interaksi
+  const budgetWarning = (() => {
+    if (allItems.length === 0) return null;
+    const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
+    let estimasiTotal = 0, budgetTotal = 0;
+    for (const it of allItems) {
+      const base = toNum(it.rencanaTotalBiaya);
+      estimasiTotal += base;
+      budgetTotal   += base * (
+        toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm) +
+        toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee) +
+        toNum(it.persenEntertain)
+      );
+    }
+    const ratio = estimasiTotal > 0 ? budgetTotal / estimasiTotal : 0;
+    if (ratio <= 0) return null;
+    if (ratio > 0.35) return { level: "danger"  as const, pct: (ratio * 100).toFixed(1) };
+    if (ratio > 0.28) return { level: "warning" as const, pct: (ratio * 100).toFixed(1) };
+    return               { level: "ok"      as const, pct: (ratio * 100).toFixed(1) };
+  })();
+
   return (
     <div className="max-w-3xl space-y-5">
       {/* Header */}
@@ -94,6 +115,36 @@ export default async function PoaDetailPage({
           )}
         </dl>
       </Card>
+
+      {/* Budget warning banner */}
+      {budgetWarning && (
+        <div className="rounded-lg px-4 py-3 text-sm flex items-start gap-3"
+          style={budgetWarning.level === "danger"
+            ? { background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5" }
+            : budgetWarning.level === "warning"
+            ? { background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }
+            : { background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }}>
+          <span className="text-base leading-none mt-0.5">
+            {budgetWarning.level === "danger" ? "!" : budgetWarning.level === "warning" ? "⚠" : "✓"}
+          </span>
+          <div>
+            <p className="font-semibold">
+              {budgetWarning.level === "danger"
+                ? `Anggaran melebihi batas — ${budgetWarning.pct}% dari estimasi`
+                : budgetWarning.level === "warning"
+                ? `Anggaran mendekati batas — ${budgetWarning.pct}% dari estimasi`
+                : `Anggaran aman — ${budgetWarning.pct}% dari estimasi`}
+            </p>
+            <p className="text-xs mt-0.5 opacity-80">
+              {budgetWarning.level === "danger"
+                ? "Total budget (PSSP + Discount + Entertain) melebihi 35% dari estimasi. Perlu ditinjau."
+                : budgetWarning.level === "warning"
+                ? "Total budget di atas 28% dari estimasi. Perhatikan agar tidak melebihi batas."
+                : "Total budget di bawah 28% dari estimasi."}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Checklist + stats (client, interactive) */}
       <div className="flex items-center justify-between">

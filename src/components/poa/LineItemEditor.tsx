@@ -802,7 +802,7 @@ function AddPanel({
     e.preventDefault();
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     if (!validEntries.length) { setError("Pilih minimal satu produk."); return; }
-    if (!customerId) { setError("Pilih dokter terlebih dahulu."); return; }
+    if (!customerId) { setError("Pilih user terlebih dahulu."); return; }
     setError(null);
     setProgress({ done: 0, total: validEntries.length });
     startTransition(async () => {
@@ -846,7 +846,7 @@ function AddPanel({
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Outlet & Dokter cascade */}
         <div>
-          <SectionLabel>Outlet &amp; Dokter</SectionLabel>
+          <SectionLabel>Outlet &amp; User</SectionLabel>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Outlet</span>
@@ -863,10 +863,10 @@ function AddPanel({
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-                Dokter {loadingCust && <span style={{ color: "var(--color-text-faint)" }}>…</span>}
+                User {loadingCust && <span style={{ color: "var(--color-text-faint)" }}>…</span>}
               </span>
               <Combobox name="_dokter" value={customerId} onChange={setCustomerId}
-                placeholder={spesialisasi ? (loadingCust ? "Memuat…" : "Pilih dokter") : "Pilih spesialisasi dulu"}
+                placeholder={spesialisasi ? (loadingCust ? "Memuat…" : "Pilih user") : "Pilih spesialisasi dulu"}
                 disabled={!spesialisasi || loadingCust} required options={customerOptions} />
             </div>
           </div>
@@ -879,7 +879,7 @@ function AddPanel({
                 )}
                 <span><span style={{ color: "var(--color-text-faint)" }}>Outlet:</span> {selectedOutlet?.namaOutlet}</span>
                 <span><span style={{ color: "var(--color-text-faint)" }}>Spesialisasi:</span> {spesLabel(selectedCustomer.spesialisasi)}</span>
-                {selectedCustomer.isFokus && <span style={{ color: "var(--color-primary)" }}>⭐ Dokter Fokus</span>}
+                {selectedCustomer.isFokus && <span style={{ color: "var(--color-primary)" }}>⭐ User Fokus</span>}
                 {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
               </div>
             </>
@@ -888,7 +888,7 @@ function AddPanel({
 
         {/* Rencana per dokter */}
         <div>
-          <SectionLabel>Rencana Kunjungan (per Dokter)</SectionLabel>
+          <SectionLabel>Rencana Kunjungan (per User)</SectionLabel>
           <DokterFieldsSection
             fields={dokterFields}
             onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
@@ -998,7 +998,7 @@ function AddDokterBaruPanel({
       <div className="rounded-xl border p-4 space-y-3"
         style={{ background: "var(--color-bg)", borderColor: "var(--color-success, #16a34a)", borderWidth: 1.5 }}>
         <p className="text-sm font-semibold" style={{ color: "var(--color-success, #16a34a)" }}>
-          ✓ Dokter berhasil didaftarkan
+          ✓ User berhasil didaftarkan
         </p>
         <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
           <strong>{namaDokter}</strong> ({spesLabel(spesialisasi)}) sudah terdaftar di {selectedOutlet?.namaOutlet}.
@@ -1007,7 +1007,7 @@ function AddDokterBaruPanel({
         <div className="flex gap-2">
           <Button type="button" size="sm" variant="secondary"
             onClick={() => { setSuccess(false); setNamaDokter(""); setSpesialisasi(""); setKodePI(""); setIsFokus(false); }}>
-            Daftar Dokter Lain
+            Daftar User Lain
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Selesai</Button>
         </div>
@@ -1019,9 +1019,9 @@ function AddDokterBaruPanel({
     <div className="rounded-xl border p-4 space-y-4"
       style={{ background: "var(--color-bg)", borderColor: "var(--color-warning, #f59e0b)", borderWidth: 1.5 }}>
       <div>
-        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Daftar Dokter Baru</p>
+        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Daftar User Baru</p>
         <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-          Daftarkan dokter ke database terlebih dahulu. Setelah terdaftar, pilih via &ldquo;Tambah Rencana POA&rdquo;.
+          Daftarkan user ke database terlebih dahulu. Setelah terdaftar, pilih via &ldquo;Tambah Rencana POA&rdquo;.
         </p>
       </div>
 
@@ -1038,7 +1038,7 @@ function AddDokterBaruPanel({
               placeholder="Cari outlet…" required options={outletOptions} />
           </div>
           <label className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Nama Dokter</span>
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Nama User</span>
             <input type="text" value={namaDokter}
               onChange={(e) => setNamaDokter(e.target.value)}
               placeholder="dr. Nama Lengkap"
@@ -1062,13 +1062,13 @@ function AddDokterBaruPanel({
             onChange={(e) => setIsFokus(e.target.checked)}
             className="rounded" />
           <span style={{ color: "var(--color-text-muted)" }}>
-            Termasuk Dokter Fokus
+            Termasuk User Fokus
           </span>
         </label>
 
         <div className="flex items-center gap-3">
           <Button type="submit" size="sm" disabled={isPending || !canSubmit}>
-            {isPending ? "Mendaftarkan…" : "Daftarkan Dokter"}
+            {isPending ? "Mendaftarkan…" : "Daftarkan User"}
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
         </div>
@@ -1183,7 +1183,7 @@ function AddProductPanel({
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <SectionLabel>Rencana Kunjungan (per Dokter)</SectionLabel>
+          <SectionLabel>Rencana Kunjungan (per User)</SectionLabel>
           <DokterFieldsSection
             fields={dokterFields}
             onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
@@ -1332,7 +1332,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
         <SectionLabel>Info</SectionLabel>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <InfoField label="Outlet" value={item.kodePI ? `${item.kodePI} - ${item.namaOutlet}` : item.namaOutlet} />
-          <InfoField label="Dokter" value={item.namaCust} />
+          <InfoField label="User" value={item.namaCust} />
           <InfoField label="Spesialisasi" value={spesLabel(item.spesialisasi)} />
           <InfoField label="Produk" value={item.namaProduk} />
           {item.labelCustomer && (
@@ -1348,7 +1348,7 @@ function EditPanel({ item, poaId, products, onCancel }: { item: PoaLineItem; poa
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <SectionLabel>Rencana Kunjungan (per Dokter)</SectionLabel>
+          <SectionLabel>Rencana Kunjungan (per User)</SectionLabel>
           <DokterFieldsSection
             fields={dokterFields}
             onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}

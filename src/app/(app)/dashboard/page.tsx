@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa } from "@/lib/authz";
+import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit } from "@/lib/authz";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -92,7 +92,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
         <div className="flex items-center gap-2">
           {isMR && (
-            <Link href="/customers/new"><Button variant="secondary" size="sm">+ Daftar Dokter Baru</Button></Link>
+            <Link href="/customers/new"><Button variant="secondary" size="sm">+ Daftar User Baru</Button></Link>
           )}
           {isMR && eligible && (
             <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
@@ -149,7 +149,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Periode</th>
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Status</th>
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi</th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Dokter</th>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>User</th>
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Produk</th>
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Update</th>
                   <th className="pb-3" />
@@ -177,9 +177,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                       {new Date(poa.updatedAt).toLocaleDateString("id-ID")}
                     </td>
                     <td className="py-3 text-right">
-                      <Link href={`/poa/${poa.id}`} style={{ color: "var(--color-blue)" }} className="text-xs font-medium">
-                        Lihat
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        {canEdit(actor!, poa) && (
+                          <Link href={`/poa/${poa.id}/edit`} className="text-xs font-medium"
+                            style={{ color: "var(--color-text-muted)" }}>
+                            Edit
+                          </Link>
+                        )}
+                        <Link href={`/poa/${poa.id}`} style={{ color: "var(--color-blue)" }} className="text-xs font-medium">
+                          Detail
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
