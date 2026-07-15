@@ -796,6 +796,8 @@ function AddPanel({
     return fd;
   }
 
+  const [saved, setSaved] = useState(false);
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
@@ -809,8 +811,11 @@ function AddPanel({
           await addLineItemAction(poaId, buildFormData(validEntries[i]));
           setProgress({ done: i + 1, total: validEntries.length });
         }
-        // onSuccess redirects to draft page; fallback reloads to refresh the list
-        if (onSuccess) onSuccess(); else window.location.reload();
+        setProgress(null);
+        setSaved(true);
+        setTimeout(() => {
+          if (onSuccess) onSuccess(); else window.location.reload();
+        }, 1500);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal menyimpan.");
         setProgress(null);
@@ -829,6 +834,13 @@ function AddPanel({
       {error && (
         <p className="text-sm px-3 py-2 rounded-md"
           style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>
+      )}
+
+      {saved && (
+        <p className="text-sm px-3 py-2 rounded-md font-medium"
+          style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}>
+          ✓ Rencana POA berhasil disimpan!
+        </p>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
