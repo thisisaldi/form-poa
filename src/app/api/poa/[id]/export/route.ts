@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
 import { computePeriodeAkhir, formatPeriode } from "@/lib/poaUtils";
+import { getAllPakets } from "@/lib/paketProduk";
 
 export async function GET(
   _req: NextRequest,
@@ -48,30 +49,106 @@ export async function GET(
   wb.creator = "POA System";
   wb.created = new Date();
 
+  // ─── Compute stats (mirrors DraftChecklist computeStats) ─────────────────
+  const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
+  type RawItem = typeof poa.items[number];
+  const allItems: RawItem[] = poa.items ?? [];
+
+  let estimasiTotal = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
+  let sudahStandar = 0, prosesStandar = 0;
+  const doctorKeys = new Set<string>();
+  const fokusProdukSet = new Set<string>();
+
+  for (const it of allItems) {
+    const base = toNum(it.rencanaTotalBiaya);
+    estimasiTotal  += base;
+    psspTotal      += base * (toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm));
+    discountTotal  += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
+    entertainTotal += base * toNum(it.persenEntertain);
+    doctorKeys.add(`${it.kodePI ?? ""}|${it.namaCust}`);
+    if (getAllPakets(it.namaProduk).length > 0) fokusProdukSet.add(it.kodeProduk);
+    if (it.statusStandarisasi === "SUDAH_STANDARISASI") sudahStandar++;
+    if (it.statusStandarisasi === "PROSES_PENGAJUAN") prosesStandar++;
+  }
+
+  const budgetTotal  = psspTotal + discountTotal + entertainTotal;
+  const budgetRatio  = estimasiTotal > 0 ? (budgetTotal / estimasiTotal) * 100 : 0;
+  const budgetStatus = budgetRatio > 42.5 ? "Melebihi batas (>42.5%)" : budgetRatio > 38 ? "Mendekati batas (38–42.5%)" : budgetRatio > 0 ? "Aman (<38%)" : "-";
+  const formatRp = (n: number) => `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+
   // ─── Sheet 1: Summary ────────────────────────────────────────────────────
   const summary = wb.addWorksheet("Summary");
   summary.columns = [
-    { header: "Field", key: "field", width: 24 },
-    { header: "Value", key: "value", width: 40 },
+    { key: "label", width: 32 },
+    { key: "value", width: 28 },
   ];
-  summary.addRows([
-    { field: "POA ID", value: poa.id },
-    { field: "Period", value: poa.period },
-    { field: "MR Name", value: poa.owner.name },
-    { field: "MR NIP", value: poa.owner.nip },
-    { field: "Status", value: poa.status.replace(/_/g, " ") },
-    { field: "Created", value: poa.createdAt.toISOString() },
-    { field: "Last Updated", value: poa.updatedAt.toISOString() },
-  ]);
 
-  // Style header row
-  summary.getRow(1).font = { bold: true };
-  summary.getRow(1).fill = {
-    type: "pattern",
-    pattern: "solid",
-    fgColor: { argb: "FF0063A0" }, // brand blue
-  };
-  summary.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  const BLUE   = "FF0063A0";
+  const LBLUE  = "FFD6E8F5";
+  const WHITE  = "FFFFFFFF";
+  const LGRAY  = "FFF5F5F5";
+
+  function addSectionHeader(ws: ExcelJS.Worksheet, title: string) {
+    const row = ws.addRow([title, ""]);
+    ws.mergeCells(row.number, 1, row.number, 2);
+    row.getCell(1).font = { bold: true, color: { argb: WHITE } };
+    row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+    row.getCell(1).alignment = { vertical: "middle" };
+    row.height = 18;
+  }
+
+  function addDataRow(ws: ExcelJS.Worksheet, label: string, value: string | number, shade = false) {
+    const row = ws.addRow([label, value]);
+    row.getCell(1).font = { bold: false };
+    row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: shade ? LGRAY : WHITE } };
+    row.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: shade ? LGRAY : WHITE } };
+    row.getCell(2).alignment = { horizontal: "right" };
+  }
+
+  // — Info POA —
+  addSectionHeader(summary, "Informasi POA");
+  addDataRow(summary, "Nama MR",       poa.owner.name);
+  addDataRow(summary, "NIP MR",        poa.owner.nip, true);
+  addDataRow(summary, "Periode",       poa.period);
+  addDataRow(summary, "Status",        poa.status.replace(/_/g, " "), true);
+  addDataRow(summary, "Dibuat",        poa.createdAt.toLocaleDateString("id-ID"));
+  addDataRow(summary, "Terakhir diperbarui", poa.updatedAt.toLocaleDateString("id-ID"), true);
+
+  summary.addRow([]);
+
+  // — Estimasi —
+  addSectionHeader(summary, "Estimasi");
+  addDataRow(summary, "Total Estimasi POA",      formatRp(estimasiTotal));
+
+  summary.addRow([]);
+
+  // — Anggaran —
+  addSectionHeader(summary, "Anggaran");
+  addDataRow(summary, "PSSP",                    formatRp(psspTotal));
+  addDataRow(summary, "Discount + DPL + DPF",    formatRp(discountTotal), true);
+  addDataRow(summary, "Entertain",               formatRp(entertainTotal));
+  addDataRow(summary, "Total Budget",            formatRp(budgetTotal), true);
+  addDataRow(summary, "% Budget dari Estimasi",  budgetRatio > 0 ? `${budgetRatio.toFixed(1)}%` : "-");
+  addDataRow(summary, "Status Anggaran",         budgetStatus, true);
+
+  summary.addRow([]);
+
+  // — Cakupan —
+  addSectionHeader(summary, "Cakupan");
+  addDataRow(summary, "Jumlah User",             doctorKeys.size);
+  addDataRow(summary, "Produk Fokus",            fokusProdukSet.size, true);
+  addDataRow(summary, "Total Pengajuan (baris)", allItems.length);
+
+  summary.addRow([]);
+
+  // — Listing / Standarisasi —
+  addSectionHeader(summary, "Listing Produk");
+  addDataRow(summary, "Sudah Listing",           sudahStandar);
+  addDataRow(summary, "Proses Pengajuan",        prosesStandar, true);
+  addDataRow(summary, "Belum Listing",           allItems.length - sudahStandar);
+
+  // Light blue header row placeholder (column headers not used, style top border instead)
+  summary.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LBLUE } };
 
   // ─── Sheet 2: Line Items ─────────────────────────────────────────────────
   const formSheet = wb.addWorksheet("Line Items");
