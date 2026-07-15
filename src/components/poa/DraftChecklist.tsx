@@ -429,20 +429,9 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
 
   return (
     <div className="flex gap-5 items-start">
-      {/* Left: stats panel — sticky so it stays visible while scrolling checklist */}
-      <div className="hidden md:block w-96 shrink-0 sticky top-8">
-        <StatsPanel
-          items={selectedItems}
-          selectedDoctorCount={checked.size}
-          totalDoctorCount={allKeys.length}
-          targetArea={targetArea}
-          dummySales={salesDummy}
-        />
-      </div>
-
-      {/* Right: checklist */}
+      {/* Left: checklist */}
       <div className="flex-1 min-w-0 space-y-4">
-        {/* Stats visible on mobile (below checklist header) */}
+        {/* Stats visible on mobile (above checklist) */}
         <div className="md:hidden">
           <StatsPanel
             items={selectedItems}
@@ -484,6 +473,17 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
             ))}
           </div>
         </Card>
+      </div>
+
+      {/* Right: stats panel — sticky, scrollable internally so it never enlarges the page */}
+      <div className="hidden md:block w-96 shrink-0 sticky top-8 max-h-[calc(100vh-5rem)] overflow-y-auto">
+        <StatsPanel
+          items={selectedItems}
+          selectedDoctorCount={checked.size}
+          totalDoctorCount={allKeys.length}
+          targetArea={targetArea}
+          dummySales={salesDummy}
+        />
       </div>
     </div>
   );
