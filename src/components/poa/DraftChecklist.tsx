@@ -21,6 +21,39 @@ function doctorKey(item: PoaLineItem): string {
   return `${item.kodePI ?? ""}|${item.namaCust}`;
 }
 
+// ─── Deterministic dummy helpers ──────────────────────────────────────────────
+// Replace function bodies when real data is available.
+
+function hashSeed(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+interface DummySales {
+  historis2025: number;
+  salesYtd: number;
+  growthPct: number;
+}
+
+function computeDummyTarget(seed: string, totalEstimasi: number): number {
+  const h = hashSeed(seed);
+  // Fraction 60–75% → ratio estimasi/target ≈ 133–167%
+  const fraction = 0.60 + (h % 16) / 100;
+  return Math.max(totalEstimasi * fraction, 1_000_000);
+}
+
+function computeDummySales(seed: string, totalEstimasi: number): DummySales {
+  const h = hashSeed(seed);
+  const base = Math.max(totalEstimasi, 5_000_000);
+  const mult = 10 + (h % 10);                          // 10–20× quarterly estimate
+  const historis2025 = base * mult;
+  const growthFactor = 0.88 + (h % 25) / 100;          // -12% … +13%
+  const salesYtd = historis2025 * growthFactor * (7 / 12); // YTD s/d Juli
+  const growthPct = (growthFactor - 1) * 100;
+  return { historis2025, salesYtd, growthPct };
+}
+
 // ─── Stats computation ────────────────────────────────────────────────────────
 
 function computeStats(items: PoaLineItem[]) {
@@ -28,13 +61,14 @@ function computeStats(items: PoaLineItem[]) {
   for (const it of items) {
     const base = toNum(it.rencanaTotalBiaya);
     estimasiTotal += base;
-    psspTotal += base * (toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm));
+    // Each line item (product × doctor) has its own % — summed per-item, not averaged
+    psspTotal     += base * (toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm));
     discountTotal += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
     entertainTotal += base * toNum(it.persenEntertain);
   }
   const budgetTotal = psspTotal + discountTotal + entertainTotal;
   const productSet = new Set(items.map((i) => i.kodeProduk));
-  const sudah = items.filter((i) => i.statusStandarisasi === "SUDAH_STANDARISASI").length;
+  const sudah  = items.filter((i) => i.statusStandarisasi === "SUDAH_STANDARISASI").length;
   const proses = items.filter((i) => i.statusStandarisasi === "PROSES_PENGAJUAN").length;
   return {
     estimasiTotal, psspTotal, discountTotal, entertainTotal, budgetTotal,
@@ -72,14 +106,24 @@ function SectionDivider({ children }: { children: React.ReactNode }) {
 }
 
 function StatsPanel({
-  items, selectedDoctorCount, totalDoctorCount,
+  items, selectedDoctorCount, totalDoctorCount, targetArea, dummySales,
 }: {
   items: PoaLineItem[];
   selectedDoctorCount: number;
   totalDoctorCount: number;
+  targetArea: number;          // stable — based on ALL items
+  dummySales: DummySales;      // stable — based on ALL items
 }) {
   const s = computeStats(items);
   const allSelected = selectedDoctorCount === totalDoctorCount;
+
+  // Derived monitoring metrics — estimasiTotal reacts to checklist
+  const ratioEst    = targetArea > 0 ? (s.estimasiTotal / targetArea) * 100 : 0;
+  const ratioBudget = targetArea > 0 ? (s.budgetTotal   / targetArea) * 100 : 0;
+  const salesPlusEst   = dummySales.salesYtd + s.estimasiTotal;
+  const achievementPct = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
+
+  const signedPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 
   return (
     <Card>
@@ -97,8 +141,11 @@ function StatsPanel({
 
         <SectionDivider>Estimasi Penjualan</SectionDivider>
         <StatCell label="Total Estimasi" value={formatRp(s.estimasiTotal)} />
-        <StatCell label="Target Area" value="—" sub="pending" />
-        <StatCell label="Ratio Estimasi" value="—" sub="min 140%" />
+        <StatCell label="Target Area ★" value={formatRp(targetArea)} />
+        <StatCell label="Ratio Estimasi"
+          value={`${ratioEst.toFixed(0)}%`}
+          warn={ratioEst > 0 && ratioEst < 140}
+          sub={ratioEst >= 140 ? "≥ 140% ✓" : ratioEst > 0 ? "⚠ target min 140%" : undefined} />
 
         <SectionDivider>Anggaran</SectionDivider>
         <StatCell label="Biaya PSSP" value={formatRp(s.psspTotal)}
@@ -108,7 +155,8 @@ function StatsPanel({
         <StatCell label="Entertain" value={formatRp(s.entertainTotal)}
           sub={s.estimasiTotal > 0 ? `${((s.entertainTotal / s.estimasiTotal) * 100).toFixed(1)}% est` : undefined} />
         <StatCell label="Total Budget" value={formatRp(s.budgetTotal)} />
-        <StatCell label="Ratio Budget / Target" value="—" sub="pending" />
+        <StatCell label="Ratio Budget / Target ★"
+          value={ratioBudget > 0 ? `${ratioBudget.toFixed(1)}%` : "—"} />
 
         <SectionDivider>Cakupan</SectionDivider>
         <StatCell label="Customer" value={selectedDoctorCount}
@@ -126,13 +174,22 @@ function StatsPanel({
         <StatCell label="Gap (Belum)" value={s.gap} warn={s.gap > 0}
           sub={s.gap > 0 ? "perlu listing" : "semua listing ✓"} />
 
-        <SectionDivider>Data Sales</SectionDivider>
-        <StatCell label="Historis 2025" value="—" sub="pending" />
-        <StatCell label="Sales YTD 2026" value="—" sub="pending" />
-        <StatCell label="Sales YTD + Estimasi" value="—" sub="pending" />
-        <StatCell label="Growth YTD" value="—" sub="pending" />
-        <StatCell label="Achievement YTD + Est" value="—" sub="pending" />
+        <SectionDivider>Data Sales ★</SectionDivider>
+        <StatCell label="Historis 2025" value={formatRp(dummySales.historis2025)} />
+        <StatCell label="Sales YTD 2026" value={formatRp(dummySales.salesYtd)} />
+        <StatCell label="Sales YTD + Estimasi" value={formatRp(salesPlusEst)} />
+        <StatCell label="Growth YTD"
+          value={signedPct(dummySales.growthPct)}
+          warn={dummySales.growthPct < 0} />
+        <StatCell label="Achievement YTD + Est"
+          value={achievementPct > 0 ? `${achievementPct.toFixed(1)}%` : "—"}
+          warn={achievementPct > 0 && achievementPct < 100} />
+
       </div>
+
+      <p className="mt-4 text-xs" style={{ color: "var(--color-text-faint)" }}>
+        ★ menggunakan data dummy — akan diganti data aktual
+      </p>
     </Card>
   );
 }
@@ -197,7 +254,7 @@ function DoctorRow({
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
-  // Group by doctor (outlet + doctor name)
+  // Group by doctor
   const groups = useMemo(() => {
     const map = new Map<string, PoaLineItem[]>();
     for (const item of items) {
@@ -226,7 +283,17 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
     setChecked(checked.size === allKeys.length ? new Set() : new Set(allKeys));
   }
 
-  // Items from checked doctors only
+  // Dummy values are stable — computed from ALL items regardless of checklist state
+  const { targetArea, salesDummy } = useMemo(() => {
+    const totalEst = items.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
+    const seed = items.length > 0 ? (items[0].kodePI ?? items[0].namaCust ?? "x") : "x";
+    return {
+      targetArea: computeDummyTarget(seed, totalEst),
+      salesDummy: computeDummySales(seed, totalEst),
+    };
+  }, [items]);
+
+  // Items from checked doctors only — drives the reactive stats
   const selectedItems = useMemo(
     () => items.filter((it) => checked.has(doctorKey(it))),
     [items, checked]
@@ -243,6 +310,8 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
         items={selectedItems}
         selectedDoctorCount={checked.size}
         totalDoctorCount={allKeys.length}
+        targetArea={targetArea}
+        dummySales={salesDummy}
       />
 
       {/* Compact checklist */}
