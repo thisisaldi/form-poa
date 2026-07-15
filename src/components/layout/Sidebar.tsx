@@ -31,8 +31,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ASM", "SM", "NSM"],
   },
   {
-    href: "/monitoring",
-    label: "Monitoring",
+    href: "/summary",
+    label: "Summary",
     icon: <IconChart />,
     roles: ["ASM", "SM", "NSM", "ADMIN"],
   },

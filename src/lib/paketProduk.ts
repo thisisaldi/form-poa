@@ -1,45 +1,51 @@
 /**
  * Mapping from namaProduk (uppercase) to the paket(s) it belongs to.
  * Keys must match exact namaProduk values in the Product table (uppercased).
- * Derived from 'excel/RS GROUP - PHAROS INDONESIA.xlsx' PAKET sheets,
- * reconciled against 'excel/TKT202607020007 - LAPORAN HNA SARUASUBUR.xlsx'.
- * Products not found in DB (GRIFOLS, CALTONAL, REMITAL ODT, AMINOLYTEPERI, IMDROS) are omitted.
+ * Derived from excel/ProductPMDatabase.xlsx Unpivot sheets.
  */
 export const PAKET_BY_PRODUK: Record<string, string[]> = {
-  // NARFOZ — sirup
-  "NARFOZ 4MG/5ML SYR 30ML":        ["PAKET PENCERNAAN", "PAKET PEDIATRIC"],
-  "NARFOZ 4MG/5ML SYR 60ML":        ["PAKET PENCERNAAN", "PAKET PEDIATRIC"],
-  // NARFOZ — injeksi
-  "NARFOZ 4 INJEKSI":                ["PAKET PENCERNAAN", "PAKET PEDIATRIC", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  "NARFOZ 8 INJEKSI":                ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  // NARFOZ — tablet
-  "NARFOZ 4MG TAB 12`S":            ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  "NARFOZ 8MG TAB 12`S":            ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  // PENCERNAAN
-  "ARCOLASE 20MG TAB 30`S":         ["PAKET PENCERNAAN"],
-  // PRORIS (semua bentuk sediaan)
-  "PRORIS 125MG SUPP 10`S":         ["PAKET PEDIATRIC"],
-  "PRORIS SUSP 60 ML RASA JERUK":   ["PAKET PEDIATRIC"],
-  "PRORIS FORTE 200MG SUSP 50ML":   ["PAKET PEDIATRIC"],
-  // PRAXION (semua bentuk sediaan)
-  "PRAXION DROPS SUSPENSI 15ML":    ["PAKET PEDIATRIC"],
-  "PRAXION SUSP 60ML RASA JERUK":   ["PAKET PEDIATRIC"],
-  "PRAXION 250MG/5ML FORTE 60 ML":  ["PAKET PEDIATRIC"],
-  // PEDIATRIC
-  "OZEN DROPS 12ML":                ["PAKET PEDIATRIC"],
-  "INTRIX 1GR VIAL DRY 1`S":        ["PAKET PEDIATRIC", "PAKET PERNAPASAN"],
-  // PAIN
-  "EVIDUR 120MG TAB 30`S":          ["PAKET PAIN"],
-  "ACETRAM 37.5/325MG TAB 10`S<K>": ["PAKET PAIN", "PAKET ONKOLOGI"],
-  // PERNAPASAN
-  "ZIGAT 400MG TAB FC 10`S":        ["PAKET PERNAPASAN"],
-  // PSIKIATRI
-  "REMITAL 5MG TAB FC 30`S":        ["PAKET PSIKIATRI"],
-  "REMITAL 10MG TAB FC 30`S":       ["PAKET PSIKIATRI"],
-  // ONKOLOGI
-  "PROSMOL 0.25MG/5ML INJ":         ["PAKET ONKOLOGI"],
-  "APRION 75MG CAP 10`S":           ["PAKET ONKOLOGI"],
-  "APRION 150MG CAP 20`S":          ["PAKET ONKOLOGI"],
+  // NARFOZ — sirup (015942, 008870)
+  "NARFOZ 4 MG/5 ML SYRUP 30 ML":              ["PAKET PENCERNAAN", "PAKET PEDIATRIC"],
+  "NARFOZ 4 MG/5 ML SYRUP 60 ML":              ["PAKET PENCERNAAN", "PAKET PEDIATRIC"],
+  // NARFOZ — injeksi (005327, 005338)
+  "NARFOZ 4 INJEKSI":                           ["PAKET PENCERNAAN", "PAKET PEDIATRIC", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
+  "NARFOZ 8 INJEKSI":                           ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
+  // NARFOZ — tablet (003171, 003182)
+  "NARFOZ 4 TABLET":                            ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
+  "NARFOZ 8 TABLET":                            ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
+  // PENCERNAAN (010398)
+  "ARCOLASE 20 MG EC TABLET":                   ["PAKET PENCERNAAN"],
+  // GRIFOLS (015777)
+  "HUMAN ALBUMIN GRIFOLS 20 % INFUSION 100":    ["PAKET PENCERNAAN", "PAKET ONKOLOGI"],
+  // PRORIS (006064)
+  "PRORIS SUPPOSITORIA":                        ["PAKET PEDIATRIC", "PAKET PENCERNAAN"],
+  // PRAXION (007550)
+  "PRAXION 100MG/ML DROPS SUSPENSI":            ["PAKET PEDIATRIC", "PAKET PENCERNAAN"],
+  // OZEN (006119)
+  "OZEN DROPS 12 ML":                           ["PAKET PEDIATRIC"],
+  // INTRIX (004865)
+  "INTRIX 1 G INJEKSI":                         ["PAKET PEDIATRIC", "PAKET PERNAPASAN"],
+  // AZTRIN (011290)
+  "AZTRIN 500 MG DRY INJECTION":                ["PAKET PEDIATRIC", "PAKET PERNAPASAN"],
+  // PAIN (013401, 013390)
+  "EVIDUR 120 MG FC TABLET":                    ["PAKET PAIN"],
+  "ACETRAM 37.5/325MG FC TABLET":               ["PAKET PAIN", "PAKET ONKOLOGI"],
+  // PLEXION (008528)
+  "PLEXION 50 MG TABLET SC":                    ["PAKET PAIN"],
+  // PERNAPASAN (012818)
+  "ZIGAT 400 MG FC TABLET":                     ["PAKET PERNAPASAN"],
+  // PSIKIATRI (008187, 008198, 020771, 004800, 004810)
+  "REMITAL 5 MG FC TABLET":                     ["PAKET PSIKIATRI"],
+  "REMITAL 10 MG FC TABLET":                    ["PAKET PSIKIATRI"],
+  "REMITAL 10 MG ODT":                          ["PAKET PSIKIATRI"],
+  "ANTIPRESTIN 10 KAPSUL":                      ["PAKET PSIKIATRI"],
+  "ANTIPRESTIN 20 KAPSUL":                      ["PAKET PSIKIATRI"],
+  // ONKOLOGI (014545, 011223, 015777 see above, 012884, 010805, 014853)
+  "PROSMOL 0.25 MG/5 ML INJECTION":             ["PAKET ONKOLOGI"],
+  "GRAMET 3 MG/3 ML INJECTION":                 ["PAKET ONKOLOGI"],
+  "APRION 75 MG CAPSULE":                       ["PAKET ONKOLOGI"],
+  "APRION 150 MG CAPSULE":                      ["PAKET ONKOLOGI"],
+  "IMDROS 100 MG FC TABLET":                    ["PAKET ONKOLOGI"],
 };
 
 /** Returns the primary paket label for a product name, or null if not a focus product. */
@@ -54,21 +60,25 @@ export function getAllPakets(namaProduk: string): string[] {
   return PAKET_BY_PRODUK[namaProduk.toUpperCase()] ?? [];
 }
 
-/** Maps DB spesialisasi (uppercase) to the pakets most relevant for that specialty. */
+/**
+ * Maps DB spesialisasi (uppercased) to pakets recommended for that specialty.
+ * Source: excel/Rekomendasi Paket Produk Per Spesialisasi.xlsx, Sheet2,
+ * columns SPESIALISASI2 and REKOMENDASI PAKET PRODUK FOKUS.
+ */
 export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   // Pediatric
   "ANAK (PEDIATRIC)":                       ["PAKET PEDIATRIC"],
   "PEDIATRIC":                              ["PAKET PEDIATRIC"],
-  "PULMONOLOGY ANAK":                       ["PAKET PEDIATRIC", "PAKET PERNAPASAN"],
+  "PULMONOLOGY ANAK":                       ["PAKET PEDIATRIC"],
   "BEDAH ANAK":                             ["PAKET PEDIATRIC", "PAKET PAIN"],
 
-  // Internist
+  // Internist / Gastro
   "PENYAKIT DALAM (INTERNIST)":             ["PAKET PENCERNAAN", "PAKET PERNAPASAN"],
   "INTERNIST":                              ["PAKET PENCERNAAN", "PAKET PERNAPASAN"],
   "INTERNIST UMUM":                         ["PAKET PENCERNAAN", "PAKET PERNAPASAN"],
-  "INTERNIST GASTRO":                       ["PAKET PENCERNAAN"],
-  "INTERNIST ENDOKRIN":                     [],
-  "INTERNIST PARU":                         ["PAKET PERNAPASAN"],
+  "INTERNIST GASTRO":                       ["PAKET PENCERNAAN", "PAKET PERNAPASAN"],
+  "INTERNIST ENDOKRIN":                     ["PAKET PENCERNAAN", "PAKET PERNAPASAN"],
+  "INTERNIST PARU":                         ["PAKET PENCERNAAN", "PAKET PERNAPASAN"],
   "GASTROENTEROLOGY-HEPATOLOGY":            ["PAKET PENCERNAAN"],
   "DIGESTIVE & ENDOSCOPY":                  ["PAKET PENCERNAAN"],
 
@@ -76,20 +86,25 @@ export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   "BEDAH (SURGEON)":                        ["PAKET PAIN"],
   "BEDAH":                                  ["PAKET PAIN"],
   "BEDAH UMUM":                             ["PAKET PAIN"],
-  "BEDAH DIGESTIF":                         ["PAKET PENCERNAAN", "PAKET PAIN"],
+  "BEDAH DIGESTIF":                         ["PAKET PAIN"],
   "BEDAH KANKER (ONKOLOGI)":                ["PAKET ONKOLOGI", "PAKET PAIN"],
   "BEDAH ONKOLOGI":                         ["PAKET ONKOLOGI", "PAKET PAIN"],
   "BEDAH TULANG (ORTHOPEDI)":               ["PAKET PAIN"],
   "BEDAH ORTHOPEDI":                        ["PAKET PAIN"],
   "BEDAH TULANG BELAKANG (SPINAL SURGERY)": ["PAKET PAIN"],
-  "BEDAH TORAK / JANTUNG":                  ["PAKET PAIN", "PAKET PERNAPASAN"],
-  "BEDAH THORAKS & KARDIO VASKULAR (BTKV)": ["PAKET PAIN", "PAKET PERNAPASAN"],
-  "BEDAH SYARAF":                           ["PAKET PAIN", "PAKET PSIKIATRI"],
+  "BEDAH TORAK / JANTUNG":                  ["PAKET PAIN"],
+  "BEDAH THORAKS & KARDIO VASKULAR (BTKV)": ["PAKET PAIN"],
+  "BEDAH SYARAF":                           ["PAKET PAIN"],
   "BEDAH (UROLOGIS)":                       ["PAKET PAIN"],
   "BEDAH UROLOGIS":                         ["PAKET PAIN"],
+  "BEDAH MULUT":                            ["PAKET PAIN"],
+  "BEDAH PLASTIK":                          ["PAKET PAIN"],
+  "BEDAH THT":                              ["PAKET PAIN"],
+  "THT & BEDAH KEPALA LEHER":               ["PAKET PAIN"],
 
   // Pernapasan
   "PARU (PULMONOLOGI)":                     ["PAKET PERNAPASAN"],
+  "PULMONOLOGI":                            ["PAKET PERNAPASAN"],
 
   // Anestesi & Pain
   "ANESTESI":                               ["PAKET PAIN"],
@@ -100,12 +115,13 @@ export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   "SYARAF (NEUROLOGI)":                     ["PAKET PSIKIATRI"],
   "NEUROLOGI":                              ["PAKET PSIKIATRI"],
   "JIWA (PSIKIATER)":                       ["PAKET PSIKIATRI"],
+  "KESEHATAN JIWA":                         ["PAKET PSIKIATRI"],
 
   // Onkologi & Hematologi
-  "HEMATOLOGI":                             ["PAKET ONKOLOGI"],
   "HAEMATOLOGY-ONCOLOGY":                   ["PAKET ONKOLOGI"],
 
   // Tidak ada paket fokus yang relevan
+  "HEMATOLOGI":                             [],
   "KANDUNGAN (OBSGYN)":                     [],
   "OBSGYN":                                 [],
   "JANTUNG (KARDIOLOGI)":                   [],
@@ -113,12 +129,8 @@ export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   "KULIT KELAMIN (DV)":                     [],
   "THT (ENT)":                              [],
   "T H T (ENT)":                            [],
-  "THT & BEDAH KEPALA LEHER":               [],
-  "BEDAH THT":                              [],
   "MATA (OPTAL)":                           [],
   "GIGI (DENTIST)":                         [],
-  "BEDAH MULUT":                            [],
-  "BEDAH PLASTIK":                          [],
   "REHAB MEDIK":                            [],
   "RADIOLOGI":                              [],
   "PATOLOGI KLINIK":                        [],
@@ -127,6 +139,14 @@ export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   "RHEUMATOLOGIST":                         [],
   "CLINICAL IMMUNOLOG & ALLERGY":           [],
   "UMUM (GP)":                              [],
+  "UMUM ( GP)":                             [],
+  "AHLI GIZI":                              [],
+  "GIZI KLINIK":                            [],
+  "KESEHATAN OLAHRAGA":                     [],
+  "PSIKOLOGI":                              [],
+  "KEPALA ICU":                             [],
+  "CLINICAL PHARMACOLOGY":                  [],
+  "ORTHODENTIST":                           [],
 };
 
 /**

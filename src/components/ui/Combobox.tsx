@@ -10,6 +10,8 @@ export interface ComboboxOption {
   group?: string;
   /** Highlight this option with primary color + star badge (tier-0 focus products). */
   accent?: boolean;
+  /** Short badge shown inline next to the label (e.g. group RS name). */
+  tag?: string;
 }
 
 interface Props {
@@ -53,7 +55,8 @@ export function Combobox({
       (o) =>
         o.label.toLowerCase().includes(q) ||
         o.value.toLowerCase().includes(q) ||
-        (o.sublabel?.toLowerCase().includes(q) ?? false)
+        (o.sublabel?.toLowerCase().includes(q) ?? false) ||
+        (o.tag?.toLowerCase().includes(q) ?? false)
     );
   }, [options, query]);
 
@@ -234,11 +237,24 @@ export function Combobox({
                           <span className="text-xs shrink-0" style={{ color: "var(--color-primary)" }}>★</span>
                         )}
                         <span className="flex-1 min-w-0">
-                          <span
-                            className="block text-sm font-medium truncate"
-                            style={{ color: isHighlighted ? "#fff" : option.accent ? "var(--color-primary)" : "var(--color-text)" }}
-                          >
-                            {option.label}
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className="text-sm font-medium truncate"
+                              style={{ color: isHighlighted ? "#fff" : option.accent ? "var(--color-primary)" : "var(--color-text)" }}
+                            >
+                              {option.label}
+                            </span>
+                            {option.tag && (
+                              <span
+                                className="shrink-0 text-xs px-1.5 py-0.5 rounded font-medium"
+                                style={{
+                                  background: isHighlighted ? "rgba(255,255,255,0.2)" : "var(--color-blue-light)",
+                                  color: isHighlighted ? "#fff" : "var(--color-blue)",
+                                }}
+                              >
+                                {option.tag}
+                              </span>
+                            )}
                           </span>
                           {option.sublabel && (
                             <span

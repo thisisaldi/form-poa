@@ -28,6 +28,7 @@ export const MOCK_POAS: PoaForm[] = [
     id: "poa-001",
     period: "2026-07",
     status: PoaStatus.SUBMITTED_TO_ASM,
+    target: null,
     ownerId: "MR001",
     currentHolderId: "ASM001",
     createdAt: EARLIER,
@@ -37,6 +38,7 @@ export const MOCK_POAS: PoaForm[] = [
     id: "poa-002",
     period: "2026-07",
     status: PoaStatus.DRAFT,
+    target: null,
     ownerId: "MR002",
     currentHolderId: null,
     createdAt: EARLIER,
@@ -46,6 +48,7 @@ export const MOCK_POAS: PoaForm[] = [
     id: "poa-003",
     period: "2026-06",
     status: PoaStatus.APPROVED_BY_NSM,
+    target: null,
     ownerId: "MR001",
     currentHolderId: null,
     createdAt: new Date("2026-06-01"),
@@ -89,6 +92,7 @@ export interface MockCustomer {
   historisPSSP: string | null;
   kodePI: string | null;
   namaOutlet: string;
+  groupRS?: string | null;
 }
 
 export interface MockProduct {

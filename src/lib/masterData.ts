@@ -15,11 +15,12 @@ export interface Product {
   zatAktif: string | null;
   satuan: string;
   hna: string;
+  nilaiRPersen: string | null;
 }
 
 // ─── Outlet queries ───────────────────────────────────────────────────────────
 
-function toMockCustomer(o: { kodePI: string; namaOutlet: string; sector?: string | null; subSektor?: string | null }): MockCustomer {
+function toMockCustomer(o: { kodePI: string; namaOutlet: string; sector?: string | null; subSektor?: string | null; groupRS?: string | null }): MockCustomer {
   return {
     kodeRequest: o.kodePI,
     kodeCust: o.kodePI,
@@ -29,6 +30,7 @@ function toMockCustomer(o: { kodePI: string; namaOutlet: string; sector?: string
     historisPSSP: null,
     kodePI: o.kodePI,
     namaOutlet: o.namaOutlet,
+    groupRS: o.groupRS ?? null,
   };
 }
 
@@ -48,7 +50,7 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
     where: { nipMR: userId },
     include: { outlet: true },
   });
-  return assignments.map(({ outlet: o }: { outlet: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null } }) =>
+  return assignments.map(({ outlet: o }: { outlet: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null; groupRS: string | null } }) =>
     toMockCustomer(o)
   );
 }
@@ -63,10 +65,11 @@ export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | 
 
 export async function getProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
-  const rows = await prisma.product.findMany({ orderBy: { namaProduk: "asc" } });
-  return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string } }) => ({
+  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } });
+  return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null }) => ({
     ...p,
     hna: p.hna.toString(),
+    nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
   }));
 }
 
@@ -74,5 +77,5 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
   const { prisma } = await import("@/lib/prisma");
   const p = await prisma.product.findUnique({ where: { kodeProduk } });
   if (!p) return null;
-  return { ...p, hna: p.hna.toString() };
+  return { ...p, hna: p.hna.toString(), nilaiRPersen: p.nilaiRPersen?.toString() ?? null };
 }

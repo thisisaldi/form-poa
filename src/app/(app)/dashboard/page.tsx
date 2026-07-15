@@ -5,7 +5,7 @@ import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit } fr
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import type { Role, PoaForm as PoaFormType, User as UserType } from "@prisma/client";
+import type { Role, PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
 
 export const metadata = { title: "Dashboard · Form POA" };
 
@@ -20,6 +20,8 @@ type PoaWithMeta = PoaFormType & {
   _count: { items: number };
   _totalEst: number;
   _dokterCount: number;
+  _ratioEstimasi: number | null;  // totalEst / target * 100 (null if no target)
+  _pctBudget: number | null;       // weighted avg budget % (0-100), null if no items
 };
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
@@ -41,7 +43,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       where: visibleFilter,
       include: {
         owner: true,
-        items: { select: { rencanaTotalBiaya: true, namaCust: true } },
+        items: {
+          select: {
+            rencanaTotalBiaya: true,
+            namaCust: true,
+            persenPsspDokter: true, persenPsspKpdm: true, persenDiskon: true,
+            persenDp: true, persenListingFee: true, persenEntertain: true,
+          },
+        },
       },
       orderBy: { updatedAt: "desc" },
       take: 10,
@@ -54,21 +63,130 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     }),
   ]);
 
-  type RawItem = { rencanaTotalBiaya: { toString(): string }; namaCust: string };
+  type RawItem = {
+    rencanaTotalBiaya: { toString(): string };
+    namaCust: string;
+    persenPsspDokter: { toString(): string } | null;
+    persenPsspKpdm: { toString(): string } | null;
+    persenDiskon: { toString(): string } | null;
+    persenDp: { toString(): string } | null;
+    persenListingFee: { toString(): string } | null;
+    persenEntertain: { toString(): string } | null;
+  };
   type RawPoa = typeof recentRaw[number] & { items: RawItem[] };
 
   // Compute per-POA aggregates
+  const toNum = (v: { toString(): string } | null | undefined) => parseFloat((v ?? "0").toString()) || 0;
+
   const recentPoas: PoaWithMeta[] = (recentRaw as RawPoa[]).map((poa) => {
     const items = poa.items;
-    const totalEst = items.reduce((s: number, it: RawItem) => s + parseFloat(it.rencanaTotalBiaya.toString()), 0);
+    const totalEst = items.reduce((s: number, it: RawItem) => s + toNum(it.rencanaTotalBiaya), 0);
     const dokterCount = new Set(items.map((it: RawItem) => it.namaCust)).size;
+
+    // Ratio % = totalEst / target
+    const target = poa.target ? parseFloat(poa.target.toString()) : null;
+    const ratioEstimasi = target != null && target > 0 ? (totalEst / target) * 100 : null;
+
+    // Weighted budget percentage
+    let budgetSum = 0;
+    for (const it of items) {
+      const est = toNum(it.rencanaTotalBiaya);
+      const pct = toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm) + toNum(it.persenDiskon)
+        + toNum(it.persenDp) + toNum(it.persenListingFee) + toNum(it.persenEntertain);
+      budgetSum += est * pct;
+    }
+    const pctBudget = totalEst > 0 ? (budgetSum / totalEst) * 100 : null;
+
     return {
       ...poa,
       _count: { items: items.length },
       _totalEst: totalEst,
       _dokterCount: dokterCount,
+      _ratioEstimasi: ratioEstimasi,
+      _pctBudget: pctBudget,
     };
   });
+
+  // ── MR progress stats (non-MR only) ─────────────────────────────────────────
+
+  interface MrGroupStat {
+    groupNip: string;
+    groupName: string;
+    groupRole: string;
+    mrNips: string[];
+    submittedNips: Set<string>;
+  }
+
+  let mrProgressPeriod: string | null = null;
+  let mrGroups: MrGroupStat[] = [];
+
+  if (!isMR) {
+    // Direct subordinates of the actor
+    const directSubs = await prisma.user.findMany({
+      where: { nipAtasan: actor.nip, isActive: true },
+      select: { nip: true, name: true, role: true },
+      orderBy: { name: "asc" },
+    }) as { nip: string; name: string; role: string }[];
+
+    // For each direct sub, get MR nips under them (or themselves if they're MRs)
+    const groupsRaw: { nip: string; name: string; role: string; mrNips: string[] }[] = [];
+    for (const sub of directSubs) {
+      if (sub.role === "MR") {
+        groupsRaw.push({ ...sub, mrNips: [sub.nip] });
+      } else {
+        // Get MRs 1 level deeper (ASM→MRs or SM→ASM→MRs would need 2 levels)
+        const depth = sub.role === "ASM" ? 1 : sub.role === "SM" ? 2 : 1;
+        async function getMrsUnder(managerNip: string, d: number): Promise<string[]> {
+          if (d === 0) return [];
+          const reports = await prisma.user.findMany({
+            where: { nipAtasan: managerNip, isActive: true },
+            select: { nip: true, role: true },
+          }) as { nip: string; role: string }[];
+          const nips: string[] = [];
+          for (const r of reports) {
+            if (r.role === "MR") nips.push(r.nip);
+            else nips.push(...await getMrsUnder(r.nip, d - 1));
+          }
+          return nips;
+        }
+        const mrNips = await getMrsUnder(sub.nip, depth);
+        groupsRaw.push({ ...sub, mrNips });
+      }
+    }
+
+    // Get latest period across all MR POAs
+    const allMrNips = [...new Set(groupsRaw.flatMap(g => g.mrNips))];
+    if (allMrNips.length > 0) {
+      const periodRow = await prisma.poaForm.findFirst({
+        where: { ownerId: { in: allMrNips } },
+        orderBy: { period: "desc" },
+        select: { period: true },
+      });
+      mrProgressPeriod = periodRow?.period ?? null;
+
+      if (mrProgressPeriod) {
+        const submittedRows = await prisma.poaForm.findMany({
+          where: {
+            ownerId: { in: allMrNips },
+            period: mrProgressPeriod,
+            status: { not: "DRAFT" as PoaStatus },
+          },
+          select: { ownerId: true },
+        }) as { ownerId: string }[];
+        const submittedNips = new Set(submittedRows.map(r => r.ownerId));
+
+        mrGroups = groupsRaw
+          .filter(g => g.mrNips.length > 0)
+          .map(g => ({
+            groupNip: g.nip,
+            groupName: g.name,
+            groupRole: g.role,
+            mrNips: g.mrNips,
+            submittedNips: new Set(g.mrNips.filter(n => submittedNips.has(n))),
+          }));
+      }
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -96,6 +214,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           )}
           {isMR && eligible && (
             <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
+          )}
+          {!isMR && (
+            <a href={mrProgressPeriod ? `/api/export/team?period=${mrProgressPeriod}` : "/api/export/team"}>
+              <Button variant="secondary" size="sm">↓ Export Excel</Button>
+            </a>
           )}
         </div>
       </div>
@@ -134,6 +257,73 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </Card>
       )}
 
+      {!isMR && mrGroups.length > 0 && mrProgressPeriod && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Progres Submit MR</CardTitle>
+            <span className="text-xs px-2 py-0.5 rounded"
+              style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
+              Periode {mrProgressPeriod}
+            </span>
+          </CardHeader>
+          <div className="space-y-3">
+            {mrGroups.map((g) => {
+              const total   = g.mrNips.length;
+              const done    = g.submittedNips.size;
+              const pct     = total > 0 ? (done / total) * 100 : 0;
+              const allDone = done === total;
+              const noneDone = done === 0;
+              return (
+                <div key={g.groupNip}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+                        {g.groupName}
+                      </span>
+                      <span className="text-xs px-1.5 py-0.5 rounded"
+                        style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
+                        {g.groupRole}
+                      </span>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums"
+                      style={{ color: allDone ? "var(--color-success, #16a34a)" : noneDone ? "var(--color-danger, #dc2626)" : "var(--color-text)" }}>
+                      {done}/{total}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
+                    <div className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${pct}%`,
+                        background: allDone ? "var(--color-success, #16a34a)" : noneDone ? "var(--color-danger, #dc2626)" : "var(--color-primary, #2563eb)",
+                      }} />
+                  </div>
+                  {!allDone && (
+                    <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                      {total - done} MR belum submit
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Totals */}
+            {mrGroups.length > 1 && (() => {
+              const totalMR   = mrGroups.reduce((s, g) => s + g.mrNips.length, 0);
+              const doneTotal = mrGroups.reduce((s, g) => s + g.submittedNips.size, 0);
+              return (
+                <div className="flex items-center justify-between pt-3 text-sm"
+                  style={{ borderTop: "1px solid var(--color-border)" }}>
+                  <span style={{ color: "var(--color-text-muted)" }}>Total</span>
+                  <span className="font-semibold" style={{ color: "var(--color-text)" }}>
+                    {doneTotal} dari {totalMR} MR sudah submit
+                  </span>
+                </div>
+              );
+            })()}
+          </div>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>{isMR ? "POA Saya" : "Semua POA"}</CardTitle>
@@ -146,17 +336,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>MR</th>
-                  <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Periode</th>
+                  <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Period</th>
                   <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Status</th>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Target</th>
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi</th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>User</th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Produk</th>
-                  <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Update</th>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Ratio %</th>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>% Budget</th>
                   <th className="pb-3" />
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-                {recentPoas.map((poa) => (
+                {recentPoas.map((poa) => {
+                  const target = poa.target ? parseFloat(poa.target.toString()) : null;
+                  const budgetOver = poa._pctBudget != null && poa._pctBudget > 42.5;
+                  return (
                   <tr key={poa.id}>
                     <td className="py-3">
                       <p className="font-medium" style={{ color: "var(--color-text)" }}>{poa.owner.name}</p>
@@ -164,17 +357,25 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     </td>
                     <td className="py-3" style={{ color: "var(--color-text)" }}>{poa.period}</td>
                     <td className="py-3"><StatusBadge status={poa.status} /></td>
+                    <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                    </td>
                     <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text)" }}>
                       {poa._totalEst > 0 ? formatRp(poa._totalEst) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                     </td>
-                    <td className="py-3 text-right text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      {poa._dokterCount > 0 ? poa._dokterCount : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                    <td className="py-3 text-right text-xs font-medium">
+                      {poa._ratioEstimasi != null ? (
+                        <span style={{ color: poa._ratioEstimasi >= 100 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+                          {poa._ratioEstimasi.toFixed(1)}%
+                        </span>
+                      ) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                     </td>
-                    <td className="py-3 text-right text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      {poa._count.items > 0 ? poa._count.items : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
-                    </td>
-                    <td className="py-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      {new Date(poa.updatedAt).toLocaleDateString("id-ID")}
+                    <td className="py-3 text-right text-xs font-medium">
+                      {poa._pctBudget != null ? (
+                        <span style={{ color: budgetOver ? "var(--color-red)" : "var(--color-text-muted)" }}>
+                          {poa._pctBudget.toFixed(1)}%
+                        </span>
+                      ) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                     </td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-3">
@@ -190,7 +391,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

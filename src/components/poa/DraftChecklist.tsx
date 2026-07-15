@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useTransition } from "react";
+import Link from "next/link";
 import type { PoaLineItem } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
+import { submitPoaWithSelectionAction } from "@/app/actions/poa";
+import { deleteLineItemAction } from "@/app/actions/lineItem";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -303,79 +307,103 @@ function StatsPanel({
 // ─── Doctor row ───────────────────────────────────────────────────────────────
 
 function DoctorRow({
-  doctorItems, checked, onToggle, totalEstimasi,
+  doctorItems, checked, onToggle, totalEstimasi, poaId, userCanEdit,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
   onToggle: () => void;
   totalEstimasi: number;
+  poaId?: string;
+  userCanEdit?: boolean;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
   const isDokterBaru = !first.kodeCust;
   const contribPct = totalEstimasi > 0 ? (rowEst / totalEstimasi) * 100 : 0;
+  const [isDeleting, startDelete] = useTransition();
+
+  function handleDelete(itemId: string) {
+    if (!poaId) return;
+    if (!confirm("Hapus baris ini?")) return;
+    startDelete(() => deleteLineItemAction(poaId, itemId));
+  }
 
   return (
-    <label
-      className="flex items-center gap-3 py-3 px-2 cursor-pointer rounded-lg transition-colors"
-      style={{
-        opacity: checked ? 1 : 0.4,
-        background: checked ? "transparent" : undefined,
-      }}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onToggle}
-        className="h-4 w-4 shrink-0 rounded"
-        style={{ accentColor: "var(--color-primary)" }}
-      />
-      <div className="flex-1 min-w-0 space-y-1">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-            {first.namaCust}
-          </span>
-          {isDokterBaru && (
-            <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
-              style={{ background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }}>
-              Baru
+    <div className="flex items-center gap-3 py-3 px-2 rounded-lg" style={{ opacity: checked ? 1 : 0.5 }}>
+      <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="h-4 w-4 shrink-0 rounded"
+          style={{ accentColor: "var(--color-primary)" }}
+        />
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              {first.namaCust}
             </span>
+            {isDokterBaru && (
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
+                style={{ background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }}>
+                Baru
+              </span>
+            )}
+            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              {spesLabel(first.spesialisasi)}
+            </span>
+          </div>
+          <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
+            {first.namaOutlet}
+          </p>
+          {checked && contribPct > 0 && (
+            <div className="h-1 rounded-full overflow-hidden mt-1" style={{ background: "var(--color-border)" }}>
+              <div className="h-full rounded-full" style={{ width: `${contribPct}%`, background: "var(--color-primary, #2563eb)", opacity: 0.5 }} />
+            </div>
           )}
-          <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-            {spesLabel(first.spesialisasi)}
-          </span>
         </div>
-        <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
-          {first.namaOutlet}
-        </p>
-        {/* Contribution bar */}
-        {checked && contribPct > 0 && (
-          <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
-            <div className="h-full rounded-full" style={{ width: `${contribPct}%`, background: "var(--color-primary, #2563eb)", opacity: 0.5 }} />
+      </label>
+
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="text-right">
+          <p className="text-xs font-medium" style={{ color: "var(--color-text)" }}>
+            {doctorItems.length} produk
+          </p>
+          {rowEst > 0 && (
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{formatRp(rowEst)}</p>
+          )}
+          {contribPct > 0 && (
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{contribPct.toFixed(1)}%</p>
+          )}
+        </div>
+        {userCanEdit && poaId && (
+          <div className="flex flex-col gap-1 items-end">
+            <Link href={`/poa/${poaId}/items/${doctorItems[0].id}/edit`}
+              className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+              Edit
+            </Link>
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => handleDelete(doctorItems[0].id)}
+              className="text-xs" style={{ color: "var(--color-red)" }}>
+              Hapus
+            </button>
           </div>
         )}
       </div>
-      <div className="text-right shrink-0">
-        <p className="text-xs font-medium" style={{ color: "var(--color-text)" }}>
-          {doctorItems.length} produk
-        </p>
-        {rowEst > 0 && (
-          <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-            {formatRp(rowEst)}
-          </p>
-        )}
-        {contribPct > 0 && (
-          <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-            {contribPct.toFixed(1)}%
-          </p>
-        )}
-      </div>
-    </label>
+    </div>
   );
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
+export function DraftChecklist({ items, poaId, showSubmit, userCanEdit }: {
+  items: PoaLineItem[];
+  poaId?: string;
+  showSubmit?: boolean;
+  userCanEdit?: boolean;
+}) {
   const groups = useMemo(() => {
     const map = new Map<string, PoaLineItem[]>();
     for (const item of items) {
@@ -423,6 +451,16 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
     [selectedItems],
   );
 
+  const [isSubmitting, startSubmit] = useTransition();
+
+  function handleSubmit() {
+    if (!poaId || checked.size === 0) return;
+    const keepIds = items
+      .filter((it) => checked.has(doctorKey(it)))
+      .map((it) => it.id);
+    startSubmit(() => submitPoaWithSelectionAction(poaId, keepIds));
+  }
+
   if (items.length === 0) return null;
 
   const allChecked = checked.size === allKeys.length;
@@ -451,14 +489,23 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
                 Centang user yang ingin dihitung statistiknya
               </p>
             </div>
-            <button
-              type="button"
-              className="text-xs px-2.5 py-1 rounded-md font-medium"
-              style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
-              onClick={toggleAll}
-            >
-              {allChecked ? "Batal semua" : "Pilih semua"}
-            </button>
+            <div className="flex items-center gap-2">
+              {userCanEdit && poaId && (
+                <Link href={`/poa/${poaId}/edit`}
+                  className="text-xs px-2.5 py-1 rounded-md font-medium"
+                  style={{ background: "var(--color-primary)", color: "#fff" }}>
+                  + Tambah
+                </Link>
+              )}
+              <button
+                type="button"
+                className="text-xs px-2.5 py-1 rounded-md font-medium"
+                style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
+                onClick={toggleAll}
+              >
+                {allChecked ? "Batal semua" : "Pilih semua"}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-0.5">
@@ -469,10 +516,34 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
                 checked={checked.has(key)}
                 onToggle={() => toggle(key)}
                 totalEstimasi={selectedEstimasi}
+                poaId={poaId}
+                userCanEdit={userCanEdit}
               />
             ))}
           </div>
         </Card>
+
+        {showSubmit && poaId && (
+          <div className="rounded-lg border p-4"
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+            <p className="text-sm font-medium mb-1" style={{ color: "var(--color-text)" }}>
+              Ajukan ke Atasan
+            </p>
+            <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
+              {checked.size === allKeys.length
+                ? `Semua ${allKeys.length} user akan diajukan.`
+                : checked.size === 0
+                ? "Pilih minimal 1 user untuk diajukan."
+                : `${checked.size} dari ${allKeys.length} user dipilih — ${allKeys.length - checked.size} user tidak dicentang akan dihapus dari POA.`}
+            </p>
+            <Button
+              type="button"
+              disabled={checked.size === 0 || isSubmitting}
+              onClick={handleSubmit}>
+              {isSubmitting ? "Mengajukan…" : "Ajukan ke Atasan"}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Right: stats panel — sticky, scrollable internally so it never enlarges the page */}

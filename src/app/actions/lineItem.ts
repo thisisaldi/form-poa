@@ -37,7 +37,6 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const labelCustomer = (formData.get("labelCustomer") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
-  const jumlahPasienHari = parseInt(formData.get("jumlahPasienHari") as string, 10) || null;
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
 
@@ -47,6 +46,10 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   }
   const rasioEstimasiGrowth = (() => {
     const v = parseFloat(formData.get("rasioEstimasiGrowth") as string);
+    return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
+  })();
+  const pengaliNilaiR = (() => {
+    const v = parseFloat(formData.get("pengaliNilaiR") as string);
     return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
   })();
   const persenPsspDokter = parsePct("persenPsspDokter");
@@ -125,10 +128,10 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),
       rencanaVisitMinggu,
       hariKerjaBulan,
-      jumlahPasienHari,
       jumlahResepHari,
       qtyProdukResep,
       rasioEstimasiGrowth,
+      pengaliNilaiR,
       persenPsspDokter,
       persenPsspKpdm,
       persenDiskon,
@@ -155,7 +158,6 @@ export async function updateLineItemAction(
   const lamaPeriodeRaw = parseInt(formData.get("lamaPeriode") as string, 10);
   const periodeAwal = (formData.get("periodeAwal") as string | null)?.trim() ?? "";
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
-  const jumlahPasienHari = parseInt(formData.get("jumlahPasienHari") as string, 10) || null;
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
 
@@ -165,6 +167,10 @@ export async function updateLineItemAction(
   }
   const rasioEstimasiGrowthU = (() => {
     const v = parseFloat(formData.get("rasioEstimasiGrowth") as string);
+    return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
+  })();
+  const pengaliNilaiRU = (() => {
+    const v = parseFloat(formData.get("pengaliNilaiR") as string);
     return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
   })();
   const persenPsspDokterU = parsePctU("persenPsspDokter");
@@ -189,10 +195,10 @@ export async function updateLineItemAction(
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),
       rencanaVisitMinggu,
       hariKerjaBulan,
-      jumlahPasienHari,
       jumlahResepHari,
       qtyProdukResep,
       rasioEstimasiGrowth: rasioEstimasiGrowthU,
+      pengaliNilaiR: pengaliNilaiRU,
       persenPsspDokter: persenPsspDokterU,
       persenPsspKpdm: persenPsspKpdmU,
       persenDiskon: persenDiskonU,

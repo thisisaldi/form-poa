@@ -85,6 +85,7 @@ model PoaForm {
   id        String    @id @default(uuid())
   period    String    // e.g. "2026-07" — flexible, not locked to monthly
   status    PoaStatus @default(DRAFT)
+  target    Decimal?  @db.Decimal(18, 2)  // sales target in Rupiah set by atasan
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -237,6 +238,7 @@ model Outlet {
   outCode      String?
   statusOutlet String? // 'A' = active, 'M' = merged/inactive
   namaChannel  String?
+  groupRS      String?  // e.g. "HERMINA GRUP", "NON CHAIN"
   sector       String?
   subSektor    String?
   kota         String?
@@ -273,6 +275,7 @@ model Product {
   zatAktif       String?
   satuan         String
   hna            Decimal  @db.Decimal(18, 2)
+  nilaiRPersen   Decimal? @db.Decimal(10, 6)  // NILAI_R / HNA from Nilai R.xlsx
   syncedAt       DateTime
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

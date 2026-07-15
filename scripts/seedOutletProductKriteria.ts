@@ -24,22 +24,36 @@ async function main() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
-  // ── 1. Build namaProdukPM+paket → kodeProduk lookup ──────────────────────
-  const konversi = wb.getWorksheet("KonversiProduk");
-  if (!konversi) { console.error("Sheet KonversiProduk not found"); process.exit(1); }
+  // ── 1. Build namaProdukPM → kodeProduk lookup ────────────────────────────
+  // Primary: "Kode Item" sheet (kode without leading zeros → pad to 6 digits)
+  // Fallback: "KonversiProduk" sheet (kode already 6-digit padded)
+  const pad6 = (s: string) => s.padStart(6, "0");
 
-  // key: `${namaProdukPM}|${paket}` → kodeProduk
-  const produkMap = new Map<string, string>();
-  konversi.eachRow((row, rn) => {
+  const produkMap = new Map<string, string>(); // namaPM.toUpperCase() → kodeProduk (6-digit)
+
+  const kodeItemSheet = wb.getWorksheet("Kode Item");
+  if (!kodeItemSheet) { console.error("Sheet 'Kode Item' not found"); process.exit(1); }
+  kodeItemSheet.eachRow((row, rn) => {
     if (rn === 1) return;
-    const namaPM    = String(row.getCell(1).value ?? "").trim();
-    const paket     = String(row.getCell(2).value ?? "").trim();
-    const kodeProduk = String(row.getCell(3).value ?? "").trim();
-    if (namaPM && paket && kodeProduk) {
-      produkMap.set(`${namaPM}|${paket}`, kodeProduk);
-    }
+    const raw  = String(row.getCell(2).value ?? "").trim();
+    const namaPM = String(row.getCell(3).value ?? "").trim().toUpperCase();
+    if (namaPM && raw) produkMap.set(namaPM, pad6(raw));
   });
-  console.log(`KonversiProduk: ${produkMap.size} entries loaded.`);
+
+  // Supplement with KonversiProduk for any names not yet mapped (e.g. IMDROS)
+  const konversiSheet = wb.getWorksheet("KonversiProduk");
+  if (konversiSheet) {
+    konversiSheet.eachRow((row, rn) => {
+      if (rn === 1) return;
+      const namaPM = String(row.getCell(1).value ?? "").trim().toUpperCase();
+      const raw    = String(row.getCell(3).value ?? "").trim();
+      if (namaPM && raw && !produkMap.has(namaPM)) {
+        produkMap.set(namaPM, pad6(raw));
+      }
+    });
+  }
+
+  console.log(`Produk map: ${produkMap.size} entries loaded.`);
 
   // ── 2. Process each Unpivot sheet ────────────────────────────────────────
   const unpivotSheets = wb.worksheets.filter(ws => ws.name.startsWith("Unpivot_"));
@@ -69,7 +83,7 @@ async function main() {
 
       if (!kodePI || !namaProdukPM || !kategori) { skipped++; return; }
 
-      const kodeProduk = produkMap.get(`${namaProdukPM}|${paketName}`);
+      const kodeProduk = produkMap.get(namaProdukPM.toUpperCase());
       if (!kodeProduk) { noKode++; return; }
 
       sheetCount++;
@@ -105,7 +119,7 @@ async function main() {
       })();
 
       if (!kodePI || !namaProdukPM || !kategori) return;
-      const kodeProduk = produkMap.get(`${namaProdukPM}|${paketName}`);
+      const kodeProduk = produkMap.get(namaProdukPM.toUpperCase());
       if (!kodeProduk) return;
 
       rows.push({ kodePI, kodeProduk, paket: paketName, kategori, kriteriaBaru, statusTransaksi });
@@ -130,7 +144,7 @@ async function main() {
   console.log(`\n✅ Done.`);
   console.log(`   Upserted : ${upserted}`);
   console.log(`   Skipped  : ${skipped} (missing kodePI/nama/kategori)`);
-  console.log(`   No kode  : ${noKode} (namaProdukPM not in KonversiProduk)`);
+  console.log(`   No kode  : ${noKode} (namaProdukPM not in Kode Item sheet)`);
 
   await prisma.$disconnect();
 }

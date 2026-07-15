@@ -145,3 +145,19 @@ export async function getCustomersByOutletSpesialisasi(
     isFokus: r.isFokus,
   }));
 }
+
+export interface KriteriaByOutlet {
+  kodeProduk: string;
+  paket: string;
+  kriteriaBaru: string;
+}
+
+/** Returns OutletProductKriteria for a given outlet — used to annotate the product dropdown. */
+export async function getKriteriaByOutlet(kodePI: string): Promise<KriteriaByOutlet[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.outletProductKriteria.findMany({
+    where: { kodePI },
+    select: { kodeProduk: true, paket: true, kriteriaBaru: true },
+  });
+  return rows as KriteriaByOutlet[];
+}

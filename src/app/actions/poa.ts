@@ -21,6 +21,14 @@ export async function createPoaAction(formData: FormData): Promise<void> {
   if (session.role !== "MR") redirect("/dashboard");
   if (!(await canCreatePoa(session.userId))) redirect("/dashboard?error=no_outlets");
 
+  // Prevent duplicate drafts for the same quarter period
+  const existing = await prisma.poaForm.findFirst({
+    where: { ownerId: session.userId, period },
+  });
+  if (existing) {
+    redirect(`/poa/${existing.id}/edit?notice=` + encodeURIComponent(`Draft ${period} sudah ada. Lanjutkan di sini.`));
+  }
+
   const poa = await createPoaDraft(session.userId, period);
   redirect(`/poa/${poa.id}/edit`);
 }
@@ -34,6 +42,29 @@ export async function submitPoaAction(poaId: string, _formData: FormData): Promi
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   if (!canEdit(actor, poa)) redirect(`/poa/${poaId}`);
+
+  await submitPoa(poaId, session.userId);
+  redirect(`/poa/${poaId}`);
+}
+
+// Called from DraftChecklist client component — submits only checked items.
+export async function submitPoaWithSelectionAction(
+  poaId: string,
+  keepItemIds: string[],
+): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!canEdit(actor, poa)) redirect(`/poa/${poaId}`);
+
+  if (keepItemIds.length > 0) {
+    await prisma.poaLineItem.deleteMany({
+      where: { poaId, id: { notIn: keepItemIds } },
+    });
+  }
 
   await submitPoa(poaId, session.userId);
   redirect(`/poa/${poaId}`);
