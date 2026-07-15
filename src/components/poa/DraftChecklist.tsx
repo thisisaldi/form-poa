@@ -113,28 +113,21 @@ function StatsPanel({
   const salesPlusEst = dummySales.salesYtd + s.estimasiTotal;
   const achievePct   = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
 
-  const allSelected = selectedDoctorCount === totalDoctorCount;
-
-  const GREEN  = "var(--color-success, #16a34a)";
-  const RED    = "var(--color-danger, #dc2626)";
-  const ORANGE = "#f59e0b";
-  const BLUE   = "var(--color-blue, #2563eb)";
-
-  const ratioColor = ratioEst >= 140 ? GREEN : ratioEst >= 100 ? ORANGE : RED;
-  const ratioLabel = ratioEst >= 140 ? "Memenuhi target" : ratioEst > 0 ? "Di bawah target 140%" : "—";
+  const allSelected  = selectedDoctorCount === totalDoctorCount;
+  const DANGER       = "var(--color-danger, #dc2626)";
+  const MUTED        = "var(--color-text-muted)";
+  const FAINT        = "var(--color-text-faint)";
+  const TEXT         = "var(--color-text)";
+  const BORDER       = "var(--color-border)";
+  const BG           = "var(--color-bg-subtle)";
+  const PRIMARY      = "var(--color-primary, #2563eb)";
 
   return (
     <Card>
       {/* ── Header ── */}
       <div className="flex items-center justify-between mb-5">
-        <p className="font-semibold text-base" style={{ color: "var(--color-text)" }}>
-          Ringkasan POA
-        </p>
-        <span className="text-xs px-2.5 py-1 rounded-full font-medium"
-          style={{
-            background: allSelected ? "var(--color-bg-subtle)" : "var(--color-primary-light, #eff6ff)",
-            color: allSelected ? "var(--color-text-faint)" : BLUE,
-          }}>
+        <p className="font-semibold text-base" style={{ color: TEXT }}>Ringkasan POA</p>
+        <span className="text-xs px-2 py-0.5 rounded" style={{ background: BG, color: FAINT }}>
           {allSelected
             ? `${totalDoctorCount} user dipilih`
             : `${selectedDoctorCount} dari ${totalDoctorCount} user`}
@@ -143,81 +136,70 @@ function StatsPanel({
 
       {/* ── 1. Estimasi vs Target ── */}
       <div className="grid grid-cols-3 gap-3 mb-5">
-        {/* Estimasi */}
-        <div className="rounded-xl p-3 space-y-0.5"
-          style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>Estimasi POA</p>
-          <p className="text-lg font-bold leading-tight" style={{ color: "var(--color-text)" }}>
-            {s.estimasiTotal > 0 ? formatRp(s.estimasiTotal) : "—"}
-          </p>
-        </div>
-
-        {/* Target */}
-        <div className="rounded-xl p-3 space-y-0.5"
-          style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>Target Area <span style={{ color: ORANGE }}>★</span></p>
-          <p className="text-lg font-bold leading-tight" style={{ color: "var(--color-text)" }}>
-            {formatRp(targetArea)}
-          </p>
-        </div>
-
-        {/* Ratio */}
-        <div className="rounded-xl p-3 space-y-1"
-          style={{ background: ratioEst >= 140 ? "#f0fdf4" : ratioEst > 0 ? "#fff7ed" : "var(--color-bg-subtle)", border: `1px solid ${ratioEst >= 140 ? "#bbf7d0" : ratioEst > 0 ? "#fed7aa" : "var(--color-border)"}` }}>
-          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>Rasio Estimasi</p>
-          <p className="text-lg font-bold leading-tight" style={{ color: ratioColor }}>
-            {ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "—"}
-          </p>
-          <p className="text-xs font-medium" style={{ color: ratioColor }}>{ratioLabel}</p>
-        </div>
+        {[
+          { label: "Estimasi POA",  value: s.estimasiTotal > 0 ? formatRp(s.estimasiTotal) : "—" },
+          { label: "Target Area ★", value: formatRp(targetArea) },
+          {
+            label: "Rasio Estimasi",
+            value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "—",
+            sub: ratioEst >= 140 ? "Memenuhi target" : ratioEst > 0 ? "Di bawah 140%" : undefined,
+            danger: ratioEst > 0 && ratioEst < 140,
+          },
+        ].map(({ label, value, sub, danger }) => (
+          <div key={label} className="rounded-lg p-3 space-y-0.5"
+            style={{ background: BG, border: `1px solid ${BORDER}` }}>
+            <p className="text-xs" style={{ color: MUTED }}>{label}</p>
+            <p className="text-base font-bold leading-tight" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
+            {sub && <p className="text-xs" style={{ color: danger ? DANGER : FAINT }}>{sub}</p>}
+          </div>
+        ))}
       </div>
 
-      {/* Ratio bar — target 140% */}
+      {/* Ratio bar */}
       {ratioEst > 0 && (
         <div className="mb-5 space-y-1">
-          <div className="flex justify-between text-xs" style={{ color: "var(--color-text-faint)" }}>
+          <div className="flex justify-between text-xs" style={{ color: FAINT }}>
             <span>0%</span>
-            <span style={{ color: ORANGE }}>Target 140%</span>
+            <span>Target 140%</span>
             <span>200%</span>
           </div>
-          <div className="relative h-3 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
+          <div className="relative h-2 rounded-full overflow-hidden" style={{ background: BORDER }}>
             <div className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(ratioEst / 2, 100)}%`, background: ratioColor }} />
-            {/* 140% marker at 70% of bar */}
-            <div className="absolute top-0 bottom-0 w-0.5" style={{ left: "70%", background: ORANGE, opacity: 0.8 }} />
+              style={{ width: `${Math.min(ratioEst / 2, 100)}%`, background: ratioEst >= 140 ? PRIMARY : DANGER }} />
+            <div className="absolute top-0 bottom-0 w-px" style={{ left: "70%", background: MUTED }} />
           </div>
         </div>
       )}
 
       {/* ── 2. Anggaran ── */}
       <SectionTitle>Anggaran</SectionTitle>
-      <div className="space-y-3 mb-5">
+      <div className="space-y-2.5 mb-5">
         {[
-          { label: "PSSP", value: s.psspTotal, color: BLUE },
-          { label: "Discount + DPL + DPF", value: s.discountTotal, color: "#8b5cf6" },
-          { label: "Entertain", value: s.entertainTotal, color: "#ec4899" },
-        ].map(({ label, value, color }) => {
+          { label: "PSSP",               value: s.psspTotal },
+          { label: "Discount + DPL + DPF", value: s.discountTotal },
+          { label: "Entertain",          value: s.entertainTotal },
+        ].map(({ label, value }) => {
           const pct = s.estimasiTotal > 0 ? (value / s.estimasiTotal) * 100 : 0;
           return (
             <div key={label}>
               <div className="flex justify-between text-xs mb-1">
-                <span style={{ color: "var(--color-text-muted)" }}>{label}</span>
-                <span style={{ color: "var(--color-text)" }}>
+                <span style={{ color: MUTED }}>{label}</span>
+                <span style={{ color: TEXT }}>
                   {value > 0 ? formatRp(value) : "—"}
-                  {pct > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {pct.toFixed(1)}%</span>}
+                  {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
                 </span>
               </div>
-              <Bar pct={pct * 5} color={color} />
+              <Bar pct={pct * 5} color={PRIMARY} />
             </div>
           );
         })}
         <div className="flex justify-between pt-2 text-sm font-semibold"
-          style={{ borderTop: "1px solid var(--color-border)", color: "var(--color-text)" }}>
+          style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
           <span>Total Budget</span>
           <span>
             {formatRp(s.budgetTotal)}
             {ratioBudget > 0 && (
-              <span className="ml-1.5 text-xs font-normal" style={{ color: "var(--color-text-faint)" }}>
+              <span className="ml-1.5 text-xs font-normal" style={{ color: FAINT }}>
                 ({ratioBudget.toFixed(1)}% dari target ★)
               </span>
             )}
@@ -227,56 +209,28 @@ function StatsPanel({
 
       {/* ── 3. Cakupan ── */}
       <SectionTitle>Cakupan</SectionTitle>
-      <div className="flex flex-wrap gap-2 mb-5">
-        {/* Dokter */}
-        <div className="flex items-center gap-1.5 rounded-lg px-3 py-2"
-          style={{
-            background: selectedDoctorCount >= 30 ? "#f0fdf4" : "#fff7ed",
-            border: `1px solid ${selectedDoctorCount >= 30 ? "#bbf7d0" : "#fed7aa"}`,
-          }}>
-          <span className="text-xl font-bold" style={{ color: selectedDoctorCount >= 30 ? GREEN : ORANGE }}>
-            {selectedDoctorCount}
-          </span>
-          <div>
-            <p className="text-xs font-medium leading-none" style={{ color: selectedDoctorCount >= 30 ? GREEN : ORANGE }}>
-              User
-            </p>
-            <p className="text-xs leading-none mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-              {selectedDoctorCount >= 30 ? "cukup ✓" : "min. 30"}
-            </p>
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        {[
+          {
+            label: "User",
+            value: selectedDoctorCount,
+            sub: selectedDoctorCount >= 30 ? "min. 30 ✓" : `min. 30 (kurang ${30 - selectedDoctorCount})`,
+            danger: selectedDoctorCount < 30,
+          },
+          {
+            label: "Produk",
+            value: `${s.productCount}/22`,
+            sub: s.productCount >= 22 ? "terpenuhi ✓" : `kurang ${22 - s.productCount}`,
+            danger: s.productCount < 22,
+          },
+          { label: "Pengajuan", value: s.totalPengajuan, sub: "total baris" },
+        ].map(({ label, value, sub, danger }) => (
+          <div key={label} className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+            <p className="text-xs mb-0.5" style={{ color: MUTED }}>{label}</p>
+            <p className="text-xl font-bold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
+            {sub && <p className="text-xs mt-0.5" style={{ color: danger ? DANGER : FAINT }}>{sub}</p>}
           </div>
-        </div>
-
-        {/* Produk */}
-        <div className="flex items-center gap-1.5 rounded-lg px-3 py-2"
-          style={{
-            background: s.productCount >= 22 ? "#f0fdf4" : "#fff7ed",
-            border: `1px solid ${s.productCount >= 22 ? "#bbf7d0" : "#fed7aa"}`,
-          }}>
-          <span className="text-xl font-bold" style={{ color: s.productCount >= 22 ? GREEN : ORANGE }}>
-            {s.productCount}
-          </span>
-          <div>
-            <p className="text-xs font-medium leading-none" style={{ color: s.productCount >= 22 ? GREEN : ORANGE }}>
-              Produk
-            </p>
-            <p className="text-xs leading-none mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-              {s.productCount >= 22 ? "dari 22 ✓" : `dari 22 (kurang ${22 - s.productCount})`}
-            </p>
-          </div>
-        </div>
-
-        {/* Pengajuan */}
-        <div className="flex items-center gap-1.5 rounded-lg px-3 py-2"
-          style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-          <span className="text-xl font-bold" style={{ color: "var(--color-text)" }}>
-            {s.totalPengajuan}
-          </span>
-          <div>
-            <p className="text-xs font-medium leading-none" style={{ color: "var(--color-text)" }}>Pengajuan</p>
-            <p className="text-xs leading-none mt-0.5" style={{ color: "var(--color-text-faint)" }}>total baris</p>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* ── 4. Listing / Standarisasi ── */}
@@ -284,48 +238,23 @@ function StatsPanel({
       <div className="mb-5 space-y-2">
         {s.totalPengajuan > 0 ? (
           <>
-            {/* Stacked bar */}
-            <div className="h-4 rounded-full overflow-hidden flex" style={{ background: "var(--color-border)" }}>
+            <div className="h-2 rounded-full overflow-hidden flex" style={{ background: BORDER }}>
               <div className="h-full transition-all duration-300"
-                style={{ width: `${(s.sudahStandar / s.totalPengajuan) * 100}%`, background: GREEN }} />
+                style={{ width: `${(s.sudahStandar / s.totalPengajuan) * 100}%`, background: PRIMARY }} />
               <div className="h-full transition-all duration-300"
-                style={{ width: `${(s.prosesStandar / s.totalPengajuan) * 100}%`, background: ORANGE }} />
+                style={{ width: `${(s.prosesStandar / s.totalPengajuan) * 100}%`, background: MUTED, opacity: 0.4 }} />
             </div>
-            {/* Legend */}
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: GREEN }} />
-                <span style={{ color: "var(--color-text)" }}>Sudah listing</span>
-                <span className="font-semibold" style={{ color: GREEN }}>{s.sudahStandar}</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: ORANGE }} />
-                <span style={{ color: "var(--color-text)" }}>Proses</span>
-                <span className="font-semibold" style={{ color: ORANGE }}>{s.prosesStandar}</span>
-              </span>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+              <span style={{ color: MUTED }}>Sudah listing <span style={{ color: TEXT, fontWeight: 600 }}>{s.sudahStandar}</span></span>
+              <span style={{ color: MUTED }}>Proses <span style={{ color: TEXT, fontWeight: 600 }}>{s.prosesStandar}</span></span>
               {s.gap > 0 && (
-                <span className="flex items-center gap-1">
-                  <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: RED }} />
-                  <span style={{ color: "var(--color-text)" }}>Belum listing</span>
-                  <span className="font-semibold" style={{ color: RED }}>{s.gap}</span>
-                </span>
+                <span style={{ color: DANGER }}>Belum <span style={{ fontWeight: 600 }}>{s.gap}</span> — perlu ditindaklanjuti</span>
               )}
+              {s.gap === 0 && <span style={{ color: MUTED }}>Semua sudah listing ✓</span>}
             </div>
-            {s.gap > 0 && (
-              <p className="text-xs px-2.5 py-1.5 rounded-md"
-                style={{ background: "#fee2e2", color: RED }}>
-                Masih ada {s.gap} produk yang belum listing — perlu ditindaklanjuti.
-              </p>
-            )}
-            {s.gap === 0 && s.totalPengajuan > 0 && (
-              <p className="text-xs px-2.5 py-1.5 rounded-md"
-                style={{ background: "#f0fdf4", color: GREEN }}>
-                Semua produk sudah listing.
-              </p>
-            )}
           </>
         ) : (
-          <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Tidak ada data.</p>
+          <p className="text-xs" style={{ color: FAINT }}>Tidak ada data.</p>
         )}
       </div>
 
@@ -334,42 +263,30 @@ function StatsPanel({
         type="button"
         onClick={() => setSalesOpen((v) => !v)}
         className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
-        style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
-          Data Sales <span style={{ color: ORANGE }}>★ (data sementara)</span>
+        style={{ background: BG, border: `1px solid ${BORDER}` }}>
+        <span className="text-xs" style={{ color: MUTED }}>
+          Data Sales <span style={{ color: FAINT }}>★ data sementara</span>
         </span>
-        <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-          {salesOpen ? "Tutup ▲" : "Lihat ▼"}
-        </span>
+        <span className="text-xs" style={{ color: FAINT }}>{salesOpen ? "▲" : "▼"}</span>
       </button>
 
       {salesOpen && (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {[
-            { label: "Historis 2025", value: formatRp(dummySales.historis2025) },
-            { label: "Sales YTD 2026", value: formatRp(dummySales.salesYtd) },
+            { label: "Historis 2025",       value: formatRp(dummySales.historis2025) },
+            { label: "Sales YTD 2026",      value: formatRp(dummySales.salesYtd) },
             { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
-            {
-              label: "Growth YTD",
-              value: `${dummySales.growthPct >= 0 ? "+" : ""}${dummySales.growthPct.toFixed(1)}%`,
-              warn: dummySales.growthPct < 0,
-            },
-            {
-              label: "Achievement YTD + Est",
-              value: achievePct > 0 ? `${achievePct.toFixed(1)}%` : "—",
-              warn: achievePct > 0 && achievePct < 100,
-            },
-          ].map(({ label, value, warn }) => (
+            { label: "Growth YTD",          value: `${dummySales.growthPct >= 0 ? "+" : ""}${dummySales.growthPct.toFixed(1)}%`, danger: dummySales.growthPct < 0 },
+            { label: "Achievement YTD+Est", value: achievePct > 0 ? `${achievePct.toFixed(1)}%` : "—", danger: achievePct > 0 && achievePct < 100 },
+          ].map(({ label, value, danger }) => (
             <div key={label} className="rounded-lg p-2.5"
-              style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-              <p className="text-xs mb-0.5" style={{ color: "var(--color-text-faint)" }}>{label}</p>
-              <p className="text-sm font-semibold"
-                style={{ color: warn ? RED : "var(--color-text)" }}>{value}</p>
+              style={{ background: BG, border: `1px solid ${BORDER}` }}>
+              <p className="text-xs mb-0.5" style={{ color: FAINT }}>{label}</p>
+              <p className="text-sm font-semibold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
             </div>
           ))}
-
-          <p className="col-span-full text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
-            ★ Angka di atas menggunakan data dummy dan akan diganti data aktual dari sistem sales.
+          <p className="col-span-full text-xs mt-1" style={{ color: FAINT }}>
+            ★ Data dummy — akan diganti data aktual.
           </p>
         </div>
       )}
