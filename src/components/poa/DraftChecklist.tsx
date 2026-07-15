@@ -428,9 +428,9 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
   const allChecked = checked.size === allKeys.length;
 
   return (
-    <div className="flex gap-5 items-start">
+    <div className="grid md:grid-cols-[3fr_2fr] gap-5 items-start">
       {/* Left: checklist */}
-      <div className="flex-1 min-w-0 space-y-4">
+      <div className="space-y-4 min-w-0">
         {/* Stats visible on mobile (above checklist) */}
         <div className="md:hidden">
           <StatsPanel
@@ -476,7 +476,7 @@ export function DraftChecklist({ items }: { items: PoaLineItem[] }) {
       </div>
 
       {/* Right: stats panel — sticky, scrollable internally so it never enlarges the page */}
-      <div className="hidden md:block w-96 shrink-0 sticky top-8 max-h-[calc(100vh-5rem)] overflow-y-auto">
+      <div className="hidden md:block sticky top-8 max-h-[calc(100vh-5rem)] overflow-y-auto">
         <StatsPanel
           items={selectedItems}
           selectedDoctorCount={checked.size}
