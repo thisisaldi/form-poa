@@ -1,12 +1,22 @@
 /**
- * Standalone script — run via: npx tsx scripts/syncProducts.ts <path-to-excel>
+ * Sync products from "LAPORAN HNA" Excel into the Product table.
  *
- * Reads "LIST PRODUK PI" Excel file and upserts all products into the Product table.
- * Uses sheet "Update 15 JUNI (Generik)" (col layout: Procode, Brand, Nama, ZatAktif, Satuan, HNA).
- * Skips rows where Procode or HNA is missing.
+ * Source layout (sheet "Sheet1", header row 8):
+ *   Col 3:  Kd Item      → kodeProduk  (primary key)
+ *   Col 4:  Nama Item    → namaProduk
+ *   Col 11: Group Brand  → namaGroupBrand
+ *   Col 12: HNA          → hna
+ *
+ * Satuan is supplemented from the LIST PRODUK file when provided as second arg.
+ * Rows where Kd Item is missing are skipped.
  *
  * Usage:
- *   npx tsx scripts/syncProducts.ts "LIST PRODUK PI update 15 Juni 2026.xlsx"
+ *   npx tsx scripts/syncProducts.ts <hna-file.xlsx> [list-produk.xlsx]
+ *
+ * Example:
+ *   npx tsx scripts/syncProducts.ts \
+ *     "excel/TKT202607020007 - LAPORAN HNA SARUASUBUR.xlsx" \
+ *     "excel/LIST PRODUK PI update 15 Juni 2026.xlsx"
  */
 
 import "dotenv/config";
@@ -14,56 +24,83 @@ import path from "path";
 import ExcelJS from "exceljs";
 import { prisma } from "../src/lib/prisma";
 
-const SHEET_NAME = "Update 15 JUNI (Generik)";
-const DATA_START_ROW = 4; // row 3 is header, row 4 is first data row
+const HNA_HEADER_ROW  = 8;
+const HNA_DATA_START  = 9;
+const LIST_DATA_START = 4;
+
+async function loadSatuanMap(listProdukPath: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>(); // kodeProduk → satuan
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(listProdukPath);
+  for (const sheetName of ["Update 15 JUNI (Generik)", "Update 15 JUNI (Nama Produk)"]) {
+    const ws = wb.getWorksheet(sheetName);
+    if (!ws) continue;
+    for (let r = LIST_DATA_START; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const kode   = String(row.getCell(3).value ?? "").trim();
+      const satuan = String(row.getCell(7).value ?? "").trim();
+      if (kode && satuan) map.set(kode, satuan);
+    }
+  }
+  console.log(`Loaded ${map.size} satuan entries from LIST PRODUK.`);
+  return map;
+}
+
+function clean(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  return s === "" || s.toUpperCase() === "NULL" ? null : s;
+}
 
 async function main() {
-  const filePath = process.argv[2];
-  if (!filePath) {
-    console.error("Usage: npx tsx scripts/syncProducts.ts <path-to-excel>");
+  const hnaPath  = process.argv[2];
+  const listPath = process.argv[3];
+
+  if (!hnaPath) {
+    console.error("Usage: npx tsx scripts/syncProducts.ts <hna-file.xlsx> [list-produk.xlsx]");
     process.exit(1);
   }
 
-  const absPath = path.resolve(filePath);
-  console.log(`Reading: ${absPath}`);
+  const hnaAbs = path.resolve(hnaPath);
+  console.log(`Reading HNA file: ${hnaAbs}`);
+
+  // Optional satuan supplement
+  const satuanMap = listPath ? await loadSatuanMap(path.resolve(listPath)) : new Map<string, string>();
 
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(absPath);
+  await wb.xlsx.readFile(hnaAbs);
 
-  const sheet = wb.getWorksheet(SHEET_NAME);
-  if (!sheet) {
-    console.error(`Sheet "${SHEET_NAME}" not found in workbook.`);
-    process.exit(1);
+  const ws = wb.getWorksheet("Sheet1");
+  if (!ws) { console.error('Sheet "Sheet1" not found.'); process.exit(1); }
+
+  // Validate header row
+  const header3 = String(ws.getRow(HNA_HEADER_ROW).getCell(3).value ?? "").trim();
+  if (!header3.toLowerCase().includes("item")) {
+    console.warn(`Warning: expected "Kd Item" at col 3 row ${HNA_HEADER_ROW}, got "${header3}"`);
   }
 
   const now = new Date();
-  let upserted = 0;
-  let skipped = 0;
+  let upserted = 0, skipped = 0;
 
-  for (let r = DATA_START_ROW; r <= sheet.rowCount; r++) {
-    const row = sheet.getRow(r);
-    const kodeProduk = String(row.getCell(3).value ?? "").trim();
-    const namaGroupBrand = String(row.getCell(4).value ?? "").trim();
-    const namaProduk = String(row.getCell(5).value ?? "").trim();
-    const zatAktif = String(row.getCell(6).value ?? "").trim() || null;
-    const satuan = String(row.getCell(7).value ?? "").trim();
-    const hnaRaw = row.getCell(8).value;
-    const hna = typeof hnaRaw === "number" ? hnaRaw : parseFloat(String(hnaRaw ?? ""));
+  for (let r = HNA_DATA_START; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
+    const kodeProduk    = clean(row.getCell(3).value);
+    const namaProduk    = clean(row.getCell(4).value);
+    const namaGroupBrand = clean(row.getCell(11).value) ?? "—";
+    const hnaRaw        = row.getCell(12).value;
+    const hna           = typeof hnaRaw === "number" ? hnaRaw : parseFloat(String(hnaRaw ?? "0")) || 0;
+    const satuan        = satuanMap.get(kodeProduk ?? "") ?? "—";
 
-    if (!kodeProduk || isNaN(hna)) {
-      skipped++;
-      continue;
-    }
+    if (!kodeProduk || !namaProduk) { skipped++; continue; }
 
     await prisma.product.upsert({
-      where: { kodeProduk },
-      update: { namaGroupBrand, namaProduk, zatAktif, satuan, hna, syncedAt: now, updatedAt: now },
-      create: { kodeProduk, namaGroupBrand, namaProduk, zatAktif, satuan, hna, syncedAt: now },
+      where:  { kodeProduk },
+      update: { namaGroupBrand, namaProduk, satuan, hna, syncedAt: now, updatedAt: now },
+      create: { kodeProduk, namaGroupBrand, namaProduk, zatAktif: null, satuan, hna, syncedAt: now },
     });
     upserted++;
   }
 
-  console.log(`Done. Upserted: ${upserted}, Skipped: ${skipped}`);
+  console.log(`\nDone. Upserted: ${upserted} | Skipped: ${skipped}`);
   await prisma.$disconnect();
 }
 

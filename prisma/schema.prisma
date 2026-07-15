@@ -397,6 +397,22 @@ model OutletSalesHistory {
   @@index([itemKode])
 }
 
+// Criteria tag per product per outlet — from ProductPMDatabase Unpivot sheets.
+// Drives "produk fokus per outlet" logic in the POA form and stats panel.
+model OutletProductKriteria {
+  id              String   @id @default(uuid())
+  kodePI          String
+  kodeProduk      String
+  paket           String   // e.g. "PAKET PENCERNAAN"
+  kategori        String   // Low Hanging Fruit | Blue Ocean | Red Ocean
+  kriteriaBaru    String   // e.g. "Produk Sudah Terstandarisasi - Ada Sales"
+  statusTransaksi Int      // 0 or 1
+
+  @@unique([kodePI, kodeProduk, paket])
+  @@index([kodePI])
+  @@index([kodeProduk])
+}
+
 // Junction: which MRs are assigned to which outlets per periode (from Struktur_Marketing_PI)
 model MrOutletAssignment {
   id        String   @id @default(uuid())
