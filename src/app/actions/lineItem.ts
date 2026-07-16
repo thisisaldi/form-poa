@@ -117,8 +117,12 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       namaProduk: product.namaProduk,
       kategoriProdukFokus: product.namaGroupBrand,
       itemKode: product.kodeProduk,
-      satuanTerkecil: product.satuan,
-      hargaSatuanTerkecil: new Prisma.Decimal(product.hna.toString()),
+      satuanTerkecil: product.satuanTerkecil ?? product.satuan,
+      hargaSatuanTerkecil: (() => {
+        const hna = parseFloat(product.hna);
+        const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
+        return new Prisma.Decimal((hna / konversi).toFixed(2));
+      })(),
       historySales3Bln: salesHistory?.totalSales12Bln ?? null,
       produkKompetitor,
       labelCustomer,

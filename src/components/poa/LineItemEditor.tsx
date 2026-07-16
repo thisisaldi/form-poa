@@ -89,15 +89,21 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
   return "Rp " + n.toLocaleString("id-ID");
 }
 
+function hargaST(product: Product): number {
+  const hna      = parseFloat(product.hna) || 0;
+  const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
+  return hna / konversi;
+}
+
 function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Product | null): number {
   if (!product) return 0;
-  const hna   = parseFloat(product.hna) || 0;
+  const hst  = hargaST(product);
   const resep = parseFloat(entry.jumlahResepHari) || 0;
   const qty   = parseFloat(entry.qtyProdukResep) || 0;
   const hari  = parseFloat(dokter.hariKerjaBulan) || 0;
   const lama  = dokter.lamaPeriode || 1;
-  if (!hna || !resep || !qty || !hari) return 0;
-  return Math.round(resep * qty * hari * hna * lama);
+  if (!hst || !resep || !qty || !hari) return 0;
+  return Math.round(resep * qty * hari * hst * lama);
 }
 
 // Returns the per-month estimate from the most recent COMPLETED PSSP contract for a product.
@@ -360,7 +366,7 @@ function ProdukEntryRow({
   const resep  = parseFloat(entry.jumlahResepHari) || 0;
   const qty    = parseFloat(entry.qtyProdukResep) || 0;
   const hari   = parseFloat(dokterFields.hariKerjaBulan) || 0;
-  const hna    = product ? parseFloat(product.hna) || 0 : 0;
+  const hna    = product ? hargaST(product) : 0;  // price per ST
   const lama   = dokterFields.lamaPeriode || 1;
   const nilaiRPersen = product?.nilaiRPersen ? parseFloat(product.nilaiRPersen) : null;
   const pengaliNilaiR = parseFloat(dokterFields.pengaliNilaiR) || 1;
@@ -440,7 +446,14 @@ function ProdukEntryRow({
             className="input-field" />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Produk ST / Resep<Req /></span>
+          <span className="text-xs flex items-center gap-1" style={{ color: "var(--color-text-muted)" }}>
+            Jml Produk ST / Resep<Req />
+            {product?.satuanTerkecil && (
+              <span className="text-xs font-mono px-1 rounded" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)", border: "1px solid var(--color-border)" }}>
+                [[ST]] {product.satuanTerkecil}
+              </span>
+            )}
+          </span>
           <input type="number" min="0" placeholder="1"
             value={entry.qtyProdukResep}
             onChange={(e) => onChange({ qtyProdukResep: e.target.value })}
@@ -1547,7 +1560,7 @@ export function EditPanel({ item, poaId, products, onCancel, onSaved, redirectTo
   const resep  = parseFloat(produkEntry.jumlahResepHari) || 0;
   const qty    = parseFloat(produkEntry.qtyProdukResep) || 0;
   const hari   = parseFloat(dokterFields.hariKerjaBulan) || 0;
-  const hna    = product ? parseFloat(product.hna) || parseFloat(item.hargaSatuanTerkecil?.toString() ?? "0") || 0 : parseFloat(item.hargaSatuanTerkecil?.toString() ?? "0") || 0;
+  const hna    = product ? hargaST(product) : parseFloat(item.hargaSatuanTerkecil?.toString() ?? "0") || 0;  // price per ST
   const lama   = dokterFields.lamaPeriode;
   const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
@@ -1617,7 +1630,14 @@ export function EditPanel({ item, poaId, products, onCancel, onSaved, redirectTo
                   className="input-field" />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jml Produk ST / Resep<Req /></span>
+                <span className="text-xs flex items-center gap-1" style={{ color: "var(--color-text-muted)" }}>
+                  Jml Produk ST / Resep<Req />
+                  {product?.satuanTerkecil && (
+                    <span className="text-xs font-mono px-1 rounded" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)", border: "1px solid var(--color-border)" }}>
+                      [[ST]] {product.satuanTerkecil}
+                    </span>
+                  )}
+                </span>
                 <input type="number" min="0" placeholder="1"
                   value={produkEntry.qtyProdukResep}
                   onChange={(e) => setProdukEntry((prev) => ({ ...prev, qtyProdukResep: e.target.value }))}

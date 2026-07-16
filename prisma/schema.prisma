@@ -269,16 +269,19 @@ model Outlet {
 // Synced from "LIST PRODUK PI" Excel file.
 
 model Product {
-  kodeProduk     String   @id
-  namaGroupBrand String
-  namaProduk     String
-  zatAktif       String?
-  satuan         String
-  hna            Decimal  @db.Decimal(18, 2)
-  nilaiRPersen   Decimal? @db.Decimal(10, 6)  // NILAI_R / HNA from Nilai R.xlsx
-  syncedAt       DateTime
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  kodeProduk      String   @id
+  namaGroupBrand  String
+  namaProduk      String
+  zatAktif        String?
+  satuan          String            // SJ (Satuan Jual), e.g. "BOX"
+  hna             Decimal  @db.Decimal(18, 2)   // HNA per SJ
+  nilaiRPersen    Decimal? @db.Decimal(10, 6)   // NILAI_R / HNA from Nilai R.xlsx
+  // Satuan Terkecil — from Kebutuhan Satuan Terkecil.xlsx
+  satuanTerkecil  String?           // Pack_Name, e.g. "TABLET", "BOTOL"
+  konversiPembagi Decimal? @db.Decimal(10, 2)   // how many ST per SJ (e.g. 100 for tablet BOX 100's)
+  syncedAt        DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([namaGroupBrand])
 }

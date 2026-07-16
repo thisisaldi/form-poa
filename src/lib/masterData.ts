@@ -13,9 +13,11 @@ export interface Product {
   namaGroupBrand: string;
   namaProduk: string;
   zatAktif: string | null;
-  satuan: string;
-  hna: string;
+  satuan: string;           // SJ (Satuan Jual), e.g. "BOX"
+  hna: string;              // HNA per SJ
   nilaiRPersen: string | null;
+  satuanTerkecil: string | null;   // ST unit name, e.g. "TABLET", "BOTOL"
+  konversiPembagi: string | null;  // how many ST per SJ
 }
 
 // ─── Outlet queries ───────────────────────────────────────────────────────────
@@ -66,10 +68,12 @@ export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | 
 export async function getProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
   const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } });
-  return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null }) => ({
+  return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null; satuanTerkecil: string | null; konversiPembagi: { toString(): string } | null }) => ({
     ...p,
     hna: p.hna.toString(),
     nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
+    satuanTerkecil: p.satuanTerkecil,
+    konversiPembagi: p.konversiPembagi?.toString() ?? null,
   }));
 }
 
@@ -77,5 +81,11 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
   const { prisma } = await import("@/lib/prisma");
   const p = await prisma.product.findUnique({ where: { kodeProduk } });
   if (!p) return null;
-  return { ...p, hna: p.hna.toString(), nilaiRPersen: p.nilaiRPersen?.toString() ?? null };
+  return {
+    ...p,
+    hna: p.hna.toString(),
+    nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
+    satuanTerkecil: p.satuanTerkecil,
+    konversiPembagi: p.konversiPembagi?.toString() ?? null,
+  };
 }
