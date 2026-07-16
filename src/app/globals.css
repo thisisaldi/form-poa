@@ -32,6 +32,8 @@
   --color-status-pending-bg: #FBF3E3;
   --color-status-approved: #008f42;
   --color-status-approved-bg: #E6F5EC;
+  --color-status-revisi: #C0392B;
+  --color-status-revisi-bg: #FDECEA;
 
   /* feedback */
   --color-error: #C0392B;

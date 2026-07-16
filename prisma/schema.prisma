@@ -25,6 +25,7 @@ enum PoaStatus {
   APPROVED_BY_SM
   SUBMITTED_TO_NSM
   APPROVED_BY_NSM
+  REVISI
 }
 
 enum AuditAction {
@@ -32,6 +33,7 @@ enum AuditAction {
   UPDATE
   SUBMIT
   APPROVE
+  REVISE
 }
 
 enum StatusStandarisasi {
@@ -49,6 +51,7 @@ model User {
   role        Role
   email       String?
   isActive    Boolean   @default(true)
+  isDummy     Boolean   @default(false)  // workshop/demo account — bypasses outlet-assignment restrictions
   syncedAt    DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -85,6 +88,7 @@ model PoaForm {
   id        String    @id @default(uuid())
   period    String    // e.g. "2026-07" — flexible, not locked to monthly
   status    PoaStatus @default(DRAFT)
+  version   Int       @default(1)  // bumped every time it re-enters REVISI — "Version X" label
   target    Decimal?  @db.Decimal(18, 2)  // sales target in Rupiah set by atasan
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -336,6 +340,45 @@ model PsspKontrak {
   @@index([prdAwal, prdAkhir])
 }
 
+model ListingFeeKontrak {
+  id         String   @id @default(uuid())
+
+  // Contract identity
+  noreq      String              // request/contract number
+  div        String?             // KML / KMP
+  jenis      String?
+  tglApprove DateTime?
+  tglPpud    DateTime?
+  noOr       String?
+
+  kdCust     String              // KODE CUST — links to Customer.kodeCustomer
+  nmCust     String
+  kdOutlet   String?             // KODE PI
+  nmOutlet   String?
+
+  prdAwal    String              // YYYYMM
+  prdAkhir   String              // YYYYMM
+
+  value       Decimal  @db.Decimal(18, 2)  // total listing fee value
+  targetSales Decimal? @db.Decimal(18, 2)
+
+  kdProduk   String?
+  nmProduk   String?
+  nsm        String?
+
+  // Per-period detail as JSONB: { "202604": 1234.56, ... }
+  bmByPeriod         Json @default("{}")
+  pctListingByPeriod Json @default("{}")
+
+  snapshotDate DateTime?       // date of source Excel file
+  importedAt   DateTime @default(now())
+
+  @@unique([noreq, kdProduk])
+  @@index([kdCust])
+  @@index([kdOutlet])
+  @@index([prdAwal, prdAkhir])
+}
+
 // ─── Customer Pengajuan ───────────────────────────────────────────────────────
 // Submission form for registering a new doctor. On submit, Customer + CustomerOutlet
 // records are created and customerId is populated.
@@ -401,6 +444,40 @@ model OutletSalesHistory {
   @@unique([kodePI, itemKode])
   @@index([kodePI])
   @@index([itemKode])
+}
+
+// Monthly sales QUANTITY per outlet+product — feeds the quarterly target
+// calculation (ratio + productivity-equalization engine, see
+// src/lib/targetCalculation.ts). Quantity, not Rupiah value — targets in
+// this scheme are unit-quantity based; Rupiah value is qty × HNA, derived
+// on demand from Product.hna.
+model OutletSalesMonthly {
+  id       String   @id @default(uuid())
+  kodePI   String
+  itemKode String
+  periode  String   // YYYYMM
+  qty      Decimal  @db.Decimal(18, 2)
+  syncedAt DateTime
+
+  @@unique([kodePI, itemKode, periode])
+  @@index([kodePI])
+  @@index([itemKode])
+  @@index([periode])
+}
+
+// Manual policy input ("Tambahan Target" in the source spreadsheet) — the
+// per-month stretch increment an NSM/Admin sets for a product ahead of a
+// quarter. The calculation engine derives everything else from sales data.
+model ProductTargetInput {
+  id          String   @id @default(uuid())
+  kodeProduk  String
+  quarter     String   // e.g. "2026-Q3" — matches PoaForm.period format
+  monthlyRamp Decimal  @db.Decimal(18, 2)
+  setBy       String?  // nip of the NSM/Admin who set it
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([kodeProduk, quarter])
 }
 
 // Criteria tag per product per outlet — from ProductPMDatabase Unpivot sheets.

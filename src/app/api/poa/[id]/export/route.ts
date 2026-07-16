@@ -7,11 +7,63 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
+import type { PoaLineItem } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
-import { computePeriodeAkhir, formatPeriode } from "@/lib/poaUtils";
+import { computePeriodeAkhir } from "@/lib/poaUtils";
 import { getAllPakets } from "@/lib/paketProduk";
+import { getPsspHistory, type PsspKontrakSummary } from "@/app/actions/customer";
+
+const STATUS_STANDARISASI_LABELS: Record<string, string> = {
+  SUDAH_STANDARISASI: "Sudah Standarisasi",
+  PROSES_PENGAJUAN: "Proses Pengajuan",
+  BELUM_STANDARISASI: "Belum Standarisasi",
+  TIDAK_TAHU: "Tidak Tahu",
+};
+
+// Fraction of the most recent PSSP contract (active if any, else most recent expired) that has been paid off.
+// Mirrors the pct used by computeLabelCustomer() in LineItemEditor.tsx.
+function computePelunasanPct(history: PsspKontrakSummary[]): number | null {
+  if (history.length === 0) return null;
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const byContract = new Map<string, PsspKontrakSummary[]>();
+  for (const row of history) {
+    const bucket = byContract.get(row.cUrut) ?? [];
+    bucket.push(row);
+    byContract.set(row.cUrut, bucket);
+  }
+  let hasActive = false;
+  let activeEst = 0, activeLunas = 0, allEst = 0, allLunas = 0;
+  for (const rows of byContract.values()) {
+    const est = rows.reduce((s, r) => s + r.estBaris, 0);
+    const lunas = rows.reduce((s, r) => s + r.totalLunas, 0);
+    allEst += est; allLunas += lunas;
+    if (rows[0].prdAkhir >= currentPeriod) { hasActive = true; activeEst += est; activeLunas += lunas; }
+  }
+  if (hasActive) return activeEst > 0 ? activeLunas / activeEst : 0;
+  return allEst > 0 ? allLunas / allEst : 0;
+}
+
+// Per-month estimate from the most recent COMPLETED PSSP contract for this product, matched by name
+// (Procode ≠ Item Kode across systems). Mirrors computeOldEstPerMonth() in LineItemEditor.tsx.
+function computeOldEstPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const norm = namaProduk.toLowerCase().trim();
+  const rows = history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir < currentPeriod);
+  if (rows.length === 0) return null;
+  const latest = rows[0];
+  const sy = parseInt(latest.prdAwal.slice(0, 4)), sm = parseInt(latest.prdAwal.slice(4));
+  const ey = parseInt(latest.prdAkhir.slice(0, 4)), em = parseInt(latest.prdAkhir.slice(4));
+  const months = (ey - sy) * 12 + (em - sm) + 1;
+  return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
+}
+
+function doctorKey(item: { kodePI: string | null; namaCust: string }): string {
+  return `${item.kodePI ?? ""}|${item.namaCust}`;
+}
 
 export async function GET(
   _req: NextRequest,
@@ -27,7 +79,7 @@ export async function GET(
   const [poa, actor] = await Promise.all([
     prisma.poaForm.findUnique({
       where: { id },
-      include: { owner: true, items: true },
+      include: { owner: true, items: { orderBy: { createdAt: "asc" } } },
     }),
     prisma.user.findUniqueOrThrow({ where: { nip: session.userId } }),
   ]);
@@ -41,9 +93,48 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (poa.status === "DRAFT") {
-    return NextResponse.json({ error: "Draft POA tidak dapat diekspor. Submit terlebih dahulu." }, { status: 403 });
+  // ─── Org hierarchy (MR → ASM → SM → NSM) for the "Pengisian" sheet ────────
+  const asm = poa.owner.nipAtasan
+    ? await prisma.user.findUnique({ where: { nip: poa.owner.nipAtasan } })
+    : null;
+  const sm = asm?.nipAtasan
+    ? await prisma.user.findUnique({ where: { nip: asm.nipAtasan } })
+    : null;
+  const nsm = sm?.nipAtasan
+    ? await prisma.user.findUnique({ where: { nip: sm.nipAtasan } })
+    : null;
+
+  // ─── Batch product master + PSSP history lookups for all line items ──────
+  const pengisianItems: PoaLineItem[] = poa.items;
+  const productRows = await prisma.product.findMany({
+    where: { kodeProduk: { in: [...new Set(pengisianItems.map((it: PoaLineItem) => it.kodeProduk))] } },
+  });
+  type ProductRow = (typeof productRows)[number];
+  const productMap = new Map<string, ProductRow>(productRows.map((p: ProductRow): [string, ProductRow] => [p.kodeProduk, p]));
+  const psspHistoryMap = new Map<string, PsspKontrakSummary[]>();
+  for (const kodeCust of new Set(
+    pengisianItems.map((it: PoaLineItem) => it.kodeCust).filter((k): k is string => !!k)
+  )) {
+    psspHistoryMap.set(kodeCust, await getPsspHistory(kodeCust));
   }
+
+  // ─── Approval history (for the Pengisian "Approval SM/NSM" columns + Audit Log sheet) ──
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { poaId: id },
+    include: { actor: true },
+    orderBy: { createdAt: "asc" },
+  });
+  type AuditLogRow = (typeof logs)[number];
+  const approveLog = (toStatus: string) =>
+    logs.find((l: AuditLogRow) => l.action === "APPROVE" && l.toStatus === toStatus) ?? null;
+  const approvalSm = (() => {
+    const log = approveLog("APPROVED_BY_SM");
+    return log ? `${log.actor.name} (${log.createdAt.toLocaleDateString("id-ID")})` : "-";
+  })();
+  const approvalNsm = (() => {
+    const log = approveLog("APPROVED_BY_NSM");
+    return log ? `${log.actor.name} (${log.createdAt.toLocaleDateString("id-ID")})` : "-";
+  })();
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "POA System";
@@ -150,54 +241,200 @@ export async function GET(
   // Light blue header row placeholder (column headers not used, style top border instead)
   summary.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LBLUE } };
 
-  // ─── Sheet 2: Line Items ─────────────────────────────────────────────────
-  const formSheet = wb.addWorksheet("Line Items");
+  // ─── Sheet 2: Pengisian ──────────────────────────────────────────────────
+  // Column set/order mirrors "Pengisian" sheet in
+  // excel/Sketsa Keseluruhan (version 1).xlsb (1).xlsx (cols A–AY, incl. the
+  // trailing Approval SM/NSM columns, derived from this POA's audit log).
+  const formSheet = wb.addWorksheet("Pengisian");
+  const PCT_FMT = "0.0%";
+  const RP_FMT = "#,##0";
   formSheet.columns = [
-    { header: "Kode Request", key: "kodeRequest", width: 14 },
-    { header: "Kode Cust", key: "kodeCust", width: 12 },
-    { header: "Nama Customer", key: "namaCust", width: 30 },
-    { header: "Spesialisasi", key: "spesialisasi", width: 18 },
-    { header: "Kode PI", key: "kodePI", width: 14 },
-    { header: "Nama Outlet", key: "namaOutlet", width: 28 },
-    { header: "Kode Produk", key: "kodeProduk", width: 12 },
-    { header: "Nama Produk", key: "namaProduk", width: 24 },
-    { header: "Status Standarisasi", key: "statusStandarisasi", width: 22 },
-    { header: "Lama Periode (bln)", key: "lamaPeriode", width: 18 },
-    { header: "Periode Awal", key: "periodeAwal", width: 14 },
-    { header: "Periode Akhir", key: "periodeAkhir", width: 14 },
-    { header: "Estimasi", key: "rencanaTotalBiaya", width: 20 },
-    { header: "Rencana Visit/Minggu", key: "rencanaVisitMinggu", width: 20 },
-    { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
+    { header: "Nomor Rencana Pengajuan", key: "nomorRencana", width: 12 },
+    { header: "NIP MR/ SPV", key: "nipMr", width: 14 },
+    { header: "Nama MR / SPV", key: "namaMr", width: 24 },
+    { header: "Nama ASM", key: "namaAsm", width: 24 },
+    { header: "Nama SM", key: "namaSm", width: 24 },
+    { header: "Nama NSM", key: "namaNsm", width: 24 },
+    { header: "KodePI - Nama Outlet", key: "outlet", width: 32 },
+    { header: "Spesialisasi", key: "spesialisasi", width: 22 },
+    { header: "Nama User", key: "namaUser", width: 32 },
+    { header: "Label User", key: "labelUser", width: 20 },
+    { header: "Nama Produk Kompetitor", key: "produkKompetitor", width: 22 },
+    { header: "Item Kode - Nama Produk ", key: "produk", width: 32 },
+    { header: "Kriteria Produk", key: "kriteriaProduk", width: 18 },
+    { header: "Kategori/ Status Produk Fokus", key: "statusFokus", width: 16 },
+    { header: "% Pelunasan Sebelumnya", key: "pelunasanSebelumnya", width: 16 },
+    { header: "Estimasi PS/SP Sebelumnya", key: "estimasiSebelumnya", width: 18 },
+    { header: "History Sales \n(B-12)", key: "historySales", width: 16 },
+    { header: "Status Standarisasi/ Listing", key: "statusStandarisasi", width: 20 },
+    { header: "Jumlah Hari Praktek(Bulan)", key: "hariKerjaBulan", width: 14 },
+    { header: "Jumlah R / Hari", key: "jumlahResepHari", width: 12 },
+    { header: "Jumlah \nSatuan Terkecil (ST)\n/R", key: "qtyProdukResep", width: 14 },
+    { header: "Satuan Terkecil\n(ST)", key: "satuanTerkecil", width: 12 },
+    { header: "Harga Satuan Terkecil Produk", key: "hargaSatuanTerkecil", width: 16 },
+    { header: "Jumlah \nSatuan Jual(SJ)", key: "jumlahSJ", width: 14 },
+    { header: "Estimasi PS/SP Produk\n/Bulan", key: "estimasiBulan", width: 16 },
+    { header: "Growth Estimasi PS/SP per Produk/ Bulan", key: "growthEstimasi", width: 16 },
+    { header: "Total Estimasi PS/SP Produk \n/Bulan", key: "totalEstimasiBulan", width: 18 },
+    { header: "Nilai R (%)", key: "nilaiR", width: 12 },
+    { header: "Pengali PS/SP", key: "pengaliPssp", width: 12 },
+    { header: "Nilai PS/SP Produk \n/Bulan", key: "nilaiPsspBulan", width: 16 },
+    { header: "Total Nilai PS/SP Produk \n/Bulan", key: "totalNilaiPsspBulan", width: 18 },
+    { header: "Periode PS/SP (Bulan)", key: "periodePssp", width: 14 },
+    { header: "Periode Awal PS/SP (YYYYMM, contoh: 202601)", key: "periodeAwal", width: 16 },
+    { header: "Periode Akhir PS/SP (YYYYMM, contoh: 202612)", key: "periodeAkhir", width: 16 },
+    { header: "Estimasi PS/SP Produk \n/Periode", key: "estimasiPeriode", width: 18 },
+    { header: "Total Estimasi PS/SP Produk \n/Periode", key: "totalEstimasiPeriode", width: 18 },
+    { header: "Nilai PS/SP Produk \n/Periode", key: "nilaiPsspPeriode", width: 18 },
+    { header: "Total Nilai PS/SP Produk \n/Periode", key: "totalNilaiPsspPeriode", width: 18 },
+    { header: "Rasio Total Biaya(%Estimasi Sales)", key: "rasioTotalBiaya", width: 14 },
+    { header: "Rencana Kunjungan/ Bulan", key: "rencanaKunjungan", width: 14 },
+    { header: "% PS/SP User", key: "persenPsspUser", width: 12 },
+    { header: "% PS/SP KPDM", key: "persenPsspKpdm", width: 12 },
+    { header: "% Discount (DPL/DPF)", key: "persenDiskon", width: 14 },
+    { header: "Periode Diskon", key: "periodeDiskon", width: 14 },
+    { header: "% DP", key: "persenDp", width: 10 },
+    { header: "% Listing Fee", key: "persenListingFee", width: 12 },
+    { header: "% Entertaint", key: "persenEntertain", width: 12 },
+    { header: "Total % Budget", key: "totalPersenBudget", width: 14 },
+    { header: "Warning/ Tagging", key: "warning", width: 16 },
+    { header: "Approval SM", key: "approvalSm", width: 22 },
+    { header: "Approval NSM", key: "approvalNsm", width: 22 },
   ];
-  formSheet.getRow(1).font = { bold: true };
+  formSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   formSheet.getRow(1).fill = {
     type: "pattern",
     pattern: "solid",
     fgColor: { argb: "FF0063A0" },
   };
-  formSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  formSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
 
-  const items = (poa as typeof poa & { items: { kodeRequest: string; kodeCust: string; namaCust: string; spesialisasi: string; kodePI: string | null; namaOutlet: string; kodeProduk: string; namaProduk: string; statusStandarisasi: string | null; lamaPeriode: number; periodeAwal: string; rencanaTotalBiaya: { toString(): string }; rencanaVisitMinggu: number; produkKompetitor: string | null }[] }).items ?? [];
-  for (const item of items) {
-    formSheet.addRow({
-      kodeRequest: item.kodeRequest,
-      kodeCust: item.kodeCust,
-      namaCust: item.namaCust,
-      spesialisasi: item.spesialisasi,
-      kodePI: item.kodePI ?? "-",
-      namaOutlet: item.namaOutlet,
-      kodeProduk: item.kodeProduk,
-      namaProduk: item.namaProduk,
-      statusStandarisasi: item.statusStandarisasi ?? "-",
-      lamaPeriode: item.lamaPeriode,
-      periodeAwal: formatPeriode(item.periodeAwal),
-      periodeAkhir: formatPeriode(computePeriodeAkhir(item.periodeAwal, item.lamaPeriode)),
-      rencanaTotalBiaya: parseFloat(item.rencanaTotalBiaya.toString()),
-      rencanaVisitMinggu: item.rencanaVisitMinggu,
-      produkKompetitor: item.produkKompetitor ?? "-",
-    });
+  type PengisianItem = (typeof pengisianItems)[number];
+  const toNumP = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
+
+  // Doctor grouping — mirrors doctorKey() so multi-product rows for the same
+  // doctor share one "Nomor Rencana Pengajuan" and the same group totals.
+  const groupNumberByKey = new Map<string, number>();
+  const groupTotals = new Map<string, { estimasiBulan: number; nilaiPsspBulan: number; estimasiPeriode: number; nilaiPsspPeriode: number }>();
+  let nextGroupNumber = 1;
+
+  function computeItemValues(item: PengisianItem) {
+    const totalBiaya = toNumP(item.rencanaTotalBiaya);
+    const lama = item.lamaPeriode || 1;
+    const persenPsspDokter = toNumP(item.persenPsspDokter);
+    const pengaliNilaiR = toNumP(item.pengaliNilaiR) || 1;
+    const nilaiPsspPeriode = totalBiaya * persenPsspDokter * pengaliNilaiR;
+    return {
+      estimasiBulan: totalBiaya / lama,
+      nilaiPsspBulan: nilaiPsspPeriode / lama,
+      estimasiPeriode: totalBiaya,
+      nilaiPsspPeriode,
+    };
   }
-  if (items.length === 0) formSheet.addRow(["(Belum ada line item)"]);
+
+  for (const item of pengisianItems) {
+    const key = doctorKey(item);
+    if (!groupNumberByKey.has(key)) groupNumberByKey.set(key, nextGroupNumber++);
+    const v = computeItemValues(item);
+    const totals = groupTotals.get(key) ?? { estimasiBulan: 0, nilaiPsspBulan: 0, estimasiPeriode: 0, nilaiPsspPeriode: 0 };
+    totals.estimasiBulan += v.estimasiBulan;
+    totals.nilaiPsspBulan += v.nilaiPsspBulan;
+    totals.estimasiPeriode += v.estimasiPeriode;
+    totals.nilaiPsspPeriode += v.nilaiPsspPeriode;
+    groupTotals.set(key, totals);
+  }
+
+  // Sort rows by "Nomor Rencana Pengajuan" so every doctor's products stay grouped together.
+  const sortedPengisianItems = [...pengisianItems].sort(
+    (a, b) => groupNumberByKey.get(doctorKey(a))! - groupNumberByKey.get(doctorKey(b))!
+  );
+
+  for (const item of sortedPengisianItems) {
+    const key = doctorKey(item);
+    const product = productMap.get(item.kodeProduk) ?? null;
+    const v = computeItemValues(item);
+    const totals = groupTotals.get(key)!;
+
+    const history = item.kodeCust ? psspHistoryMap.get(item.kodeCust) ?? [] : [];
+    const pelunasanPct = computePelunasanPct(history);
+    const estimasiSebelumnya = computeOldEstPerMonth(history, item.namaProduk);
+
+    const hna = product ? parseFloat(product.hna.toString()) : 0;
+    const jumlahSJ = hna > 0 ? v.estimasiPeriode / hna : null;
+    const nilaiR = item.nilaiR != null
+      ? parseFloat(item.nilaiR.toString())
+      : product?.nilaiRPersen != null ? parseFloat(product.nilaiRPersen.toString()) : null;
+
+    const persenPsspUser = toNumP(item.persenPsspDokter);
+    const persenPsspKpdm = toNumP(item.persenPsspKpdm);
+    const persenDiskon = toNumP(item.persenDiskon);
+    const persenDp = toNumP(item.persenDp);
+    const persenListingFee = toNumP(item.persenListingFee);
+    const persenEntertain = toNumP(item.persenEntertain);
+    const totalPersenBudget = persenPsspUser + persenPsspKpdm + persenDiskon + persenDp + persenListingFee + persenEntertain;
+
+    const row = formSheet.addRow({
+      nomorRencana: groupNumberByKey.get(key),
+      nipMr: poa.owner.nip,
+      namaMr: poa.owner.name,
+      namaAsm: asm?.name ?? "-",
+      namaSm: sm?.name ?? "-",
+      namaNsm: nsm?.name ?? "-",
+      outlet: `${item.kodePI ?? "-"} - ${item.namaOutlet}`,
+      spesialisasi: item.spesialisasi,
+      namaUser: `${item.kodeCust ?? "-"} - ${item.namaCust}`,
+      labelUser: item.labelCustomer ?? "-",
+      produkKompetitor: item.produkKompetitor ?? "-",
+      produk: `${item.itemKode} - ${item.namaProduk}`,
+      kriteriaProduk: item.kriteriaProduk ?? "-",
+      statusFokus: getAllPakets(item.namaProduk).length > 0 ? "Y" : "N",
+      pelunasanSebelumnya: pelunasanPct,
+      estimasiSebelumnya,
+      historySales: item.historySales3Bln != null ? parseFloat(item.historySales3Bln.toString()) : null,
+      statusStandarisasi: item.statusStandarisasi ? STATUS_STANDARISASI_LABELS[item.statusStandarisasi] ?? item.statusStandarisasi : "-",
+      hariKerjaBulan: item.hariKerjaBulan,
+      jumlahResepHari: item.jumlahResepHari,
+      qtyProdukResep: item.qtyProdukResep,
+      satuanTerkecil: item.satuanTerkecil,
+      hargaSatuanTerkecil: item.hargaSatuanTerkecil != null ? parseFloat(item.hargaSatuanTerkecil.toString()) : null,
+      jumlahSJ,
+      estimasiBulan: v.estimasiBulan,
+      growthEstimasi: item.rasioEstimasiGrowth != null ? parseFloat(item.rasioEstimasiGrowth.toString()) : null,
+      totalEstimasiBulan: totals.estimasiBulan,
+      nilaiR,
+      pengaliPssp: item.pengaliNilaiR != null ? parseFloat(item.pengaliNilaiR.toString()) : null,
+      nilaiPsspBulan: v.nilaiPsspBulan,
+      totalNilaiPsspBulan: totals.nilaiPsspBulan,
+      periodePssp: item.lamaPeriode,
+      periodeAwal: item.periodeAwal,
+      periodeAkhir: computePeriodeAkhir(item.periodeAwal, item.lamaPeriode),
+      estimasiPeriode: v.estimasiPeriode,
+      totalEstimasiPeriode: totals.estimasiPeriode,
+      nilaiPsspPeriode: v.nilaiPsspPeriode,
+      totalNilaiPsspPeriode: totals.nilaiPsspPeriode,
+      rasioTotalBiaya: v.estimasiPeriode > 0 ? v.nilaiPsspPeriode / v.estimasiPeriode : null,
+      rencanaKunjungan: item.rencanaVisitMinggu,
+      persenPsspUser,
+      persenPsspKpdm,
+      persenDiskon,
+      periodeDiskon: "-",
+      persenDp,
+      persenListingFee,
+      persenEntertain,
+      totalPersenBudget,
+      warning: totalPersenBudget > 0.425 ? "OVER BUDGET" : totalPersenBudget > 0 ? "SAFE" : "-",
+      approvalSm,
+      approvalNsm,
+    });
+
+    for (const key2 of ["pelunasanSebelumnya", "nilaiR", "persenPsspUser", "persenPsspKpdm", "persenDiskon", "persenDp", "persenListingFee", "persenEntertain", "totalPersenBudget"]) {
+      row.getCell(key2).numFmt = PCT_FMT;
+    }
+    for (const key2 of ["estimasiSebelumnya", "historySales", "hargaSatuanTerkecil", "estimasiBulan", "totalEstimasiBulan", "nilaiPsspBulan", "totalNilaiPsspBulan", "estimasiPeriode", "totalEstimasiPeriode", "nilaiPsspPeriode", "totalNilaiPsspPeriode"]) {
+      row.getCell(key2).numFmt = RP_FMT;
+    }
+  }
+  if (pengisianItems.length === 0) formSheet.addRow(["(Belum ada line item)"]);
 
   // ─── Sheet 3: Audit Log ──────────────────────────────────────────────────
   const auditSheet = wb.addWorksheet("Audit Log");
@@ -209,12 +446,6 @@ export async function GET(
     { header: "To Status", key: "to", width: 22 },
   ];
   auditSheet.getRow(1).font = { bold: true };
-
-  const logs = await prisma.poaAuditLog.findMany({
-    where: { poaId: id },
-    include: { actor: true },
-    orderBy: { createdAt: "asc" },
-  });
 
   for (const log of logs) {
     auditSheet.addRow({

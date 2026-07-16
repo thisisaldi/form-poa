@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import type { PoaForm as PoaFormType, User as UserType } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getPendingActionFilter } from "@/lib/authz";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ApprovalsChecklist } from "@/components/poa/ApprovalsChecklist";
 
 export const metadata = { title: "Persetujuan · Form POA" };
 
@@ -21,7 +20,10 @@ export default async function ApprovalsPage() {
 
   const pending = await prisma.poaForm.findMany({
     where: filter,
-    include: { owner: true },
+    include: {
+      owner: true,
+      items: { orderBy: { createdAt: "asc" } },
+    },
     orderBy: { updatedAt: "asc" },
   });
 
@@ -46,46 +48,7 @@ export default async function ApprovalsPage() {
           </div>
         </Card>
       ) : (
-        <Card padded={false}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr
-                  className="border-b"
-                  style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}
-                >
-                  <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>MR</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Periode</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Status</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Masuk</th>
-                  <th className="px-5 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-                {(pending as (PoaFormType & { owner: UserType })[]).map((poa) => (
-                  <tr key={poa.id} className="hover:bg-(--color-bg-subtle) transition-colors">
-                    <td className="px-5 py-3.5">
-                      <p className="font-medium" style={{ color: "var(--color-text)" }}>{poa.owner.name}</p>
-                      <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>{poa.owner.nip}</p>
-                    </td>
-                    <td className="px-5 py-3.5" style={{ color: "var(--color-text)" }}>{poa.period}</td>
-                    <td className="px-5 py-3.5">
-                      <StatusBadge status={poa.status} />
-                    </td>
-                    <td className="px-5 py-3.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      {new Date(poa.updatedAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <Link href={`/poa/${poa.id}`}>
-                        <Button size="sm">Review</Button>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        <ApprovalsChecklist pending={pending} />
       )}
     </div>
   );

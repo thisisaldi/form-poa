@@ -10,7 +10,7 @@ export const metadata = { title: "PM Dashboard · Form POA" };
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(2).replace(".", ",")} M`;
   if (n >= 1_000_000)     return `Rp${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return "Rp" + n.toLocaleString("id-ID");
+  return "Rp" + Math.round(n).toLocaleString("id-ID");
 }
 
 interface ProductRow {

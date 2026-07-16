@@ -29,8 +29,8 @@ export default async function FinalizePoaPage({
   ]);
 
   if (!poa) notFound();
-  if (!canEdit(actor, poa)) redirect(`/poa/${id}`);
-  if (poa.status !== "DRAFT") redirect(`/poa/${id}`);
+  if (!(await canEdit(actor, poa))) redirect(`/poa/${id}`);
+  if (poa.status !== "DRAFT" && poa.status !== "REVISI") redirect(`/poa/${id}`);
 
   const submitWithId = submitPoaAction.bind(null, id);
 
@@ -52,7 +52,7 @@ export default async function FinalizePoaPage({
       <Card>
         <CardHeader>
           <CardTitle>Ringkasan</CardTitle>
-          <StatusBadge status={poa.status} />
+          <StatusBadge status={poa.status} version={poa.version} />
         </CardHeader>
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <div>

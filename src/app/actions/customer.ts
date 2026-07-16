@@ -126,6 +126,50 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
   }));
 }
 
+export interface ListingFeeKontrakSummary {
+  id: string;
+  noreq: string;
+  nmProduk: string | null;
+  kdProduk: string | null;
+  prdAwal: string;
+  prdAkhir: string;
+  value: number;
+  targetSales: number | null;
+  snapshotDate: string | null;
+}
+
+/** Returns Listing Fee contract history for a customer by their kodeCustomer. */
+export async function getListingFeeHistory(kodeCustomer: string): Promise<ListingFeeKontrakSummary[]> {
+  if (!kodeCustomer) return [];
+  const rows = await prisma.listingFeeKontrak.findMany({
+    where: { kdCust: kodeCustomer },
+    orderBy: [{ prdAkhir: "desc" }, { noreq: "asc" }],
+    select: {
+      id: true, noreq: true, nmProduk: true, kdProduk: true,
+      prdAwal: true, prdAkhir: true, value: true, targetSales: true,
+      snapshotDate: true,
+    },
+  });
+
+  return rows.map((r: {
+    id: string; noreq: string; nmProduk: string | null; kdProduk: string | null;
+    prdAwal: string; prdAkhir: string;
+    value: { toString(): string };
+    targetSales: { toString(): string } | null;
+    snapshotDate: Date | null;
+  }) => ({
+    id: r.id,
+    noreq: r.noreq,
+    nmProduk: r.nmProduk,
+    kdProduk: r.kdProduk,
+    prdAwal: r.prdAwal,
+    prdAkhir: r.prdAkhir,
+    value: parseFloat(r.value.toString()) || 0,
+    targetSales: r.targetSales != null ? parseFloat(r.targetSales.toString()) || 0 : null,
+    snapshotDate: r.snapshotDate ? r.snapshotDate.toISOString().slice(0, 10) : null,
+  }));
+}
+
 /** Focused doctors at a given outlet+spesialisasi, non-focused ones appended after. */
 export async function getCustomersByOutletSpesialisasi(
   kodePI: string,

@@ -48,6 +48,11 @@ export async function getCustomerByKodeRequest(kodeRequest: string): Promise<Moc
 
 export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> {
   const { prisma } = await import("@/lib/prisma");
+
+  // Dummy (workshop/demo) accounts can pick from every outlet, not just assigned ones.
+  const user = await prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true } });
+  if (user?.isDummy) return getCustomers();
+
   const assignments = await prisma.mrOutletAssignment.findMany({
     where: { nipMR: userId },
     include: { outlet: true },

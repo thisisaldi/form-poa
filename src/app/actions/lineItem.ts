@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canEdit } from "@/lib/authz";
+import { flagRevisionOnEdit } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
 import { StatusStandarisasi, Prisma } from "@prisma/client";
 
@@ -18,7 +19,10 @@ async function requireEditorOnPoa(poaId: string) {
   ]);
 
   if (!poa) redirect("/dashboard");
-  if (!canEdit(actor, poa)) redirect(`/poa/${poaId}`);
+  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
+
+  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
+  await flagRevisionOnEdit(poaId, actor.nip);
 
   return { poa, actor };
 }
@@ -97,6 +101,14 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const kodeCust = isDirect ? directKodeCust : customerResult!.kodeCustomer;
   const spesialisasi = isDirect ? directSpesialisasi : customerResult!.spesialisasi;
 
+  // Same doctor (outlet + name) can't have the same product added twice.
+  const duplicate = await prisma.poaLineItem.findFirst({
+    where: { poaId, kodePI, namaCust, kodeProduk },
+  });
+  if (duplicate) {
+    redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent(`${product!.namaProduk} sudah ada untuk dokter ini.`));
+  }
+
   const statusStandarisasi =
     statusStandarisasiRaw && Object.values(StatusStandarisasi).includes(statusStandarisasiRaw as StatusStandarisasi)
       ? (statusStandarisasiRaw as StatusStandarisasi)
@@ -155,6 +167,7 @@ export async function updateLineItemAction(
 ): Promise<void> {
   await requireEditorOnPoa(poaId);
 
+  const kodeProduk = (formData.get("kodeProduk") as string | null)?.trim() ?? "";
   const rencanaTotalBiayaRaw = (formData.get("rencanaTotalBiaya") as string | null)?.trim() ?? "0";
   const rencanaVisitMinggu = parseInt(formData.get("rencanaVisitMinggu") as string, 10) || 0;
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
@@ -164,6 +177,20 @@ export async function updateLineItemAction(
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
+
+  const product = kodeProduk ? await getProductByKode(kodeProduk) : null;
+
+  if (product) {
+    const current = await prisma.poaLineItem.findUnique({ where: { id: lineItemId } });
+    if (current) {
+      const duplicate = await prisma.poaLineItem.findFirst({
+        where: { poaId, kodePI: current.kodePI, namaCust: current.namaCust, kodeProduk, id: { not: lineItemId } },
+      });
+      if (duplicate) {
+        redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent(`${product.namaProduk} sudah ada untuk dokter ini.`));
+      }
+    }
+  }
 
   function parsePctU(key: string) {
     const v = parseFloat(formData.get(key) as string);
@@ -192,6 +219,18 @@ export async function updateLineItemAction(
   await prisma.poaLineItem.update({
     where: { id: lineItemId },
     data: {
+      ...(product ? {
+        kodeProduk: product.kodeProduk,
+        namaProduk: product.namaProduk,
+        kategoriProdukFokus: product.namaGroupBrand,
+        itemKode: product.kodeProduk,
+        satuanTerkecil: product.satuanTerkecil ?? product.satuan,
+        hargaSatuanTerkecil: (() => {
+          const hna = parseFloat(product.hna);
+          const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
+          return new Prisma.Decimal((hna / konversi).toFixed(2));
+        })(),
+      } : {}),
       produkKompetitor,
       statusStandarisasi,
       lamaPeriode: isNaN(lamaPeriodeRaw) ? undefined : lamaPeriodeRaw,

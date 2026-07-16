@@ -12,7 +12,7 @@ export const metadata = { title: "Dashboard · Form POA" };
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
   if (n >= 1_000_000)     return `Rp${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return "Rp" + n.toLocaleString("id-ID");
+  return "Rp" + Math.round(n).toLocaleString("id-ID");
 }
 
 type PoaWithMeta = PoaFormType & {
@@ -107,6 +107,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     };
   });
 
+  const editablePoaIds = new Set(
+    (await Promise.all(recentPoas.map(async (poa) => ((await canEdit(actor, poa)) ? poa.id : null))))
+      .filter((id): id is string => id !== null)
+  );
+
   // ── MR progress stats (non-MR only) ─────────────────────────────────────────
 
   interface MrGroupStat {
@@ -169,7 +174,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           where: {
             ownerId: { in: allMrNips },
             period: mrProgressPeriod,
-            status: { not: "DRAFT" as PoaStatus },
+            status: { notIn: ["DRAFT", "REVISI"] as PoaStatus[] },
           },
           select: { ownerId: true },
         }) as { ownerId: string }[];
@@ -246,7 +251,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <StatusBadge status={poa.status} />
+                  <StatusBadge status={poa.status} version={poa.version} />
                   <Link href={`/poa/${poa.id}`}>
                     <Button size="sm" variant="secondary">Review</Button>
                   </Link>
@@ -294,7 +299,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     <div className="h-full rounded-full transition-all duration-300"
                       style={{
                         width: `${pct}%`,
-                        background: allDone ? "var(--color-success, #16a34a)" : noneDone ? "var(--color-danger, #dc2626)" : "var(--color-primary, #2563eb)",
+                        background: allDone ? "var(--color-success, #16a34a)" : noneDone ? "var(--color-danger, #dc2626)" : "var(--color-blue, #2563eb)",
                       }} />
                   </div>
                   {!allDone && (
@@ -356,7 +361,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                       <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{poa.owner.nip}</p>
                     </td>
                     <td className="py-3" style={{ color: "var(--color-text)" }}>{poa.period}</td>
-                    <td className="py-3"><StatusBadge status={poa.status} /></td>
+                    <td className="py-3"><StatusBadge status={poa.status} version={poa.version} /></td>
                     <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                       {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                     </td>
@@ -379,10 +384,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     </td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-3">
-                        {canEdit(actor!, poa) && (
+                        {editablePoaIds.has(poa.id) && (
                           <Link href={`/poa/${poa.id}/edit`} className="text-xs font-medium"
                             style={{ color: "var(--color-text-muted)" }}>
-                            Edit
+                            Tambah
                           </Link>
                         )}
                         <Link href={`/poa/${poa.id}`} style={{ color: "var(--color-blue)" }} className="text-xs font-medium">

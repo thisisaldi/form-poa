@@ -7,7 +7,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { canEdit } from "@/lib/authz";
+import { canEdit, canApprove } from "@/lib/authz";
 import { sendPoaStatusEmail } from "@/lib/notifications";
 import { PoaStatus, AuditAction } from "@prisma/client";
 import type { PoaForm, User } from "@prisma/client";
@@ -22,6 +22,7 @@ type TransitionTarget = {
 
 const SUBMIT_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
   [PoaStatus.DRAFT]: { toStatus: PoaStatus.SUBMITTED_TO_ASM, nextHolderRole: "ASM" },
+  [PoaStatus.REVISI]: { toStatus: PoaStatus.SUBMITTED_TO_ASM, nextHolderRole: "ASM" },
   [PoaStatus.APPROVED_BY_ASM]: { toStatus: PoaStatus.SUBMITTED_TO_SM, nextHolderRole: "SM" },
   [PoaStatus.APPROVED_BY_SM]: { toStatus: PoaStatus.SUBMITTED_TO_NSM, nextHolderRole: "NSM" },
   // These statuses are not valid submit sources
@@ -38,6 +39,7 @@ const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
   [PoaStatus.SUBMITTED_TO_NSM]: { toStatus: PoaStatus.APPROVED_BY_NSM,  nextHolderRole: null  },
   // Intermediate statuses kept for backward compat but unreachable in normal flow
   [PoaStatus.DRAFT]: null,
+  [PoaStatus.REVISI]: null,
   [PoaStatus.APPROVED_BY_ASM]: null,
   [PoaStatus.APPROVED_BY_SM]: null,
   [PoaStatus.APPROVED_BY_NSM]: null,
@@ -91,15 +93,8 @@ async function applyTransition(
 ): Promise<PoaForm> {
   const poa = await loadPoaWithHierarchy(poaId);
 
-  const actingUser = await prisma.user.findUniqueOrThrow({
-    where: { nip: actingUserId },
-  });
-
-  if (!canEdit(actingUser, poa)) {
-    throw new Error(
-      `User ${actingUserId} does not have edit rights on POA ${poaId}`
-    );
-  }
+  // Authorization is the caller's job (submitPoa/approvePoa/flagRevisionOnEdit
+  // each use the right predicate — canEdit vs. the stricter canApprove).
 
   let nextHolderId: string | null = null;
   if (transition.nextHolderRole) {
@@ -117,6 +112,8 @@ async function applyTransition(
       data: {
         status: transition.toStatus,
         currentHolderId: nextHolderId,
+        // Each re-entry into Revisi is a new "Version X" — bumped here, nowhere else.
+        ...(transition.toStatus === PoaStatus.REVISI ? { version: { increment: 1 } } : {}),
       },
     }),
     prisma.poaAuditLog.create({
@@ -154,6 +151,11 @@ export async function submitPoa(
 ): Promise<PoaForm> {
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
 
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!(await canEdit(actingUser, poa))) {
+    throw new Error(`User ${actingUserId} does not have edit rights on POA ${poaId}`);
+  }
+
   const transition = SUBMIT_TRANSITIONS[poa.status];
   if (!transition) {
     throw new Error(
@@ -165,13 +167,20 @@ export async function submitPoa(
 }
 
 /**
- * ASM/SM/NSM approves a submitted POA at their level.
+ * ASM/SM/NSM approves a submitted POA at their level. Stricter than canEdit —
+ * only the current holder may complete this, so an edit-only visitor can't
+ * skip ahead and approve on someone else's behalf.
  */
 export async function approvePoa(
   poaId: string,
   actingUserId: string
 ): Promise<PoaForm> {
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!canApprove(actingUser, poa)) {
+    throw new Error(`User ${actingUserId} is not authorized to approve POA ${poaId}`);
+  }
 
   const transition = APPROVE_TRANSITIONS[poa.status];
   if (!transition) {
@@ -181,6 +190,42 @@ export async function approvePoa(
   }
 
   return applyTransition(poaId, actingUserId, transition, poa.status, AuditAction.APPROVE);
+}
+
+/**
+ * Called whenever a line item is added/edited/deleted. Whoever edits an
+ * already-submitted POA still needs their own atasan's approval afterward —
+ * exactly the same principle as a normal approve, just re-triggered by a change:
+ *
+ *   - The owning MR edits → needs ASM approval again from scratch, so status
+ *     bounces all the way back to REVISI (holder cleared) and must be
+ *     resubmitted (REVISI → SUBMITTED_TO_ASM).
+ *   - An ASM edits while it's in their queue → still needs SM approval next,
+ *     same as if they'd approved without editing. Status/holder are left
+ *     untouched — they just save the change and click Approve & Teruskan as
+ *     usual, which forwards it to SM.
+ *   - Same for SM (→ needs NSM) and NSM (→ nothing above them).
+ *
+ * So only the owning MR's edit is a "real" revision reset here; an approver's
+ * edit is a no-op on status, since the ordinary approve step already routes it
+ * to their atasan. No-op either way while already DRAFT or REVISI.
+ */
+export async function flagRevisionOnEdit(
+  poaId: string,
+  actingUserId: string
+): Promise<PoaForm | null> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+
+  if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) return null;
+  if (poa.ownerId !== actingUserId) return null;
+
+  return applyTransition(
+    poaId,
+    actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    poa.status,
+    AuditAction.REVISE
+  );
 }
 
 /**

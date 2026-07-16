@@ -121,8 +121,9 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
     return poa.ownerId === user.nip;
   }
 
-  // For managers: POA must be non-draft AND the MR must be in their subtree
-  if (poa.status === PoaStatus.DRAFT) return false;
+  // For managers: POA must be non-draft AND the MR must be in their subtree.
+  // REVISI behaves like DRAFT — it's back in the MR's hands, not yet visible upward.
+  if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) return false;
 
   const depthByRole: Record<string, number> = {
     [Role.ASM]: 1,
@@ -139,33 +140,58 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
 /**
  * Can this user edit this specific POA right now?
  *
- * MR: only while DRAFT
- * ASM/SM/NSM: when the POA is currently in their hands (currentHolderId)
+ * MR: their own POA, any status/time — editing a POA that already left DRAFT
+ *     bounces it back to REVISI via flagRevisionOnEdit and requires resubmission.
+ * ASM/SM/NSM: any POA visible to them (already submitted + in their subtree),
+ *     any time — not only while it's specifically their turn to review. The
+ *     edit button is meant to always be there. Editing doesn't skip anyone:
+ *     an ASM/SM's edit still needs their own atasan's approval next via the
+ *     normal Approve step (see flagRevisionOnEdit in poaWorkflow.ts) — only
+ *     the ACT of approving & forwarding is restricted to the current holder,
+ *     which is what canApprove() below is for.
  */
-export function canEdit(user: User, poa: PoaForm): boolean {
+export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
 
   if (user.role === Role.MR) {
-    return poa.ownerId === user.nip && poa.status === PoaStatus.DRAFT;
+    return poa.ownerId === user.nip;
   }
 
   if (([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role)) {
-    return poa.currentHolderId === user.nip;
+    return canView(user, poa);
   }
 
   return false;
 }
 
 /**
+ * Can this user approve & forward this specific POA right now?
+ * Stricter than canEdit — only the current holder (whoever it's actually
+ * sitting with for review) may complete the approve action.
+ */
+export function canApprove(user: User, poa: PoaForm): boolean {
+  if (user.role === Role.ADMIN) return true;
+
+  return (
+    ([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role) &&
+    poa.currentHolderId === user.nip
+  );
+}
+
+/**
  * Can this user create a new POA?
  * Only leaf nodes (no active subordinates) who hold at least one outlet.
+ * Dummy (workshop/demo) accounts skip the outlet-assignment requirement — they
+ * can see every outlet (see getOutletsByUser) without needing real assignment rows.
  */
 export async function canCreatePoa(userId: string): Promise<boolean> {
-  const [subordinateCount, assignmentCount] = await Promise.all([
+  const [user, subordinateCount, assignmentCount] = await Promise.all([
+    prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true } }),
     prisma.user.count({ where: { nipAtasan: userId, isActive: true } }),
     prisma.mrOutletAssignment.count({ where: { nipMR: userId } }),
   ]);
-  return subordinateCount === 0 && assignmentCount > 0;
+  if (subordinateCount !== 0) return false;
+  return user?.isDummy ? true : assignmentCount > 0;
 }
 
 /**
@@ -173,7 +199,7 @@ export async function canCreatePoa(userId: string): Promise<boolean> {
  */
 export function getPendingActionFilter(user: User): Prisma.PoaFormWhereInput {
   if (user.role === Role.MR) {
-    return { ownerId: user.nip, status: PoaStatus.DRAFT };
+    return { ownerId: user.nip, status: { in: [PoaStatus.DRAFT, PoaStatus.REVISI] } };
   }
   // For managers: POAs where they are the current holder
   return { currentHolderId: user.nip };

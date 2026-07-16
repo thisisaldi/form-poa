@@ -40,6 +40,7 @@ const STATUS_LABELS: Record<PoaStatus, string> = {
   [PoaStatus.APPROVED_BY_SM]: "Approved by SM",
   [PoaStatus.SUBMITTED_TO_NSM]: "Submitted to NSM",
   [PoaStatus.APPROVED_BY_NSM]: "Approved by NSM",
+  [PoaStatus.REVISI]: "Revisi — needs resubmission",
 };
 
 // ─── Public API ───────────────────────────────────────────────────────────────

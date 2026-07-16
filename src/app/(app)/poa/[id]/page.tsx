@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit } from "@/lib/authz";
+import { canView, canEdit, canApprove } from "@/lib/authz";
 import { approvePoaAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -47,12 +47,14 @@ export default async function PoaDetailPage({
   const hasAccess = await canView(actor, poa);
   if (!hasAccess) redirect("/dashboard");
 
-  const userCanEdit = canEdit(actor, poa);
+  const userCanEdit = await canEdit(actor, poa);
+  const userCanApprove = canApprove(actor, poa);
   const approveWithId = approvePoaAction.bind(null, id);
 
   const isMR = session.role === "MR";
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
+  const isRevisi = poa.status === "REVISI";
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
 
@@ -121,17 +123,15 @@ export default async function PoaDetailPage({
             </div>
           )}
         </div>
-        <StatusBadge status={poa.status} />
+        <StatusBadge status={poa.status} version={poa.version} />
       </div>
 
-      {/* Export button (non-draft) */}
-      {!isDraft && (
-        <div>
-          <a href={`/api/poa/${id}/export`}>
-            <Button size="sm" variant="ghost">↓ Export Excel</Button>
-          </a>
-        </div>
-      )}
+      {/* Export button */}
+      <div>
+        <a href={`/api/poa/${id}/export`}>
+          <Button size="sm" variant="ghost">↓ Export Excel</Button>
+        </a>
+      </div>
 
       {/* Checklist + stats panel */}
       {allItems.length === 0 ? (
@@ -146,13 +146,19 @@ export default async function PoaDetailPage({
         <DraftChecklist
           items={allItems}
           poaId={id}
-          showSubmit={userCanEdit && isMR && isDraft}
-          userCanEdit={userCanEdit && isDraft}
+          poaPeriod={poa.period}
+          poaStatus={poa.status}
+          poaVersion={poa.version}
+          showSubmit={userCanEdit && isMR && (isDraft || isRevisi)}
+          userCanEdit={userCanEdit}
+          isDraft={isDraft}
+          willTriggerRevisi={isMR}
+          selectable={isMR}
         />
       )}
 
       {/* Actions — approver only (MR submit is inside DraftChecklist) */}
-      {userCanEdit && !isMR && !isFullyApproved && (
+      {userCanApprove && !isMR && !isFullyApproved && (
         <Card>
           <CardHeader>
             <CardTitle>Tindakan</CardTitle>

@@ -30,12 +30,13 @@ const NAV_ITEMS: NavItem[] = [
     icon: <IconCheck />,
     roles: ["ASM", "SM", "NSM"],
   },
-  {
-    href: "/summary",
-    label: "Summary",
-    icon: <IconChart />,
-    roles: ["ASM", "SM", "NSM", "ADMIN"],
-  },
+  // Summary temporarily hidden for all roles — re-add roles to bring it back.
+  // {
+  //   href: "/summary",
+  //   label: "Summary",
+  //   icon: <IconChart />,
+  //   roles: ["ASM", "SM", "NSM", "ADMIN"],
+  // },
   {
     href: "/pm-dashboard",
     label: "PM Dashboard",

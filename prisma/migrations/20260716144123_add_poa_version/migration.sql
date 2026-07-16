@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "PoaForm" ADD COLUMN "version" INTEGER NOT NULL DEFAULT 1;

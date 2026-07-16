@@ -6,12 +6,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getSpesialisasiByOutlet, getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getKriteriaByOutlet, type CustomerOption, type PsspKontrakSummary, type KriteriaByOutlet } from "@/app/actions/customer";
-import { computePeriodeAkhir, formatPeriodeRange } from "@/lib/poaUtils";
+import { getSpesialisasiByOutlet, getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet } from "@/app/actions/customer";
+import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, SPESIALISASI_PM_LABEL } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
-import { Combobox } from "@/components/ui/Combobox";
+import { Combobox, type ComboboxOption } from "@/components/ui/Combobox";
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
@@ -25,6 +25,7 @@ interface OutletOption { kodePI: string; namaOutlet: string; groupRS?: string | 
 
 interface Props {
   poaId: string;
+  poaPeriod: string;     // PoaForm.period, e.g. "2026-Q3" — bounds the Periode Awal picker
   initialItems: PoaLineItem[];
   outlets: OutletOption[];
   products: Product[];
@@ -74,9 +75,9 @@ function emptyProdukEntry(): ProdukEntry {
     uid: Math.random().toString(36).slice(2),
     kodeProduk: "", jumlahResepHari: "", qtyProdukResep: "",
     produkKompetitor: "", statusStandarisasi: "",
-    // Dummy defaults — akan diganti auto-compute dari DB
+    // 0 until a product is picked — then populated with dummy defaults / auto-computed from DB
     persenPsspDokter: "", persenPsspKpdm: "0",
-    persenDiskon: "10", persenDp: "5", persenListingFee: "2.5", persenEntertain: "2.5",
+    persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "0",
   };
 }
 
@@ -86,7 +87,7 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
   if (val == null) return "—";
   const n = parseFloat(val.toString());
   if (isNaN(n)) return "—";
-  return "Rp " + n.toLocaleString("id-ID");
+  return "Rp " + Math.round(n).toLocaleString("id-ID");
 }
 
 function hargaST(product: Product): number {
@@ -171,12 +172,12 @@ function LabelCustomerBadge({ label }: { label: string }) {
   const isGood = label.includes("Bagus");
   const isBad = label.includes("Buruk");
   const color = isNew
-    ? "var(--color-primary)"
+    ? "var(--color-blue)"
     : isGood ? "var(--color-success, #16a34a)"
     : isBad ? "var(--color-red)"
     : "var(--color-text-muted)";
   const bg = isNew
-    ? "var(--color-primary-light, #eff6ff)"
+    ? "var(--color-blue-light, #eff6ff)"
     : isGood ? "var(--color-success-bg, #dcfce7)"
     : isBad ? "var(--color-red-light)"
     : "var(--color-bg-subtle)";
@@ -203,14 +204,86 @@ function Opt() {
 }
 const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
 
-function InfoField({ label, value }: { label: string; value: React.ReactNode }) {
+function UnitInput({ value, onChange, unit, placeholder = "0" }: {
+  value: string;
+  onChange: (v: string) => void;
+  unit?: string | null;
+  placeholder?: string;
+}) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    if (v === "" || /^\d*\.?\d*$/.test(v)) onChange(v);
+  }
+
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>{label}</span>
-      <span className="text-sm px-2.5 py-1.5 rounded-md"
-        style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
-        {value || "—"}
-      </span>
+    <div className="flex items-stretch rounded-md overflow-hidden"
+      style={{ border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+      <input type="text" inputMode="decimal" placeholder={placeholder}
+        value={value}
+        onChange={handleChange}
+        className="flex-1 min-w-0 w-0 px-2.5 py-1.5 text-sm outline-none"
+        style={{ background: "transparent", color: "var(--color-text)" }} />
+      {unit && (
+        <>
+          <span style={{ width: 1, background: "var(--color-border-strong)" }} />
+          <span className="flex items-center px-2 text-xs font-medium whitespace-nowrap"
+            style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+            {unit}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Like UnitInput, plus up/down stepper buttons that bump the value by `step`.
+function NumberStepperInput({ value, onChange, unit, placeholder = "0", step = 1, min }: {
+  value: string;
+  onChange: (v: string) => void;
+  unit?: string | null;
+  placeholder?: string;
+  step?: number;
+  min?: number;
+}) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    if (v === "" || /^\d*\.?\d*$/.test(v)) onChange(v);
+  }
+
+  function bump(delta: number) {
+    const current = parseFloat(value) || 0;
+    let next = Math.round((current + delta) * 100) / 100;
+    if (min != null && next < min) next = min;
+    onChange(String(next));
+  }
+
+  return (
+    <div className="flex items-stretch rounded-md overflow-hidden"
+      style={{ border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
+      <input type="text" inputMode="decimal" placeholder={placeholder}
+        value={value}
+        onChange={handleChange}
+        className="flex-1 min-w-0 w-0 px-2.5 py-1.5 text-sm outline-none"
+        style={{ background: "transparent", color: "var(--color-text)" }} />
+      {unit && (
+        <>
+          <span style={{ width: 1, background: "var(--color-border-strong)" }} />
+          <span className="flex items-center px-2 text-xs font-medium whitespace-nowrap"
+            style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+            {unit}
+          </span>
+        </>
+      )}
+      <span style={{ width: 1, background: "var(--color-border-strong)" }} />
+      <div className="flex flex-col" style={{ width: 18 }}>
+        <button type="button" tabIndex={-1} onClick={() => bump(step)}
+          className="flex-1 flex items-center justify-center leading-none"
+          style={{ fontSize: 8, color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>▲</button>
+        <span style={{ height: 1, background: "var(--color-border-strong)" }} />
+        <button type="button" tabIndex={-1} onClick={() => bump(-step)}
+          className="flex-1 flex items-center justify-center leading-none"
+          style={{ fontSize: 8, color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>▼</button>
+      </div>
     </div>
   );
 }
@@ -220,102 +293,179 @@ function InfoField({ label, value }: { label: string; value: React.ReactNode }) 
 
 const MONTH_LABELS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
-function DokterFieldsSection({ fields, onChange, periodeAwalError, hariKerjaBulanError }: {
+// Parses a PoaForm.period string ("2026-Q3") into its year and 1-indexed quarter months.
+function parsePoaQuarterMonths(poaPeriod: string): { year: number; months: number[] } | null {
+  const m = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+  if (!m) return null;
+  const year = parseInt(m[1], 10);
+  const q = parseInt(m[2], 10);
+  const startMonth = (q - 1) * 3 + 1;
+  return { year, months: [startMonth, startMonth + 1, startMonth + 2] };
+}
+
+// Returns an error message if periodeAwal (YYYYMM) is malformed or falls outside the POA's quarter.
+// Returns null while the field is still incomplete.
+function periodeAwalFormatError(periodeAwal: string, poaPeriod: string): string | null {
+  if (periodeAwal.length !== 6) return null;
+  const year = parseInt(periodeAwal.slice(0, 4), 10);
+  const month = parseInt(periodeAwal.slice(4, 6), 10);
+  if (isNaN(year) || isNaN(month) || month < 1 || month > 12) return "Format tidak valid (YYYYMM)";
+  const quarter = parsePoaQuarterMonths(poaPeriod);
+  if (quarter && (year !== quarter.year || !quarter.months.includes(month))) {
+    const [m1, , m3] = quarter.months;
+    return `Harus di periode POA ${poaPeriod} (${MONTH_LABELS[m1 - 1]}–${MONTH_LABELS[m3 - 1]} ${quarter.year})`;
+  }
+  return null;
+}
+
+function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError }: {
   fields: DokterFields;
   onChange: (patch: Partial<DokterFields>) => void;
+  poaPeriod: string;
   periodeAwalError?: boolean;
   hariKerjaBulanError?: boolean;
+  lamaPeriodeRequiredError?: boolean;
 }) {
+  const lamaPeriodeTooLong = fields.lamaPeriode > 12;
+  const lamaPeriodeError = lamaPeriodeTooLong || !!lamaPeriodeRequiredError;
   const periodeOk = fields.periodeAwal.length === 6;
-  const yearVal  = fields.periodeAwal.slice(0, 4);
-  const monthVal = fields.periodeAwal.slice(4, 6);
-  const curYear  = new Date().getFullYear();
-  const yearOpts = [curYear - 1, curYear, curYear + 1, curYear + 2];
+  const periodeFormatErr = periodeAwalFormatError(fields.periodeAwal, poaPeriod);
+  const periodeHasErr = periodeAwalError || !!periodeFormatErr;
 
-  function setPeriode(y: string, m: string) {
-    if (y && m) onChange({ periodeAwal: y + m });
-    else if (y) onChange({ periodeAwal: y + (monthVal || "") });
-    else if (m) onChange({ periodeAwal: (yearVal || "") + m });
-  }
+  // One dropdown, options are the 3 YYYYMM values inside the POA's own quarter
+  // (e.g. POA period "2026-Q3" → 202607, 202608, 202609).
+  const periodeOptions = useMemo(() => {
+    const quarter = parsePoaQuarterMonths(poaPeriod);
+    const opts: { value: string; label: string }[] = [];
+    if (quarter) {
+      for (const m of quarter.months) {
+        opts.push({ value: `${quarter.year}${String(m).padStart(2, "0")}`, label: `${MONTH_LABELS[m - 1]} ${quarter.year}` });
+      }
+    }
+    // Preserve an existing out-of-range value (e.g. pre-existing data) so the select still shows it.
+    if (fields.periodeAwal && !opts.some((o) => o.value === fields.periodeAwal)) {
+      const y = fields.periodeAwal.slice(0, 4);
+      const m = parseInt(fields.periodeAwal.slice(4, 6), 10);
+      opts.unshift({ value: fields.periodeAwal, label: `${MONTH_LABELS[m - 1] ?? "?"} ${y}` });
+    }
+    return opts;
+  }, [fields.periodeAwal, poaPeriod]);
 
   return (
     <div className="space-y-4">
-      {/* Periode */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <div className="flex flex-col gap-1" {...(periodeAwalError ? { "data-field-err": "true" } : {})}>
-          <span className="text-xs" style={{ color: periodeAwalError ? "var(--color-red)" : "var(--color-text-muted)" }}>
-            Periode Awal<Req />
-          </span>
-          <div className="flex gap-1" style={periodeAwalError ? ERR_RING : undefined}>
-            <select
-              value={yearVal}
-              onChange={(e) => setPeriode(e.target.value, "")}
-              className="input-field flex-1 min-w-0">
-              <option value="">Tahun</option>
-              {yearOpts.map((y) => <option key={y} value={String(y)}>{y}</option>)}
-            </select>
-            <select
-              value={monthVal}
-              onChange={(e) => setPeriode("", e.target.value)}
-              className="input-field flex-1 min-w-0">
-              <option value="">Bln</option>
-              {MONTH_LABELS.map((m, i) => {
-                const v = String(i + 1).padStart(2, "0");
-                return <option key={v} value={v}>{m}</option>;
-              })}
-            </select>
-          </div>
-          {periodeAwalError && (
-            <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>
-          )}
+      {/* Rencana Kunjungan */}
+      <div>
+        <SectionLabel>Rencana Kunjungan</SectionLabel>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1" {...(hariKerjaBulanError ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs" style={{ color: hariKerjaBulanError ? "var(--color-red)" : "var(--color-text-muted)" }}>Hari Praktek / Bln<Req /></span>
+            <div style={hariKerjaBulanError ? ERR_RING : undefined}>
+              <UnitInput
+                value={fields.hariKerjaBulan}
+                onChange={(v) => onChange({ hariKerjaBulan: v })}
+                unit="Hari"
+                placeholder="22" />
+            </div>
+            {hariKerjaBulanError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Rencana Visit / Bulan<Req /></span>
+            <UnitInput
+              value={fields.rencanaVisitMinggu}
+              onChange={(v) => onChange({ rencanaVisitMinggu: v })}
+              unit="Kali" />
+          </label>
         </div>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Lama Periode<Req /></span>
-          <div className="flex items-center gap-1">
-            <input type="number" min="1" step="1"
-              value={fields.lamaPeriode}
-              onChange={(e) => onChange({ lamaPeriode: parseInt(e.target.value) || 1 })}
-              className="input-field" />
-            <span className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>bulan</span>
-          </div>
-        </label>
-        {periodeOk && (
-          <div className="flex items-end pb-1">
-            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              s/d {computePeriodeAkhir(fields.periodeAwal, fields.lamaPeriode)}
-            </span>
-          </div>
-        )}
       </div>
 
-      {/* Hari Praktek & Visit */}
-      <div className="grid grid-cols-2 gap-3">
-        <label className="flex flex-col gap-1" {...(hariKerjaBulanError ? { "data-field-err": "true" } : {})}>
-          <span className="text-xs" style={{ color: hariKerjaBulanError ? "var(--color-red)" : "var(--color-text-muted)" }}>Hari Praktek / Bln<Req /></span>
-          <input type="number" min="0" placeholder="22"
-            value={fields.hariKerjaBulan}
-            onChange={(e) => onChange({ hariKerjaBulan: e.target.value })}
-            className="input-field"
-            style={hariKerjaBulanError ? ERR_RING : undefined} />
-          {hariKerjaBulanError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Rencana Visit / Bulan<Req /></span>
-          <input type="number" min="0"
-            value={fields.rencanaVisitMinggu}
-            onChange={(e) => onChange({ rencanaVisitMinggu: e.target.value })}
-            className="input-field" />
-        </label>
+      {/* Rencana PSSP */}
+      <div>
+        <SectionLabel>Rencana PSSP</SectionLabel>
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="flex flex-col gap-1 shrink-0" style={{ width: 200 }} {...(periodeHasErr ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs" style={{ color: periodeHasErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
+              Periode Awal<Req />
+            </span>
+            <select
+              value={fields.periodeAwal}
+              onChange={(e) => onChange({ periodeAwal: e.target.value })}
+              className="input-field font-mono w-full"
+              style={{ color: fields.periodeAwal ? "var(--color-text)" : "var(--color-text-faint)", ...(periodeHasErr ? ERR_RING : undefined) }}>
+              <option value="">YYYYMM</option>
+              {periodeOptions.map((o) => <option key={o.value} value={o.value}>{o.value} · {o.label}</option>)}
+            </select>
+            {periodeAwalError && (
+              <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>
+            )}
+            {!periodeAwalError && periodeFormatErr && (
+              <span className="text-xs" style={{ color: "var(--color-red)" }}>{periodeFormatErr}</span>
+            )}
+          </div>
+          <label className="flex flex-col gap-1 shrink-0" style={{ width: 220 }} {...(lamaPeriodeError ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs" style={{ color: lamaPeriodeError ? "var(--color-red)" : "var(--color-text-muted)" }}>Lama Periode<Req /></span>
+            <div style={lamaPeriodeError ? ERR_RING : undefined}>
+              <UnitInput
+                value={fields.lamaPeriode ? String(fields.lamaPeriode) : ""}
+                onChange={(v) => onChange({ lamaPeriode: v ? parseInt(v) || 0 : 0 })}
+                unit="bulan" />
+            </div>
+            {lamaPeriodeRequiredError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+            {!lamaPeriodeRequiredError && lamaPeriodeTooLong && <span className="text-xs" style={{ color: "var(--color-red)" }}>Maksimal 12 bulan</span>}
+          </label>
+          {periodeOk && fields.lamaPeriode > 0 && (
+            <div className="flex flex-col gap-1 shrink-0" style={{ width: 110 }}>
+              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>s/d</span>
+              <div className="input-field flex items-center whitespace-nowrap"
+                style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)", cursor: "default" }}>
+                {formatPeriode(computePeriodeAkhir(fields.periodeAwal, fields.lamaPeriode))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+// ─── buildProductOptions ────────────────────────────────────────────────────
+// Shared product-picker options builder — tiers by spesialisasi match, tags paket fokus.
+
+function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, string>): ComboboxOption[] {
+  const sorted = spesialisasi
+    ? sortProductsBySpesialisasi(products, spesialisasi)
+    : products;
+  const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
+  const TIER_LABEL = ["Produk Fokus Sesuai Spesialisasi", "Produk Fokus Lainnya", "Produk Lainnya"];
+  return sorted.map((p) => {
+    const allPakets = getAllPakets(p.namaProduk);
+    const relevantPaket = allPakets.find((pk) => matchedPakets.includes(pk)) ?? allPakets[0] ?? null;
+    const tier = getProductTier(p.namaProduk, matchedPakets);
+    const kriteria = kriteriaMap?.get(p.kodeProduk);
+    const tagColor: "blue" | "yellow" | "red" | undefined = kriteria?.startsWith("Produk Sudah Terstandarisasi")
+      ? "yellow"
+      : kriteria?.startsWith("Produk Kompetisi Rendah")
+      ? "blue"
+      : kriteria?.startsWith("Produk Kompetisi Tinggi")
+      ? "red"
+      : undefined;
+    const paketLabel = relevantPaket ?? p.namaGroupBrand;
+    return {
+      value: p.kodeProduk,
+      label: p.namaProduk,
+      sublabel: `${p.kodeProduk} · ${paketLabel}`,
+      group: spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya",
+      accent: tier === 0,
+      tag: kriteria,
+      tagColor,
+    };
+  });
 }
 
 // ─── ProdukEntryRow ───────────────────────────────────────────────────────────
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, onChange, onRemove, showRemove, showError,
+  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, usedKodeProduk, onChange, onRemove, showRemove, showError,
 }: {
   entry: ProdukEntry;
   index: number;
@@ -324,6 +474,8 @@ function ProdukEntryRow({
   spesialisasi?: string;
   psspHistory?: PsspKontrakSummary[];
   kriteriaList?: KriteriaByOutlet[];
+  /** kodeProduk values already used by OTHER rows for this same doctor — excluded from the picker. */
+  usedKodeProduk?: Set<string>;
   onChange: (patch: Partial<ProdukEntry>) => void;
   onRemove: () => void;
   showRemove: boolean;
@@ -336,30 +488,10 @@ function ProdukEntryRow({
   }, [kriteriaList]);
 
   const productOptions = useMemo(() => {
-    const sorted = spesialisasi
-      ? sortProductsBySpesialisasi(products, spesialisasi)
-      : products;
-    const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
-    const TIER_LABEL = ["Produk Fokus Sesuai Spesialisasi", "Produk Fokus Lainnya", "Produk Lainnya"];
-    return sorted.map((p) => {
-      const allPakets = getAllPakets(p.namaProduk);
-      const relevantPaket = allPakets.find((pk) => matchedPakets.includes(pk)) ?? allPakets[0] ?? null;
-      const tier = getProductTier(p.namaProduk, matchedPakets);
-      const kriteria = kriteriaMap.get(p.kodeProduk);
-      // Always show paket fokus; append kriteria after if available
-      const paketLabel = relevantPaket ?? p.namaGroupBrand;
-      const sublabel = kriteria
-        ? `${p.kodeProduk} · ${paketLabel} · ${kriteria}`
-        : `${p.kodeProduk} · ${paketLabel}`;
-      return {
-        value: p.kodeProduk,
-        label: p.namaProduk,
-        sublabel,
-        group: spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya",
-        accent: tier === 0,
-      };
-    });
-  }, [products, spesialisasi, kriteriaMap]);
+    const opts = buildProductOptions(products, spesialisasi, kriteriaMap);
+    if (!usedKodeProduk || usedKodeProduk.size === 0) return opts;
+    return opts.filter((o) => o.value === entry.kodeProduk || !usedKodeProduk.has(o.value));
+  }, [products, spesialisasi, kriteriaMap, usedKodeProduk, entry.kodeProduk]);
 
   const product = useMemo(() => products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null, [products, entry.kodeProduk]);
 
@@ -385,6 +517,8 @@ function ProdukEntryRow({
   const growthPct = growthRatio != null ? (growthRatio - 1) * 100 : null;
 
   const produkErr = showError && !entry.kodeProduk;
+  const resepErr = showError && !entry.jumlahResepHari;
+  const qtyErr = showError && !entry.qtyProdukResep;
 
   return (
     <div className="rounded-lg border p-3 space-y-3"
@@ -399,17 +533,32 @@ function ProdukEntryRow({
               onChange={(v) => {
                 const prod = products.find((p) => p.kodeProduk === v);
                 const nr = prod?.nilaiRPersen ? parseFloat(prod.nilaiRPersen) : null;
-                onChange({ kodeProduk: v, persenPsspDokter: nr != null ? (nr * 100).toFixed(2) : "" });
+                const kriteria = kriteriaMap.get(v);
+                const autoStandarisasi = kriteria
+                  ? (kriteria.startsWith("Produk Sudah Terstandarisasi") ? "SUDAH_STANDARISASI" : "BELUM_STANDARISASI")
+                  : entry.statusStandarisasi;
+                onChange({
+                  kodeProduk: v,
+                  persenPsspDokter: nr != null ? (nr * 100).toFixed(2) : "",
+                  statusStandarisasi: autoStandarisasi,
+                  // Dummy defaults once a product is picked — akan diganti data asli kalau sudah ada sumbernya
+                  persenDiskon: v ? "10" : "0",
+                  persenListingFee: v ? "2.5" : "0",
+                  persenEntertain: v ? "2.5" : "0",
+                });
               }}
               placeholder="Cari produk…"
               options={productOptions}
+              maxVisible={Infinity}
             />
           </div>
           {produkErr && <span className="text-xs mt-0.5" style={{ color: "var(--color-red)" }}>Pilih produk</span>}
           {product && (
             <div className="flex gap-3 text-xs mt-1 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
-              <span>HNA: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(product.hna)}</strong></span>
-              <span>{product.satuan}</span>
+              <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(product.hna)}</strong> ({product.satuan})</span>
+              <span>HNA ST: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(hna)}</strong> ({product.satuanTerkecil ?? product.satuan})
+                <span style={{ opacity: 0.7 }}> = {formatRp(product.hna)} / {product.konversiPembagi ?? "1"}</span>
+              </span>
               <span>{product.namaGroupBrand}</span>
               {nilaiRPersen != null && (
                 <span style={{ color: "var(--color-blue)" }}>
@@ -429,8 +578,8 @@ function ProdukEntryRow({
 
       {/* Produk Kompetitor */}
       <label className="flex flex-col gap-1">
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kompetitor yang dipakai Dokter<Opt /></span>
-        <input type="text" placeholder="Nama produk kompetitor yang digunakan dokter"
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kompetitor yang dipakai User<Opt /></span>
+        <input type="text" placeholder="Nama produk kompetitor yang digunakan user"
           value={entry.produkKompetitor}
           onChange={(e) => onChange({ produkKompetitor: e.target.value })}
           className="input-field text-xs" />
@@ -438,26 +587,29 @@ function ProdukEntryRow({
 
       {/* Per-product inputs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Resep / Hari<Req /></span>
-          <input type="number" min="0" placeholder="3"
-            value={entry.jumlahResepHari}
-            onChange={(e) => onChange({ jumlahResepHari: e.target.value })}
-            className="input-field" />
+        <label className="flex flex-col gap-1" {...(resepErr ? { "data-field-err": "true" } : {})}>
+          <span className="text-xs" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Resep / Hari<Req /></span>
+          <div style={resepErr ? ERR_RING : undefined}>
+            <UnitInput
+              value={entry.jumlahResepHari}
+              onChange={(v) => onChange({ jumlahResepHari: v })}
+              unit="Resep"
+              placeholder="3" />
+          </div>
+          {resepErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs flex items-center gap-1" style={{ color: "var(--color-text-muted)" }}>
+        <label className="flex flex-col gap-1" {...(qtyErr ? { "data-field-err": "true" } : {})}>
+          <span className="text-xs" style={{ color: qtyErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
             Jml Produk ST / Resep<Req />
-            {product?.satuanTerkecil && (
-              <span className="text-xs font-mono px-1 rounded" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)", border: "1px solid var(--color-border)" }}>
-                [[ST]] {product.satuanTerkecil}
-              </span>
-            )}
           </span>
-          <input type="number" min="0" placeholder="1"
-            value={entry.qtyProdukResep}
-            onChange={(e) => onChange({ qtyProdukResep: e.target.value })}
-            className="input-field" />
+          <div style={qtyErr ? ERR_RING : undefined}>
+            <UnitInput
+              value={entry.qtyProdukResep}
+              onChange={(v) => onChange({ qtyProdukResep: v })}
+              unit={product?.satuanTerkecil}
+              placeholder="1" />
+          </div>
+          {qtyErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Standarisasi<Opt /></span>
@@ -485,7 +637,7 @@ function ProdukEntryRow({
             </div>
             <div>
               <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales {lama} Bln</div>
-              <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEst)}</div>
             </div>
           </div>
           <div className="flex items-center justify-between pt-1.5 border-t"
@@ -566,10 +718,11 @@ function BudgetFieldsRow({
     return (
       <label className="flex flex-col gap-1">
         <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{label}</span>
-        <input type="number" min="0" step="0.01" placeholder={placeholder}
+        <UnitInput
           value={entry[key] as string}
-          onChange={(e) => onChange({ [key]: e.target.value } as Partial<ProdukEntry>)}
-          className="input-field" />
+          onChange={(v) => onChange({ [key]: v } as Partial<ProdukEntry>)}
+          unit="%"
+          placeholder={placeholder} />
       </label>
     );
   }
@@ -579,10 +732,9 @@ function BudgetFieldsRow({
       <div className="grid grid-cols-3 gap-2">
         <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>% PSSP Dokter (Nilai R)</span>
-          <input type="number" readOnly tabIndex={-1}
-            value={entry.persenPsspDokter}
-            className="input-field"
-            style={{ background: "var(--color-bg-subtle)", cursor: "not-allowed", color: "var(--color-text-muted)" }} />
+          <div style={{ opacity: 0.6, cursor: "not-allowed" }}>
+            <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
+          </div>
         </label>
         {numInput("% PSSP KPDM", "persenPsspKpdm")}
         {numInput("% Diskon (DPL/DPF)", "persenDiskon")}
@@ -727,7 +879,7 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
     <div className="space-y-3">
       {activeContracts.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-primary)" }}>
+          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-blue)" }}>
             Aktif ({activeContracts.length})
           </p>
           {activeContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} />)}
@@ -743,6 +895,84 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
       )}
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
         {byContract.size} kontrak · snapshot {history[0]?.snapshotDate ?? "—"}
+      </p>
+    </div>
+  );
+}
+
+// ─── ListingFeeHistoryPanel ───────────────────────────────────────────────────
+
+function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
+  const [history, setHistory] = useState<ListingFeeKontrakSummary[] | null>(null);
+
+  useEffect(() => {
+    getListingFeeHistory(kodeCustomer).then(setHistory);
+  }, [kodeCustomer]);
+
+  if (history === null) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Memuat histori Listing Fee…
+      </div>
+    );
+  }
+
+  if (history.length === 0) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Tidak ada histori Listing Fee untuk dokter ini.
+      </div>
+    );
+  }
+
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const active = history.filter((r) => r.prdAkhir >= currentPeriod);
+  const expired = history.filter((r) => r.prdAkhir < currentPeriod);
+
+  function Row({ r }: { r: ListingFeeKontrakSummary }) {
+    return (
+      <div className="rounded-lg border px-3 py-2 space-y-1"
+        style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-xs font-mono font-semibold" style={{ color: "var(--color-text)" }}>{r.noreq}</span>
+          <span className="text-xs shrink-0" style={{ color: "var(--color-text-faint)" }}>{r.prdAwal} – {r.prdAkhir}</span>
+        </div>
+        <div className="text-xs truncate" style={{ color: "var(--color-text-muted)" }}>{r.nmProduk ?? r.kdProduk}</div>
+        <div className="grid grid-cols-2 gap-1 text-xs">
+          <div>
+            <div style={{ color: "var(--color-text-faint)" }}>Value</div>
+            <div style={{ color: "var(--color-text-muted)" }}>{formatRp(r.value)}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--color-text-faint)" }}>Target Sales</div>
+            <div style={{ color: "var(--color-text-muted)" }}>{r.targetSales != null ? formatRp(r.targetSales) : "—"}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {active.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-blue)" }}>
+            Aktif ({active.length})
+          </p>
+          {active.map((r) => <Row key={r.id} r={r} />)}
+        </div>
+      )}
+      {expired.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+            Selesai ({expired.length})
+          </p>
+          {expired.map((r) => <Row key={r.id} r={r} />)}
+        </div>
+      )}
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        {history.length} kontrak · snapshot {history[0]?.snapshotDate ?? "—"}
       </p>
     </div>
   );
@@ -779,14 +1009,14 @@ function PsspSidebar({
           onClick={() => setOpen(true)}
           style={{
             display: "flex", flexDirection: "column", alignItems: "center",
-            padding: "12px 6px", gap: 2,
-            background: "var(--color-bg)",
-            border: "1px solid var(--color-border)", borderRight: "none",
-            borderRadius: "6px 0 0 6px",
-            color: "var(--color-text-muted)", fontSize: 10, cursor: "pointer",
+            padding: "18px 10px", gap: 2,
+            background: "var(--color-blue)",
+            border: "1px solid var(--color-blue)", borderRight: "none",
+            borderRadius: "8px 0 0 8px",
+            color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
             writingMode: "vertical-rl", letterSpacing: "0.05em",
           }}>
-          PSSP
+          Histori PSSP
         </button>
       </div>
     );
@@ -827,8 +1057,14 @@ function PsspSidebar({
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
         <PsspHistoryPanel kodeCustomer={kodeCustomer} onLabel={handleLabel} onHistory={onHistory} />
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
+            Histori Listing Fee
+          </p>
+          <ListingFeeHistoryPanel kodeCustomer={kodeCustomer} />
+        </div>
       </div>
     </div>
   );
@@ -837,9 +1073,9 @@ function PsspSidebar({
 // ─── AddPanel (new dokter + multi-produk) ─────────────────────────────────────
 
 function AddPanel({
-  poaId, outlets, products, onCancel, onSuccess, onToast,
+  poaId, poaPeriod, outlets, products, onCancel, onSuccess, onToast,
 }: {
-  poaId: string; outlets: OutletOption[]; products: Product[];
+  poaId: string; poaPeriod: string; outlets: OutletOption[]; products: Product[];
   onCancel?: () => void;
   onSuccess?: () => void;
   onToast?: (msg: string, type?: "success" | "error") => void;
@@ -855,7 +1091,7 @@ function AddPanel({
   const [dokterFields, setDokterFields] = useState<DokterFields>(emptyDokterFields(""));
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
   const [labelCustomer, setLabelCustomer] = useState("");
-  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[]>([]);
+  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
 
   const [isPending, startTransition] = useTransition();
@@ -875,7 +1111,6 @@ function AddPanel({
   })), [customerList]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
-  const selectedOutlet = useMemo(() => outlets.find((o) => o.kodePI === kodePI) ?? null, [outlets, kodePI]);
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
@@ -893,7 +1128,7 @@ function AddPanel({
 
   // Sum of latest PSSP per-month estimates across all filled products (active + expired)
   const totalOldEstPerMonth = useMemo(() => {
-    if (psspHistory.length === 0) return null;
+    if (!psspHistory || psspHistory.length === 0) return null;
     let sum = 0; let hasAny = false;
     for (const entry of produkList) {
       if (!entry.kodeProduk) continue;
@@ -905,6 +1140,22 @@ function AddPanel({
     }
     return hasAny ? sum : null;
   }, [produkList, products, psspHistory]);
+
+  // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
+  const totalPctBudget = useMemo(() => {
+    let budgetWeighted = 0, estTotal = 0;
+    for (const entry of produkList) {
+      const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
+      const base = computeEstimasi(entry, dokterFields, p);
+      if (base <= 0) continue;
+      const pct = [entry.persenPsspDokter, entry.persenPsspKpdm, entry.persenDiskon,
+        entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+        .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+      budgetWeighted += base * pct;
+      estTotal += base;
+    }
+    return estTotal > 0 ? budgetWeighted / estTotal : null;
+  }, [produkList, dokterFields, products]);
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
@@ -956,7 +1207,7 @@ function AddPanel({
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
-    const oldEst = (product && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
+    const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
     const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
     fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
@@ -965,7 +1216,9 @@ function AddPanel({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const hasErrors = !kodePI || !spesialisasi || !customerId || !dokterFields.periodeAwal
-      || !dokterFields.hariKerjaBulan || produkList.some((p) => !p.kodeProduk);
+      || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
+      || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12
+      || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep);
     if (hasErrors) {
       setAttempted(true);
       setTimeout(() => {
@@ -996,11 +1249,10 @@ function AddPanel({
   }
 
   const filledCount = produkList.filter((e) => !!e.kodeProduk).length;
-  const canSubmit = !!customerId && filledCount > 0 && !!dokterFields.periodeAwal;
 
   return (
     <div className="rounded-xl border p-4 space-y-5"
-      style={{ background: "var(--color-bg)", borderColor: "var(--color-primary)", borderWidth: 1.5 }}>
+      style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 1.5 }}>
       <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Tambah Rencana POA</p>
 
       {error && (
@@ -1054,11 +1306,11 @@ function AddPanel({
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 items-center rounded-lg px-3 py-2 text-xs"
                 style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
                 {selectedCustomer.kodeCustomer && (
-                  <span><span style={{ color: "var(--color-text-faint)" }}>Kode:</span> {selectedCustomer.kodeCustomer}</span>
+                  <span><span style={{ color: "var(--color-text-faint)" }}>Kode Customer:</span> {selectedCustomer.kodeCustomer}</span>
                 )}
-                <span><span style={{ color: "var(--color-text-faint)" }}>Outlet:</span> {selectedOutlet?.namaOutlet}</span>
                 <span><span style={{ color: "var(--color-text-faint)" }}>Spesialisasi:</span> {spesLabel(selectedCustomer.spesialisasi)}</span>
-                {selectedCustomer.isFokus && <span style={{ color: "var(--color-primary)" }}>⭐ Rekomendasi PM</span>}
+                <span><span style={{ color: "var(--color-text-faint)" }}>Kategori:</span> {selectedCustomer.spesialisasi.toLowerCase().includes("spesialis") ? "Dokter Spesialis" : "Dokter Umum"}</span>
+                {selectedCustomer.isFokus && <span style={{ color: "var(--color-blue)" }}>⭐ Rekomendasi PM</span>}
                 {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
               </div>
             </>
@@ -1066,19 +1318,23 @@ function AddPanel({
         </div>
 
         {/* Rencana per dokter */}
-        <div>
-          <SectionLabel>Rencana Kunjungan (per User)</SectionLabel>
-          <DokterFieldsSection
-            fields={dokterFields}
-            onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
-            periodeAwalError={attempted && !dokterFields.periodeAwal}
-            hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
-          />
-        </div>
+        <DokterFieldsSection
+          fields={dokterFields}
+          onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
+          poaPeriod={poaPeriod}
+          periodeAwalError={attempted && !dokterFields.periodeAwal}
+          hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
+          lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
+        />
 
         {/* Products */}
         <div>
-          <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              <span style={{ color: "var(--color-blue)" }}>★</span> = Produk Fokus
+            </span>
+          </div>
           <div className="space-y-2">
             {produkList.map((entry, i) => (
               <ProdukEntryRow
@@ -1088,8 +1344,9 @@ function AddPanel({
                 products={products}
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
-                psspHistory={psspHistory}
+                psspHistory={psspHistory ?? undefined}
                 kriteriaList={kriteriaList}
+                usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
                 showRemove={produkList.length > 1}
@@ -1098,8 +1355,7 @@ function AddPanel({
             ))}
             <button type="button"
               onClick={() => setProdukList((prev) => [...prev, emptyProdukEntry()])}
-              className="text-sm font-medium px-3 py-2 rounded-lg w-full border-2 border-dashed"
-              style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}>
+              className="text-sm font-medium px-3 py-2 rounded-lg w-full border-2 border-dashed transition-colors bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-subtle)] hover:border-[var(--color-blue)] hover:text-[var(--color-blue)]">
               + Tambah Produk Lagi
             </button>
           </div>
@@ -1113,20 +1369,32 @@ function AddPanel({
             ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
           return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-primary)", borderWidth: 2 }}>
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
               Total Semua Produk
             </p>
             <div className="flex gap-6 flex-wrap items-start">
               <div>
                 <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Estimasi Sales</div>
-                <div className="text-xl font-bold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEstimasi)}</div>
+                <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEstimasi)}</div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{formatRp(Math.round(newPerMonth))}/bln</div>
               </div>
               {totalNilaiPSSP > 0 && (
                 <div>
                   <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Nilai PSSP</div>
                   <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalNilaiPSSP)}</div>
+                </div>
+              )}
+              {totalPctBudget != null && (
+                <div>
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total % Budget</div>
+                  <div className="text-xl font-bold"
+                    style={{ color: totalPctBudget > 42.5 ? "var(--color-red)" : "var(--color-text)" }}>
+                    {totalPctBudget.toFixed(2)}%
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: totalPctBudget > 42.5 ? "var(--color-red)" : "var(--color-success, #16a34a)" }}>
+                    {totalPctBudget > 42.5 ? "⚠ OVER BUDGET" : "✓ SAFE"}
+                  </div>
                 </div>
               )}
               <div>
@@ -1143,31 +1411,29 @@ function AddPanel({
                   </>
                 ) : (
                   <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                    {psspHistory.length === 0 ? "Memuat…" : "Belum ada data PSSP"}
+                    {psspHistory === null ? "Memuat…" : psspHistory.length === 0 ? "Tidak ada histori PSSP" : "Belum ada data PSSP"}
                   </div>
                 )}
               </div>
             </div>
-            {totalNilaiPSSP > 0 && (
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (per Dokter)</span>
-                <div className="flex items-center gap-2">
-                  <input type="number" min="0" step="0.01" placeholder="1"
-                    value={dokterFields.pengaliNilaiR}
-                    onChange={(e) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: e.target.value }))}
-                    className="input-field" style={{ maxWidth: 100 }} />
-                  <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                    Ubah untuk menyesuaikan Total Nilai PSSP di atas
-                  </span>
-                </div>
-              </label>
-            )}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (per Dokter)</span>
+              <div style={{ maxWidth: 120 }}>
+                <NumberStepperInput
+                  value={dokterFields.pengaliNilaiR}
+                  onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
+                  unit="%"
+                  placeholder="1"
+                  step={0.1}
+                  min={0} />
+              </div>
+            </label>
           </div>
         );
         })()}
 
         <div className="flex items-center gap-3 pt-1">
-          <Button type="submit" size="sm" disabled={isPending || !canSubmit}>
+          <Button type="submit" size="sm" disabled={isPending}>
             {isPending
               ? (progress ? `Menyimpan ${progress.done}/${progress.total}…` : "Menyimpan…")
               : `Simpan (${filledCount} produk)`}
@@ -1205,6 +1471,7 @@ function AddDokterBaruPanel({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [attempted, setAttempted] = useState(false);
 
   const outletOptions = useMemo(() => outlets.map((o) => ({
     value: o.kodePI,
@@ -1217,6 +1484,15 @@ function AddDokterBaruPanel({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const hasErrors = !kodePI || !namaDokter.trim() || !spesialisasi;
+    if (hasErrors) {
+      setAttempted(true);
+      setTimeout(() => {
+        const el = document.querySelector("[data-field-err]");
+        (el as HTMLElement)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+      return;
+    }
     setError(null);
     const fd = new FormData();
     fd.set("namaCustomer", namaDokter.trim());
@@ -1232,8 +1508,6 @@ function AddDokterBaruPanel({
       }
     });
   }
-
-  const canSubmit = !!kodePI && !!namaDokter.trim() && !!spesialisasi;
 
   if (success) {
     return (
@@ -1274,28 +1548,44 @@ function AddDokterBaruPanel({
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Outlet</span>
-            <Combobox name="_outlet_reg" value={kodePI} onChange={setKodePI}
-              placeholder="Cari outlet…" required options={outletOptions} />
+          <div className="flex flex-col gap-1"
+            {...(attempted && !kodePI ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs" style={{ color: attempted && !kodePI ? "var(--color-red)" : "var(--color-text-muted)" }}>
+              Outlet<Req />
+            </span>
+            <div style={attempted && !kodePI ? ERR_RING : undefined}>
+              <Combobox name="_outlet_reg" value={kodePI} onChange={setKodePI}
+                placeholder="Cari outlet…" options={outletOptions} />
+            </div>
+            {attempted && !kodePI && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </div>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Nama User</span>
+          <label className="flex flex-col gap-1"
+            {...(attempted && !namaDokter.trim() ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs" style={{ color: attempted && !namaDokter.trim() ? "var(--color-red)" : "var(--color-text-muted)" }}>
+              Nama User<Req />
+            </span>
             <input type="text" value={namaDokter}
               onChange={(e) => setNamaDokter(e.target.value)}
               placeholder="dr. Nama Lengkap"
-              className="input-field" required />
+              className="input-field"
+              style={attempted && !namaDokter.trim() ? ERR_RING : undefined} />
+            {attempted && !namaDokter.trim() && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Spesialisasi</span>
+          <label className="flex flex-col gap-1"
+            {...(attempted && !spesialisasi ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs" style={{ color: attempted && !spesialisasi ? "var(--color-red)" : "var(--color-text-muted)" }}>
+              Spesialisasi<Req />
+            </span>
             <select value={spesialisasi}
               onChange={(e) => setSpesialisasi(e.target.value)}
-              className="input-field" required>
+              className="input-field"
+              style={attempted && !spesialisasi ? ERR_RING : undefined}>
               <option value="">— Pilih —</option>
               {spesOptions.map(({ value, label }) => (
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
+            {attempted && !spesialisasi && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
         </div>
 
@@ -1309,7 +1599,7 @@ function AddDokterBaruPanel({
         </label>
 
         <div className="flex items-center gap-3">
-          <Button type="submit" size="sm" disabled={isPending || !canSubmit}>
+          <Button type="submit" size="sm" disabled={isPending}>
             {isPending ? "Mendaftarkan…" : "Daftarkan User"}
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
@@ -1322,9 +1612,9 @@ function AddDokterBaruPanel({
 // ─── AddProductPanel (tambah produk ke dokter existing) ───────────────────────
 
 function AddProductPanel({
-  poaId, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, onCancel,
+  poaId, poaPeriod, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, onCancel,
 }: {
-  poaId: string; products: Product[];
+  poaId: string; poaPeriod: string; products: Product[];
   kodePI: string; namaOutlet: string;
   kodeCust: string | null; namaCust: string; spesialisasi: string;
   defaultPeriode: string; onCancel: () => void;
@@ -1332,10 +1622,16 @@ function AddProductPanel({
   const [dokterFields, setDokterFields] = useState<DokterFields>(emptyDokterFields(defaultPeriode));
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
   const [labelCustomer, setLabelCustomer] = useState("");
-  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[]>([]);
+  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
+  const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [attempted, setAttempted] = useState(false);
+
+  useEffect(() => {
+    getKriteriaByOutlet(kodePI).then(setKriteriaList);
+  }, [kodePI]);
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
@@ -1373,7 +1669,7 @@ function AddProductPanel({
     const totalBiayaAP = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiayaAP));
     const perBulanAP = dokterFields.lamaPeriode > 0 ? totalBiayaAP / dokterFields.lamaPeriode : 0;
-    const oldEstAP = (product && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
+    const oldEstAP = (product && psspHistory && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
     const rasioAP = perBulanAP > 0 && oldEstAP && oldEstAP > 0 ? perBulanAP / oldEstAP : null;
     fd.set("rasioEstimasiGrowth", rasioAP != null ? rasioAP.toFixed(4) : "");
     return fd;
@@ -1382,7 +1678,17 @@ function AddProductPanel({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
-    if (!validEntries.length) { setError("Pilih minimal satu produk."); return; }
+    const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
+      || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
+      || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep);
+    if (hasErrors) {
+      setAttempted(true);
+      setTimeout(() => {
+        const el = document.querySelector("[data-field-err]");
+        (el as HTMLElement)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+      return;
+    }
     setError(null);
     setProgress({ done: 0, total: validEntries.length });
     startTransition(async () => {
@@ -1400,11 +1706,10 @@ function AddProductPanel({
   }
 
   const filledCount = produkList.filter((e) => !!e.kodeProduk).length;
-  const canSubmit = filledCount > 0 && !!dokterFields.periodeAwal;
 
   return (
     <div className="mx-4 mb-4 mt-1 rounded-xl border p-4 space-y-4"
-      style={{ background: "var(--color-bg)", borderColor: "var(--color-primary)", borderWidth: 1.5 }}>
+      style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 1.5 }}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Tambah Produk</p>
@@ -1424,16 +1729,22 @@ function AddProductPanel({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <SectionLabel>Rencana Kunjungan (per User)</SectionLabel>
-          <DokterFieldsSection
-            fields={dokterFields}
-            onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
-          />
-        </div>
+        <DokterFieldsSection
+          fields={dokterFields}
+          onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
+          poaPeriod={poaPeriod}
+          periodeAwalError={attempted && !dokterFields.periodeAwal}
+          hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
+          lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
+        />
 
         <div>
-          <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              <span style={{ color: "var(--color-blue)" }}>★</span> = Produk Fokus
+            </span>
+          </div>
           <div className="space-y-2">
             {produkList.map((entry, i) => (
               <ProdukEntryRow
@@ -1443,28 +1754,30 @@ function AddProductPanel({
                 products={products}
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
-                psspHistory={psspHistory}
+                psspHistory={psspHistory ?? undefined}
+                kriteriaList={kriteriaList}
+                usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
                 showRemove={produkList.length > 1}
+                showError={attempted}
               />
             ))}
             <button type="button"
               onClick={() => setProdukList((prev) => [...prev, emptyProdukEntry()])}
-              className="text-sm font-medium px-3 py-2 rounded-lg w-full border-2 border-dashed"
-              style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}>
+              className="text-sm font-medium px-3 py-2 rounded-lg w-full border-2 border-dashed transition-colors bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-subtle)] hover:border-[var(--color-blue)] hover:text-[var(--color-blue)]">
               + Tambah Produk Lagi
             </button>
           </div>
           {filledCount > 0 && totalEstimasi > 0 && (
             <p className="mt-2 text-xs text-right" style={{ color: "var(--color-text-muted)" }}>
-              Total estimasi: <strong style={{ color: "var(--color-primary)" }}>{formatRp(totalEstimasi)}</strong>
+              Total estimasi: <strong style={{ color: "var(--color-blue)" }}>{formatRp(totalEstimasi)}</strong>
             </p>
           )}
         </div>
 
         <div className="flex items-center gap-3 pt-1">
-          <Button type="submit" size="sm" disabled={isPending || !canSubmit}>
+          <Button type="submit" size="sm" disabled={isPending}>
             {isPending
               ? (progress ? `Menyimpan ${progress.done}/${progress.total}…` : "Menyimpan…")
               : `Simpan (${filledCount} produk)`}
@@ -1484,312 +1797,343 @@ function AddProductPanel({
   );
 }
 
-// ─── EditPanel ────────────────────────────────────────────────────────────────
+// ─── EditDoctorPanel ────────────────────────────────────────────────────────
+// Edit ALL products for one doctor at once — same UI/widgets as creating a new
+// baris, pre-filled with existing data. Products can be changed, added, or
+// removed; diffed against the original items on submit (update/add/delete).
 
-export function EditPanel({ item, poaId, products, onCancel, onSaved, redirectTo }: {
-  item: PoaLineItem; poaId: string; products: Product[];
-  onCancel?: () => void; onSaved?: () => void;
-  redirectTo?: string;
-}) {
-  const router = useRouter();
-  const handleCancel = redirectTo ? () => router.push(redirectTo) : (onCancel ?? (() => {}));
-  const handleSaved = redirectTo ? () => router.push(redirectTo) : onSaved;
+interface EditableProdukEntry extends ProdukEntry {
+  existingId?: string;
+}
 
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[]>([]);
-  const [dokterFields, setDokterFields] = useState<DokterFields>({
-    periodeAwal: item.periodeAwal,
-    lamaPeriode: item.lamaPeriode,
-    hariKerjaBulan: item.hariKerjaBulan?.toString() ?? "",
-    rencanaVisitMinggu: item.rencanaVisitMinggu.toString(),
-    pengaliNilaiR: item.pengaliNilaiR ? item.pengaliNilaiR.toString() : "1",
-  });
-  const [produkEntry, setProdukEntry] = useState<ProdukEntry>({
-    uid: "edit",
+function produkEntryFromItem(item: PoaLineItem, products: Product[]): EditableProdukEntry {
+  const p = products.find((pr) => pr.kodeProduk === item.kodeProduk);
+  return {
+    uid: item.id,
+    existingId: item.id,
     kodeProduk: item.kodeProduk,
     jumlahResepHari: item.jumlahResepHari?.toString() ?? "",
     qtyProdukResep: item.qtyProdukResep?.toString() ?? "",
     produkKompetitor: item.produkKompetitor ?? "",
     statusStandarisasi: item.statusStandarisasi ?? "",
-    persenPsspDokter: (() => { const p = products.find((p) => p.kodeProduk === item.kodeProduk); return p?.nilaiRPersen ? (parseFloat(p.nilaiRPersen) * 100).toFixed(2) : item.persenPsspDokter ? (parseFloat(item.persenPsspDokter.toString()) * 100).toFixed(2) : ""; })(),
+    persenPsspDokter: p?.nilaiRPersen
+      ? (parseFloat(p.nilaiRPersen) * 100).toFixed(2)
+      : item.persenPsspDokter ? (parseFloat(item.persenPsspDokter.toString()) * 100).toFixed(2) : "",
     persenPsspKpdm: item.persenPsspKpdm ? (parseFloat(item.persenPsspKpdm.toString()) * 100).toFixed(2) : "",
     persenDiskon: item.persenDiskon ? (parseFloat(item.persenDiskon.toString()) * 100).toFixed(2) : "",
     persenDp: item.persenDp ? (parseFloat(item.persenDp.toString()) * 100).toFixed(2) : "",
     persenListingFee: item.persenListingFee ? (parseFloat(item.persenListingFee.toString()) * 100).toFixed(2) : "",
     persenEntertain: item.persenEntertain ? (parseFloat(item.persenEntertain.toString()) * 100).toFixed(2) : "",
-  });
+  };
+}
 
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
+export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo }: {
+  items: PoaLineItem[]; poaId: string; poaPeriod: string; products: Product[]; redirectTo: string;
+}) {
+  const router = useRouter();
+  const first = items[0];
+  const kodePI = first.kodePI ?? "";
+  const namaOutlet = first.namaOutlet;
+  const kodeCust = first.kodeCust;
+  const namaCust = first.namaCust;
+  const spesialisasi = first.spesialisasi;
+
+  const [dokterFields, setDokterFields] = useState<DokterFields>({
+    periodeAwal: first.periodeAwal,
+    lamaPeriode: first.lamaPeriode,
+    hariKerjaBulan: first.hariKerjaBulan?.toString() ?? "",
+    rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
+    pengaliNilaiR: first.pengaliNilaiR ? first.pengaliNilaiR.toString() : "1",
+  });
+  const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
+    () => items.map((it) => produkEntryFromItem(it, products))
+  );
+  const [labelCustomer, setLabelCustomer] = useState(first.labelCustomer ?? "");
+  const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
+  const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [attempted, setAttempted] = useState(false);
+
+  useEffect(() => {
+    getKriteriaByOutlet(kodePI).then(setKriteriaList);
+  }, [kodePI]);
+
+  const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
+    const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
+    return sum + computeEstimasi(e, dokterFields, p);
+  }, 0), [produkList, dokterFields, products]);
+
+  const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
+    const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
+    if (!p) return sum;
+    const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
+    if (nilaiR == null) return sum;
+    const pengali = parseFloat(dokterFields.pengaliNilaiR) || 1;
+    return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
+  }, 0), [produkList, dokterFields, products]);
+
+  // Sum of latest PSSP per-month estimates across all filled products (active + expired)
+  const totalOldEstPerMonth = useMemo(() => {
+    if (!psspHistory || psspHistory.length === 0) return null;
+    let sum = 0; let hasAny = false;
+    for (const entry of produkList) {
+      if (!entry.kodeProduk) continue;
+      const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
+      if (!p) continue;
+      const old = computeLatestEstPerMonth(psspHistory, p.namaProduk);
+      if (old == null) continue;
+      sum += old; hasAny = true;
+    }
+    return hasAny ? sum : null;
+  }, [produkList, products, psspHistory]);
+
+  // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
+  const totalPctBudget = useMemo(() => {
+    let budgetWeighted = 0, estTotal = 0;
+    for (const entry of produkList) {
+      const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
+      const base = computeEstimasi(entry, dokterFields, p);
+      if (base <= 0) continue;
+      const pct = [entry.persenPsspDokter, entry.persenPsspKpdm, entry.persenDiskon,
+        entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+        .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+      budgetWeighted += base * pct;
+      estTotal += base;
+    }
+    return estTotal > 0 ? budgetWeighted / estTotal : null;
+  }, [produkList, dokterFields, products]);
+
+  function updateProduk(idx: number, patch: Partial<ProdukEntry>) {
+    setProdukList((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+  }
+
+  function buildFormData(entry: EditableProdukEntry): FormData {
     const fd = new FormData();
-    const product = products.find((p) => p.kodeProduk === produkEntry.kodeProduk) ?? null;
+    const product = products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null;
+    if (!entry.existingId) {
+      fd.set("directNamaCust", namaCust);
+      fd.set("directSpesialisasi", spesialisasi);
+      fd.set("directKodeCust", kodeCust ?? "");
+      fd.set("kodePI", kodePI);
+    }
+    fd.set("kodeProduk", entry.kodeProduk);
     fd.set("periodeAwal", dokterFields.periodeAwal);
     fd.set("lamaPeriode", String(dokterFields.lamaPeriode));
     fd.set("hariKerjaBulan", dokterFields.hariKerjaBulan);
-    fd.set("jumlahResepHari", produkEntry.jumlahResepHari);
-    fd.set("qtyProdukResep", produkEntry.qtyProdukResep);
+    fd.set("jumlahResepHari", entry.jumlahResepHari);
+    fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
-    fd.set("produkKompetitor", produkEntry.produkKompetitor);
-    fd.set("statusStandarisasi", produkEntry.statusStandarisasi);
-    fd.set("persenPsspDokter", produkEntry.persenPsspDokter);
-    fd.set("persenPsspKpdm", produkEntry.persenPsspKpdm);
-    fd.set("persenDiskon", produkEntry.persenDiskon);
-    fd.set("persenDp", produkEntry.persenDp);
-    fd.set("persenListingFee", produkEntry.persenListingFee);
-    fd.set("persenEntertain", produkEntry.persenEntertain);
+    fd.set("produkKompetitor", entry.produkKompetitor);
+    fd.set("labelCustomer", labelCustomer);
+    fd.set("statusStandarisasi", entry.statusStandarisasi);
+    fd.set("persenPsspDokter", entry.persenPsspDokter);
+    fd.set("persenPsspKpdm", entry.persenPsspKpdm);
+    fd.set("persenDiskon", entry.persenDiskon);
+    fd.set("persenDp", entry.persenDp);
+    fd.set("persenListingFee", entry.persenListingFee);
+    fd.set("persenEntertain", entry.persenEntertain);
     fd.set("pengaliNilaiR", dokterFields.pengaliNilaiR);
-    const totalBiayaE = computeEstimasi(produkEntry, dokterFields, product);
-    fd.set("rencanaTotalBiaya", String(totalBiayaE));
-    const perBulanE = dokterFields.lamaPeriode > 0 ? totalBiayaE / dokterFields.lamaPeriode : 0;
-    const oldEstE = psspHistory.length > 0 ? computeOldEstPerMonth(psspHistory, item.namaProduk) : null;
-    const rasioE = perBulanE > 0 && oldEstE && oldEstE > 0 ? perBulanE / oldEstE : null;
-    fd.set("rasioEstimasiGrowth", rasioE != null ? rasioE.toFixed(4) : "");
+    const totalBiaya = computeEstimasi(entry, dokterFields, product);
+    fd.set("rencanaTotalBiaya", String(totalBiaya));
+    const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
+    const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
+    const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
+    fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
+    return fd;
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const validEntries = produkList.filter((e) => !!e.kodeProduk);
+    const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
+      || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
+      || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep);
+    if (hasErrors) {
+      setAttempted(true);
+      setTimeout(() => {
+        const el = document.querySelector("[data-field-err]");
+        (el as HTMLElement)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+      return;
+    }
+    setError(null);
+    const removedIds = items
+      .map((it) => it.id)
+      .filter((id) => !validEntries.some((e) => e.existingId === id));
+    const total = validEntries.length + removedIds.length;
+    setProgress({ done: 0, total });
     startTransition(async () => {
       try {
-        await updateLineItemAction(poaId, item.id, fd);
-        handleSaved?.();
+        let done = 0;
+        for (const entry of validEntries) {
+          if (entry.existingId) await updateLineItemAction(poaId, entry.existingId, buildFormData(entry));
+          else await addLineItemAction(poaId, buildFormData(entry));
+          done++; setProgress({ done, total });
+        }
+        for (const id of removedIds) {
+          await deleteLineItemAction(poaId, id);
+          done++; setProgress({ done, total });
+        }
+        router.push(redirectTo);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Gagal menyimpan.");
+        setProgress(null);
       }
     });
   }
 
-  const product = products.find((p) => p.kodeProduk === produkEntry.kodeProduk) ?? null;
-  const resep  = parseFloat(produkEntry.jumlahResepHari) || 0;
-  const qty    = parseFloat(produkEntry.qtyProdukResep) || 0;
-  const hari   = parseFloat(dokterFields.hariKerjaBulan) || 0;
-  const hna    = product ? hargaST(product) : parseFloat(item.hargaSatuanTerkecil?.toString() ?? "0") || 0;  // price per ST
-  const lama   = dokterFields.lamaPeriode;
-  const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
-  const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
-  const totalEst = perBulan != null ? perBulan * lama : null;
-  const nilaiRPersenE = product?.nilaiRPersen ? parseFloat(product.nilaiRPersen) : null;
-  const pengaliNilaiRE = parseFloat(dokterFields.pengaliNilaiR) || 1;
-  const nilaiPSSPBulanE = perBulan != null && nilaiRPersenE != null ? Math.round(perBulan * nilaiRPersenE * pengaliNilaiRE) : null;
-  const nilaiPSSPTotalE = nilaiPSSPBulanE != null ? nilaiPSSPBulanE * lama : null;
-  const oldEstPerMonthE = psspHistory.length > 0 ? computeLatestEstPerMonth(psspHistory, item.namaProduk) : null;
-  const growthRatioE = (perBulan != null && oldEstPerMonthE != null && oldEstPerMonthE > 0)
-    ? perBulan / oldEstPerMonthE : null;
-  const growthPctE = growthRatioE != null ? (growthRatioE - 1) * 100 : null;
+  const filledCount = produkList.filter((e) => !!e.kodeProduk).length;
 
   return (
     <div className="rounded-xl border p-4 space-y-5"
-      style={{ background: "var(--color-bg)", borderColor: "var(--color-primary)", borderWidth: 1.5 }}>
+      style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 1.5 }}>
+      <div>
+        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Edit Rencana POA</p>
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            {namaCust} · {spesLabel(spesialisasi)} · {namaOutlet}
+          </span>
+          {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
+        </div>
+      </div>
+
       {error && (
         <p className="text-sm px-3 py-2 rounded-md"
           style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>
       )}
 
-      <div>
-        <SectionLabel>Info</SectionLabel>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <InfoField label="Outlet" value={item.kodePI ? `${item.kodePI} - ${item.namaOutlet}` : item.namaOutlet} />
-          <InfoField label="User" value={item.namaCust} />
-          <InfoField label="Spesialisasi" value={spesLabel(item.spesialisasi)} />
-          <InfoField label="Produk" value={item.namaProduk} />
-          {item.labelCustomer && (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Label Customer</span>
-              <div className="flex items-center px-2 py-1.5">
-                <LabelCustomerBadge label={item.labelCustomer} />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <SectionLabel>Rencana Kunjungan (per User)</SectionLabel>
-          <DokterFieldsSection
-            fields={dokterFields}
-            onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
-          />
-        </div>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <DokterFieldsSection
+          fields={dokterFields}
+          onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
+          poaPeriod={poaPeriod}
+          periodeAwalError={attempted && !dokterFields.periodeAwal}
+          hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
+          lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
+        />
 
         <div>
-          <SectionLabel>Data Produk</SectionLabel>
-          <div className="rounded-lg border p-3 space-y-3"
-            style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-            {/* Produk Kompetitor — above inputs like AddPanel */}
-            <label className="flex flex-col gap-1">
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kompetitor<Opt /></span>
-              <input type="text" placeholder="Nama produk kompetitor"
-                value={produkEntry.produkKompetitor}
-                onChange={(e) => setProdukEntry((prev) => ({ ...prev, produkKompetitor: e.target.value }))}
-                className="input-field text-xs" />
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Resep / Hari<Req /></span>
-                <input type="number" min="0" placeholder="3"
-                  value={produkEntry.jumlahResepHari}
-                  onChange={(e) => setProdukEntry((prev) => ({ ...prev, jumlahResepHari: e.target.value }))}
-                  className="input-field" />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs flex items-center gap-1" style={{ color: "var(--color-text-muted)" }}>
-                  Jml Produk ST / Resep<Req />
-                  {product?.satuanTerkecil && (
-                    <span className="text-xs font-mono px-1 rounded" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)", border: "1px solid var(--color-border)" }}>
-                      [[ST]] {product.satuanTerkecil}
-                    </span>
-                  )}
-                </span>
-                <input type="number" min="0" placeholder="1"
-                  value={produkEntry.qtyProdukResep}
-                  onChange={(e) => setProdukEntry((prev) => ({ ...prev, qtyProdukResep: e.target.value }))}
-                  className="input-field" />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Standarisasi<Opt /></span>
-                <select value={produkEntry.statusStandarisasi}
-                  onChange={(e) => setProdukEntry((prev) => ({ ...prev, statusStandarisasi: e.target.value }))}
-                  className="input-field text-xs">
-                  <option value="">— Pilih —</option>
-                  {Object.entries(STATUS_STANDARISASI_LABELS).map(([v, l]) => (
-                    <option key={v} value={v}>{l}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            {/* Estimasi Sales card */}
-            {perBulan != null && (
-              <div className="rounded-lg border px-3 py-2.5 space-y-2"
-                style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-                <p className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
-                <div className="flex gap-6 flex-wrap">
-                  <div>
-                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales / Bln</div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{formatRp(perBulan)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales {lama} Bln</div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between pt-1.5 border-t"
-                  style={{ borderColor: "var(--color-border)" }}>
-                  <div>
-                    <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth vs PSSP</div>
-                    {oldEstPerMonthE != null && (
-                      <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                        PSSP lama {formatRp(Math.round(oldEstPerMonthE))}/bln
-                      </div>
-                    )}
-                  </div>
-                  {growthPctE != null ? (
-                    <span className="text-sm font-semibold"
-                      style={{ color: growthPctE >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                      {growthPctE >= 0 ? "+" : ""}{growthPctE.toFixed(1)}%
-                    </span>
-                  ) : (
-                    <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                      {psspHistory.length === 0 ? "Memuat…" : "Belum ada data PSSP"}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-            {/* Nilai PSSP card */}
-            {nilaiPSSPBulanE != null && (
-              <div className="rounded-lg border px-3 py-2.5 space-y-2"
-                style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
-                <p className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--color-blue, #3b82f6)" }}>Nilai PSSP</p>
-                <div className="flex gap-6 flex-wrap">
-                  <div>
-                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                      Nilai PSSP / Bln
-                      {nilaiRPersenE != null && (
-                        <span className="ml-1">
-                          ({(nilaiRPersenE * 100).toFixed(1)}%{pengaliNilaiRE !== 1 ? ` × ${pengaliNilaiRE}` : ""})
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(nilaiPSSPBulanE)}</div>
-                  </div>
-                  {nilaiPSSPTotalE != null && (
-                    <div>
-                      <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Nilai PSSP {lama} Bln</div>
-                      <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(nilaiPSSPTotalE)}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            <BudgetFieldsRow
-              entry={produkEntry}
-              onChange={(patch) => setProdukEntry((prev) => ({ ...prev, ...patch }))}
-            />
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              <span style={{ color: "var(--color-blue)" }}>★</span> = Produk Fokus
+            </span>
+          </div>
+          <div className="space-y-2">
+            {produkList.map((entry, i) => (
+              <ProdukEntryRow
+                key={entry.uid}
+                index={i}
+                entry={entry}
+                products={products}
+                dokterFields={dokterFields}
+                spesialisasi={spesialisasi || undefined}
+                psspHistory={psspHistory ?? undefined}
+                kriteriaList={kriteriaList}
+                usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
+                onChange={(patch) => updateProduk(i, patch)}
+                onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
+                showRemove={produkList.length > 1}
+                showError={attempted}
+              />
+            ))}
+            <button type="button"
+              onClick={() => setProdukList((prev) => [...prev, emptyProdukEntry()])}
+              className="text-sm font-medium px-3 py-2 rounded-lg w-full border-2 border-dashed transition-colors bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-subtle)] hover:border-[var(--color-blue)] hover:text-[var(--color-blue)]">
+              + Tambah Produk Lagi
+            </button>
           </div>
         </div>
 
-        {/* Total summary card — same as AddPanel, shows estimasi + nilai PSSP + pengali */}
-        {totalEst != null && (
+        {/* Total summary + pengali */}
+        {filledCount > 0 && totalEstimasi > 0 && (() => {
+          const lama = dokterFields.lamaPeriode || 1;
+          const newPerMonth = totalEstimasi / lama;
+          const growthPct = totalOldEstPerMonth != null && totalOldEstPerMonth > 0
+            ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
+          return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-primary)", borderWidth: 2 }}>
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              Total
+              Total Semua Produk
             </p>
             <div className="flex gap-6 flex-wrap items-start">
               <div>
                 <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Estimasi Sales</div>
-                <div className="text-xl font-bold" style={{ color: "var(--color-primary)" }}>{formatRp(totalEst)}</div>
-                <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{formatRp(perBulan!)}/bln</div>
+                <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEstimasi)}</div>
+                <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{formatRp(Math.round(newPerMonth))}/bln</div>
               </div>
-              {nilaiPSSPTotalE != null && (
+              {totalNilaiPSSP > 0 && (
                 <div>
                   <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Nilai PSSP</div>
-                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(nilaiPSSPTotalE)}</div>
+                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalNilaiPSSP)}</div>
+                </div>
+              )}
+              {totalPctBudget != null && (
+                <div>
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total % Budget</div>
+                  <div className="text-xl font-bold"
+                    style={{ color: totalPctBudget > 42.5 ? "var(--color-red)" : "var(--color-text)" }}>
+                    {totalPctBudget.toFixed(2)}%
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: totalPctBudget > 42.5 ? "var(--color-red)" : "var(--color-success, #16a34a)" }}>
+                    {totalPctBudget > 42.5 ? "⚠ OVER BUDGET" : "✓ SAFE"}
+                  </div>
                 </div>
               )}
               <div>
                 <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Growth vs PSSP</div>
-                {growthPctE != null ? (
+                {growthPct != null ? (
                   <>
                     <div className="text-xl font-bold"
-                      style={{ color: growthPctE >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                      {growthPctE >= 0 ? "+" : ""}{growthPctE.toFixed(1)}%
+                      style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
                     </div>
                     <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                      PSSP lama {formatRp(Math.round(oldEstPerMonthE! * lama))}/{lama}bln
+                      PSSP lama {formatRp(Math.round(totalOldEstPerMonth! * lama))}/{lama}bln
                     </div>
                   </>
                 ) : (
                   <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                    {psspHistory.length === 0 ? "Memuat…" : "Belum ada data PSSP"}
+                    {psspHistory === null ? "Memuat…" : psspHistory.length === 0 ? "Tidak ada histori PSSP" : "Belum ada data PSSP"}
                   </div>
                 )}
               </div>
             </div>
-            {nilaiPSSPTotalE != null && (
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (per Dokter)</span>
-                <div className="flex items-center gap-2">
-                  <input type="number" min="0" step="0.01" placeholder="1"
-                    value={dokterFields.pengaliNilaiR}
-                    onChange={(e) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: e.target.value }))}
-                    className="input-field" style={{ maxWidth: 100 }} />
-                  <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                    Ubah untuk menyesuaikan Total Nilai PSSP di atas
-                  </span>
-                </div>
-              </label>
-            )}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (per Dokter)</span>
+              <div style={{ maxWidth: 120 }}>
+                <NumberStepperInput
+                  value={dokterFields.pengaliNilaiR}
+                  onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
+                  unit="%"
+                  placeholder="1"
+                  step={0.1}
+                  min={0} />
+              </div>
+            </label>
           </div>
-        )}
+        );
+        })()}
 
-        <div className="flex gap-2 pt-1">
-          <Button type="submit" size="sm" disabled={isPending}>{isPending ? "Menyimpan…" : "Simpan"}</Button>
-          <Button type="button" size="sm" variant="ghost" onClick={handleCancel}>Batal</Button>
+        <div className="flex items-center gap-3 pt-1">
+          <Button type="submit" size="sm" disabled={isPending}>
+            {isPending
+              ? (progress ? `Menyimpan ${progress.done}/${progress.total}…` : "Menyimpan…")
+              : `Simpan (${filledCount} produk)`}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => router.push(redirectTo)}>Batal</Button>
         </div>
       </form>
-      {item.kodeCust && (
-        <PsspSidebar kodeCustomer={item.kodeCust} doctorName={item.namaCust} onHistory={setPsspHistory} />
+      {kodeCust && (
+        <PsspSidebar
+          kodeCustomer={kodeCust}
+          doctorName={namaCust}
+          onLabel={setLabelCustomer}
+          onHistory={setPsspHistory}
+        />
       )}
     </div>
   );
@@ -1797,7 +2141,7 @@ export function EditPanel({ item, poaId, products, onCancel, onSaved, redirectTo
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function LineItemEditor({ poaId, initialItems, outlets, products, formOnly, redirectTo }: Props) {
+export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, products, formOnly, redirectTo }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<PoaLineItem[]>(initialItems);
@@ -1942,7 +2286,7 @@ export function LineItemEditor({ poaId, initialItems, outlets, products, formOnl
                         {!isAddingHere && (
                           <button type="button"
                             className="text-xs font-medium px-2 py-0.5 rounded shrink-0"
-                            style={{ color: "var(--color-primary)", border: "1px solid var(--color-primary)" }}
+                            style={{ color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}
                             onClick={() => {
                               setMode("none");
                               setAddingProductFor({
@@ -1993,7 +2337,7 @@ export function LineItemEditor({ poaId, initialItems, outlets, products, formOnl
                                 <div className="flex items-center gap-3 shrink-0">
                                   <Link href={`/poa/${poaId}/items/${item.id}/edit`}
                                     className="text-xs font-medium"
-                                    style={{ color: "var(--color-primary)" }}>
+                                    style={{ color: "var(--color-blue)" }}>
                                     Edit
                                   </Link>
                                   <button type="button" className="text-xs font-medium"
@@ -2010,7 +2354,7 @@ export function LineItemEditor({ poaId, initialItems, outlets, products, formOnl
 
                       {isAddingHere && addingProductFor && (
                         <AddProductPanel
-                          poaId={poaId} products={products}
+                          poaId={poaId} poaPeriod={poaPeriod} products={products}
                           kodePI={addingProductFor.kodePI}
                           namaOutlet={addingProductFor.namaOutlet}
                           kodeCust={addingProductFor.kodeCust}
@@ -2032,7 +2376,7 @@ export function LineItemEditor({ poaId, initialItems, outlets, products, formOnl
       {/* Add panels */}
       {mode === "add" && (
         <AddPanel
-          poaId={poaId} outlets={outlets} products={products}
+          poaId={poaId} poaPeriod={poaPeriod} outlets={outlets} products={products}
           onCancel={formOnly ? undefined : () => setMode("none")}
           onSuccess={formOnly ? handleSuccess : () => { setMode("none"); window.location.reload(); }}
           onToast={showToast}

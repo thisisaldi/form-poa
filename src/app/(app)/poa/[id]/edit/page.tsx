@@ -34,7 +34,7 @@ export default async function EditPoaPage({
     .map((o) => ({ kodePI: o.kodePI as string, namaOutlet: o.namaOutlet, groupRS: o.groupRS ?? null }));
 
   if (!poa) notFound();
-  if (!canEdit(actor, poa)) redirect(`/poa/${id}`);
+  if (!(await canEdit(actor, poa))) redirect(`/poa/${id}`);
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -50,12 +50,13 @@ export default async function EditPoaPage({
             Periode {poa.period} · {poa.owner.name}
           </p>
         </div>
-        <StatusBadge status={poa.status} />
+        <StatusBadge status={poa.status} version={poa.version} />
       </div>
 
       <Card>
         <LineItemEditor
           poaId={id}
+          poaPeriod={poa.period}
           initialItems={[]}
           outlets={outlets}
           products={products}

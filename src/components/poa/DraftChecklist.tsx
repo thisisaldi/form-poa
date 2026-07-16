@@ -2,28 +2,83 @@
 
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
-import type { PoaLineItem } from "@prisma/client";
+import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
 import { submitPoaWithSelectionAction } from "@/app/actions/poa";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
+import { quarterToMonths } from "@/lib/targetCalculation";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatRp(n: number) {
+export function formatRp(n: number) {
   if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
   if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
   return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
 }
 
-function toNum(v: unknown): number {
+// Nilai PSSP displays in "Rb" (e.g. 3.000.000 → "Rp 3 Rb").
+export function formatRpPssp(n: number) {
+  if (n >= 1_000_000) return `Rp ${Math.round(n / 1_000_000).toLocaleString("id-ID")} Rb`;
+  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+}
+
+// Masks a doctor's name for the draft view: keeps every other character, replaces the rest with X.
+function censorName(name: string): string {
+  return name
+    .toUpperCase()
+    .split(" ")
+    .map((word) => [...word].map((ch, i) => (i % 2 === 0 ? ch : "X")).join(""))
+    .join(" ");
+}
+
+export function toNum(v: unknown): number {
   return parseFloat(String(v ?? 0)) || 0;
 }
 
-function doctorKey(item: PoaLineItem): string {
+const STATUS_STANDARISASI_LABELS: Record<string, string> = {
+  SUDAH_STANDARISASI: "Sudah Standarisasi",
+  PROSES_PENGAJUAN: "Proses Pengajuan",
+  BELUM_STANDARISASI: "Belum Standarisasi",
+  TIDAK_TAHU: "Tidak Tahu",
+};
+
+export function doctorKey(item: PoaLineItem): string {
   return `${item.kodePI ?? ""}|${item.namaCust}`;
+}
+
+/**
+ * "Biaya Tercacah" — apportions a line item's total Estimasi / Nilai PSSP to
+ * however many of its plan months fall inside the POA's own quarter. E.g. a
+ * 6-month plan starting 202607 overlaps 3 months of a 2026-Q3 POA (Jul-Sep) →
+ * counts 3/6 of the total; starting 202608 overlaps only Aug-Sep → 2/6.
+ */
+function computeBiayaTercacah(item: PoaLineItem, quarterMonths: string[]): { estimasi: number; nilaiPssp: number } {
+  const lama = item.lamaPeriode || 0;
+  if (lama <= 0 || !item.periodeAwal || item.periodeAwal.length !== 6) return { estimasi: 0, nilaiPssp: 0 };
+
+  const startYear = parseInt(item.periodeAwal.slice(0, 4), 10);
+  const startMonth = parseInt(item.periodeAwal.slice(4, 6), 10);
+  let overlapCount = 0;
+  for (let i = 0; i < lama; i++) {
+    const d = new Date(startYear, startMonth - 1 + i, 1);
+    const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (quarterMonths.includes(yyyymm)) overlapCount++;
+  }
+  if (overlapCount === 0) return { estimasi: 0, nilaiPssp: 0 };
+
+  const totalBiaya = toNum(item.rencanaTotalBiaya);
+  const estimasi = (totalBiaya / lama) * overlapCount;
+
+  const persenPsspDokter = toNum(item.persenPsspDokter); // stored as a fraction, e.g. 0.05 for 5%
+  const pengaliNilaiR = toNum(item.pengaliNilaiR) || 1;
+  const nilaiPsspTotal = totalBiaya * persenPsspDokter * pengaliNilaiR;
+  const nilaiPssp = (nilaiPsspTotal / lama) * overlapCount;
+
+  return { estimasi, nilaiPssp };
 }
 
 // ─── Dummy data (deterministik, ganti saat data aktual tersedia) ──────────────
@@ -34,19 +89,19 @@ function hashSeed(s: string): number {
   return Math.abs(h);
 }
 
-interface DummySales {
+export interface DummySales {
   historis2025: number;
   salesYtd: number;
   growthPct: number;
 }
 
-function computeDummyTarget(seed: string, totalEstimasi: number): number {
+export function computeDummyTarget(seed: string, totalEstimasi: number): number {
   const h = hashSeed(seed);
   const fraction = 0.60 + (h % 16) / 100; // 60–75% → ratio estimasi/target ≈ 133–167%
   return Math.max(totalEstimasi * fraction, 1_000_000);
 }
 
-function computeDummySales(seed: string, totalEstimasi: number): DummySales {
+export function computeDummySales(seed: string, totalEstimasi: number): DummySales {
   const h = hashSeed(seed);
   const base = Math.max(totalEstimasi, 5_000_000);
   const historis2025 = base * (10 + (h % 10));
@@ -101,17 +156,22 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ─── Stats Panel ─────────────────────────────────────────────────────────────
 
-function StatsPanel({
-  items, selectedDoctorCount, totalDoctorCount, targetArea, dummySales,
+export function StatsPanel({
+  items, selectedDoctorCount, totalDoctorCount, targetArea, dummySales, quarterMonths,
 }: {
   items: PoaLineItem[];
   selectedDoctorCount: number;
   totalDoctorCount: number;
   targetArea: number;
   dummySales: DummySales;
+  quarterMonths: string[];
 }) {
   const [salesOpen, setSalesOpen] = useState(false);
   const s = computeStats(items);
+  const tercacah = items.reduce((acc, it) => {
+    const t = computeBiayaTercacah(it, quarterMonths);
+    return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
+  }, { estimasi: 0, nilaiPssp: 0 });
 
   const ratioEst     = targetArea > 0 ? (s.estimasiTotal / targetArea) * 100 : 0;
   const ratioBudget  = targetArea > 0 ? (s.budgetTotal / targetArea) * 100 : 0;
@@ -125,7 +185,7 @@ function StatsPanel({
   const TEXT         = "var(--color-text)";
   const BORDER       = "var(--color-border)";
   const BG           = "var(--color-bg-subtle)";
-  const PRIMARY      = "var(--color-primary, #2563eb)";
+  const PRIMARY      = "var(--color-blue, #2563eb)";
 
   return (
     <Card>
@@ -186,12 +246,13 @@ function StatsPanel({
           { label: "Entertain",          value: s.entertainTotal },
         ].map(({ label, value }) => {
           const pct = s.estimasiTotal > 0 ? (value / s.estimasiTotal) * 100 : 0;
+          const fmt = label === "PSSP" ? formatRpPssp : formatRp;
           return (
             <div key={label}>
               <div className="flex justify-between text-xs mb-1">
                 <span style={{ color: MUTED }}>{label}</span>
                 <span style={{ color: TEXT }}>
-                  {value > 0 ? formatRp(value) : "—"}
+                  {value > 0 ? fmt(value) : "—"}
                   {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
                 </span>
               </div>
@@ -212,6 +273,20 @@ function StatsPanel({
           </span>
         </div>
       </div>
+
+      {/* ── 2b. Biaya Tercacah (apportioned to this quarter) ── */}
+      {(tercacah.estimasi > 0 || tercacah.nilaiPssp > 0) && (
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+            <p className="text-xs" style={{ color: MUTED }}>Estimasi Tercacah</p>
+            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRp(tercacah.estimasi)}</p>
+          </div>
+          <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+            <p className="text-xs" style={{ color: MUTED }}>Nilai PSSP Tercacah</p>
+            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRpPssp(tercacah.nilaiPssp)}</p>
+          </div>
+        </div>
+      )}
 
       {/* ── 3. Cakupan ── */}
       <SectionTitle>Cakupan</SectionTitle>
@@ -307,103 +382,192 @@ function StatsPanel({
 // ─── Doctor row ───────────────────────────────────────────────────────────────
 
 function DoctorRow({
-  doctorItems, checked, onToggle, totalEstimasi, poaId, userCanEdit,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
   onToggle: () => void;
+  selectable?: boolean;
   totalEstimasi: number;
   poaId?: string;
   userCanEdit?: boolean;
+  quarterMonths: string[];
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
+  const rowTercacah = doctorItems.reduce((acc, it) => {
+    const t = computeBiayaTercacah(it, quarterMonths);
+    return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
+  }, { estimasi: 0, nilaiPssp: 0 });
   const isDokterBaru = !first.kodeCust;
   const contribPct = totalEstimasi > 0 ? (rowEst / totalEstimasi) * 100 : 0;
   const [isDeleting, startDelete] = useTransition();
+  const [detailOpen, setDetailOpen] = useState(false);
 
-  function handleDelete(itemId: string) {
+  function handleDelete() {
     if (!poaId) return;
-    if (!confirm("Hapus baris ini?")) return;
-    startDelete(() => deleteLineItemAction(poaId, itemId));
+    const label = doctorItems.length > 1 ? `${doctorItems.length} produk` : "1 produk";
+    if (!confirm(`Hapus ${first.namaCust} beserta ${label}?`)) return;
+    startDelete(async () => {
+      for (const it of doctorItems) await deleteLineItemAction(poaId, it.id);
+    });
   }
 
   return (
-    <div className="flex items-center gap-3 py-3 px-2 rounded-lg" style={{ opacity: checked ? 1 : 0.5 }}>
-      <label className="flex items-center gap-3 cursor-pointer flex-1 min-w-0">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={onToggle}
-          className="h-4 w-4 shrink-0 rounded"
-          style={{ accentColor: "var(--color-primary)" }}
-        />
-        <div className="flex-1 min-w-0 space-y-0.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-              {first.namaCust}
-            </span>
-            {isDokterBaru && (
-              <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
-                style={{ background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }}>
-                Baru
+    <div className="py-3 px-2 rounded-lg" style={{ opacity: checked ? 1 : 0.5 }}>
+      <div className="flex items-center gap-3">
+        <label className={`flex items-center gap-3 flex-1 min-w-0 ${selectable ? "cursor-pointer" : ""}`}>
+          {selectable && (
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={onToggle}
+              className="h-4 w-4 shrink-0 rounded"
+              style={{ accentColor: "var(--color-blue)" }}
+            />
+          )}
+          <div className="flex-1 min-w-0 space-y-0.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+                {censorName(first.namaCust)}
               </span>
+              {isDokterBaru && (
+                <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
+                  style={{ background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }}>
+                  Baru
+                </span>
+              )}
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                {spesLabel(first.spesialisasi)}
+              </span>
+            </div>
+            <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
+              {first.namaOutlet}
+            </p>
+            {checked && contribPct > 0 && (
+              <div className="h-1 rounded-full overflow-hidden mt-1" style={{ background: "var(--color-border)" }}>
+                <div className="h-full rounded-full" style={{ width: `${contribPct}%`, background: "var(--color-blue, #2563eb)", opacity: 0.5 }} />
+              </div>
             )}
-            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              {spesLabel(first.spesialisasi)}
-            </span>
           </div>
-          <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
-            {first.namaOutlet}
-          </p>
-          {checked && contribPct > 0 && (
-            <div className="h-1 rounded-full overflow-hidden mt-1" style={{ background: "var(--color-border)" }}>
-              <div className="h-full rounded-full" style={{ width: `${contribPct}%`, background: "var(--color-primary, #2563eb)", opacity: 0.5 }} />
+        </label>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right">
+            <p className="text-xs font-medium" style={{ color: "var(--color-text)" }}>
+              {doctorItems.length} produk
+            </p>
+            {rowEst > 0 && (
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{formatRp(rowEst)}</p>
+            )}
+            {contribPct > 0 && (
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{contribPct.toFixed(1)}%</p>
+            )}
+            {(rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
+              <p className="text-xs mt-0.5" style={{ color: "var(--color-blue)" }}>
+                Tercacah: {formatRp(rowTercacah.estimasi)}
+                {rowTercacah.nilaiPssp > 0 && <> · {formatRpPssp(rowTercacah.nilaiPssp)}</>}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => setDetailOpen((v) => !v)}
+              className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+              Detail {detailOpen ? "▲" : "▼"}
+            </button>
+          </div>
+          {userCanEdit && poaId && (
+            <div className="flex flex-col gap-1 items-end">
+              <Link href={`/poa/${poaId}/doctor/${doctorItems[0].id}/edit`}
+                className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+                Edit
+              </Link>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDelete}
+                className="text-xs" style={{ color: "var(--color-red)" }}>
+                Hapus
+              </button>
             </div>
           )}
         </div>
-      </label>
-
-      <div className="flex items-center gap-3 shrink-0">
-        <div className="text-right">
-          <p className="text-xs font-medium" style={{ color: "var(--color-text)" }}>
-            {doctorItems.length} produk
-          </p>
-          {rowEst > 0 && (
-            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{formatRp(rowEst)}</p>
-          )}
-          {contribPct > 0 && (
-            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{contribPct.toFixed(1)}%</p>
-          )}
-        </div>
-        {userCanEdit && poaId && (
-          <div className="flex flex-col gap-1 items-end">
-            <Link href={`/poa/${poaId}/items/${doctorItems[0].id}/edit`}
-              className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
-              Edit
-            </Link>
-            <button
-              type="button"
-              disabled={isDeleting}
-              onClick={() => handleDelete(doctorItems[0].id)}
-              className="text-xs" style={{ color: "var(--color-red)" }}>
-              Hapus
-            </button>
-          </div>
-        )}
       </div>
+
+      {detailOpen && (
+        <div className="mt-2 ml-7 rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ background: "var(--color-bg-subtle)" }}>
+                <th className="text-left px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Produk</th>
+                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Resep/Hr</th>
+                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty</th>
+                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi</th>
+                <th className="text-left px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {doctorItems.map((it) => (
+                <tr key={it.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                  <td className="px-2.5 py-1.5" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
+                  <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "—"}</td>
+                  <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "—"}</td>
+                  <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text)" }}>
+                    {toNum(it.rencanaTotalBiaya) > 0 ? formatRp(toNum(it.rencanaTotalBiaya)) : "—"}
+                  </td>
+                  <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>
+                    {it.statusStandarisasi ? STATUS_STANDARISASI_LABELS[it.statusStandarisasi] ?? it.statusStandarisasi : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, showSubmit, userCanEdit }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi, selectable = true }: {
   items: PoaLineItem[];
   poaId?: string;
+  poaPeriod: string;
+  poaStatus?: PoaStatus;
+  poaVersion?: number;
   showSubmit?: boolean;
   userCanEdit?: boolean;
+  isDraft?: boolean;
+  /** True when the current viewer is the owning MR — their edit bounces status back to Revisi. */
+  willTriggerRevisi?: boolean;
+  /** False for approvers viewing the checklist read-only — no checkboxes, all items count toward the summary. */
+  selectable?: boolean;
 }) {
+  const quarterMonths = useMemo(() => {
+    try { return quarterToMonths(poaPeriod); } catch { return []; }
+  }, [poaPeriod]);
+
+  // Once a POA has already been submitted, editing it is gated behind an explicit
+  // "Edit" click. For the owning MR this bounces the status back to Revisi and
+  // requires resubmission from ASM again. For an ASM/SM/NSM editing mid-review,
+  // it doesn't reset anything — they still need their own atasan's approval next,
+  // exactly like a normal approve, so they just save the change and click
+  // Approve & Teruskan as usual. Either way, we don't want the per-row
+  // Edit/Hapus controls exposed by default.
+  const [editUnlocked, setEditUnlocked] = useState(false);
+  const canEditNow = !!userCanEdit && (!!isDraft || editUnlocked);
+
+  function handleUnlockEdit() {
+    if (!willTriggerRevisi) {
+      setEditUnlocked(true);
+      return;
+    }
+    if (confirm("Mengedit POA yang sudah diajukan akan mengembalikan statusnya ke Revisi dan perlu diajukan ulang dari awal. Lanjutkan?")) {
+      setEditUnlocked(true);
+    }
+  }
+
   const groups = useMemo(() => {
     const map = new Map<string, PoaLineItem[]>();
     for (const item of items) {
@@ -477,6 +641,7 @@ export function DraftChecklist({ items, poaId, showSubmit, userCanEdit }: {
             totalDoctorCount={allKeys.length}
             targetArea={targetArea}
             dummySales={salesDummy}
+            quarterMonths={quarterMonths}
           />
         </div>
 
@@ -486,25 +651,37 @@ export function DraftChecklist({ items, poaId, showSubmit, userCanEdit }: {
             <div>
               <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Daftar User</p>
               <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                Centang user yang ingin dihitung statistiknya
+                {selectable ? "Centang user yang ingin dihitung statistiknya" : "Ringkasan seluruh rencana"}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {userCanEdit && poaId && (
+              {poaStatus && <StatusBadge status={poaStatus} version={poaVersion} />}
+              {userCanEdit && !canEditNow && (
+                <button
+                  type="button"
+                  onClick={handleUnlockEdit}
+                  className="text-xs px-2.5 py-1 rounded-md font-medium"
+                  style={{ background: "var(--color-status-revisi-bg)", color: "var(--color-status-revisi)", border: "1px solid var(--color-status-revisi)" }}>
+                  ✎ Edit
+                </button>
+              )}
+              {canEditNow && poaId && (
                 <Link href={`/poa/${poaId}/edit`}
                   className="text-xs px-2.5 py-1 rounded-md font-medium"
-                  style={{ background: "var(--color-primary)", color: "#fff" }}>
-                  + Tambah
+                  style={{ background: "var(--color-blue)", color: "#fff" }}>
+                  + Tambah User
                 </Link>
               )}
-              <button
-                type="button"
-                className="text-xs px-2.5 py-1 rounded-md font-medium"
-                style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
-                onClick={toggleAll}
-              >
-                {allChecked ? "Batal semua" : "Pilih semua"}
-              </button>
+              {selectable && (
+                <button
+                  type="button"
+                  className="text-xs px-2.5 py-1 rounded-md font-medium"
+                  style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
+                  onClick={toggleAll}
+                >
+                  {allChecked ? "Unselect All" : "Select All"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -515,9 +692,11 @@ export function DraftChecklist({ items, poaId, showSubmit, userCanEdit }: {
                 doctorItems={doctorItems}
                 checked={checked.has(key)}
                 onToggle={() => toggle(key)}
+                selectable={selectable}
                 totalEstimasi={selectedEstimasi}
                 poaId={poaId}
-                userCanEdit={userCanEdit}
+                userCanEdit={canEditNow}
+                quarterMonths={quarterMonths}
               />
             ))}
           </div>
@@ -554,6 +733,7 @@ export function DraftChecklist({ items, poaId, showSubmit, userCanEdit }: {
           totalDoctorCount={allKeys.length}
           targetArea={targetArea}
           dummySales={salesDummy}
+          quarterMonths={quarterMonths}
         />
       </div>
     </div>

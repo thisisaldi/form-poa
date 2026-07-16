@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { createPoaDraft, submitPoa, approvePoa } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
-import { canEdit, canCreatePoa } from "@/lib/authz";
+import { canEdit, canApprove, canCreatePoa } from "@/lib/authz";
 
 function requireSession() {
   return getCurrentUser().then((session) => {
@@ -41,7 +41,7 @@ export async function submitPoaAction(poaId: string, _formData: FormData): Promi
   if (!poa) redirect("/dashboard");
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!canEdit(actor, poa)) redirect(`/poa/${poaId}`);
+  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
 
   await submitPoa(poaId, session.userId);
   redirect(`/poa/${poaId}`);
@@ -58,7 +58,7 @@ export async function submitPoaWithSelectionAction(
   if (!poa) redirect("/dashboard");
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!canEdit(actor, poa)) redirect(`/poa/${poaId}`);
+  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
 
   if (keepItemIds.length > 0) {
     await prisma.poaLineItem.deleteMany({
@@ -78,7 +78,7 @@ export async function approvePoaAction(poaId: string, _formData: FormData): Prom
   if (!poa) redirect("/dashboard");
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!canEdit(actor, poa)) redirect(`/poa/${poaId}`);
+  if (!canApprove(actor, poa)) redirect(`/poa/${poaId}`);
 
   await approvePoa(poaId, session.userId);
   redirect(`/poa/${poaId}`);

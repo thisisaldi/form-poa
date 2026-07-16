@@ -6,11 +6,11 @@ import { canEdit } from "@/lib/authz";
 import { getProducts } from "@/lib/masterData";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Card";
-import { EditPanel } from "@/components/poa/LineItemEditor";
+import { EditDoctorPanel } from "@/components/poa/LineItemEditor";
 
 export const metadata = { title: "Edit Rencana POA · Form POA" };
 
-export default async function EditItemPage({
+export default async function EditDoctorPage({
   params,
 }: {
   params: Promise<{ id: string; itemId: string }>;
@@ -19,15 +19,21 @@ export default async function EditItemPage({
   if (!session) redirect("/login");
 
   const { id, itemId } = await params;
-  const [poa, actor, products, item] = await Promise.all([
+  const [poa, actor, products, anchorItem] = await Promise.all([
     prisma.poaForm.findUnique({ where: { id }, include: { owner: true } }),
     prisma.user.findUniqueOrThrow({ where: { nip: session.userId } }),
     getProducts(),
     prisma.poaLineItem.findUnique({ where: { id: itemId } }),
   ]);
 
-  if (!poa || !item || item.poaId !== id) notFound();
-  if (!canEdit(actor, poa)) redirect(`/poa/${id}`);
+  if (!poa || !anchorItem || anchorItem.poaId !== id) notFound();
+  if (!(await canEdit(actor, poa))) redirect(`/poa/${id}`);
+
+  // Same-doctor group: all line items sharing this outlet + customer name (mirrors DraftChecklist's doctorKey).
+  const items = await prisma.poaLineItem.findMany({
+    where: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust },
+    orderBy: { createdAt: "asc" },
+  });
 
   const backUrl = `/poa/${id}`;
 
@@ -44,13 +50,14 @@ export default async function EditItemPage({
             Periode {poa.period} · {poa.owner.name}
           </p>
         </div>
-        <StatusBadge status={poa.status} />
+        <StatusBadge status={poa.status} version={poa.version} />
       </div>
 
       <Card>
-        <EditPanel
-          item={item}
+        <EditDoctorPanel
+          items={items}
           poaId={id}
+          poaPeriod={poa.period}
           products={products}
           redirectTo={backUrl}
         />

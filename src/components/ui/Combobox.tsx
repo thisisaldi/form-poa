@@ -12,7 +12,15 @@ export interface ComboboxOption {
   accent?: boolean;
   /** Short badge shown inline next to the label (e.g. group RS name). */
   tag?: string;
+  /** Badge color variant — defaults to blue. */
+  tagColor?: "blue" | "yellow" | "red";
 }
+
+const TAG_COLORS = {
+  blue: { bg: "var(--color-blue-light)", fg: "var(--color-blue)" },
+  yellow: { bg: "var(--color-warning-bg)", fg: "var(--color-warning)" },
+  red: { bg: "var(--color-red-light)", fg: "var(--color-red)" },
+} as const;
 
 interface Props {
   name: string;
@@ -23,6 +31,8 @@ interface Props {
   disabled?: boolean;
   required?: boolean;
   emptyMessage?: string;
+  /** Cap on rendered options before showing "+N lainnya" (default 80). Pass Infinity to show all. */
+  maxVisible?: number;
 }
 
 export function Combobox({
@@ -34,6 +44,7 @@ export function Combobox({
   disabled = false,
   required = false,
   emptyMessage = "Tidak ada pilihan.",
+  maxVisible = 80,
 }: Props) {
   const id = useId();
   const [query, setQuery] = useState("");
@@ -60,9 +71,8 @@ export function Combobox({
     );
   }, [options, query]);
 
-  // Visible slice — cap at 80 to avoid rendering hundreds of DOM nodes
-  const MAX_VISIBLE = 80;
-  const visibleOptions = filtered.length > MAX_VISIBLE ? filtered.slice(0, MAX_VISIBLE) : filtered;
+  // Visible slice — capped to avoid rendering hundreds of DOM nodes (override via maxVisible)
+  const visibleOptions = filtered.length > maxVisible ? filtered.slice(0, maxVisible) : filtered;
   const hiddenCount = filtered.length - visibleOptions.length;
 
   // Scroll highlighted item into view
@@ -208,8 +218,13 @@ export function Combobox({
                         <li
                           key={`grp-${option.group}`}
                           aria-hidden
-                          className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide select-none"
-                          style={{ color: "var(--color-text-faint)", borderTop: i > 0 ? "1px solid var(--color-border)" : undefined }}
+                          className="sticky top-0 z-10 px-3 py-1.5 text-xs font-bold uppercase tracking-wide select-none"
+                          style={{
+                            color: "var(--color-text-muted)",
+                            background: "var(--color-bg-subtle)",
+                            borderTop: i > 0 ? "1px solid var(--color-border)" : undefined,
+                            borderBottom: "1px solid var(--color-border)",
+                          }}
                         >
                           {option.group}
                         </li>
@@ -228,19 +243,19 @@ export function Combobox({
                             : isSelected
                             ? "var(--color-blue-light)"
                             : option.accent
-                            ? "var(--color-primary-faint, rgba(59,130,246,0.06))"
+                            ? "var(--color-blue-faint, rgba(59,130,246,0.06))"
                             : "transparent",
                           color: isHighlighted ? "#fff" : "var(--color-text)",
                         }}
                       >
                         {option.accent && !isHighlighted && (
-                          <span className="text-xs shrink-0" style={{ color: "var(--color-primary)" }}>★</span>
+                          <span className="text-xs shrink-0" style={{ color: "var(--color-blue)" }}>★</span>
                         )}
                         <span className="flex-1 min-w-0">
                           <span className="flex items-center gap-1.5 min-w-0">
                             <span
                               className="text-sm font-medium truncate"
-                              style={{ color: isHighlighted ? "#fff" : option.accent ? "var(--color-primary)" : "var(--color-text)" }}
+                              style={{ color: isHighlighted ? "#fff" : option.accent ? "var(--color-blue)" : "var(--color-text)" }}
                             >
                               {option.label}
                             </span>
@@ -248,8 +263,8 @@ export function Combobox({
                               <span
                                 className="shrink-0 text-xs px-1.5 py-0.5 rounded font-medium"
                                 style={{
-                                  background: isHighlighted ? "rgba(255,255,255,0.2)" : "var(--color-blue-light)",
-                                  color: isHighlighted ? "#fff" : "var(--color-blue)",
+                                  background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tagColor ?? "blue"].bg,
+                                  color: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
                                 }}
                               >
                                 {option.tag}

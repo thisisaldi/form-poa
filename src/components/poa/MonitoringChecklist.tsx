@@ -100,7 +100,7 @@ export function MonitoringChecklist({
   const FAINT   = "var(--color-text-faint)";
   const BORDER  = "var(--color-border)";
   const BG      = "var(--color-bg-subtle)";
-  const PRIMARY = "var(--color-primary, #2563eb)";
+  const PRIMARY = "var(--color-blue, #2563eb)";
   const DANGER  = "var(--color-danger, #dc2626)";
 
   const psspPctEst   = estimasi > 0 ? (psspTotal / estimasi) * 100 : 0;
