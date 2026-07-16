@@ -67,7 +67,7 @@ export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | 
 
 export async function getProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
-  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } });
+  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } });
   return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null; satuanTerkecil: string | null; konversiPembagi: { toString(): string } | null }) => ({
     ...p,
     hna: p.hna.toString(),
