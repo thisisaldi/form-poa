@@ -20,17 +20,16 @@ async function main() {
   const ws = wb.getWorksheet("Data Satuan Sell Pack Cent");
   if (!ws) throw new Error("Sheet 'Data Satuan Sell Pack Cent' not found");
 
-  interface Row { proCode: string; proName: string; packName: string; konversi: number }
+  interface Row { itemKode: string; packName: string; konversi: number }
   const rows: Row[] = [];
 
   ws.eachRow((row, rn) => {
     if (rn === 1) return; // skip header
-    const proCode  = row.getCell(2).value?.toString().trim();
-    const proName  = row.getCell(3).value?.toString().trim() ?? "";
+    const itemKode = row.getCell(1).value?.toString().trim();  // KodeItem = kodeProduk in DB
     const packName = row.getCell(4).value?.toString().trim().toUpperCase();
     const konversi = Number(row.getCell(5).value);
-    if (proCode && packName && konversi > 0) {
-      rows.push({ proCode, proName, packName, konversi });
+    if (itemKode && packName && konversi > 0) {
+      rows.push({ itemKode, packName, konversi });
     }
   });
 
@@ -39,27 +38,13 @@ async function main() {
   let updated = 0, skipped = 0;
 
   for (const r of rows) {
-    // Try exact code match first, fall back to name match
-    let result = await prisma.product.updateMany({
-      where: { kodeProduk: r.proCode },
+    const result = await prisma.product.updateMany({
+      where: { kodeProduk: r.itemKode },
       data: {
         satuanTerkecil: r.packName,
         konversiPembagi: new Prisma.Decimal(r.konversi),
       },
     });
-
-    if (result.count === 0) {
-      // Fallback: strip backtick-quoted parts from name and match by namaProduk
-      const normName = r.proName.replace(/`[^`]*`/g, "").trim();
-      result = await prisma.product.updateMany({
-        where: { namaProduk: { equals: normName, mode: "insensitive" } },
-        data: {
-          satuanTerkecil: r.packName,
-          konversiPembagi: new Prisma.Decimal(r.konversi),
-        },
-      });
-    }
-
     if (result.count > 0) updated++;
     else skipped++;
   }
