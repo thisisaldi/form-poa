@@ -871,7 +871,7 @@ function AddPanel({
   const specOptions = useMemo(() => specList.map((s) => ({ value: s, label: spesLabel(s) })), [specList]);
   const customerOptions = useMemo(() => customerList.map((c) => ({
     value: c.id, label: c.namaCustomer,
-    sublabel: c.isFokus ? "⭐ Fokus" : undefined,
+    sublabel: c.isFokus ? "⭐ Rekomendasi PM" : undefined,
   })), [customerList]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
@@ -1304,7 +1304,7 @@ function AddDokterBaruPanel({
             onChange={(e) => setIsFokus(e.target.checked)}
             className="rounded" />
           <span style={{ color: "var(--color-text-muted)" }}>
-            Termasuk User Fokus
+            Termasuk Rekomendasi PM
           </span>
         </label>
 
