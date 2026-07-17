@@ -46,6 +46,10 @@ function matchesWhere<T extends object>(record: T, where: Record<string, unknown
       if ("in" in cond) { if (!(cond.in as unknown[]).includes(value)) return false; continue; }
       if ("notIn" in cond) { if ((cond.notIn as unknown[]).includes(value)) return false; continue; }
       if ("not" in cond) { if (value === cond.not) return false; continue; }
+      if ("equals" in cond && cond.mode === "insensitive") {
+        if (typeof value !== "string" || typeof cond.equals !== "string" || value.toLowerCase() !== cond.equals.toLowerCase()) return false;
+        continue;
+      }
       if (!matchesWhere({ value } as Record<string, unknown>, { value: condition })) return false;
       continue;
     }
@@ -167,6 +171,10 @@ const userModel = {
     const filtered = where ? users.filter((u) => matchesWhere(u, where)) : [...users];
     if (select) return filtered.map((u) => pickSelect(u, select));
     return filtered.map((u) => resolveIncludes(u, include));
+  },
+  async findFirst({ where, include }: { where?: Record<string, unknown>; include?: Record<string, unknown> } = {}) {
+    const found = (where ? users.find((u) => matchesWhere(u, where)) : users[0]) ?? null;
+    return found ? resolveIncludes(found, include) : null;
   },
   async update({ where, data }: { where: Record<string, unknown>; data: Partial<User> }) {
     const idx = users.findIndex((u) => matchesWhere(u, where));

@@ -17,7 +17,9 @@ export type VerifyResult =
  * This is the only identity-check gate — once replaced with OTP, only this function changes.
  */
 export async function verifyNip(nip: string): Promise<VerifyResult> {
-  const user: User | null = await prisma.user.findUnique({ where: { nip } });
+  const user: User | null = await prisma.user.findFirst({
+    where: { nip: { equals: nip, mode: "insensitive" } },
+  });
   if (!user) return { ok: false, error: "not_found" };
   if (!user.isActive) return { ok: false, error: "inactive" };
   return { ok: true, user };
