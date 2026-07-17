@@ -1,0 +1,130 @@
+/**
+ * Import the draft 2026 org restructure from
+ * "excel/Simulasi Hospital Struktur 2026 New.xlsx - Master.csv" into
+ * OutletStrukturBaru — a staging table for review, NOT wired into
+ * Outlet/MrOutletAssignment or the approval workflow.
+ *
+ * The file maps outlets to a GM > NSM > SM > ASM > SPV > PSR hierarchy by
+ * person NAME (not NIP). Names are matched against non-dummy Users by exact
+ * name (case-insensitive, trimmed) — real accounts only have one name each,
+ * so this is unambiguous. Unmatched names are reported at the end for
+ * manual review; they are NOT silently guessed at or auto-created.
+ *
+ * Run: npx tsx scripts/importStrukturBaru.ts [path-to-csv]
+ * Default: excel/Simulasi Hospital Struktur 2026 New.xlsx - Master.csv
+ */
+
+import "dotenv/config";
+import path from "path";
+import fs from "fs";
+import { prisma } from "../src/lib/prisma";
+
+const COL = {
+  kodePI: 0, namaOutlet: 1, gm: 2, nsm: 3, sm: 4, asm: 5, spv: 6, psr: 7, area: 8,
+} as const;
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } else inQ = false;
+      } else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ",") { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function clean(v: string | undefined): string | null {
+  const s = (v ?? "").trim();
+  return s || null;
+}
+
+async function main() {
+  const filePath = path.resolve(process.argv[2] ?? "excel/Simulasi Hospital Struktur 2026 New.xlsx - Master.csv");
+  console.log(`Reading: ${filePath}\n`);
+
+  const lines = fs.readFileSync(filePath, "utf8").split("\n");
+
+  // Name → NIP map, real (non-dummy) accounts only — one name maps to exactly one NIP.
+  const users = await prisma.user.findMany({ where: { isDummy: false }, select: { nip: true, name: true } });
+  const nipByName = new Map<string, string>();
+  for (const u of users) nipByName.set(u.name.trim().toUpperCase(), u.nip);
+
+  const unmatched = new Map<string, number>(); // name -> occurrence count, across all role columns
+
+  function resolveNip(nama: string | null): string | null {
+    if (!nama) return null;
+    const nip = nipByName.get(nama.trim().toUpperCase());
+    if (!nip) unmatched.set(nama, (unmatched.get(nama) ?? 0) + 1);
+    return nip ?? null;
+  }
+
+  const rows: {
+    kodePI: string; namaOutlet: string | null; area: string | null;
+    gmNama: string | null; nsmNama: string | null; smNama: string | null;
+    asmNama: string | null; spvNama: string | null; psrNama: string | null;
+    gmNip: string | null; nsmNip: string | null; smNip: string | null;
+    asmNip: string | null; spvNip: string | null; psrNip: string | null;
+  }[] = [];
+
+  let skipped = 0;
+  for (let i = 2; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const f = parseCsvLine(lines[i]);
+    const kodePI = clean(f[COL.kodePI]);
+    if (!kodePI) { skipped++; continue; }
+
+    const gmNama = clean(f[COL.gm]);
+    const nsmNama = clean(f[COL.nsm]);
+    const smNama = clean(f[COL.sm]);
+    const asmNama = clean(f[COL.asm]);
+    const spvNama = clean(f[COL.spv]);
+    const psrNama = clean(f[COL.psr]);
+
+    rows.push({
+      kodePI,
+      namaOutlet: clean(f[COL.namaOutlet]),
+      area: clean(f[COL.area]),
+      gmNama, nsmNama, smNama, asmNama, spvNama, psrNama,
+      gmNip: resolveNip(gmNama),
+      nsmNip: resolveNip(nsmNama),
+      smNip: resolveNip(smNama),
+      asmNip: resolveNip(asmNama),
+      spvNip: resolveNip(spvNama),
+      psrNip: resolveNip(psrNama),
+    });
+  }
+
+  // Fresh import each run — this is draft/staging data, always replaced wholesale.
+  await prisma.outletStrukturBaru.deleteMany({});
+
+  const CHUNK = 1000;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    await prisma.outletStrukturBaru.createMany({ data: rows.slice(i, i + CHUNK) });
+  }
+
+  console.log(`✅ Done.`);
+  console.log(`   Imported: ${rows.length} rows`);
+  console.log(`   Skipped : ${skipped} (missing KodePI)`);
+  console.log(`\nUnmatched names (${unmatched.size} distinct, not found among non-dummy Users):`);
+  for (const [name, count] of [...unmatched.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`   ${name} — ${count}x`);
+  }
+
+  await prisma.$disconnect();
+}
+
+main().catch((e) => {
+  console.error(e);
+  prisma.$disconnect();
+  process.exit(1);
+});

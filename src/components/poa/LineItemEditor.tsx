@@ -509,6 +509,9 @@ function ProdukEntryRow({
   const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
+  const qtyPerBulan = canCalc ? Math.round(resep * qty * hari) : null;
+  const qtyTotal = qtyPerBulan != null ? qtyPerBulan * lama : null;
+  const satuanQty = product?.satuanTerkecil ?? product?.satuan ?? "";
   const nilaiPSSPBulan = perBulan != null && nilaiRPersen != null ? Math.round(perBulan * nilaiRPersen * pengaliNilaiR) : null;
   const nilaiPSSPTotal = nilaiPSSPBulan != null ? nilaiPSSPBulan * lama : null;
 
@@ -600,7 +603,7 @@ function ProdukEntryRow({
       {/* Per-product inputs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <label className="flex flex-col gap-1" {...(resepErr ? { "data-field-err": "true" } : {})}>
-          <span className="text-xs" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Resep / Hari<Req /></span>
+          <span className="text-xs" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Pasien Baru / Hari<Req /></span>
           <div style={resepErr ? ERR_RING : undefined}>
             <UnitInput
               value={entry.jumlahResepHari}
@@ -635,7 +638,7 @@ function ProdukEntryRow({
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Praktek (Override)<Opt /></span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Praktek<Opt /></span>
           <UnitInput
             value={entry.hariKerjaBulan}
             onChange={(v) => onChange({ hariKerjaBulan: v })}
@@ -658,6 +661,20 @@ function ProdukEntryRow({
             <div>
               <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales {lama} Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEst)}</div>
+            </div>
+          </div>
+          <div className="flex gap-6 flex-wrap">
+            <div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Qty / Bln</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} ${satuanQty}` : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Qty {lama} Bln</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
+                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} ${satuanQty}` : "—"}
+              </div>
             </div>
           </div>
           <div className="flex items-center justify-between pt-1.5 border-t"

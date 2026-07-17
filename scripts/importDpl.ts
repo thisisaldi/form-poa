@@ -90,15 +90,19 @@ async function main() {
   for (let rn = 2; rn <= ws.rowCount; rn++) {
     const row = ws.getRow(rn);
     const nomor = cellText(row.getCell(COL.nomor).value);
-    const kodePI = cellText(row.getCell(COL.kodePI).value);
+    const kodePIRaw = cellText(row.getCell(COL.kodePI).value);
+    const areaPi = cellText(row.getCell(COL.areaPi).value);
     const kodeProduk = cellText(row.getCell(COL.kodeProduk).value);
     const prdAwal = periodeYYYYMM(row.getCell(COL.prdAwal).value);
     const prdAkhir = periodeYYYYMM(row.getCell(COL.prdAkhir).value);
 
-    if (!nomor || !kodePI || !kodeProduk || !prdAwal || !prdAkhir) {
+    if (!nomor || !kodePIRaw || !kodeProduk || !prdAwal || !prdAkhir) {
       skipped++;
       continue;
     }
+
+    // Outlet.kodePI is areaPi + the raw numeric KODEPI from this sheet (e.g. "G1" + "000343").
+    const kodePI = (areaPi ?? "") + kodePIRaw;
 
     const onPi = cellNumber(row.getCell(COL.onPi).value);
     // NEW ON_PI's own formula falls back to 0.0 when its lookup misses — mirror that.
@@ -106,7 +110,8 @@ async function main() {
 
     const data = {
       nmAreaPi: cellText(row.getCell(COL.nmAreaPi).value),
-      areaPi: cellText(row.getCell(COL.areaPi).value),
+      areaPi,
+      kodePIRaw,
       namaOutlet: cellText(row.getCell(COL.namaOutlet).value),
       bumn: cellText(row.getCell(COL.bumn).value),
       divisi: cellText(row.getCell(COL.divisi).value),

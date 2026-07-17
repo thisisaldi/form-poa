@@ -379,6 +379,45 @@ model ListingFeeKontrak {
   @@index([prdAwal, prdAkhir])
 }
 
+// ─── Struktur Baru (draft org restructure) ────────────────────────────────────
+// Staging table for "Simulasi Hospital Struktur 2026 New.xlsx - Master.csv" —
+// a DRAFT outlet→hierarchy mapping (GM > NSM > SM > ASM > SPV > PSR) proposed
+// for the 2026 restructure. Names are matched to existing non-dummy Users by
+// exact name (case-insensitive); *Nip is null when no confident match was found.
+// Not wired into Outlet/MrOutletAssignment or the approval workflow yet — this
+// is for review only until the restructure is confirmed final.
+
+model OutletStrukturBaru {
+  id         String  @id @default(uuid())
+  kodePI     String
+  namaOutlet String?
+  area       String?
+
+  gmNama  String?
+  nsmNama String?
+  smNama  String?
+  asmNama String?
+  spvNama String?
+  psrNama String?
+
+  gmNip  String?
+  nsmNip String?
+  smNip  String?
+  asmNip String?
+  spvNip String?
+  psrNip String?
+
+  importedAt DateTime @default(now())
+
+  @@index([kodePI])
+  @@index([gmNip])
+  @@index([nsmNip])
+  @@index([smNip])
+  @@index([asmNip])
+  @@index([spvNip])
+  @@index([psrNip])
+}
+
 // ─── DPL (Diskon Penjualan Langsung) Contract Data ────────────────────────────
 // One row per (NOMOR contract × PRODUK). Imported from "DPL <bulan tahun>.xlsx"
 // snapshots (sheet "DPL"). newOnPi is the effective/active on-invoice discount %
@@ -390,7 +429,8 @@ model DiskonKontrak {
   nomor      String              // NOMOR — contract number
   nmAreaPi   String?
   areaPi     String?
-  kodePI     String              // KODEPI — links to Outlet.kodePI
+  kodePIRaw  String              // raw KODEPI from source sheet (numeric suffix only)
+  kodePI     String              // areaPi + kodePIRaw — matches Outlet.kodePI
   namaOutlet String?
   bumn       String?
   divisi     String?
