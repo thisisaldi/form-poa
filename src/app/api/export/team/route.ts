@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
         persenPsspDokter: { toString(): string } | null; persenPsspKpdm: { toString(): string } | null;
         persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
         persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
+        pengaliNilaiR: { toString(): string } | null;
         produkKompetitor: string | null;
       }[]
     : [];
@@ -154,7 +155,8 @@ export async function GET(req: NextRequest) {
 
     for (const it of items) {
       const base  = toNum(it.rencanaTotalBiaya);
-      const psspp = toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm);
+      const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
+      const psspp = toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm);
       const disc  = toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee);
       const ent   = toNum(it.persenEntertain);
       estimasi      += base;
@@ -379,7 +381,8 @@ export async function GET(req: NextRequest) {
     if (!mr) continue;
 
     const base     = parseFloat(li.rencanaTotalBiaya.toString());
-    const psspPct  = toNum(li.persenPsspDokter) + toNum(li.persenPsspKpdm);
+    const pengaliNilaiR = toNum(li.pengaliNilaiR) || 1;
+    const psspPct  = toNum(li.persenPsspDokter) * pengaliNilaiR + toNum(li.persenPsspKpdm);
     const discPct  = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
     const entPct   = toNum(li.persenEntertain);
     const rowBudget = base * (psspPct + discPct + entPct);

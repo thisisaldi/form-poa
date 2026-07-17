@@ -48,7 +48,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             rencanaTotalBiaya: true,
             namaCust: true,
             persenPsspDokter: true, persenPsspKpdm: true, persenDiskon: true,
-            persenDp: true, persenListingFee: true, persenEntertain: true,
+            persenDp: true, persenListingFee: true, persenEntertain: true, pengaliNilaiR: true,
           },
         },
       },
@@ -72,6 +72,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     persenDp: { toString(): string } | null;
     persenListingFee: { toString(): string } | null;
     persenEntertain: { toString(): string } | null;
+    pengaliNilaiR: { toString(): string } | null;
   };
   type RawPoa = typeof recentRaw[number] & { items: RawItem[] };
 
@@ -91,7 +92,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     let budgetSum = 0;
     for (const it of items) {
       const est = toNum(it.rencanaTotalBiaya);
-      const pct = toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm) + toNum(it.persenDiskon)
+      const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
+      const pct = toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm) + toNum(it.persenDiskon)
         + toNum(it.persenDp) + toNum(it.persenListingFee) + toNum(it.persenEntertain);
       budgetSum += est * pct;
     }

@@ -63,9 +63,10 @@ export default async function PoaDetailPage({
   let estimasiTotal = 0, budgetWeighted = 0;
   for (const it of allItems) {
     const base = toNum(it.rencanaTotalBiaya);
+    const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
     estimasiTotal += base;
     budgetWeighted += base * (
-      toNum(it.persenPsspDokter) + toNum(it.persenPsspKpdm) +
+      toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm) +
       toNum(it.persenDiskon) + toNum(it.persenDp) +
       toNum(it.persenListingFee) + toNum(it.persenEntertain)
     );
