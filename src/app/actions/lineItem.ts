@@ -79,7 +79,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
 
   const itemKode = kodeProduk; // itemKode matches kodeProduk in our schema
 
-  const [customerResult, outlet, product, salesHistory] = await Promise.all([
+  const [customerResult, outlet, product, salesHistory, diskonKontrak] = await Promise.all([
     isDirect
       ? Promise.resolve(null)
       : prisma.customer.findUnique({ where: { id: customerId } }),
@@ -87,6 +87,11 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     getProductByKode(kodeProduk),
     prisma.outletSalesHistory.findUnique({
       where: { kodePI_itemKode: { kodePI, itemKode } },
+    }),
+    // Active DPL contract for this outlet+product whose period covers periodeAwal.
+    prisma.diskonKontrak.findFirst({
+      where: { kodePI, kodeProduk: itemKode, prdAwal: { lte: periodeAwal }, prdAkhir: { gte: periodeAwal } },
+      orderBy: { prdAwal: "desc" },
     }),
   ]);
 
@@ -136,6 +141,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
         return new Prisma.Decimal((hna / konversi).toFixed(2));
       })(),
       historySales3Bln: salesHistory?.totalSales12Bln ?? null,
+      avgDiskon: diskonKontrak?.newOnPi != null ? diskonKontrak.newOnPi.dividedBy(100) : null,
       produkKompetitor,
       labelCustomer,
       statusStandarisasi,

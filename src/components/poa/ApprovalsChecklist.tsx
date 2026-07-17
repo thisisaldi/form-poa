@@ -100,7 +100,7 @@ export function ApprovalsChecklist({ pending }: { pending: PendingPoaRow[] }) {
     const totalEst = allItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
     const seed = pending.length > 0 ? pending.map((p) => p.id).sort().join("|") : "x";
     return {
-      targetArea: computeDummyTarget(seed, totalEst),
+      targetArea: computeDummyTarget(),
       dummySales: computeDummySales(seed, totalEst),
     };
   }, [pending, allItems]);

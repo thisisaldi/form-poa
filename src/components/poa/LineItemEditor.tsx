@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getSpesialisasiByOutlet, getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet } from "@/app/actions/customer";
+import { getSpesialisasiByOutlet, getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, SPESIALISASI_PM_LABEL } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -67,6 +67,7 @@ interface ProdukEntry {
   persenDp: string;
   persenListingFee: string;
   persenEntertain: string;
+  hariKerjaBulan: string;  // per-product override of the doctor-level default; "" = inherit
   // kriteriaProduk & rasioEstimasiGrowth: auto (not user input)
 }
 
@@ -78,6 +79,7 @@ function emptyProdukEntry(): ProdukEntry {
     // 0 until a product is picked — then populated with dummy defaults / auto-computed from DB
     persenPsspDokter: "", persenPsspKpdm: "0",
     persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "0",
+    hariKerjaBulan: "",
   };
 }
 
@@ -101,7 +103,7 @@ function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Prod
   const hst  = hargaST(product);
   const resep = parseFloat(entry.jumlahResepHari) || 0;
   const qty   = parseFloat(entry.qtyProdukResep) || 0;
-  const hari  = parseFloat(dokter.hariKerjaBulan) || 0;
+  const hari  = parseFloat(entry.hariKerjaBulan) || parseFloat(dokter.hariKerjaBulan) || 0;
   const lama  = dokter.lamaPeriode || 1;
   if (!hst || !resep || !qty || !hari) return 0;
   return Math.round(resep * qty * hari * hst * lama);
@@ -465,7 +467,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, usedKodeProduk, onChange, onRemove, showRemove, showError,
+  entry, index, products, dokterFields, spesialisasi, psspHistory, sales3Bln, kriteriaList, usedKodeProduk, onChange, onRemove, showRemove, showError,
 }: {
   entry: ProdukEntry;
   index: number;
@@ -473,6 +475,8 @@ function ProdukEntryRow({
   dokterFields: DokterFields;
   spesialisasi?: string;
   psspHistory?: PsspKontrakSummary[];
+  /** Actual sales qty for the last 3 completed months, per product, at this outlet. */
+  sales3Bln?: Sales3BlnByProduct[];
   kriteriaList?: KriteriaByOutlet[];
   /** kodeProduk values already used by OTHER rows for this same doctor — excluded from the picker. */
   usedKodeProduk?: Set<string>;
@@ -497,7 +501,7 @@ function ProdukEntryRow({
 
   const resep  = parseFloat(entry.jumlahResepHari) || 0;
   const qty    = parseFloat(entry.qtyProdukResep) || 0;
-  const hari   = parseFloat(dokterFields.hariKerjaBulan) || 0;
+  const hari   = parseFloat(entry.hariKerjaBulan) || parseFloat(dokterFields.hariKerjaBulan) || 0;
   const hna    = product ? hargaST(product) : 0;  // price per ST
   const lama   = dokterFields.lamaPeriode || 1;
   const nilaiRPersen = product?.nilaiRPersen ? parseFloat(product.nilaiRPersen) : null;
@@ -515,6 +519,14 @@ function ProdukEntryRow({
     ? perBulan / oldEstPerMonth
     : null;
   const growthPct = growthRatio != null ? (growthRatio - 1) * 100 : null;
+
+  // Additional Growth PSSP metric based on actual sales qty from the last 3 completed
+  // months (separate from — not a replacement for — the PSSP-contract-based growth above).
+  const qty3Bln = product ? (sales3Bln?.find((s) => s.itemKode === product.kodeProduk)?.qty3Bln ?? 0) : 0;
+  const estValue3BlnPerMonth = qty3Bln > 0 && hna > 0 ? (qty3Bln / 3) * hna : null;
+  const growthPct3Bln = (perBulan != null && estValue3BlnPerMonth != null && estValue3BlnPerMonth > 0)
+    ? ((perBulan / estValue3BlnPerMonth) - 1) * 100
+    : null;
 
   const produkErr = showError && !entry.kodeProduk;
   const resepErr = showError && !entry.jumlahResepHari;
@@ -622,6 +634,14 @@ function ProdukEntryRow({
             ))}
           </select>
         </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Praktek (Override)<Opt /></span>
+          <UnitInput
+            value={entry.hariKerjaBulan}
+            onChange={(v) => onChange({ hariKerjaBulan: v })}
+            unit="Hari"
+            placeholder={dokterFields.hariKerjaBulan || "default"} />
+        </label>
       </div>
 
       {/* Estimasi Sales card */}
@@ -661,6 +681,27 @@ function ProdukEntryRow({
               </span>
             )}
           </div>
+          <div className="flex items-center justify-between pt-1.5 border-t"
+            style={{ borderColor: "var(--color-border)" }}>
+            <div>
+              <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth PSSP (3 Bln Terakhir)</div>
+              {estValue3BlnPerMonth != null && (
+                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  Actual {formatRp(Math.round(estValue3BlnPerMonth))}/bln
+                </div>
+              )}
+            </div>
+            {growthPct3Bln != null ? (
+              <span className="text-sm font-semibold"
+                style={{ color: growthPct3Bln >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                {growthPct3Bln >= 0 ? "+" : ""}{growthPct3Bln.toFixed(1)}%
+              </span>
+            ) : (
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                Belum ada data sales 3 bln
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -693,7 +734,7 @@ function ProdukEntryRow({
       )}
 
       {/* Budget % per produk */}
-      <BudgetFieldsRow entry={entry} onChange={onChange} />
+      <BudgetFieldsRow entry={entry} onChange={onChange} pengaliNilaiR={pengaliNilaiR} />
     </div>
   );
 }
@@ -703,12 +744,15 @@ function ProdukEntryRow({
 function BudgetFieldsRow({
   entry,
   onChange,
+  pengaliNilaiR,
 }: {
   entry: ProdukEntry;
   onChange: (patch: Partial<ProdukEntry>) => void;
+  pengaliNilaiR: number;
 }) {
   const totalPct =
-    [entry.persenPsspDokter, entry.persenPsspKpdm, entry.persenDiskon,
+    (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR +
+    [entry.persenPsspKpdm, entry.persenDiskon,
      entry.persenDp, entry.persenListingFee, entry.persenEntertain]
       .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
   const hasTotal = totalPct > 0;
@@ -1093,6 +1137,7 @@ function AddPanel({
   const [labelCustomer, setLabelCustomer] = useState("");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
+  const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -1144,13 +1189,14 @@ function AddPanel({
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
   const totalPctBudget = useMemo(() => {
     let budgetWeighted = 0, estTotal = 0;
+    const pengaliNilaiR = parseFloat(dokterFields.pengaliNilaiR) || 1;
     for (const entry of produkList) {
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pct = [entry.persenPsspDokter, entry.persenPsspKpdm, entry.persenDiskon,
-        entry.persenDp, entry.persenListingFee, entry.persenEntertain]
-        .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+      const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
+        + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+          .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
       budgetWeighted += base * pct;
       estTotal += base;
     }
@@ -1159,15 +1205,17 @@ function AddPanel({
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setSpecList([]); setCustomerList([]); setKriteriaList([]);
+    setSpecList([]); setCustomerList([]); setKriteriaList([]); setSales3Bln([]);
     if (!val) return;
     startLoadSpec(async () => {
-      const [specs, kriteria] = await Promise.all([
+      const [specs, kriteria, sales3BlnData] = await Promise.all([
         getSpesialisasiByOutlet(val),
         getKriteriaByOutlet(val),
+        getSales3BlnByOutlet(val),
       ]);
       setSpecList(specs);
       setKriteriaList(kriteria);
+      setSales3Bln(sales3BlnData);
     });
   }
 
@@ -1189,7 +1237,7 @@ function AddPanel({
     fd.set("kodeProduk", entry.kodeProduk);
     fd.set("periodeAwal", dokterFields.periodeAwal);
     fd.set("lamaPeriode", String(dokterFields.lamaPeriode));
-    fd.set("hariKerjaBulan", dokterFields.hariKerjaBulan);
+    fd.set("hariKerjaBulan", entry.hariKerjaBulan || dokterFields.hariKerjaBulan);
 
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
@@ -1345,6 +1393,7 @@ function AddPanel({
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
+                sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}
@@ -1624,6 +1673,7 @@ function AddProductPanel({
   const [labelCustomer, setLabelCustomer] = useState("");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
+  const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1631,6 +1681,7 @@ function AddProductPanel({
 
   useEffect(() => {
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
+    getSales3BlnByOutlet(kodePI).then(setSales3Bln);
   }, [kodePI]);
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
@@ -1652,7 +1703,7 @@ function AddProductPanel({
     fd.set("kodeProduk", entry.kodeProduk);
     fd.set("periodeAwal", dokterFields.periodeAwal);
     fd.set("lamaPeriode", String(dokterFields.lamaPeriode));
-    fd.set("hariKerjaBulan", dokterFields.hariKerjaBulan);
+    fd.set("hariKerjaBulan", entry.hariKerjaBulan || dokterFields.hariKerjaBulan);
 
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
@@ -1755,6 +1806,7 @@ function AddProductPanel({
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
+                sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}
@@ -1806,8 +1858,9 @@ interface EditableProdukEntry extends ProdukEntry {
   existingId?: string;
 }
 
-function produkEntryFromItem(item: PoaLineItem, products: Product[]): EditableProdukEntry {
+function produkEntryFromItem(item: PoaLineItem, products: Product[], doctorDefaultHariKerja: string): EditableProdukEntry {
   const p = products.find((pr) => pr.kodeProduk === item.kodeProduk);
+  const itemHari = item.hariKerjaBulan?.toString() ?? "";
   return {
     uid: item.id,
     existingId: item.id,
@@ -1824,6 +1877,8 @@ function produkEntryFromItem(item: PoaLineItem, products: Product[]): EditablePr
     persenDp: item.persenDp ? (parseFloat(item.persenDp.toString()) * 100).toFixed(2) : "",
     persenListingFee: item.persenListingFee ? (parseFloat(item.persenListingFee.toString()) * 100).toFixed(2) : "",
     persenEntertain: item.persenEntertain ? (parseFloat(item.persenEntertain.toString()) * 100).toFixed(2) : "",
+    // Only surface as an explicit override when it actually differs from the doctor's default.
+    hariKerjaBulan: itemHari && itemHari !== doctorDefaultHariKerja ? itemHari : "",
   };
 }
 
@@ -1846,11 +1901,12 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     pengaliNilaiR: first.pengaliNilaiR ? first.pengaliNilaiR.toString() : "1",
   });
   const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
-    () => items.map((it) => produkEntryFromItem(it, products))
+    () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? ""))
   );
   const [labelCustomer, setLabelCustomer] = useState(first.labelCustomer ?? "");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
+  const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -1858,6 +1914,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
 
   useEffect(() => {
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
+    getSales3BlnByOutlet(kodePI).then(setSales3Bln);
   }, [kodePI]);
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
@@ -1892,13 +1949,14 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
   const totalPctBudget = useMemo(() => {
     let budgetWeighted = 0, estTotal = 0;
+    const pengaliNilaiR = parseFloat(dokterFields.pengaliNilaiR) || 1;
     for (const entry of produkList) {
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pct = [entry.persenPsspDokter, entry.persenPsspKpdm, entry.persenDiskon,
-        entry.persenDp, entry.persenListingFee, entry.persenEntertain]
-        .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
+      const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
+        + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+          .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
       budgetWeighted += base * pct;
       estTotal += base;
     }
@@ -1921,7 +1979,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("kodeProduk", entry.kodeProduk);
     fd.set("periodeAwal", dokterFields.periodeAwal);
     fd.set("lamaPeriode", String(dokterFields.lamaPeriode));
-    fd.set("hariKerjaBulan", dokterFields.hariKerjaBulan);
+    fd.set("hariKerjaBulan", entry.hariKerjaBulan || dokterFields.hariKerjaBulan);
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
@@ -2031,6 +2089,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
+                sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}

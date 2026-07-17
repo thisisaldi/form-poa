@@ -192,11 +192,12 @@ export function Combobox({
           ref={listRef}
           role="listbox"
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute z-50 w-full mt-1 rounded-md border shadow-lg overflow-auto"
+          className="absolute z-50 min-w-full w-max mt-1 rounded-md border shadow-lg overflow-auto"
           style={{
             background: "var(--color-bg)",
             borderColor: "var(--color-border)",
             maxHeight: "14rem",
+            maxWidth: "min(28rem, 90vw)",
           }}
         >
           {filtered.length === 0 ? (

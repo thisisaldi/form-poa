@@ -205,3 +205,33 @@ export async function getKriteriaByOutlet(kodePI: string): Promise<KriteriaByOut
   });
   return rows as KriteriaByOutlet[];
 }
+
+export interface Sales3BlnByProduct {
+  itemKode: string;
+  qty3Bln: number;  // summed qty over the last 3 completed months
+}
+
+/** Actual sales qty for the last 3 completed months, per product, for one outlet. */
+export async function getSales3BlnByOutlet(kodePI: string): Promise<Sales3BlnByProduct[]> {
+  if (!kodePI) return [];
+
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = 1; i <= 3; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  const rows = await prisma.outletSalesMonthly.findMany({
+    where: { kodePI, periode: { in: months } },
+    select: { itemKode: true, qty: true },
+  });
+
+  const byProduct = new Map<string, number>();
+  for (const r of rows as { itemKode: string; qty: { toString(): string } }[]) {
+    const v = parseFloat(r.qty.toString()) || 0;
+    byProduct.set(r.itemKode, (byProduct.get(r.itemKode) ?? 0) + v);
+  }
+
+  return [...byProduct.entries()].map(([itemKode, qty3Bln]) => ({ itemKode, qty3Bln }));
+}

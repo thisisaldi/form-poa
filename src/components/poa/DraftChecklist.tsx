@@ -95,10 +95,12 @@ export interface DummySales {
   growthPct: number;
 }
 
-export function computeDummyTarget(seed: string, totalEstimasi: number): number {
-  const h = hashSeed(seed);
-  const fraction = 0.60 + (h % 16) / 100; // 60–75% → ratio estimasi/target ≈ 133–167%
-  return Math.max(totalEstimasi * fraction, 1_000_000);
+// Fixed dummy target — a static placeholder (not derived from estimasi/seed) until
+// real Target Area data is wired up.
+const DUMMY_TARGET_AREA = 500_000_000;
+
+export function computeDummyTarget(): number {
+  return DUMMY_TARGET_AREA;
 }
 
 export function computeDummySales(seed: string, totalEstimasi: number): DummySales {
@@ -175,7 +177,6 @@ export function StatsPanel({
   }, { estimasi: 0, nilaiPssp: 0 });
 
   const ratioEst     = targetArea > 0 ? (s.estimasiTotal / targetArea) * 100 : 0;
-  const ratioBudget  = targetArea > 0 ? (s.budgetTotal / targetArea) * 100 : 0;
   const salesPlusEst = dummySales.salesYtd + s.estimasiTotal;
   const achievePct   = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
 
@@ -208,7 +209,7 @@ export function StatsPanel({
           {
             label: "Rasio Estimasi",
             value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "—",
-            sub: ratioEst >= 140 ? "Memenuhi target" : ratioEst > 0 ? "Di bawah 140%" : undefined,
+            sub: ratioEst >= 140 ? "Memenuhi target" : ratioEst > 0 ? "Di bawah target" : undefined,
             danger: ratioEst > 0 && ratioEst < 140,
             span: true,
           },
@@ -227,7 +228,7 @@ export function StatsPanel({
         <div className="mb-5 space-y-1">
           <div className="flex justify-between text-xs" style={{ color: FAINT }}>
             <span>0%</span>
-            <span>Target 140%</span>
+            <span>Target</span>
             <span>200%</span>
           </div>
           <div className="relative h-2 rounded-full overflow-hidden" style={{ background: BORDER }}>
@@ -264,14 +265,7 @@ export function StatsPanel({
         <div className="flex justify-between pt-2 text-sm font-semibold"
           style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
           <span>Total Budget</span>
-          <span>
-            {formatRp(s.budgetTotal)}
-            {ratioBudget > 0 && (
-              <span className="ml-1.5 text-xs font-normal" style={{ color: FAINT }}>
-                ({ratioBudget.toFixed(1)}% dari target ★)
-              </span>
-            )}
-          </span>
+          <span>{formatRp(s.budgetTotal)}</span>
         </div>
       </div>
 
@@ -300,7 +294,7 @@ export function StatsPanel({
             danger: selectedDoctorCount < 30,
           },
           {
-            label: "Produk Fokus",
+            label: "Target Produk Fokus ★",
             value: `${s.productCount}/22`,
             sub: s.productCount >= 22 ? "terpenuhi ✓" : `kurang ${22 - s.productCount}`,
             danger: s.productCount < 22,
@@ -600,7 +594,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
     const totalEst = items.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
     const seed = items.length > 0 ? (items[0].kodePI ?? items[0].namaCust ?? "x") : "x";
     return {
-      targetArea: computeDummyTarget(seed, totalEst),
+      targetArea: computeDummyTarget(),
       salesDummy: computeDummySales(seed, totalEst),
     };
   }, [items]);

@@ -379,6 +379,46 @@ model ListingFeeKontrak {
   @@index([prdAwal, prdAkhir])
 }
 
+// ─── DPL (Diskon Penjualan Langsung) Contract Data ────────────────────────────
+// One row per (NOMOR contract × PRODUK). Imported from "DPL <bulan tahun>.xlsx"
+// snapshots (sheet "DPL"). newOnPi is the effective/active on-invoice discount %
+// used to auto-fill PoaLineItem.avgDiskon for contracts whose period is running.
+
+model DiskonKontrak {
+  id         String   @id @default(uuid())
+
+  nomor      String              // NOMOR — contract number
+  nmAreaPi   String?
+  areaPi     String?
+  kodePI     String              // KODEPI — links to Outlet.kodePI
+  namaOutlet String?
+  bumn       String?
+  divisi     String?
+
+  prdAwal    String              // YYYYMM
+  prdAkhir   String              // YYYYMM
+
+  kodeProduk String
+  namaProduk String?
+
+  onPi    Decimal? @db.Decimal(10, 4)
+  offPi   Decimal? @db.Decimal(10, 4)
+  onDist  Decimal? @db.Decimal(10, 4)
+  offDist Decimal? @db.Decimal(10, 4)
+  qtyBon  Decimal? @db.Decimal(10, 2)
+  qtyBuy  Decimal? @db.Decimal(10, 2)
+
+  newOnPi Decimal? @db.Decimal(10, 4)   // effective on-invoice discount %, used for avgDiskon
+
+  snapshotDate DateTime?       // date of source Excel file
+  importedAt   DateTime @default(now())
+
+  @@unique([nomor, kodeProduk])
+  @@index([kodePI])
+  @@index([kodeProduk])
+  @@index([prdAwal, prdAkhir])
+}
+
 // ─── Customer Pengajuan ───────────────────────────────────────────────────────
 // Submission form for registering a new doctor. On submit, Customer + CustomerOutlet
 // records are created and customerId is populated.
