@@ -18,6 +18,11 @@ DRAFT → SUBMITTED_TO_ASM → APPROVED_BY_ASM → SUBMITTED_TO_SM
       → APPROVED_BY_SM → SUBMITTED_TO_NSM → APPROVED_BY_NSM
 ```
 
+Any `SUBMITTED_TO_*` state can bounce back to `REVISI` — either automatically
+(the owning MR edits an already-submitted POA) or explicitly (the current
+holder rejects it with a reason). `REVISI` resubmits back through
+`SUBMITTED_TO_ASM`, restarting the approval chain from the top.
+
 - MR creates a draft and fills in line items (product × doctor combinations)
 - MR submits → ASM receives and can review/approve
 - ASM approves → SM → NSM
