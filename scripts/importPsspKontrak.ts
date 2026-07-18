@@ -89,8 +89,12 @@ async function main() {
     Date | null,
   ];
 
-  const rows: Row[] = [];
+  // Keyed by cUrut|kdProduk — de-dupes rows sharing the unique constraint (the source
+  // sheet has ~1,100 such duplicates) so a single multi-row INSERT never targets the
+  // same conflict target twice ("last row in the sheet wins", same as a sequential upsert).
+  const rowsByKey = new Map<string, Row>();
   let skipped = 0;
+  let sourceRowCount = 0;
 
   for (let rn = 2; rn <= ws.rowCount; rn++) {
     const row = ws.getRow(rn);
@@ -99,6 +103,7 @@ async function main() {
     const cUrut = txt(get("C_URUT"));
     const kdCust = txt(get("KD_CUST"));
     if (!cUrut || !kdCust) { skipped++; continue; }
+    sourceRowCount++;
 
     const periodMap = (cols: { col: number; period: string }[]) => {
       const m: Record<string, number> = {};
@@ -112,11 +117,12 @@ async function main() {
     const nDivisiRaw = get("N_DIVISI");
     const nDivisi = nDivisiRaw != null && txt(nDivisiRaw) != null ? Math.trunc(flt(nDivisiRaw)) : null;
 
-    rows.push([
+    const kdProduk = txt(get("KD_PRODUK")) ?? "";
+    rowsByKey.set(`${cUrut}|${kdProduk}`, [
       kdCust, txt(get("NM_CUST")), cUrut, txt(get("KD_SPC")), txt(get("NM_SPC")), txt(get("ROLE")), nDivisi, txt(get("DIV_KODE")),
       flt(get("Biaya")), txt(get("PRD_AWAL")) ?? "", txt(get("PRD_AKHIR")) ?? "", txt(get("NIP_USUL")), txt(get("NM_USUL")),
       txt(get("KD_OUTLET")), txt(get("NM_OUTLET")),
-      txt(get("DIV_PROD")), txt(get("KD_PRODUK")) ?? "", txt(get("NM_PRODUK")),
+      txt(get("DIV_PROD")), kdProduk, txt(get("NM_PRODUK")),
       flt(get("EstBaris")), flt(get("BM_BARIS")),
       Object.values(estMap).reduce((a, b) => a + b, 0),
       Object.values(bmMap).reduce((a, b) => a + b, 0),
@@ -126,7 +132,9 @@ async function main() {
     ]);
   }
 
-  console.log(`Rows to upsert: ${rows.length} (skipped ${skipped} with missing C_URUT/KD_CUST)\n`);
+  const rows = [...rowsByKey.values()];
+  const dupeCount = sourceRowCount - rows.length;
+  console.log(`Rows to upsert: ${rows.length} (skipped ${skipped} with missing C_URUT/KD_CUST, ${dupeCount} duplicate cUrut+kdProduk rows collapsed to last value)\n`);
 
   const BATCH = 500;
   let done = 0;
