@@ -3,12 +3,12 @@ import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from 
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canView, canEdit, canApprove } from "@/lib/authz";
-import { approvePoaAction } from "@/app/actions/poa";
+import { approvePoaAction, rejectPoaAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DraftChecklist } from "@/components/poa/DraftChecklist";
-import { getActivePsspByCustomers } from "@/app/actions/customer";
+import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { computeActivePsspStats } from "@/lib/activePssp";
 
 export const metadata = { title: "Detail POA · Form POA" };
@@ -52,6 +52,7 @@ export default async function PoaDetailPage({
   const userCanEdit = await canEdit(actor, poa);
   const userCanApprove = canApprove(actor, poa);
   const approveWithId = approvePoaAction.bind(null, id);
+  const rejectWithId = rejectPoaAction.bind(null, id);
 
   const isMR = session.role === "MR";
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
@@ -59,9 +60,20 @@ export default async function PoaDetailPage({
   const isRevisi = poa.status === "REVISI";
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
-  const activePssp = await getActivePsspByCustomers(
-    allItems.map((it: PoaLineItem) => it.kodeCust).filter((v: string | null): v is string => !!v)
-  );
+
+  // PSSP Aktif reflects the MR's whole assigned territory, not just the doctors
+  // already drafted into this POA — dummy accounts have no real outlet
+  // assignment to scope by, so the section is simply empty for them.
+  let activePssp: Awaited<ReturnType<typeof getActivePsspByOutlets>> = [];
+  if (!poa.owner.isDummy) {
+    const now = new Date();
+    const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
+    const assignments = await prisma.mrOutletAssignment.findMany({
+      where: { nipMR: poa.ownerId, periode },
+      select: { kodePI: true },
+    });
+    activePssp = await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI));
+  }
 
   // Aggregate stats
   const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -76,7 +88,7 @@ export default async function PoaDetailPage({
       toNum(it.persenListingFee) + toNum(it.persenEntertain)
     );
   }
-  const aktifPssp   = computeActivePsspStats(allItems, activePssp);
+  const aktifPssp   = computeActivePsspStats(activePssp);
   const target      = poa.target ? parseFloat(poa.target.toString()) : null;
   const ratioEst    = target && target > 0 ? (estimasiTotal / target) * 100 : null;
   const pctBudget   = estimasiTotal > 0 ? ((budgetWeighted + aktifPssp.nilaiTotal) / estimasiTotal) * 100 : null;
@@ -171,13 +183,27 @@ export default async function PoaDetailPage({
           <CardHeader>
             <CardTitle>Tindakan</CardTitle>
           </CardHeader>
-          <div className="flex gap-3">
+          <div className="flex gap-3 mb-4">
             <form action={approveWithId}>
               <Button type="submit" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
                 Approve &amp; Teruskan
               </Button>
             </form>
           </div>
+          <form action={rejectWithId} className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
+              <textarea
+                name="reason"
+                required
+                rows={2}
+                placeholder="Jelaskan alasan reject POA ini — MR akan melihat catatan ini di Riwayat Aktivitas…"
+                className="input-field text-sm" />
+            </label>
+            <Button type="submit" variant="danger">
+              Tolak (kembali ke Revisi)
+            </Button>
+          </form>
         </Card>
       )}
 
@@ -219,6 +245,11 @@ export default async function PoaDetailPage({
                   {log.toStatus && (
                     <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
                       → {log.toStatus.replace(/_/g, " ")}
+                    </p>
+                  )}
+                  {(log.snapshot as { notes?: string } | null)?.notes && (
+                    <p className="mt-1 text-xs italic" style={{ color: "var(--color-text-muted)" }}>
+                      "{(log.snapshot as { notes: string }).notes}"
                     </p>
                   )}
                 </li>

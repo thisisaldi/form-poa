@@ -143,6 +143,57 @@ export interface ActivePsspRow extends PsspKontrakSummary {
  * (e.g. practices at multiple hospitals), which must not count toward an MR
  * whose POA only covers one of those outlets.
  */
+/**
+ * Returns still-ACTIVE PSSP contract rows (prdAkhir >= current period) across
+ * many outlets at once — every contract at an outlet, regardless of which
+ * doctor holds it or whether that doctor is already a line item in any
+ * particular POA. Used for the "PSSP Aktif" portfolio view: an MR should see
+ * every running commitment across their whole territory, not just the
+ * doctors they happen to have drafted into the current POA.
+ */
+export async function getActivePsspByOutlets(kodePIs: string[]): Promise<ActivePsspRow[]> {
+  const distinct = [...new Set(kodePIs.filter(Boolean))];
+  if (distinct.length === 0) return [];
+
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const rows = await prisma.psspKontrak.findMany({
+    where: { kdOutlet: { in: distinct }, prdAkhir: { gte: currentPeriod } },
+    orderBy: [{ prdAkhir: "desc" }, { cUrut: "asc" }],
+    select: {
+      id: true, kdCust: true, nmCust: true, kdOutlet: true, nmOutlet: true, cUrut: true, nmProduk: true, kdProduk: true,
+      prdAwal: true, prdAkhir: true, biaya: true,
+      estBaris: true, totalLunas: true,
+      snapshotDate: true,
+    },
+  });
+
+  return rows.map((r: {
+    id: string; kdCust: string; nmCust: string | null; kdOutlet: string | null; nmOutlet: string | null; cUrut: string; nmProduk: string | null; kdProduk: string | null;
+    prdAwal: string; prdAkhir: string;
+    biaya: { toString(): string };
+    estBaris: { toString(): string } | null;
+    totalLunas: { toString(): string } | null;
+    snapshotDate: Date | null;
+  }) => ({
+    id: r.id,
+    kdCust: r.kdCust,
+    nmCust: r.nmCust,
+    kdOutlet: r.kdOutlet,
+    nmOutlet: r.nmOutlet,
+    cUrut: r.cUrut,
+    nmProduk: r.nmProduk,
+    kdProduk: r.kdProduk,
+    prdAwal: r.prdAwal,
+    prdAkhir: r.prdAkhir,
+    biaya: parseFloat(r.biaya.toString()) || 0,
+    estBaris: parseFloat(r.estBaris?.toString() ?? "0") || 0,
+    totalLunas: parseFloat(r.totalLunas?.toString() ?? "0") || 0,
+    snapshotDate: r.snapshotDate ? r.snapshotDate.toISOString().slice(0, 10) : null,
+  }));
+}
+
 export async function getActivePsspByCustomers(kodeCustomers: string[]): Promise<ActivePsspRow[]> {
   const distinct = [...new Set(kodeCustomers.filter(Boolean))];
   if (distinct.length === 0) return [];

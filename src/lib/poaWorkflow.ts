@@ -89,7 +89,8 @@ async function applyTransition(
   actingUserId: string,
   transition: TransitionTarget,
   fromStatus: PoaStatus,
-  action: AuditAction
+  action: AuditAction,
+  notes?: string
 ): Promise<PoaForm> {
   const poa = await loadPoaWithHierarchy(poaId);
 
@@ -123,7 +124,7 @@ async function applyTransition(
         action,
         fromStatus,
         toStatus: transition.toStatus,
-        snapshot: {},
+        snapshot: notes ? { notes } : {},
       },
     }),
   ]);
@@ -147,7 +148,8 @@ async function applyTransition(
  */
 export async function submitPoa(
   poaId: string,
-  actingUserId: string
+  actingUserId: string,
+  notes?: string
 ): Promise<PoaForm> {
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
 
@@ -163,7 +165,7 @@ export async function submitPoa(
     );
   }
 
-  return applyTransition(poaId, actingUserId, transition, poa.status, AuditAction.SUBMIT);
+  return applyTransition(poaId, actingUserId, transition, poa.status, AuditAction.SUBMIT, notes);
 }
 
 /**
@@ -190,6 +192,34 @@ export async function approvePoa(
   }
 
   return applyTransition(poaId, actingUserId, transition, poa.status, AuditAction.APPROVE);
+}
+
+/**
+ * ASM/SM/NSM explicitly rejects a submitted POA at their level — distinct from
+ * flagRevisionOnEdit's automatic bounce-back (which fires when the owning MR
+ * edits a submitted POA). A reject always requires a reason, recorded on the
+ * audit log so the MR sees why it was sent back when they reopen it.
+ */
+export async function rejectPoa(
+  poaId: string,
+  actingUserId: string,
+  reason: string
+): Promise<PoaForm> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!canApprove(actingUser, poa)) {
+    throw new Error(`User ${actingUserId} is not authorized to reject POA ${poaId}`);
+  }
+
+  return applyTransition(
+    poaId,
+    actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    poa.status,
+    AuditAction.REJECT,
+    reason
+  );
 }
 
 /**

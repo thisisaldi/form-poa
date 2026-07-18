@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { createPoaDraft, submitPoa, approvePoa } from "@/lib/poaWorkflow";
+import { createPoaDraft, submitPoa, approvePoa, rejectPoa } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
 import { canEdit, canApprove, canCreatePoa } from "@/lib/authz";
 
@@ -33,8 +33,7 @@ export async function createPoaAction(formData: FormData): Promise<void> {
   redirect(`/poa/${poa.id}/edit`);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function submitPoaAction(poaId: string, _formData: FormData): Promise<void> {
+export async function submitPoaAction(poaId: string, formData: FormData): Promise<void> {
   const session = await requireSession();
 
   const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
@@ -43,7 +42,8 @@ export async function submitPoaAction(poaId: string, _formData: FormData): Promi
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
 
-  await submitPoa(poaId, session.userId);
+  const notes = (formData.get("notes") as string | null)?.trim() || undefined;
+  await submitPoa(poaId, session.userId, notes);
   redirect(`/poa/${poaId}`);
 }
 
@@ -51,6 +51,7 @@ export async function submitPoaAction(poaId: string, _formData: FormData): Promi
 export async function submitPoaWithSelectionAction(
   poaId: string,
   keepItemIds: string[],
+  notes?: string,
 ): Promise<void> {
   const session = await requireSession();
 
@@ -66,7 +67,7 @@ export async function submitPoaWithSelectionAction(
     });
   }
 
-  await submitPoa(poaId, session.userId);
+  await submitPoa(poaId, session.userId, notes?.trim() || undefined);
   redirect(`/poa/${poaId}`);
 }
 
@@ -81,5 +82,21 @@ export async function approvePoaAction(poaId: string, _formData: FormData): Prom
   if (!canApprove(actor, poa)) redirect(`/poa/${poaId}`);
 
   await approvePoa(poaId, session.userId);
+  redirect(`/poa/${poaId}`);
+}
+
+export async function rejectPoaAction(poaId: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!canApprove(actor, poa)) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
+  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan reject wajib diisi."));
+
+  await rejectPoa(poaId, session.userId, reason);
   redirect(`/poa/${poaId}`);
 }

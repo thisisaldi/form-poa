@@ -68,6 +68,7 @@ interface ProdukEntry {
   persenListingFee: string;
   persenEntertain: string;
   hariKerjaBulan: string;  // per-product override of the doctor-level default; "" = inherit
+  pengaliNilaiR: string;   // per-product override of the doctor-level default; "" = inherit
   // kriteriaProduk & rasioEstimasiGrowth: auto (not user input)
 }
 
@@ -80,6 +81,7 @@ function emptyProdukEntry(): ProdukEntry {
     persenPsspDokter: "", persenPsspKpdm: "0",
     persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "0",
     hariKerjaBulan: "",
+    pengaliNilaiR: "",
   };
 }
 
@@ -505,7 +507,7 @@ function ProdukEntryRow({
   const hna    = product ? hargaST(product) : 0;  // price per ST
   const lama   = dokterFields.lamaPeriode || 1;
   const nilaiRPersen = product?.nilaiRPersen ? parseFloat(product.nilaiRPersen) : null;
-  const pengaliNilaiR = parseFloat(dokterFields.pengaliNilaiR) || 1;
+  const pengaliNilaiR = parseFloat(entry.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
   const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
@@ -601,7 +603,7 @@ function ProdukEntryRow({
       </label>
 
       {/* Per-product inputs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         <label className="flex flex-col gap-1" {...(resepErr ? { "data-field-err": "true" } : {})}>
           <span className="text-xs" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Pasien Baru / Hari<Req /></span>
           <div style={resepErr ? ERR_RING : undefined}>
@@ -644,6 +646,14 @@ function ProdukEntryRow({
             onChange={(v) => onChange({ hariKerjaBulan: v })}
             unit="Hari"
             placeholder={dokterFields.hariKerjaBulan || "default"} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R<Opt /></span>
+          <UnitInput
+            value={entry.pengaliNilaiR}
+            onChange={(v) => onChange({ pengaliNilaiR: v })}
+            unit="x"
+            placeholder={dokterFields.pengaliNilaiR || "1"} />
         </label>
       </div>
 
@@ -1184,7 +1194,7 @@ function AddPanel({
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = parseFloat(dokterFields.pengaliNilaiR) || 1;
+    const pengali = parseFloat(e.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -1206,11 +1216,11 @@ function AddPanel({
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
   const totalPctBudget = useMemo(() => {
     let budgetWeighted = 0, estTotal = 0;
-    const pengaliNilaiR = parseFloat(dokterFields.pengaliNilaiR) || 1;
     for (const entry of produkList) {
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
+      const pengaliNilaiR = parseFloat(entry.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -1268,7 +1278,7 @@ function AddPanel({
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("pengaliNilaiR", dokterFields.pengaliNilaiR);
+    fd.set("pengaliNilaiR", entry.pengaliNilaiR || dokterFields.pengaliNilaiR);
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
@@ -1483,7 +1493,7 @@ function AddPanel({
               </div>
             </div>
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (per Dokter)</span>
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (default)</span>
               <div style={{ maxWidth: 120 }}>
                 <NumberStepperInput
                   value={dokterFields.pengaliNilaiR}
@@ -1875,9 +1885,12 @@ interface EditableProdukEntry extends ProdukEntry {
   existingId?: string;
 }
 
-function produkEntryFromItem(item: PoaLineItem, products: Product[], doctorDefaultHariKerja: string): EditableProdukEntry {
+function produkEntryFromItem(
+  item: PoaLineItem, products: Product[], doctorDefaultHariKerja: string, doctorDefaultPengaliNilaiR: string
+): EditableProdukEntry {
   const p = products.find((pr) => pr.kodeProduk === item.kodeProduk);
   const itemHari = item.hariKerjaBulan?.toString() ?? "";
+  const itemPengali = item.pengaliNilaiR?.toString() ?? "";
   return {
     uid: item.id,
     existingId: item.id,
@@ -1896,6 +1909,7 @@ function produkEntryFromItem(item: PoaLineItem, products: Product[], doctorDefau
     persenEntertain: item.persenEntertain ? (parseFloat(item.persenEntertain.toString()) * 100).toFixed(2) : "",
     // Only surface as an explicit override when it actually differs from the doctor's default.
     hariKerjaBulan: itemHari && itemHari !== doctorDefaultHariKerja ? itemHari : "",
+    pengaliNilaiR: itemPengali && itemPengali !== doctorDefaultPengaliNilaiR ? itemPengali : "",
   };
 }
 
@@ -1910,15 +1924,16 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
   const namaCust = first.namaCust;
   const spesialisasi = first.spesialisasi;
 
+  const doctorDefaultPengaliNilaiR = first.pengaliNilaiR ? first.pengaliNilaiR.toString() : "1";
   const [dokterFields, setDokterFields] = useState<DokterFields>({
     periodeAwal: first.periodeAwal,
     lamaPeriode: first.lamaPeriode,
     hariKerjaBulan: first.hariKerjaBulan?.toString() ?? "",
     rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
-    pengaliNilaiR: first.pengaliNilaiR ? first.pengaliNilaiR.toString() : "1",
+    pengaliNilaiR: doctorDefaultPengaliNilaiR,
   });
   const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
-    () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? ""))
+    () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? "", doctorDefaultPengaliNilaiR))
   );
   const [labelCustomer, setLabelCustomer] = useState(first.labelCustomer ?? "");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
@@ -1944,7 +1959,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = parseFloat(dokterFields.pengaliNilaiR) || 1;
+    const pengali = parseFloat(e.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -1966,11 +1981,11 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
   const totalPctBudget = useMemo(() => {
     let budgetWeighted = 0, estTotal = 0;
-    const pengaliNilaiR = parseFloat(dokterFields.pengaliNilaiR) || 1;
     for (const entry of produkList) {
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
+      const pengaliNilaiR = parseFloat(entry.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -2009,7 +2024,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("pengaliNilaiR", dokterFields.pengaliNilaiR);
+    fd.set("pengaliNilaiR", entry.pengaliNilaiR || dokterFields.pengaliNilaiR);
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
@@ -2179,7 +2194,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
               </div>
             </div>
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (per Dokter)</span>
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (default)</span>
               <div style={{ maxWidth: 120 }}>
                 <NumberStepperInput
                   value={dokterFields.pengaliNilaiR}

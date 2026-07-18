@@ -12,7 +12,7 @@ import { submitPoaWithSelectionAction } from "@/app/actions/poa";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths } from "@/lib/targetCalculation";
 import type { ActivePsspRow } from "@/app/actions/customer";
-import { relevantActivePssp, computeActivePsspStats } from "@/lib/activePssp";
+import { computeActivePsspStats } from "@/lib/activePssp";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -166,7 +166,7 @@ function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
         <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              {["No. Kontrak", "Dokter", "Outlet", "Produk", "Biaya", "Periode", "Lunas"].map((h) => (
+              {["No. Kontrak", "Dokter", "Outlet", "Produk", "Biaya", "Periode", "Lunas", "Sisa Estimasi"].map((h) => (
                 <th key={h} className="text-left py-1.5 pr-3 font-medium whitespace-nowrap"
                   style={{ color: "var(--color-text-faint)" }}>{h}</th>
               ))}
@@ -175,6 +175,7 @@ function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
           <tbody>
             {sorted.map((r) => {
               const lunasPct = r.estBaris > 0 ? (r.totalLunas / r.estBaris) * 100 : null;
+              const sisaEstimasi = Math.max(0, r.estBaris - r.totalLunas);
               return (
                 <tr key={r.id} style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{r.cUrut}</td>
@@ -187,6 +188,7 @@ function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
                     style={{ color: lunasPct != null && lunasPct < 80 ? "var(--color-red)" : "var(--color-text-muted)" }}>
                     {lunasPct != null ? `${lunasPct.toFixed(0)}%` : "—"}
                   </td>
+                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(sisaEstimasi)}</td>
                 </tr>
               );
             })}
@@ -237,7 +239,7 @@ export function StatsPanel({
     const t = computeBiayaTercacah(it, quarterMonths);
     return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
   }, { estimasi: 0, nilaiPssp: 0 });
-  const aktifPssp = computeActivePsspStats(items, activePssp);
+  const aktifPssp = computeActivePsspStats(activePssp);
   const budgetTotalWithAktif = s.budgetTotal + aktifPssp.nilaiTotal;
   // "Estimasi POA" / Rasio Estimasi include the sales estimate already running via
   // active PSSP contracts — kept separate from s.estimasiTotal so the Anggaran %
@@ -694,13 +696,14 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   );
 
   const [isSubmitting, startSubmit] = useTransition();
+  const [submitNotes, setSubmitNotes] = useState("");
 
   function handleSubmit() {
     if (!poaId || checked.size === 0) return;
     const keepIds = items
       .filter((it) => checked.has(doctorKey(it)))
       .map((it) => it.id);
-    startSubmit(() => submitPoaWithSelectionAction(poaId, keepIds));
+    startSubmit(() => submitPoaWithSelectionAction(poaId, keepIds, submitNotes));
   }
 
   if (items.length === 0) return null;
@@ -781,7 +784,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           </div>
         </Card>
 
-        <ActivePsspListCard rows={relevantActivePssp(selectedItems, activePssp)} />
+        <ActivePsspListCard rows={activePssp} />
 
         {showSubmit && poaId && (
           <div className="rounded-lg border p-4"
@@ -796,6 +799,17 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 ? "Pilih minimal 1 user untuk diajukan."
                 : `${checked.size} dari ${allKeys.length} user dipilih — ${allKeys.length - checked.size} user tidak dicentang akan dihapus dari POA.`}
             </p>
+            <label className="flex flex-col gap-1 mb-3">
+              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                Notes tambahan untuk perkuat argumen pengajuan (opsional)
+              </span>
+              <textarea
+                value={submitNotes}
+                onChange={(e) => setSubmitNotes(e.target.value)}
+                rows={2}
+                placeholder="mis. konteks tambahan yang tidak terlihat dari angka…"
+                className="input-field text-xs" />
+            </label>
             <Button
               type="button"
               disabled={checked.size === 0 || isSubmitting}
