@@ -126,6 +126,66 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
   }));
 }
 
+export interface ActivePsspRow extends PsspKontrakSummary {
+  kdCust: string;
+  nmCust: string | null;
+  kdOutlet: string | null;
+  nmOutlet: string | null;
+}
+
+/**
+ * Returns still-ACTIVE PSSP contract rows (prdAkhir >= current period) across
+ * many customers at once — used by the draft/ringkasan view, which covers
+ * every doctor in a POA rather than one at a time like the fill-form sidebar.
+ *
+ * Includes kdOutlet so callers can restrict to contracts at the SAME outlet the
+ * MR is planning for: a doctor can hold PSSP contracts at other outlets too
+ * (e.g. practices at multiple hospitals), which must not count toward an MR
+ * whose POA only covers one of those outlets.
+ */
+export async function getActivePsspByCustomers(kodeCustomers: string[]): Promise<ActivePsspRow[]> {
+  const distinct = [...new Set(kodeCustomers.filter(Boolean))];
+  if (distinct.length === 0) return [];
+
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const rows = await prisma.psspKontrak.findMany({
+    where: { kdCust: { in: distinct }, prdAkhir: { gte: currentPeriod } },
+    orderBy: [{ prdAkhir: "desc" }, { cUrut: "asc" }],
+    select: {
+      id: true, kdCust: true, nmCust: true, kdOutlet: true, nmOutlet: true, cUrut: true, nmProduk: true, kdProduk: true,
+      prdAwal: true, prdAkhir: true, biaya: true,
+      estBaris: true, totalLunas: true,
+      snapshotDate: true,
+    },
+  });
+
+  return rows.map((r: {
+    id: string; kdCust: string; nmCust: string | null; kdOutlet: string | null; nmOutlet: string | null; cUrut: string; nmProduk: string | null; kdProduk: string | null;
+    prdAwal: string; prdAkhir: string;
+    biaya: { toString(): string };
+    estBaris: { toString(): string } | null;
+    totalLunas: { toString(): string } | null;
+    snapshotDate: Date | null;
+  }) => ({
+    id: r.id,
+    kdCust: r.kdCust,
+    nmCust: r.nmCust,
+    kdOutlet: r.kdOutlet,
+    nmOutlet: r.nmOutlet,
+    cUrut: r.cUrut,
+    nmProduk: r.nmProduk,
+    kdProduk: r.kdProduk,
+    prdAwal: r.prdAwal,
+    prdAkhir: r.prdAkhir,
+    biaya: parseFloat(r.biaya.toString()) || 0,
+    estBaris: parseFloat(r.estBaris?.toString() ?? "0") || 0,
+    totalLunas: parseFloat(r.totalLunas?.toString() ?? "0") || 0,
+    snapshotDate: r.snapshotDate ? r.snapshotDate.toISOString().slice(0, 10) : null,
+  }));
+}
+
 export interface ListingFeeKontrakSummary {
   id: string;
   noreq: string;

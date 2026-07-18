@@ -11,6 +11,8 @@ import { getAllPakets } from "@/lib/paketProduk";
 import { submitPoaWithSelectionAction } from "@/app/actions/poa";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths } from "@/lib/targetCalculation";
+import type { ActivePsspRow } from "@/app/actions/customer";
+import { relevantActivePssp, computeActivePsspStats } from "@/lib/activePssp";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -137,6 +139,64 @@ function computeStats(items: PoaLineItem[]) {
   };
 }
 
+
+// ─── Active PSSP list card ─────────────────────────────────────────────────────
+// One row per (kontrak × produk) — the raw grain PsspKontrak is stored at — for
+// every still-running contract belonging to a doctor+outlet in this POA.
+
+function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
+  if (rows.length === 0) return null;
+
+  const sorted = [...rows].sort((a, b) => a.prdAkhir.localeCompare(b.prdAkhir) || a.cUrut.localeCompare(b.cUrut));
+
+  function periodeLabel(awal: string, akhir: string) {
+    const fmt = (p: string) => `${p.slice(4, 6)}/${p.slice(2, 4)}`;
+    return `${fmt(awal)}–${fmt(akhir)}`;
+  }
+
+  return (
+    <Card>
+      <p className="font-semibold text-sm mb-0.5" style={{ color: "var(--color-text)" }}>
+        PSSP Aktif (Kontrak Berjalan)
+      </p>
+      <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
+        Kontrak PSSP yang masih berjalan untuk dokter di outlet yang sama dengan POA ini.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+              {["No. Kontrak", "Dokter", "Outlet", "Produk", "Biaya", "Periode", "Lunas"].map((h) => (
+                <th key={h} className="text-left py-1.5 pr-3 font-medium whitespace-nowrap"
+                  style={{ color: "var(--color-text-faint)" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => {
+              const lunasPct = r.estBaris > 0 ? (r.totalLunas / r.estBaris) * 100 : null;
+              return (
+                <tr key={r.id} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{r.cUrut}</td>
+                  <td className="py-1.5 pr-3" style={{ color: "var(--color-text)" }}>{r.nmCust ?? "—"}</td>
+                  <td className="py-1.5 pr-3" style={{ color: "var(--color-text-muted)" }}>{r.nmOutlet ?? "—"}</td>
+                  <td className="py-1.5 pr-3" style={{ color: "var(--color-text-muted)" }}>{r.nmProduk ?? "—"}</td>
+                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(r.biaya)}</td>
+                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{periodeLabel(r.prdAwal, r.prdAkhir)}</td>
+                  <td className="py-1.5 pr-3 whitespace-nowrap"
+                    style={{ color: lunasPct != null && lunasPct < 80 ? "var(--color-red)" : "var(--color-text-muted)" }}>
+                    {lunasPct != null ? `${lunasPct.toFixed(0)}%` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 // ─── UI primitives ────────────────────────────────────────────────────────────
 
 function Bar({ pct, color }: { pct: number; color: string }) {
@@ -160,7 +220,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 // ─── Stats Panel ─────────────────────────────────────────────────────────────
 
 export function StatsPanel({
-  items, selectedDoctorCount, totalDoctorCount, targetArea, dummySales, quarterMonths,
+  items, selectedDoctorCount, totalDoctorCount, targetArea, dummySales, quarterMonths, activePssp = [],
 }: {
   items: PoaLineItem[];
   selectedDoctorCount: number;
@@ -168,6 +228,8 @@ export function StatsPanel({
   targetArea: number;
   dummySales: DummySales;
   quarterMonths: string[];
+  /** Still-active PSSP contracts (from earlier POAs) for the doctors currently in view. */
+  activePssp?: ActivePsspRow[];
 }) {
   const [salesOpen, setSalesOpen] = useState(false);
   const s = computeStats(items);
@@ -175,8 +237,16 @@ export function StatsPanel({
     const t = computeBiayaTercacah(it, quarterMonths);
     return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
   }, { estimasi: 0, nilaiPssp: 0 });
+  const aktifPssp = computeActivePsspStats(items, activePssp);
+  const budgetTotalWithAktif = s.budgetTotal + aktifPssp.nilaiTotal;
+  // "Estimasi POA" / Rasio Estimasi include the sales estimate already running via
+  // active PSSP contracts — kept separate from s.estimasiTotal so the Anggaran %
+  // labels below (which divide by s.estimasiTotal) are unaffected.
+  const estimasiDisplay = s.estimasiTotal + aktifPssp.estBarisTotal;
+  const tercacahEstimasiWithAktif = tercacah.estimasi + aktifPssp.estBarisTotal;
+  const tercacahNilaiPsspWithAktif = tercacah.nilaiPssp + aktifPssp.nilaiTotal;
 
-  const ratioEst     = targetArea > 0 ? (s.estimasiTotal / targetArea) * 100 : 0;
+  const ratioEst     = targetArea > 0 ? (estimasiDisplay / targetArea) * 100 : 0;
   const salesPlusEst = dummySales.salesYtd + s.estimasiTotal;
   const achievePct   = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
 
@@ -204,7 +274,7 @@ export function StatsPanel({
       {/* ── 1. Estimasi vs Target ── */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
-          { label: "Estimasi POA",  value: s.estimasiTotal > 0 ? formatRp(s.estimasiTotal) : "—", span: false },
+          { label: "Estimasi POA",  value: estimasiDisplay > 0 ? formatRp(estimasiDisplay) : "—", span: false },
           { label: "Target Area ★", value: formatRp(targetArea), span: false },
           {
             label: "Rasio Estimasi",
@@ -262,23 +332,34 @@ export function StatsPanel({
             </div>
           );
         })}
+        {aktifPssp.kontrakTotal > 0 && (
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span style={{ color: MUTED }}>PSSP Aktif (kontrak berjalan)</span>
+              <span style={{ color: TEXT }}>{formatRp(aktifPssp.nilaiTotal)}</span>
+            </div>
+            <p className="text-xs" style={{ color: FAINT }}>
+              {aktifPssp.kontrakTotal} kontrak · {aktifPssp.dokterCount} user
+            </p>
+          </div>
+        )}
         <div className="flex justify-between pt-2 text-sm font-semibold"
           style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
           <span>Total Budget</span>
-          <span>{formatRp(s.budgetTotal)}</span>
+          <span>{formatRp(budgetTotalWithAktif)}</span>
         </div>
       </div>
 
       {/* ── 2b. Biaya Tercacah (apportioned to this quarter) ── */}
-      {(tercacah.estimasi > 0 || tercacah.nilaiPssp > 0) && (
+      {(tercacahEstimasiWithAktif > 0 || tercacahNilaiPsspWithAktif > 0) && (
         <div className="grid grid-cols-2 gap-3 mb-5">
           <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
             <p className="text-xs" style={{ color: MUTED }}>Estimasi Tercacah</p>
-            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRp(tercacah.estimasi)}</p>
+            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRp(tercacahEstimasiWithAktif)}</p>
           </div>
           <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
             <p className="text-xs" style={{ color: MUTED }}>Nilai PSSP Tercacah</p>
-            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRpPssp(tercacah.nilaiPssp)}</p>
+            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRpPssp(tercacahNilaiPsspWithAktif)}</p>
           </div>
         </div>
       )}
@@ -525,7 +606,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi, selectable = true }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi, selectable = true, activePssp = [] }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -538,6 +619,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   willTriggerRevisi?: boolean;
   /** False for approvers viewing the checklist read-only — no checkboxes, all items count toward the summary. */
   selectable?: boolean;
+  /** Still-active PSSP contracts for the doctors on this POA, for the ringkasan. */
+  activePssp?: ActivePsspRow[];
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -637,6 +720,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
             targetArea={targetArea}
             dummySales={salesDummy}
             quarterMonths={quarterMonths}
+            activePssp={activePssp}
           />
         </div>
 
@@ -697,6 +781,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           </div>
         </Card>
 
+        <ActivePsspListCard rows={relevantActivePssp(selectedItems, activePssp)} />
+
         {showSubmit && poaId && (
           <div className="rounded-lg border p-4"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
@@ -729,6 +815,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           targetArea={targetArea}
           dummySales={salesDummy}
           quarterMonths={quarterMonths}
+          activePssp={activePssp}
         />
       </div>
     </div>

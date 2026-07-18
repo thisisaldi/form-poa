@@ -8,6 +8,8 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DraftChecklist } from "@/components/poa/DraftChecklist";
+import { getActivePsspByCustomers } from "@/app/actions/customer";
+import { computeActivePsspStats } from "@/lib/activePssp";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -57,6 +59,9 @@ export default async function PoaDetailPage({
   const isRevisi = poa.status === "REVISI";
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
+  const activePssp = await getActivePsspByCustomers(
+    allItems.map((it: PoaLineItem) => it.kodeCust).filter((v: string | null): v is string => !!v)
+  );
 
   // Aggregate stats
   const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -71,9 +76,10 @@ export default async function PoaDetailPage({
       toNum(it.persenListingFee) + toNum(it.persenEntertain)
     );
   }
+  const aktifPssp   = computeActivePsspStats(allItems, activePssp);
   const target      = poa.target ? parseFloat(poa.target.toString()) : null;
   const ratioEst    = target && target > 0 ? (estimasiTotal / target) * 100 : null;
-  const pctBudget   = estimasiTotal > 0 ? (budgetWeighted / estimasiTotal) * 100 : null;
+  const pctBudget   = estimasiTotal > 0 ? ((budgetWeighted + aktifPssp.nilaiTotal) / estimasiTotal) * 100 : null;
   const budgetOver  = pctBudget != null && pctBudget > 42.5;
   const budgetWarn  = pctBudget != null && pctBudget > 38 && !budgetOver;
 
@@ -155,6 +161,7 @@ export default async function PoaDetailPage({
           isDraft={isDraft}
           willTriggerRevisi={isMR}
           selectable={isMR}
+          activePssp={activePssp}
         />
       )}
 
