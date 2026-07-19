@@ -152,7 +152,7 @@ export async function GET(
 
   for (const it of allItems) {
     const base = toNum(it.rencanaTotalBiaya);
-    const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
+    const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
     estimasiTotal  += base;
     psspTotal      += base * (toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm));
     discountTotal  += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
@@ -323,7 +323,7 @@ export async function GET(
     const totalBiaya = toNumP(item.rencanaTotalBiaya);
     const lama = item.lamaPeriode || 1;
     const persenPsspDokter = toNumP(item.persenPsspDokter);
-    const pengaliNilaiR = toNumP(item.pengaliNilaiR) || 1;
+    const pengaliNilaiR = item.pengaliNilaiR != null ? toNumP(item.pengaliNilaiR) : 1;
     const nilaiPsspPeriode = totalBiaya * persenPsspDokter * pengaliNilaiR;
     return {
       estimasiBulan: totalBiaya / lama,

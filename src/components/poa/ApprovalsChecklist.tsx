@@ -11,6 +11,7 @@ import {
   StatsPanel, formatRp, toNum, doctorKey,
   computeDummyTarget, computeDummySales,
 } from "@/components/poa/DraftChecklist";
+import type { ActivePsspRow } from "@/app/actions/customer";
 
 export interface PendingPoaRow extends PoaForm {
   owner: User;
@@ -59,7 +60,11 @@ function MrRow({ poa, checked, onToggle }: { poa: PendingPoaRow; checked: boolea
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function ApprovalsChecklist({ pending }: { pending: PendingPoaRow[] }) {
+export function ApprovalsChecklist({ pending, activePssp = [] }: {
+  pending: PendingPoaRow[];
+  /** Still-active PSSP contracts for the doctors across all pending POAs, for the ringkasan. */
+  activePssp?: ActivePsspRow[];
+}) {
   const allKeys = useMemo(() => pending.map((p) => p.id), [pending]);
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allKeys));
 
@@ -159,6 +164,7 @@ export function ApprovalsChecklist({ pending }: { pending: PendingPoaRow[] }) {
           targetArea={targetArea}
           dummySales={dummySales}
           quarterMonths={quarterMonths}
+          activePssp={activePssp}
         />
       </div>
     </div>

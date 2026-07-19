@@ -92,7 +92,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     let budgetSum = 0;
     for (const it of items) {
       const est = toNum(it.rencanaTotalBiaya);
-      const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
+      const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
       const pct = toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm) + toNum(it.persenDiskon)
         + toNum(it.persenDp) + toNum(it.persenListingFee) + toNum(it.persenEntertain);
       budgetSum += est * pct;

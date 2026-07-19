@@ -3,6 +3,7 @@
 import { useState, useTransition, useMemo, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
@@ -98,6 +99,22 @@ function hargaST(product: Product): number {
   const hna      = parseFloat(product.hna) || 0;
   const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
   return hna / konversi;
+}
+
+// Per-product override with a doctor-level default, falling back to 1 only when
+// NEITHER is set. Deliberately not `parseFloat(x) || fallback` — 0 is a valid,
+// intentional multiplier ("nilai PSSP dari produk ini = 0") but is falsy in JS,
+// so that pattern silently discarded an explicit 0 in favor of the fallback.
+function resolvePengaliNilaiR(entryValue: string, doctorValue: string): number {
+  if (entryValue.trim() !== "") {
+    const n = parseFloat(entryValue);
+    if (!isNaN(n)) return n;
+  }
+  if (doctorValue.trim() !== "") {
+    const n = parseFloat(doctorValue);
+    if (!isNaN(n)) return n;
+  }
+  return 1;
 }
 
 function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Product | null): number {
@@ -507,7 +524,7 @@ function ProdukEntryRow({
   const hna    = product ? hargaST(product) : 0;  // price per ST
   const lama   = dokterFields.lamaPeriode || 1;
   const nilaiRPersen = product?.nilaiRPersen ? parseFloat(product.nilaiRPersen) : null;
-  const pengaliNilaiR = parseFloat(entry.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
+  const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR, dokterFields.pengaliNilaiR);
   const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
@@ -1049,6 +1066,48 @@ function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
   );
 }
 
+// ─── ProdukFokusPanel ─────────────────────────────────────────────────────────
+// Focus/PM-recommended products (tier 0 for the doctor's spesialisasi) that
+// aren't in produkList yet — a nudge to add them before submitting, not a
+// requirement. Renders nothing if the spesialisasi has no mapped paket fokus.
+
+function ProdukFokusPanel({
+  spesialisasi,
+  produkList,
+  products,
+}: {
+  spesialisasi: string;
+  produkList: ProdukEntry[];
+  products: Product[];
+}) {
+  const matchedPakets = getPaketsBySpesialisasi(spesialisasi);
+  if (matchedPakets.length === 0) return null;
+
+  const addedKodeProduk = new Set(produkList.map((e) => e.kodeProduk).filter(Boolean));
+  const missing = products
+    .filter((p) => getProductTier(p.namaProduk, matchedPakets) === 0)
+    .filter((p) => !addedKodeProduk.has(p.kodeProduk))
+    .sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
+
+  if (missing.length === 0) return null;
+
+  return (
+    <div>
+      <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8 }}>
+        Produk Fokus PM Belum Diajukan
+      </p>
+      <ul className="space-y-1.5">
+        {missing.map((p) => (
+          <li key={p.kodeProduk} className="text-xs px-2 py-1.5 rounded"
+            style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" }}>
+            {p.namaProduk}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ─── PsspSidebar ─────────────────────────────────────────────────────────────
 // Fixed right-side panel showing PSSP history for the currently-selected doctor.
 // Freezes on scroll (position:fixed), collapsible to a thin tab.
@@ -1058,11 +1117,17 @@ function PsspSidebar({
   doctorName,
   onLabel,
   onHistory,
+  spesialisasi,
+  produkList,
+  products,
 }: {
   kodeCustomer: string;
   doctorName?: string;
   onLabel?: (label: string) => void;
   onHistory?: (rows: PsspKontrakSummary[]) => void;
+  spesialisasi?: string;
+  produkList?: ProdukEntry[];
+  products?: Product[];
 }) {
   const [open, setOpen] = useState(true);
   const [label, setLabel] = useState("");
@@ -1129,6 +1194,9 @@ function PsspSidebar({
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
+        {spesialisasi && produkList && products && (
+          <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} />
+        )}
         <PsspHistoryPanel kodeCustomer={kodeCustomer} onLabel={handleLabel} onHistory={onHistory} />
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
@@ -1194,7 +1262,7 @@ function AddPanel({
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = parseFloat(e.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
+    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR, dokterFields.pengaliNilaiR);
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -1220,7 +1288,7 @@ function AddPanel({
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pengaliNilaiR = parseFloat(entry.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
+      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR, dokterFields.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -1317,6 +1385,9 @@ function AddPanel({
           if (onSuccess) onSuccess(); else window.location.reload();
         }, 1200);
       } catch (err) {
+        // redirect() inside the server action (validation failures, auth checks) works by
+        // throwing — must re-throw so Next.js's own router handles it, not shown as an error.
+        if (isRedirectError(err)) throw err;
         setError(err instanceof Error ? err.message : "Gagal menyimpan.");
         setProgress(null);
       }
@@ -1525,6 +1596,9 @@ function AddPanel({
           doctorName={selectedCustomer.namaCustomer}
           onLabel={setLabelCustomer}
           onHistory={setPsspHistory}
+          spesialisasi={spesialisasi}
+          produkList={produkList}
+          products={products}
         />
       )}
     </div>
@@ -1777,6 +1851,9 @@ function AddProductPanel({
         }
         window.location.reload();
       } catch (err) {
+        // redirect() inside the server action (validation failures, auth checks) works by
+        // throwing — must re-throw so Next.js's own router handles it, not shown as an error.
+        if (isRedirectError(err)) throw err;
         setError(err instanceof Error ? err.message : "Gagal menyimpan.");
         setProgress(null);
       }
@@ -1870,6 +1947,9 @@ function AddProductPanel({
           doctorName={namaCust}
           onLabel={setLabelCustomer}
           onHistory={setPsspHistory}
+          spesialisasi={spesialisasi}
+          produkList={produkList}
+          products={products}
         />
       )}
     </div>
@@ -1959,7 +2039,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = parseFloat(e.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
+    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR, dokterFields.pengaliNilaiR);
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -1985,7 +2065,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pengaliNilaiR = parseFloat(entry.pengaliNilaiR) || parseFloat(dokterFields.pengaliNilaiR) || 1;
+      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR, dokterFields.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -2068,6 +2148,9 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
         }
         router.push(redirectTo);
       } catch (err) {
+        // redirect() inside the server action (validation failures, auth checks) works by
+        // throwing — must re-throw so Next.js's own router handles it, not shown as an error.
+        if (isRedirectError(err)) throw err;
         setError(err instanceof Error ? err.message : "Gagal menyimpan.");
         setProgress(null);
       }
@@ -2224,6 +2307,9 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           doctorName={namaCust}
           onLabel={setLabelCustomer}
           onHistory={setPsspHistory}
+          spesialisasi={spesialisasi}
+          produkList={produkList}
+          products={products}
         />
       )}
     </div>
@@ -2271,6 +2357,7 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
         await deleteLineItemAction(poaId, itemId);
         setItems((prev) => prev.filter((li) => li.id !== itemId));
       } catch (err) {
+        if (isRedirectError(err)) throw err;
         setError(err instanceof Error ? err.message : "Gagal menghapus.");
       }
     });

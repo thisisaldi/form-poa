@@ -53,8 +53,9 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
   })();
   const pengaliNilaiR = (() => {
+    // 0 is a valid, intentional multiplier here (not "unset") — only NaN maps to null.
     const v = parseFloat(formData.get("pengaliNilaiR") as string);
-    return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
+    return isNaN(v) ? null : new Prisma.Decimal(v.toFixed(4));
   })();
   const persenPsspDokter = parsePct("persenPsspDokter");
   const persenPsspKpdm   = parsePct("persenPsspKpdm");
@@ -207,8 +208,9 @@ export async function updateLineItemAction(
     return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
   })();
   const pengaliNilaiRU = (() => {
+    // 0 is a valid, intentional multiplier here (not "unset") — only NaN maps to null.
     const v = parseFloat(formData.get("pengaliNilaiR") as string);
-    return isNaN(v) || v === 0 ? null : new Prisma.Decimal(v.toFixed(4));
+    return isNaN(v) ? null : new Prisma.Decimal(v.toFixed(4));
   })();
   const persenPsspDokterU = parsePctU("persenPsspDokter");
   const persenPsspKpdmU   = parsePctU("persenPsspKpdm");

@@ -155,7 +155,7 @@ export async function GET(req: NextRequest) {
 
     for (const it of items) {
       const base  = toNum(it.rencanaTotalBiaya);
-      const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
+      const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
       const psspp = toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm);
       const disc  = toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee);
       const ent   = toNum(it.persenEntertain);
@@ -381,7 +381,7 @@ export async function GET(req: NextRequest) {
     if (!mr) continue;
 
     const base     = parseFloat(li.rencanaTotalBiaya.toString());
-    const pengaliNilaiR = toNum(li.pengaliNilaiR) || 1;
+    const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
     const psspPct  = toNum(li.persenPsspDokter) * pengaliNilaiR + toNum(li.persenPsspKpdm);
     const discPct  = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
     const entPct   = toNum(li.persenEntertain);

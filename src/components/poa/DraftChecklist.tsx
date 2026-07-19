@@ -76,7 +76,7 @@ function computeBiayaTercacah(item: PoaLineItem, quarterMonths: string[]): { est
   const estimasi = (totalBiaya / lama) * overlapCount;
 
   const persenPsspDokter = toNum(item.persenPsspDokter); // stored as a fraction, e.g. 0.05 for 5%
-  const pengaliNilaiR = toNum(item.pengaliNilaiR) || 1;
+  const pengaliNilaiR = item.pengaliNilaiR != null ? toNum(item.pengaliNilaiR) : 1;
   const nilaiPsspTotal = totalBiaya * persenPsspDokter * pengaliNilaiR;
   const nilaiPssp = (nilaiPsspTotal / lama) * overlapCount;
 
@@ -120,7 +120,7 @@ function computeStats(items: PoaLineItem[]) {
   let estimasiTotal = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
   for (const it of items) {
     const base = toNum(it.rencanaTotalBiaya);
-    const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
+    const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
     estimasiTotal  += base;
     psspTotal      += base * (toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm));
     discountTotal  += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
@@ -477,6 +477,20 @@ function DoctorRow({
     const t = computeBiayaTercacah(it, quarterMonths);
     return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
   }, { estimasi: 0, nilaiPssp: 0 });
+  // Nilai R Final = persenPsspDokter (the product's Nilai R) × Pengali Nilai R in effect
+  // for that line — weighted by each product's own rencanaTotalBiaya, since a doctor's
+  // products can carry different Nilai R% and different pengali overrides.
+  const nilaiRFinal = (() => {
+    let weighted = 0, total = 0;
+    for (const it of doctorItems) {
+      const base = toNum(it.rencanaTotalBiaya);
+      if (base <= 0) continue;
+      const pengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
+      weighted += base * toNum(it.persenPsspDokter) * pengali;
+      total += base;
+    }
+    return total > 0 ? (weighted / total) * 100 : null;
+  })();
   const isDokterBaru = !first.kodeCust;
   const contribPct = totalEstimasi > 0 ? (rowEst / totalEstimasi) * 100 : 0;
   const [isDeleting, startDelete] = useTransition();
@@ -547,6 +561,11 @@ function DoctorRow({
                 {rowTercacah.nilaiPssp > 0 && <> · {formatRpPssp(rowTercacah.nilaiPssp)}</>}
               </p>
             )}
+            {nilaiRFinal != null && (
+              <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                Nilai R Final: {nilaiRFinal.toFixed(2)}%
+              </p>
+            )}
             <button
               type="button"
               onClick={() => setDetailOpen((v) => !v)}
@@ -581,23 +600,31 @@ function DoctorRow({
                 <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Resep/Hr</th>
                 <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty</th>
                 <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi</th>
+                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Nilai R Final</th>
                 <th className="text-left px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Status</th>
               </tr>
             </thead>
             <tbody>
-              {doctorItems.map((it) => (
-                <tr key={it.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                  <td className="px-2.5 py-1.5" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
-                  <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "—"}</td>
-                  <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "—"}</td>
-                  <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text)" }}>
-                    {toNum(it.rencanaTotalBiaya) > 0 ? formatRp(toNum(it.rencanaTotalBiaya)) : "—"}
-                  </td>
-                  <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>
-                    {it.statusStandarisasi ? STATUS_STANDARISASI_LABELS[it.statusStandarisasi] ?? it.statusStandarisasi : "—"}
-                  </td>
-                </tr>
-              ))}
+              {doctorItems.map((it) => {
+                const itemPengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
+                const itemNilaiRFinal = toNum(it.persenPsspDokter) * itemPengali * 100;
+                return (
+                  <tr key={it.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <td className="px-2.5 py-1.5" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
+                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "—"}</td>
+                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "—"}</td>
+                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text)" }}>
+                      {toNum(it.rencanaTotalBiaya) > 0 ? formatRp(toNum(it.rencanaTotalBiaya)) : "—"}
+                    </td>
+                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text)" }}>
+                      {it.persenPsspDokter != null ? `${itemNilaiRFinal.toFixed(2)}%` : "—"}
+                    </td>
+                    <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>
+                      {it.statusStandarisasi ? STATUS_STANDARISASI_LABELS[it.statusStandarisasi] ?? it.statusStandarisasi : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

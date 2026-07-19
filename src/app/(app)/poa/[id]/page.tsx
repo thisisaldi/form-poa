@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DraftChecklist } from "@/components/poa/DraftChecklist";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
-import { computeActivePsspStats } from "@/lib/activePssp";
+import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -75,12 +75,34 @@ export default async function PoaDetailPage({
     activePssp = await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI));
   }
 
+  // Quarterly unit-quantity target per focus product for the MR's SM territory
+  // (from the same engine the NSM/Admin "Simulasi Target Produk" page uses) —
+  // only meaningful for a real "YYYY-Q#" period and a resolvable SM in the org chain.
+  let focusProductTargets: { kodeProduk: string; namaProduk: string; quarterlyTargetQty: number }[] = [];
+  if (/^\d{4}-Q[1-4]$/.test(poa.period)) {
+    const ownerWithChain = await prisma.user.findUnique({
+      where: { nip: poa.ownerId },
+      select: { reportsTo: { select: { nipAtasan: true } } },
+    });
+    const smNip = ownerWithChain?.reportsTo?.nipAtasan ?? null;
+    if (smNip) {
+      const summary = await computeFocusProductTargetsSummary(poa.period);
+      focusProductTargets = summary.products
+        .map((p) => ({
+          kodeProduk: p.kodeProduk,
+          namaProduk: p.namaProduk,
+          quarterlyTargetQty: p.territories.find((t) => t.smNip === smNip)?.quarterlyTargetQty ?? 0,
+        }))
+        .sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
+    }
+  }
+
   // Aggregate stats
   const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
   let estimasiTotal = 0, budgetWeighted = 0;
   for (const it of allItems) {
     const base = toNum(it.rencanaTotalBiaya);
-    const pengaliNilaiR = toNum(it.pengaliNilaiR) || 1;
+    const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
     estimasiTotal += base;
     budgetWeighted += base * (
       toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm) +
@@ -88,10 +110,9 @@ export default async function PoaDetailPage({
       toNum(it.persenListingFee) + toNum(it.persenEntertain)
     );
   }
-  const aktifPssp   = computeActivePsspStats(activePssp);
   const target      = poa.target ? parseFloat(poa.target.toString()) : null;
   const ratioEst    = target && target > 0 ? (estimasiTotal / target) * 100 : null;
-  const pctBudget   = estimasiTotal > 0 ? ((budgetWeighted + aktifPssp.nilaiTotal) / estimasiTotal) * 100 : null;
+  const pctBudget   = estimasiTotal > 0 ? (budgetWeighted / estimasiTotal) * 100 : null;
   const budgetOver  = pctBudget != null && pctBudget > 42.5;
   const budgetWarn  = pctBudget != null && pctBudget > 38 && !budgetOver;
 
@@ -175,6 +196,39 @@ export default async function PoaDetailPage({
           selectable={isMR}
           activePssp={activePssp}
         />
+      )}
+
+      {/* Target Produk Fokus — quarterly unit-quantity target per focus product for this MR's SM territory */}
+      {focusProductTargets.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Target Produk Fokus (Kuartal Ini)</CardTitle>
+          </CardHeader>
+          <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
+            Target kuantitas per produk fokus untuk territory SM dari MR ini, {poa.period} —
+            dari mesin simulasi target yang sama dengan halaman Admin.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+                  <th className="text-left py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Produk Fokus</th>
+                  <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Target Unit (Kuartal)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {focusProductTargets.map((p) => (
+                  <tr key={p.kodeProduk} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                    <td className="py-1.5 pr-3" style={{ color: "var(--color-text)" }}>{p.namaProduk}</td>
+                    <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text)" }}>
+                      {Math.round(p.quarterlyTargetQty).toLocaleString("id-ID")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       {/* Actions — approver only (MR submit is inside DraftChecklist) */}

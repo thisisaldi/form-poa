@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import type { PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getPendingActionFilter } from "@/lib/authz";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { ApprovalsChecklist } from "@/components/poa/ApprovalsChecklist";
+import { ApprovalsChecklist, type PendingPoaRow } from "@/components/poa/ApprovalsChecklist";
+import { getActivePsspByCustomers } from "@/app/actions/customer";
 
 export const metadata = { title: "Persetujuan · Form POA" };
 
@@ -26,6 +28,12 @@ export default async function ApprovalsPage() {
     },
     orderBy: { updatedAt: "asc" },
   });
+
+  const activePssp = await getActivePsspByCustomers(
+    (pending as PendingPoaRow[])
+      .flatMap((p) => p.items.map((it: PoaLineItem) => it.kodeCust))
+      .filter((v: string | null): v is string => !!v)
+  );
 
   return (
     <div className="space-y-5">
@@ -48,7 +56,7 @@ export default async function ApprovalsPage() {
           </div>
         </Card>
       ) : (
-        <ApprovalsChecklist pending={pending} />
+        <ApprovalsChecklist pending={pending} activePssp={activePssp} />
       )}
     </div>
   );
