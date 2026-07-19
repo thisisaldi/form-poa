@@ -21,6 +21,13 @@ const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   TIDAK_TAHU: "Tidak Tahu",
 };
 
+const JENIS_PSSP_LABELS: Record<string, string> = {
+  PSSP: "PSSP",
+  PSSP_RETENSI: "PSSP Retensi",
+  PSSP_PEREMAJAAN: "PSSP Peremajaan",
+  PSSP_PERPANJANGAN: "PSSP Perpanjangan",
+};
+
 
 interface OutletOption { kodePI: string; namaOutlet: string; groupRS?: string | null }
 
@@ -62,6 +69,7 @@ interface ProdukEntry {
   qtyProdukResep: string;
   produkKompetitor: string;  // per produk
   statusStandarisasi: string;
+  jenisPssp: string;
   persenPsspDokter: string;  // % as 0-100
   persenPsspKpdm: string;
   persenDiskon: string;
@@ -77,7 +85,7 @@ function emptyProdukEntry(): ProdukEntry {
   return {
     uid: Math.random().toString(36).slice(2),
     kodeProduk: "", jumlahResepHari: "", qtyProdukResep: "",
-    produkKompetitor: "", statusStandarisasi: "",
+    produkKompetitor: "", statusStandarisasi: "", jenisPssp: "",
     // 0 until a product is picked — then populated with dummy defaults / auto-computed from DB
     persenPsspDokter: "", persenPsspKpdm: "0",
     persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "0",
@@ -472,7 +480,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
 // ─── buildProductOptions ────────────────────────────────────────────────────
 // Shared product-picker options builder — tiers by spesialisasi match, tags paket fokus.
 
-function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, string>, psspHistory?: PsspKontrakSummary[]): ComboboxOption[] {
+function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, { kriteriaBaru: string; kategori: string }>, psspHistory?: PsspKontrakSummary[]): ComboboxOption[] {
   const sorted = spesialisasi
     ? sortProductsBySpesialisasi(products, spesialisasi)
     : products;
@@ -482,14 +490,22 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     const allPakets = getAllPakets(p.namaProduk);
     const relevantPaket = allPakets.find((pk) => matchedPakets.includes(pk)) ?? allPakets[0] ?? null;
     const tier = getProductTier(p.namaProduk, matchedPakets);
-    const kriteria = kriteriaMap?.get(p.kodeProduk);
-    const tagColor: "blue" | "yellow" | "red" | undefined = kriteria?.startsWith("Produk Sudah Terstandarisasi")
+    const kriteriaRow = kriteriaMap?.get(p.kodeProduk);
+    const kriteria = kriteriaRow?.kriteriaBaru;
+    // Low Hanging Fruit (kategori field, distinct from kriteriaBaru) = easy-win candidate.
+    // Color reflects whether there's sales history, per kriteriaBaru's own
+    // "... - Ada Sales" / "... - Tidak Ada Sales" suffix: Oren = ada sales, Kuning = belum.
+    const isLowHangingFruit = kriteriaRow?.kategori === "Low Hanging Fruit";
+    const tagColor: "blue" | "yellow" | "red" | "orange" | undefined = isLowHangingFruit
+      ? (kriteria?.includes("Tidak Ada Sales") ? "yellow" : "orange")
+      : kriteria?.startsWith("Produk Sudah Terstandarisasi")
       ? "yellow"
       : kriteria?.startsWith("Produk Kompetisi Rendah")
       ? "blue"
       : kriteria?.startsWith("Produk Kompetisi Tinggi")
       ? "red"
       : undefined;
+    const tag = isLowHangingFruit ? "Low Hanging Fruit" : kriteria;
     const paketLabel = relevantPaket ?? p.namaGroupBrand;
     // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
     // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).
@@ -505,7 +521,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
       sublabel: `${p.kodeProduk} · ${paketLabel}`,
       group: spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya",
       accent: tier === 0,
-      tag: kriteria,
+      tag,
       tagColor,
       tag2,
       tag2Color,
@@ -536,8 +552,8 @@ function ProdukEntryRow({
   showError?: boolean;
 }) {
   const kriteriaMap = useMemo(() => {
-    const m = new Map<string, string>(); // kodeProduk → kriteriaBaru
-    for (const k of kriteriaList ?? []) m.set(k.kodeProduk, k.kriteriaBaru);
+    const m = new Map<string, { kriteriaBaru: string; kategori: string }>(); // kodeProduk → kriteria
+    for (const k of kriteriaList ?? []) m.set(k.kodeProduk, { kriteriaBaru: k.kriteriaBaru, kategori: k.kategori });
     return m;
   }, [kriteriaList]);
 
@@ -598,7 +614,7 @@ function ProdukEntryRow({
               onChange={(v) => {
                 const prod = products.find((p) => p.kodeProduk === v);
                 const nr = prod?.nilaiRPersen ? parseFloat(prod.nilaiRPersen) : null;
-                const kriteria = kriteriaMap.get(v);
+                const kriteria = kriteriaMap.get(v)?.kriteriaBaru;
                 const autoStandarisasi = kriteria
                   ? (kriteria.startsWith("Produk Sudah Terstandarisasi") ? "SUDAH_STANDARISASI" : "BELUM_STANDARISASI")
                   : entry.statusStandarisasi;
@@ -651,7 +667,7 @@ function ProdukEntryRow({
       </label>
 
       {/* Per-product inputs */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
         <label className="flex flex-col gap-1" {...(resepErr ? { "data-field-err": "true" } : {})}>
           <span className="text-xs" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Pasien Baru / Hari<Req /></span>
           <div style={resepErr ? ERR_RING : undefined}>
@@ -683,6 +699,17 @@ function ProdukEntryRow({
             className="input-field text-xs">
             <option value="">— Pilih —</option>
             {Object.entries(STATUS_STANDARISASI_LABELS).map(([v, l]) => (
+              <option key={v} value={v}>{l}</option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jenis PSSP<Opt /></span>
+          <select value={entry.jenisPssp}
+            onChange={(e) => onChange({ jenisPssp: e.target.value })}
+            className="input-field text-xs">
+            <option value="">— Pilih —</option>
+            {Object.entries(JENIS_PSSP_LABELS).map(([v, l]) => (
               <option key={v} value={v}>{l}</option>
             ))}
           </select>
@@ -1385,6 +1412,7 @@ function AddPanel({
     fd.set("produkKompetitor", entry.produkKompetitor);
     fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
+    fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("persenDiskon", entry.persenDiskon);
@@ -1864,6 +1892,7 @@ function AddProductPanel({
     fd.set("produkKompetitor", entry.produkKompetitor);
     fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
+    fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("persenDiskon", entry.persenDiskon);
@@ -2031,6 +2060,7 @@ function produkEntryFromItem(
     qtyProdukResep: item.qtyProdukResep?.toString() ?? "",
     produkKompetitor: item.produkKompetitor ?? "",
     statusStandarisasi: item.statusStandarisasi ?? "",
+    jenisPssp: item.jenisPssp ?? "",
     persenPsspDokter: p?.nilaiRPersen
       ? (parseFloat(p.nilaiRPersen) * 100).toFixed(2)
       : item.persenPsspDokter ? (parseFloat(item.persenPsspDokter.toString()) * 100).toFixed(2) : "",
@@ -2164,6 +2194,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("produkKompetitor", entry.produkKompetitor);
     fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
+    fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("persenDiskon", entry.persenDiskon);

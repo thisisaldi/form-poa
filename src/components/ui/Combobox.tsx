@@ -13,16 +13,17 @@ export interface ComboboxOption {
   /** Short badge shown inline next to the label (e.g. group RS name). */
   tag?: string;
   /** Badge color variant — defaults to blue. */
-  tagColor?: "blue" | "yellow" | "red" | "green";
+  tagColor?: "blue" | "yellow" | "red" | "green" | "orange";
   /** Second, independent badge (e.g. PSSP history) — shown alongside `tag`, not instead of it. */
   tag2?: string;
-  tag2Color?: "blue" | "yellow" | "red" | "green";
+  tag2Color?: "blue" | "yellow" | "red" | "green" | "orange";
 }
 
 const TAG_COLORS = {
   blue: { bg: "var(--color-blue-light)", fg: "var(--color-blue)" },
   yellow: { bg: "var(--color-warning-bg)", fg: "var(--color-warning)" },
   red: { bg: "var(--color-red-light)", fg: "var(--color-red)" },
+  orange: { bg: "var(--color-orange-light, #ffedd5)", fg: "var(--color-orange, #ea580c)" },
   green: { bg: "var(--color-green-light, #dcfce7)", fg: "var(--color-success, #16a34a)" },
 } as const;
 

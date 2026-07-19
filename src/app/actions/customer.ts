@@ -305,6 +305,8 @@ export interface KriteriaByOutlet {
   kodeProduk: string;
   paket: string;
   kriteriaBaru: string;
+  /** "Low Hanging Fruit" | "Blue Ocean" | "Red Ocean" */
+  kategori: string;
 }
 
 /** Returns OutletProductKriteria for a given outlet — used to annotate the product dropdown. */
@@ -312,7 +314,7 @@ export async function getKriteriaByOutlet(kodePI: string): Promise<KriteriaByOut
   if (!kodePI) return [];
   const rows = await prisma.outletProductKriteria.findMany({
     where: { kodePI },
-    select: { kodeProduk: true, paket: true, kriteriaBaru: true },
+    select: { kodeProduk: true, paket: true, kriteriaBaru: true, kategori: true },
   });
   return rows as KriteriaByOutlet[];
 }

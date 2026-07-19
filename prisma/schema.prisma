@@ -44,6 +44,13 @@ enum StatusStandarisasi {
   TIDAK_TAHU
 }
 
+enum JenisPssp {
+  PSSP
+  PSSP_RETENSI
+  PSSP_PEREMAJAAN
+  PSSP_PERPANJANGAN
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
@@ -166,6 +173,7 @@ model PoaLineItem {
   produkKompetitor      String?
   kriteriaProduk        String?
   statusStandarisasi    StatusStandarisasi?
+  jenisPssp             JenisPssp?
 
   // tentative fields (C20-C23) — nullable
   hariKerjaBulan   Int?

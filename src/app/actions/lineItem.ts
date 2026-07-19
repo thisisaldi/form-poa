@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { canEdit } from "@/lib/authz";
 import { flagRevisionOnEdit } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
-import { StatusStandarisasi, Prisma } from "@prisma/client";
+import { StatusStandarisasi, JenisPssp, Prisma } from "@prisma/client";
 
 async function requireEditorOnPoa(poaId: string) {
   const session = await getCurrentUser();
@@ -40,6 +40,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
   const labelCustomer = (formData.get("labelCustomer") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
+  const jenisPsspRaw = formData.get("jenisPssp") as string | null;
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
@@ -119,6 +120,10 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     statusStandarisasiRaw && Object.values(StatusStandarisasi).includes(statusStandarisasiRaw as StatusStandarisasi)
       ? (statusStandarisasiRaw as StatusStandarisasi)
       : null;
+  const jenisPssp =
+    jenisPsspRaw && Object.values(JenisPssp).includes(jenisPsspRaw as JenisPssp)
+      ? (jenisPsspRaw as JenisPssp)
+      : null;
 
   await prisma.poaLineItem.create({
     data: {
@@ -146,6 +151,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       produkKompetitor,
       labelCustomer,
       statusStandarisasi,
+      jenisPssp,
       lamaPeriode: lamaPeriodeRaw,
       periodeAwal,
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),
@@ -179,6 +185,7 @@ export async function updateLineItemAction(
   const rencanaVisitMinggu = parseInt(formData.get("rencanaVisitMinggu") as string, 10) || 0;
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
+  const jenisPsspRaw = formData.get("jenisPssp") as string | null;
   const lamaPeriodeRaw = parseInt(formData.get("lamaPeriode") as string, 10);
   const periodeAwal = (formData.get("periodeAwal") as string | null)?.trim() ?? "";
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
@@ -223,6 +230,10 @@ export async function updateLineItemAction(
     statusStandarisasiRaw && Object.values(StatusStandarisasi).includes(statusStandarisasiRaw as StatusStandarisasi)
       ? (statusStandarisasiRaw as StatusStandarisasi)
       : null;
+  const jenisPssp =
+    jenisPsspRaw && Object.values(JenisPssp).includes(jenisPsspRaw as JenisPssp)
+      ? (jenisPsspRaw as JenisPssp)
+      : null;
 
   await prisma.poaLineItem.update({
     where: { id: lineItemId },
@@ -241,6 +252,7 @@ export async function updateLineItemAction(
       } : {}),
       produkKompetitor,
       statusStandarisasi,
+      jenisPssp,
       lamaPeriode: isNaN(lamaPeriodeRaw) ? undefined : lamaPeriodeRaw,
       periodeAwal: periodeAwal || undefined,
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),
