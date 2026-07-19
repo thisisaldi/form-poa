@@ -10,6 +10,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DraftChecklist } from "@/components/poa/DraftChecklist";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
+import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -110,6 +111,26 @@ export default async function PoaDetailPage({
       toNum(it.persenListingFee) + toNum(it.persenEntertain)
     );
   }
+
+  // Estimasi Produk Fokus — same total, filtered to items whose product is tier-0
+  // (focus) for that item's own spesialisasi (a POA can span multiple doctors/spesialisasi).
+  let estimasiFokusTotal = 0, produkFokusCount = 0;
+  const paketCache = new Map<string, string[]>();
+  for (const it of allItems) {
+    const base = toNum(it.rencanaTotalBiaya);
+    if (base <= 0) continue;
+    let pakets = paketCache.get(it.spesialisasi);
+    if (!pakets) {
+      pakets = getPaketsBySpesialisasi(it.spesialisasi);
+      paketCache.set(it.spesialisasi, pakets);
+    }
+    if (pakets.length === 0) continue;
+    if (getProductTier(it.namaProduk, pakets) === 0) {
+      estimasiFokusTotal += base;
+      produkFokusCount++;
+    }
+  }
+
   const target      = poa.target ? parseFloat(poa.target.toString()) : null;
   const ratioEst    = target && target > 0 ? (estimasiTotal / target) * 100 : null;
   const pctBudget   = estimasiTotal > 0 ? (budgetWeighted / estimasiTotal) * 100 : null;
@@ -144,6 +165,14 @@ export default async function PoaDetailPage({
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi</p>
                 <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
                   {estimasiTotal > 0 ? formatRp(estimasiTotal) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Fokus</p>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+                  {estimasiFokusTotal > 0
+                    ? <>{formatRp(estimasiFokusTotal)} <span style={{ color: "var(--color-text-faint)", fontWeight: 400 }}>({produkFokusCount})</span></>
+                    : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                 </p>
               </div>
               <div>

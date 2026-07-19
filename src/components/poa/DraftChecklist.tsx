@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
@@ -663,6 +664,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   // Approve & Teruskan as usual. Either way, we don't want the per-row
   // Edit/Hapus controls exposed by default.
   const [editUnlocked, setEditUnlocked] = useState(false);
+  const [showEditConfirm, setShowEditConfirm] = useState(false);
   const canEditNow = !!userCanEdit && (!!isDraft || editUnlocked);
 
   function handleUnlockEdit() {
@@ -670,9 +672,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
       setEditUnlocked(true);
       return;
     }
-    if (confirm("Mengedit POA yang sudah diajukan akan mengembalikan statusnya ke Revisi dan perlu diajukan ulang dari awal. Lanjutkan?")) {
-      setEditUnlocked(true);
-    }
+    setShowEditConfirm(true);
   }
 
   const groups = useMemo(() => {
@@ -859,6 +859,17 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           activePssp={activePssp}
         />
       </div>
+
+      <ConfirmDialog
+        open={showEditConfirm}
+        tone="warning"
+        title="Edit rencana yang sudah diajukan?"
+        message="Mengedit POA yang sudah diajukan akan mengembalikan statusnya ke Revisi dan perlu diajukan ulang dari awal. Lanjutkan?"
+        confirmLabel="Ya, Edit"
+        cancelLabel="Batal"
+        onConfirm={() => { setEditUnlocked(true); setShowEditConfirm(false); }}
+        onCancel={() => setShowEditConfirm(false)}
+      />
     </div>
   );
 }

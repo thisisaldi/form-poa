@@ -5,6 +5,7 @@ import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit } fr
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { NotReadyButton } from "@/components/ui/NotReadyButton";
 import type { Role, PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
 
 export const metadata = { title: "Dashboard · Form POA" };
@@ -217,7 +218,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
         <div className="flex items-center gap-2">
           {isMR && (
-            <Link href="/customers/new"><Button variant="secondary" size="sm">+ Daftar User Baru</Button></Link>
+            <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
           )}
           {isMR && eligible && (
             <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>

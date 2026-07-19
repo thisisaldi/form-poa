@@ -162,6 +162,27 @@ function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: str
   return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
 }
 
+// "Pernah di PSSP" product tag: pelunasan % across PSSP rows for this product (already
+// scoped to the selected doctor+outlet via kdCust) that were active at any point in the
+// last 3 months — i.e. prdAkhir falls within that window. Matches computeOldEstPerMonth's
+// name-matching convention (Procode ≠ Item Kode across systems).
+function computePelunasan3Bln(history: PsspKontrakSummary[], namaProduk: string): number | null {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth() + 1; // 1-12
+  const threeMonthsAgoY = m > 3 ? y : y - 1;
+  const threeMonthsAgoM = m > 3 ? m - 3 : m - 3 + 12;
+  const threeMonthsAgoPeriod = `${threeMonthsAgoY}${String(threeMonthsAgoM).padStart(2, "0")}`;
+
+  const norm = namaProduk.toLowerCase().trim();
+  const rows = history.filter(
+    (r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir >= threeMonthsAgoPeriod
+  );
+  if (rows.length === 0) return null;
+  const sumEst = rows.reduce((s, r) => s + r.estBaris, 0);
+  const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
+  return sumEst > 0 ? Math.round((sumLunas / sumEst) * 100) : null;
+}
+
 function computeLabelCustomer(history: PsspKontrakSummary[]): string {
   if (history.length === 0) return "Dokter Baru";
   const now = new Date();
@@ -451,7 +472,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
 // ─── buildProductOptions ────────────────────────────────────────────────────
 // Shared product-picker options builder — tiers by spesialisasi match, tags paket fokus.
 
-function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, string>): ComboboxOption[] {
+function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, string>, psspHistory?: PsspKontrakSummary[]): ComboboxOption[] {
   const sorted = spesialisasi
     ? sortProductsBySpesialisasi(products, spesialisasi)
     : products;
@@ -470,6 +491,14 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
       ? "red"
       : undefined;
     const paketLabel = relevantPaket ?? p.namaGroupBrand;
+    // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
+    // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).
+    const pelunasan3Bln = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
+    const tag2 = pelunasan3Bln != null ? `Pernah PSSP · Pelunasan 3 Bln ${pelunasan3Bln}%` : undefined;
+    const tag2Color: "green" | "yellow" | "red" | undefined = pelunasan3Bln == null ? undefined
+      : pelunasan3Bln >= 80 ? "green"
+      : pelunasan3Bln >= 40 ? "yellow"
+      : "red";
     return {
       value: p.kodeProduk,
       label: p.namaProduk,
@@ -478,6 +507,8 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
       accent: tier === 0,
       tag: kriteria,
       tagColor,
+      tag2,
+      tag2Color,
     };
   });
 }
@@ -511,10 +542,10 @@ function ProdukEntryRow({
   }, [kriteriaList]);
 
   const productOptions = useMemo(() => {
-    const opts = buildProductOptions(products, spesialisasi, kriteriaMap);
+    const opts = buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory);
     if (!usedKodeProduk || usedKodeProduk.size === 0) return opts;
     return opts.filter((o) => o.value === entry.kodeProduk || !usedKodeProduk.has(o.value));
-  }, [products, spesialisasi, kriteriaMap, usedKodeProduk, entry.kodeProduk]);
+  }, [products, spesialisasi, kriteriaMap, usedKodeProduk, entry.kodeProduk, psspHistory]);
 
   const product = useMemo(() => products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null, [products, entry.kodeProduk]);
 
@@ -1257,6 +1288,20 @@ function AddPanel({
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
+  // Same total, filtered to products that are tier-0 (focus) for this doctor's spesialisasi.
+  const totalEstimasiFokus = useMemo(() => {
+    const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
+    if (matchedPakets.length === 0) return { total: 0, count: 0 };
+    let total = 0, count = 0;
+    for (const e of produkList) {
+      const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
+      if (!p || getProductTier(p.namaProduk, matchedPakets) !== 0) continue;
+      total += computeEstimasi(e, dokterFields, p);
+      count++;
+    }
+    return { total, count };
+  }, [produkList, dokterFields, products, spesialisasi]);
+
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
     if (!p) return sum;
@@ -1526,6 +1571,13 @@ function AddPanel({
                 <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEstimasi)}</div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{formatRp(Math.round(newPerMonth))}/bln</div>
               </div>
+              {totalEstimasiFokus.count > 0 && (
+                <div>
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Fokus</div>
+                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalEstimasiFokus.total)}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{totalEstimasiFokus.count} produk fokus</div>
+                </div>
+              )}
               {totalNilaiPSSP > 0 && (
                 <div>
                   <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Nilai PSSP</div>
@@ -2034,6 +2086,20 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
+  // Same total, filtered to products that are tier-0 (focus) for this doctor's spesialisasi.
+  const totalEstimasiFokus = useMemo(() => {
+    const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
+    if (matchedPakets.length === 0) return { total: 0, count: 0 };
+    let total = 0, count = 0;
+    for (const e of produkList) {
+      const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
+      if (!p || getProductTier(p.namaProduk, matchedPakets) !== 0) continue;
+      total += computeEstimasi(e, dokterFields, p);
+      count++;
+    }
+    return { total, count };
+  }, [produkList, dokterFields, products, spesialisasi]);
+
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
     if (!p) return sum;
@@ -2239,6 +2305,13 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEstimasi)}</div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{formatRp(Math.round(newPerMonth))}/bln</div>
               </div>
+              {totalEstimasiFokus.count > 0 && (
+                <div>
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Fokus</div>
+                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalEstimasiFokus.total)}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{totalEstimasiFokus.count} produk fokus</div>
+                </div>
+              )}
               {totalNilaiPSSP > 0 && (
                 <div>
                   <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Nilai PSSP</div>
