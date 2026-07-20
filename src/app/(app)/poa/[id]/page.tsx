@@ -202,31 +202,6 @@ export default async function PoaDetailPage({
         </a>
       </div>
 
-      {/* Checklist + stats panel */}
-      {allItems.length === 0 ? (
-        <Card>
-          <p className="text-sm py-4" style={{ color: "var(--color-text-muted)" }}>
-            {userCanEdit
-              ? <a href={`/poa/${id}/edit`} style={{ color: "var(--color-blue)" }}>+ Tambah rencana pertama</a>
-              : "Belum ada baris."}
-          </p>
-        </Card>
-      ) : (
-        <DraftChecklist
-          items={allItems}
-          poaId={id}
-          poaPeriod={poa.period}
-          poaStatus={poa.status}
-          poaVersion={poa.version}
-          showSubmit={userCanEdit && isMR && (isDraft || isRevisi)}
-          userCanEdit={userCanEdit}
-          isDraft={isDraft}
-          willTriggerRevisi={isMR}
-          selectable={isMR}
-          activePssp={activePssp}
-        />
-      )}
-
       {/* Target Produk Fokus — quarterly unit-quantity target per focus product for this MR's SM territory */}
       {focusProductTargets.length > 0 && (
         <Card>
@@ -258,6 +233,31 @@ export default async function PoaDetailPage({
             </table>
           </div>
         </Card>
+      )}
+
+      {/* Checklist + stats panel */}
+      {allItems.length === 0 ? (
+        <Card>
+          <p className="text-sm py-4" style={{ color: "var(--color-text-muted)" }}>
+            {userCanEdit
+              ? <a href={`/poa/${id}/edit`} style={{ color: "var(--color-blue)" }}>+ Tambah rencana pertama</a>
+              : "Belum ada baris."}
+          </p>
+        </Card>
+      ) : (
+        <DraftChecklist
+          items={allItems}
+          poaId={id}
+          poaPeriod={poa.period}
+          poaStatus={poa.status}
+          poaVersion={poa.version}
+          showSubmit={userCanEdit && isMR && (isDraft || isRevisi)}
+          userCanEdit={userCanEdit}
+          isDraft={isDraft}
+          willTriggerRevisi={isMR}
+          selectable={isMR}
+          activePssp={activePssp}
+        />
       )}
 
       {/* Actions — approver only (MR submit is inside DraftChecklist) */}

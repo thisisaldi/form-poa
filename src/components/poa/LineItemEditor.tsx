@@ -667,7 +667,7 @@ function ProdukEntryRow({
       </label>
 
       {/* Per-product inputs */}
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <label className="flex flex-col gap-1" {...(resepErr ? { "data-field-err": "true" } : {})}>
           <span className="text-xs" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Pasien Baru / Hari<Req /></span>
           <div style={resepErr ? ERR_RING : undefined}>
@@ -703,17 +703,21 @@ function ProdukEntryRow({
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jenis PSSP<Opt /></span>
-          <select value={entry.jenisPssp}
-            onChange={(e) => onChange({ jenisPssp: e.target.value })}
-            className="input-field text-xs">
-            <option value="">— Pilih —</option>
-            {Object.entries(JENIS_PSSP_LABELS).map(([v, l]) => (
-              <option key={v} value={v}>{l}</option>
-            ))}
-          </select>
-        </label>
+        {/* Jenis PSSP — hidden for now per request (excel/notes - 19 07 2026.txt, poin 1),
+            field + logic kept intact for a quick re-enable later. */}
+        {false && (
+          <label className="flex flex-col gap-1">
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jenis PSSP<Opt /></span>
+            <select value={entry.jenisPssp}
+              onChange={(e) => onChange({ jenisPssp: e.target.value })}
+              className="input-field text-xs">
+              <option value="">— Pilih —</option>
+              {Object.entries(JENIS_PSSP_LABELS).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Praktek<Opt /></span>
           <UnitInput
@@ -722,17 +726,10 @@ function ProdukEntryRow({
             unit="Hari"
             placeholder={dokterFields.hariKerjaBulan || "default"} />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R<Opt /></span>
-          <UnitInput
-            value={entry.pengaliNilaiR}
-            onChange={(v) => onChange({ pengaliNilaiR: v })}
-            unit="x"
-            placeholder={dokterFields.pengaliNilaiR || "1"} />
-        </label>
       </div>
 
-      {/* Estimasi Sales card */}
+      {/* Estimasi Sales + Nilai PSSP — side by side, more compact */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
       {perBulan != null && (
         <div className="rounded-lg border px-3 py-2.5 space-y-2"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
@@ -834,9 +831,10 @@ function ProdukEntryRow({
           </div>
         </div>
       )}
+      </div>
 
       {/* Budget % per produk */}
-      <BudgetFieldsRow entry={entry} onChange={onChange} pengaliNilaiR={pengaliNilaiR} />
+      <BudgetFieldsRow entry={entry} onChange={onChange} pengaliNilaiR={pengaliNilaiR} dokterDefaultPengaliNilaiR={dokterFields.pengaliNilaiR} />
     </div>
   );
 }
@@ -847,10 +845,12 @@ function BudgetFieldsRow({
   entry,
   onChange,
   pengaliNilaiR,
+  dokterDefaultPengaliNilaiR,
 }: {
   entry: ProdukEntry;
   onChange: (patch: Partial<ProdukEntry>) => void;
   pengaliNilaiR: number;
+  dokterDefaultPengaliNilaiR: string;
 }) {
   const totalPct =
     (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR +
@@ -881,6 +881,14 @@ function BudgetFieldsRow({
           <div style={{ opacity: 0.6, cursor: "not-allowed" }}>
             <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
           </div>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R<Opt /></span>
+          <UnitInput
+            value={entry.pengaliNilaiR}
+            onChange={(v) => onChange({ pengaliNilaiR: v })}
+            unit="x"
+            placeholder={dokterDefaultPengaliNilaiR || "1"} />
         </label>
         {numInput("% PSSP KPDM", "persenPsspKpdm")}
         {numInput("% Diskon (DPL/DPF)", "persenDiskon")}
