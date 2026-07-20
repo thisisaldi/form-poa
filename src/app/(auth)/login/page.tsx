@@ -22,7 +22,7 @@ export default async function LoginPage(props: {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo.svg" alt="Pharos" className="mx-auto mb-5 h-10 w-auto" />
           <h1 className="text-xl font-semibold" style={{ color: "var(--color-text)" }}>
-            POA System
+            POA Hospital
           </h1>
           <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
             Masukkan NIP Anda untuk melanjutkan

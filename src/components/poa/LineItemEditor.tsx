@@ -733,13 +733,14 @@ function ProdukEntryRow({
               placeholder="Masukan Jumlah ST per resep" />
           </div>
           {qtyErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-          {product?.qtyPerRxPasien != null && (
-            <span className="text-xs" style={{ color: "var(--color-text-faint)" }} title={product.dosisKekuatanSediaan ?? undefined}>
-              Referensi: {product.qtyPerRxPasien} {product.satuanTerkecil ?? product.satuan}/resep
-              {product.lamaPemberianHari != null ? ` · ${product.lamaPemberianHari} hari` : ""}
-              {product.jumlahPemberianPerHari != null ? ` · ${product.jumlahPemberianPerHari}/hari` : ""}
-            </span>
-          )}
+          {/* Always rendered (even with no product picked yet) so this space is reserved
+              up front — text popping in/out as the product changes would otherwise shift
+              the fields below it. */}
+          <div className="text-xs mt-1 leading-tight" style={{ color: "var(--color-text-faint)" }} title={product?.dosisKekuatanSediaan ?? undefined}>
+            <div className="font-medium">Referensi PM</div>
+            <div>Resep per Pasien = {product?.qtyPerRxPasien != null && product?.lamaPemberianHari != null ? `${product.qtyPerRxPasien} / ${product.lamaPemberianHari}` : "—"}</div>
+            <div>Dosis per hari = {product?.jumlahPemberianPerHari != null ? `${product.jumlahPemberianPerHari} / hari` : "—"}</div>
+          </div>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Standarisasi<Opt /></span>

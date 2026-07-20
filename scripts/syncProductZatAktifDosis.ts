@@ -19,6 +19,16 @@
  *
  * Rows without a PROCOD value are category header rows — skipped.
  *
+ * PACKING → satuanTerkecil/konversiPembagi (07-20, per user request): PACKING text
+ * like "Box, 3 Strip @ 10 kapsul" means 1 SJ (box) = 3×10 = 30 of the innermost
+ * discrete dosage unit (here CAPSUL). Only parsed for a small, unambiguous
+ * vocabulary of countable dosage forms (tablet/kapsul/kaplet/supp/ovula/sachet) —
+ * liquid/weight units (mL, g, mg) and ampul/vial/botol-only mentions are left
+ * alone since the "true" satuanTerkecil for those depends on business pricing
+ * convention, not just packaging grammar. Only APPLIED when a product's
+ * satuanTerkecil is currently null — never overrides the authoritative values
+ * already synced from Kebutuhan Satuan Terkecil.xlsx (syncSatuanTerkecil.ts).
+ *
  * Run: npx tsx scripts/syncProductZatAktifDosis.ts [path-to-excel]
  * Default: internal/List Product pharos.xlsx
  */
@@ -43,6 +53,52 @@ function num(v: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
+const DISCRETE_UNIT_MAP: Record<string, string> = {
+  tablet: "TABLET", tab: "TABLET",
+  kapsul: "CAPSUL", capsul: "CAPSUL", kap: "CAPSUL",
+  kaplet: "CAPLET", caplet: "CAPLET",
+  supp: "SUPPOSITOR", suppositoria: "SUPPOSITOR",
+  ovula: "OVULA",
+  sachet: "SACHET",
+};
+
+function normalizeDiscreteUnit(raw: string): string | null {
+  const firstWord = raw.trim().match(/^[A-Za-z]+/)?.[0]?.toLowerCase() ?? "";
+  return DISCRETE_UNIT_MAP[firstWord] ?? null;
+}
+
+/**
+ * "Box, 3 Strip @ 10 kapsul" -> { satuanTerkecil: "CAPSUL", konversi: 30 }.
+ * Returns null for liquid/weight units or anything not matching a known
+ * discrete dosage form — those are left alone, not guessed at.
+ */
+function parsePackingToST(packing: string): { satuanTerkecil: string; konversi: number } | null {
+  const s = packing.trim();
+
+  // "N1 <container>? [@x×*] N2 <unit...>" — e.g. "Box, 3 Strip @ 10 kapsul"
+  const m = s.match(/(\d+)\s*[A-Za-z]*\s*[@x×*]\s*(\d+)\s*([A-Za-z' `]+)/i);
+  if (m) {
+    const unit = normalizeDiscreteUnit(m[3]);
+    if (unit) return { satuanTerkecil: unit, konversi: parseInt(m[1], 10) * parseInt(m[2], 10) };
+  }
+
+  // "isi N unit" — e.g. "1 Box isi 25 sachet"
+  const m2 = s.match(/isi\s*(\d+)\s*([A-Za-z]+)/i);
+  if (m2) {
+    const unit = normalizeDiscreteUnit(m2[2]);
+    if (unit) return { satuanTerkecil: unit, konversi: parseInt(m2[1], 10) };
+  }
+
+  // trailing "N unit" with no leading multiplier — e.g. a bare "5 tablet"
+  const m3 = s.match(/(\d+)\s*([A-Za-z]+)\s*$/);
+  if (m3) {
+    const unit = normalizeDiscreteUnit(m3[2]);
+    if (unit) return { satuanTerkecil: unit, konversi: parseInt(m3[1], 10) };
+  }
+
+  return null;
+}
+
 async function main() {
   const filePath = path.resolve(process.argv[2] ?? "internal/List Product pharos.xlsx");
   console.log(`Reading: ${filePath}\n`);
@@ -50,7 +106,7 @@ async function main() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
-  let updated = 0, notFound = 0, skipped = 0;
+  let updated = 0, notFound = 0, skipped = 0, stFilled = 0, stSkippedAmbiguous = 0;
   const notFoundCodes: string[] = [];
 
   for (const sheetName of SHEETS) {
@@ -71,7 +127,16 @@ async function main() {
       const packing = str(row.getCell(10).value);
       const indikasi = str(row.getCell(11).value);
 
-      const result = await prisma.product.updateMany({
+      const existing = await prisma.product.findUnique({ where: { kodeProduk }, select: { satuanTerkecil: true } });
+      if (!existing) { notFound++; notFoundCodes.push(`${kodeProduk} (${sheetName})`); continue; }
+
+      let stFromPacking: { satuanTerkecil: string; konversi: number } | null = null;
+      if (existing.satuanTerkecil == null && packing) {
+        stFromPacking = parsePackingToST(packing);
+        if (stFromPacking) stFilled++; else stSkippedAmbiguous++;
+      }
+
+      await prisma.product.update({
         where: { kodeProduk },
         data: {
           zatAktif,
@@ -82,11 +147,13 @@ async function main() {
           bentukSediaan,
           packing,
           indikasi,
+          ...(stFromPacking && {
+            satuanTerkecil: stFromPacking.satuanTerkecil,
+            konversiPembagi: new Prisma.Decimal(stFromPacking.konversi),
+          }),
         },
       });
-
-      if (result.count > 0) updated++;
-      else { notFound++; notFoundCodes.push(`${kodeProduk} (${sheetName})`); }
+      updated++;
     }
   }
 
@@ -94,6 +161,8 @@ async function main() {
   console.log(`   Updated       : ${updated}`);
   console.log(`   Not found in Product table: ${notFound}`);
   console.log(`   Skipped (category header rows): ${skipped}`);
+  console.log(`   Satuan Terkecil filled from PACKING (was null): ${stFilled}`);
+  console.log(`   Satuan Terkecil left null (PACKING ambiguous/liquid, was null): ${stSkippedAmbiguous}`);
   if (notFoundCodes.length > 0) console.log(`   Missing codes: ${notFoundCodes.join(", ")}`);
 
   await prisma.$disconnect();

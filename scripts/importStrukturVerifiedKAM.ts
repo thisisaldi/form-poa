@@ -12,8 +12,9 @@
  * NSMs have a single consistent NIP across their rows (verified before this
  * script was written) so no other override is needed.
  *
- * Role mapping mirrors the existing MSSQL org sync (src/lib/sync/orgStructureSync.ts):
- *   GM   → ignored (no equivalent Role in this app)
+ * Role mapping mirrors the existing MSSQL org sync (src/lib/sync/orgStructureSync.ts),
+ * plus GM (added 2026-07-20 so every NIP in the structure can log in):
+ *   GM   → GM,    reports to nobody tracked here (top of this file's hierarchy)
  *   NSM  → NSM,  reports to nobody tracked here
  *   SM   → SM,   reports to NSM
  *   ASM  → ASM,  reports to SM
@@ -87,7 +88,7 @@ interface OutletRow {
   asmNama: string | null; asmNip: string | null;
   spvNama: string | null; spvNip: string | null;
   mrNama: string | null; mrNip: string | null;
-  gmNama: string | null;
+  gmNama: string | null; gmNip: string | null;
 }
 
 async function main() {
@@ -122,6 +123,7 @@ async function main() {
       namaGT: clean(row.getCell(COL.namaGT).value),
       kategoriOutlet: clean(row.getCell(COL.kategoriOutlet).value),
       gmNama: clean(row.getCell(COL.gmNama).value),
+      gmNip: clean(row.getCell(COL.gmNip).value),
       nsmNama, nsmNip,
       smNama: clean(row.getCell(COL.smNama).value),
       smNip: clean(row.getCell(COL.smNip).value),
@@ -142,7 +144,7 @@ async function main() {
     kodePI: r.kodePI, namaOutlet: r.namaOutlet, area: r.namaArea,
     gmNama: r.gmNama, nsmNama: r.nsmNama, smNama: r.smNama,
     asmNama: r.asmNama, spvNama: r.spvNama, psrNama: r.mrNama,
-    gmNip: null, nsmNip: r.nsmNip, smNip: r.smNip,
+    gmNip: r.gmNip, nsmNip: r.nsmNip, smNip: r.smNip,
     asmNip: r.asmNip, spvNip: r.spvNip, psrNip: r.mrNip,
   }));
   const CHUNK = 1000;
@@ -187,6 +189,7 @@ async function main() {
   }
 
   for (const r of rows) {
+    collect(r.gmNip, r.gmNama, "GM", null);
     collect(r.nsmNip, r.nsmNama, "NSM", null);
     collect(r.smNip, r.smNama, "SM", r.nsmNip);
     collect(r.asmNip, r.asmNama, "ASM", r.smNip);
@@ -194,7 +197,7 @@ async function main() {
     collect(r.mrNip, r.mrNama, "MR", r.asmNip);   // leaf MR, skip-level to ASM
   }
 
-  console.log(`Collected ${userMap.size} distinct real (non-placeholder) users across GM-skip/NSM/SM/ASM/SPV/MR.\n`);
+  console.log(`Collected ${userMap.size} distinct real (non-placeholder) users across GM/NSM/SM/ASM/SPV/MR.\n`);
 
   // Pass 1: upsert users (name + role only — never touches isActive/isDummy).
   let usersUpserted = 0;

@@ -37,12 +37,13 @@ const NAV_ITEMS: NavItem[] = [
   //   icon: <IconChart />,
   //   roles: ["ASM", "SM", "NSM", "ADMIN"],
   // },
-  {
-    href: "/pm-dashboard",
-    label: "PM Dashboard",
-    icon: <IconTable />,
-    roles: ["NSM", "ADMIN"],
-  },
+  // PM Dashboard temporarily hidden for all roles — re-add roles to bring it back.
+  // {
+  //   href: "/pm-dashboard",
+  //   label: "PM Dashboard",
+  //   icon: <IconTable />,
+  //   roles: ["NSM", "ADMIN"],
+  // },
 ];
 
 interface SidebarProps {

@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getSubordinateMRNips } from "@/lib/authz";
+import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir, formatPeriode } from "@/lib/poaUtils";
@@ -60,7 +60,10 @@ export async function GET(req: NextRequest) {
     ? await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI))
     : [];
 
-  const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips } };
+  // Same visibility rule as everywhere else a manager looks at a POA (see authz.ts) —
+  // DRAFT/REVISI are still private to the MR until actually submitted; everything
+  // submitted (even if pending approval further up the chain) is included.
+  const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips }, status: { in: NON_DRAFT_STATUSES } };
   if (period) poaWhere.period = period;
 
   const poas = await prisma.poaForm.findMany({
@@ -358,6 +361,7 @@ export async function GET(req: NextRequest) {
     { header: "NIP MR",               key: "nipMR",            width: 12 },
     { header: "Nama MR",              key: "namaMR",           width: 24 },
     { header: "Periode POA",          key: "periodPoa",        width: 12 },
+    { header: "Status Approval",      key: "statusApproval",   width: 22 },
     { header: "Nama Customer",        key: "namaCust",         width: 28 },
     { header: "Spesialisasi",         key: "spesialisasi",     width: 18 },
     { header: "Kode PI",              key: "kodePI",           width: 12 },
@@ -415,6 +419,7 @@ export async function GET(req: NextRequest) {
       asmNip: mr.asmNip, asmName: mr.asmName,
       nipMR: mr.nip, namaMR: mr.name,
       periodPoa: mr.period ?? "—",
+      statusApproval: mr.status.replace(/_/g, " "),
       namaCust: li.namaCust,
       spesialisasi: spesLabel(li.spesialisasi),
       kodePI: li.kodePI ?? "—", namaOutlet: li.namaOutlet,

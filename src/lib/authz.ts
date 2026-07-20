@@ -102,6 +102,11 @@ export async function getVisiblePoaFilter(
       };
     }
 
+    case Role.GM:
+      // GM: read-only oversight across every territory — same visibility as ADMIN,
+      // but canEdit/canApprove below deliberately don't grant GM any write access.
+      return {};
+
     case Role.ADMIN:
       // ADMIN sees everything
       return {};
@@ -116,6 +121,7 @@ export async function getVisiblePoaFilter(
  */
 export async function canView(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
+  if (user.role === Role.GM) return true; // read-only oversight, sees every POA at any status
 
   if (user.role === Role.MR) {
     return poa.ownerId === user.nip;
@@ -152,6 +158,7 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
  */
 export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
+  // GM is deliberately excluded here — read-only oversight only (see canView).
 
   if (user.role === Role.MR) {
     return poa.ownerId === user.nip;
@@ -171,6 +178,7 @@ export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
  */
 export function canApprove(user: User, poa: PoaForm): boolean {
   if (user.role === Role.ADMIN) return true;
+  // GM is deliberately excluded here too — read-only oversight only.
 
   return (
     ([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role) &&
