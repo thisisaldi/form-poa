@@ -140,6 +140,13 @@ function computeQtyTotal(entry: ProdukEntry, dokter: DokterFields): number {
   return Math.round(resep * qty * hari * lama);
 }
 
+// Qty is entered/computed in ST (satuan terkecil); UB ("Unit Bungkus") is the qty
+// expressed in SJ (satuan jual) instead — divide by konversiPembagi (ST per SJ).
+function qtyToUB(qtyST: number, product: Product): number {
+  const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
+  return qtyST / konversi;
+}
+
 // Returns the per-month estimate from the most recent COMPLETED PSSP contract for a product.
 // Matches by product name only (Procode ≠ Item Kode across systems).
 // estBaris is the full-period total, divided by months to get per-month baseline.
@@ -544,9 +551,10 @@ function ProdukEntryRow({
   const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
-  const qtyPerBulan = canCalc ? Math.round(resep * qty * hari) : null;
-  const qtyTotal = qtyPerBulan != null ? qtyPerBulan * lama : null;
-  const satuanQty = product?.satuanTerkecil ?? product?.satuan ?? "";
+  const qtyPerBulanST = canCalc ? resep * qty * hari : null;
+  const qtyTotalST = qtyPerBulanST != null ? qtyPerBulanST * lama : null;
+  const qtyPerBulan = qtyPerBulanST != null ? Math.round(qtyToUB(qtyPerBulanST, product!)) : null;
+  const qtyTotal = qtyTotalST != null ? Math.round(qtyToUB(qtyTotalST, product!)) : null;
   const nilaiPSSPBulan = perBulan != null && nilaiRPersen != null ? Math.round(perBulan * nilaiRPersen * pengaliNilaiR) : null;
   const nilaiPSSPTotal = nilaiPSSPBulan != null ? nilaiPSSPBulan * lama : null;
 
@@ -716,15 +724,15 @@ function ProdukEntryRow({
           </div>
           <div className="flex gap-6 flex-wrap">
             <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Qty / Bln</div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per UB / Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} ${satuanQty}` : "—"}
+                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} UB` : "—"}
               </div>
             </div>
             <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Qty {lama} Bln</div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per UB {lama} Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} ${satuanQty}` : "—"}
+                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} UB` : "—"}
               </div>
             </div>
           </div>
@@ -1685,7 +1693,7 @@ function AddPanel({
               {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
                 const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
                 if (!p) return null;
-                const qtyTotal = computeQtyTotal(entry, dokterFields);
+                const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
                 const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
                 return (
                   <div key={entry.uid} className="flex items-center justify-between text-xs gap-2">
@@ -1694,7 +1702,7 @@ function AddPanel({
                       {p.namaProduk}
                     </span>
                     <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
-                      {qtyTotal > 0 ? `${qtyTotal.toLocaleString("id-ID")} ${p.satuanTerkecil ?? p.satuan}` : "—"}
+                      {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
                     </span>
                   </div>
                 );
@@ -2439,7 +2447,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
               {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
                 const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
                 if (!p) return null;
-                const qtyTotal = computeQtyTotal(entry, dokterFields);
+                const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
                 const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
                 return (
                   <div key={entry.uid} className="flex items-center justify-between text-xs gap-2">
@@ -2448,7 +2456,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                       {p.namaProduk}
                     </span>
                     <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
-                      {qtyTotal > 0 ? `${qtyTotal.toLocaleString("id-ID")} ${p.satuanTerkecil ?? p.satuan}` : "—"}
+                      {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
                     </span>
                   </div>
                 );
