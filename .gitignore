@@ -52,7 +52,7 @@ src/lib/mock/generated-data.json
 # internal working folder (raw Excel source data + TODO/notes, not for
 # version control) — /excel is a junction to /internal kept for scripts that
 # still reference the old "excel/..." path
-# /internal/
+/internal/
 /excel
 
 *.txt
