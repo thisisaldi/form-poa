@@ -13,6 +13,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
+import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir, formatPeriode } from "@/lib/poaUtils";
 import { spesLabel } from "@/lib/spesialisasi";
@@ -44,7 +45,20 @@ export async function GET(req: NextRequest) {
   const mrUsers = await prisma.user.findMany({
     where: { nip: { in: mrNips } },
     orderBy: { name: "asc" },
-  }) as { nip: string; name: string; nipAtasan: string | null }[];
+  }) as { nip: string; name: string; nipAtasan: string | null; isDummy: boolean }[];
+
+  // ── Active PSSP contracts across every subordinate MR's outlet territory ──
+  const realMrNips = mrUsers.filter(m => !m.isDummy).map(m => m.nip);
+  const assignments = realMrNips.length > 0
+    ? await prisma.mrOutletAssignment.findMany({
+        where: { nipMR: { in: realMrNips }, periode: (() => { const now = new Date(); return now.getFullYear() * 100 + (now.getMonth() + 1); })() },
+        select: { kodePI: true, nipMR: true },
+      })
+    : [];
+  const outletToMR = new Map<string, string>(assignments.map((a: { kodePI: string; nipMR: string }) => [a.kodePI, a.nipMR]));
+  const activePsspAll = assignments.length > 0
+    ? await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI))
+    : [];
 
   const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips } };
   if (period) poaWhere.period = period;
@@ -432,6 +446,63 @@ export async function GET(req: NextRequest) {
   shadeAlt(ws3, 1);
 
   if (lineItems.length === 0) ws3.addRow(["(Belum ada data pengajuan)"]);
+
+  // ── Sheet 4: PSSP Aktif ──────────────────────────────────────────────────────
+  // Every still-running PSSP contract across ALL subordinate MRs' outlet
+  // territories — mirrors the "PSSP Aktif (Kontrak Berjalan)" card on the
+  // Detail POA page, aggregated team-wide instead of per-POA.
+
+  const mrRowByNip = new Map(mrRows.map(r => [r.nip, r]));
+
+  const ws4 = wb.addWorksheet("PSSP Aktif");
+  ws4.columns = [
+    { header: "NIP MR",       key: "nipMR",        width: 12 },
+    { header: "Nama MR",      key: "namaMR",        width: 24 },
+    { header: "NIP ASM",      key: "asmNip",        width: 12 },
+    { header: "Nama ASM",     key: "asmName",       width: 24 },
+    { header: "NIP SM",       key: "smNip",         width: 12 },
+    { header: "Nama SM",      key: "smName",        width: 24 },
+    { header: "NIP NSM",      key: "nsmNip",        width: 12 },
+    { header: "Nama NSM",     key: "nsmName",       width: 24 },
+    { header: "No. Kontrak",  key: "cUrut",         width: 14 },
+    { header: "Nama User",    key: "namaUser",      width: 28 },
+    { header: "Kode Outlet",  key: "kodeOutlet",    width: 12 },
+    { header: "Nama Outlet",  key: "namaOutlet",    width: 28 },
+    { header: "Kode Produk",  key: "kodeProduk",    width: 12 },
+    { header: "Nama Produk",  key: "namaProduk",    width: 28 },
+    { header: "Periode Awal", key: "periodeAwal",   width: 14 },
+    { header: "Periode Akhir",key: "periodeAkhir",  width: 14 },
+    { header: "Biaya (Kontrak)", key: "biaya",      width: 16 },
+    { header: "Estimasi Sales",  key: "estBaris",   width: 16 },
+    { header: "Total Lunas",  key: "totalLunas",    width: 16 },
+    { header: "% Lunas",      key: "pctLunas",      width: 12 },
+    { header: "Sisa Estimasi",key: "sisaEstimasi",  width: 16 },
+  ];
+  styleHeader(ws4);
+
+  for (const r of activePsspAll) {
+    const mrNip = r.kdOutlet ? outletToMR.get(r.kdOutlet) : undefined;
+    const mr = mrNip ? mrRowByNip.get(mrNip) : undefined;
+    ws4.addRow({
+      nipMR: mrNip ?? "—", namaMR: mr?.name ?? "—",
+      asmNip: mr?.asmNip ?? "—", asmName: mr?.asmName ?? "—",
+      smNip: mr?.smNip ?? "—", smName: mr?.smName ?? "—",
+      nsmNip: mr?.nsmNip ?? "—", nsmName: mr?.nsmName ?? "—",
+      cUrut: r.cUrut,
+      namaUser: r.nmCust ?? "—",
+      kodeOutlet: r.kdOutlet ?? "—", namaOutlet: r.nmOutlet ?? "—",
+      kodeProduk: r.kdProduk ?? "—", namaProduk: r.nmProduk ?? "—",
+      periodeAwal: safePeriode(r.prdAwal), periodeAkhir: safePeriode(r.prdAkhir),
+      biaya: Math.round(r.biaya), estBaris: Math.round(r.estBaris), totalLunas: Math.round(r.totalLunas),
+      pctLunas: r.estBaris > 0 ? parseFloat(((r.totalLunas / r.estBaris) * 100).toFixed(1)) : 0,
+      sisaEstimasi: Math.round(Math.max(r.estBaris - r.totalLunas, 0)),
+    });
+  }
+  ["biaya", "estBaris", "totalLunas", "sisaEstimasi"].forEach(key => { ws4.getColumn(key).numFmt = '#,##0'; });
+  ws4.getColumn("pctLunas").numFmt = '0.0"%"';
+  shadeAlt(ws4, 1);
+
+  if (activePsspAll.length === 0) ws4.addRow(["(Tidak ada kontrak PSSP aktif)"]);
 
   // ── Response ─────────────────────────────────────────────────────────────────
 

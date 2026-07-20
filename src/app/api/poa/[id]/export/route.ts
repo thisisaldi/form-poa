@@ -13,7 +13,7 @@ import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
 import { computePeriodeAkhir } from "@/lib/poaUtils";
 import { getAllPakets } from "@/lib/paketProduk";
-import { getPsspHistory, type PsspKontrakSummary } from "@/app/actions/customer";
+import { getPsspHistory, getActivePsspByOutlets, type PsspKontrakSummary } from "@/app/actions/customer";
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
@@ -91,6 +91,19 @@ export async function GET(
   const hasAccess = await canView(actor, poa);
   if (!hasAccess) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // ─── Active PSSP contracts across the MR's whole outlet territory (mirrors
+  // the "PSSP Aktif (Kontrak Berjalan)" card on the Detail POA page) ─────────
+  let activePssp: Awaited<ReturnType<typeof getActivePsspByOutlets>> = [];
+  if (!poa.owner.isDummy) {
+    const now = new Date();
+    const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
+    const assignments = await prisma.mrOutletAssignment.findMany({
+      where: { nipMR: poa.ownerId, periode },
+      select: { kodePI: true },
+    });
+    activePssp = await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI));
   }
 
   // ─── Org hierarchy (MR → ASM → SM → NSM) for the "Pengisian" sheet ────────
@@ -437,7 +450,51 @@ export async function GET(
   }
   if (pengisianItems.length === 0) formSheet.addRow(["(Belum ada line item)"]);
 
-  // ─── Sheet 3: Audit Log ──────────────────────────────────────────────────
+  // ─── Sheet 3: PSSP Aktif ─────────────────────────────────────────────────
+  // One row per contract-product, mirrors the "PSSP Aktif (Kontrak Berjalan)"
+  // card on the Detail POA page — every still-running PSSP commitment across
+  // the MR's whole assigned territory, not just doctors already drafted here.
+  const psspSheet = wb.addWorksheet("PSSP Aktif");
+  psspSheet.columns = [
+    { header: "No. Kontrak", key: "cUrut", width: 14 },
+    { header: "Nama User", key: "namaUser", width: 28 },
+    { header: "Kode Outlet", key: "kodeOutlet", width: 12 },
+    { header: "Nama Outlet", key: "namaOutlet", width: 28 },
+    { header: "Kode Produk", key: "kodeProduk", width: 12 },
+    { header: "Nama Produk", key: "namaProduk", width: 28 },
+    { header: "Periode Awal", key: "periodeAwal", width: 14 },
+    { header: "Periode Akhir", key: "periodeAkhir", width: 14 },
+    { header: "Biaya (Kontrak)", key: "biaya", width: 16 },
+    { header: "Estimasi Sales", key: "estBaris", width: 16 },
+    { header: "Total Lunas", key: "totalLunas", width: 16 },
+    { header: "% Lunas", key: "pctLunas", width: 12 },
+    { header: "Sisa Estimasi", key: "sisaEstimasi", width: 16 },
+  ];
+  psspSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  psspSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0063A0" } };
+
+  for (const r of activePssp) {
+    psspSheet.addRow({
+      cUrut: r.cUrut,
+      namaUser: r.nmCust ?? "-",
+      kodeOutlet: r.kdOutlet ?? "-",
+      namaOutlet: r.nmOutlet ?? "-",
+      kodeProduk: r.kdProduk ?? "-",
+      namaProduk: r.nmProduk ?? "-",
+      periodeAwal: r.prdAwal,
+      periodeAkhir: r.prdAkhir,
+      biaya: r.biaya,
+      estBaris: r.estBaris,
+      totalLunas: r.totalLunas,
+      pctLunas: r.estBaris > 0 ? r.totalLunas / r.estBaris : 0,
+      sisaEstimasi: Math.max(r.estBaris - r.totalLunas, 0),
+    });
+  }
+  ["biaya", "estBaris", "totalLunas", "sisaEstimasi"].forEach(k => { psspSheet.getColumn(k).numFmt = RP_FMT; });
+  psspSheet.getColumn("pctLunas").numFmt = PCT_FMT;
+  if (activePssp.length === 0) psspSheet.addRow(["(Tidak ada kontrak PSSP aktif)"]);
+
+  // ─── Sheet 4: Audit Log ──────────────────────────────────────────────────
   const auditSheet = wb.addWorksheet("Audit Log");
   auditSheet.columns = [
     { header: "Date", key: "date", width: 22 },
