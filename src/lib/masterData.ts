@@ -18,6 +18,14 @@ export interface Product {
   nilaiRPersen: string | null;
   satuanTerkecil: string | null;   // ST unit name, e.g. "TABLET", "BOTOL"
   konversiPembagi: string | null;  // how many ST per SJ
+  // Dosis reference data — from "List Product pharos.xlsx"
+  dosisKekuatanSediaan: string | null;
+  qtyPerRxPasien: string | null;
+  lamaPemberianHari: number | null;
+  jumlahPemberianPerHari: string | null;
+  bentukSediaan: string | null;
+  packing: string | null;
+  indikasi: string | null;
 }
 
 // ─── Outlet queries ───────────────────────────────────────────────────────────
@@ -73,12 +81,14 @@ export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | 
 export async function getProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
   const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } });
-  return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null; satuanTerkecil: string | null; konversiPembagi: { toString(): string } | null }) => ({
+  return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null; satuanTerkecil: string | null; konversiPembagi: { toString(): string } | null; dosisKekuatanSediaan: string | null; qtyPerRxPasien: { toString(): string } | null; lamaPemberianHari: number | null; jumlahPemberianPerHari: { toString(): string } | null; bentukSediaan: string | null; packing: string | null; indikasi: string | null }) => ({
     ...p,
     hna: p.hna.toString(),
     nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
     satuanTerkecil: p.satuanTerkecil,
     konversiPembagi: p.konversiPembagi?.toString() ?? null,
+    qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
+    jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
   }));
 }
 
@@ -92,5 +102,7 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
     nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
     satuanTerkecil: p.satuanTerkecil,
     konversiPembagi: p.konversiPembagi?.toString() ?? null,
+    qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
+    jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
   };
 }

@@ -286,15 +286,28 @@ function Opt() {
 }
 const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
 
-function UnitInput({ value, onChange, unit, placeholder = "0" }: {
+function UnitInput({ value, onChange, unit, placeholder = "0", step, min = 0 }: {
   value: string;
   onChange: (v: string) => void;
   unit?: string | null;
   placeholder?: string;
+  /** When set, renders up/down stepper buttons that bump the value by this amount. */
+  step?: number;
+  min?: number;
 }) {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
     if (v === "" || /^\d*\.?\d*$/.test(v)) onChange(v);
+  }
+
+  function bump(delta: number) {
+    if (step == null) return;
+    // Empty field displays `placeholder` (e.g. "1") as its implied value — bump from
+    // that, not from 0, so the first click steps relative to what's actually shown.
+    const current = parseFloat(value) || parseFloat(placeholder) || 0;
+    const next = Math.max(min, current + delta);
+    const decimals = step % 1 === 0 ? 0 : String(step).split(".")[1]?.length ?? 1;
+    onChange(next.toFixed(decimals));
   }
 
   return (
@@ -305,6 +318,20 @@ function UnitInput({ value, onChange, unit, placeholder = "0" }: {
         onChange={handleChange}
         className="flex-1 min-w-0 w-0 px-2.5 py-1.5 text-sm outline-none"
         style={{ background: "transparent", color: "var(--color-text)" }} />
+      {step != null && (
+        <div className="flex flex-col shrink-0" style={{ borderLeft: "1px solid var(--color-border-strong)" }}>
+          <button type="button" onClick={() => bump(step)} tabIndex={-1}
+            className="flex-1 flex items-center justify-center px-1.5 leading-none"
+            style={{ fontSize: 9, color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border-strong)" }}>
+            ▲
+          </button>
+          <button type="button" onClick={() => bump(-step)} tabIndex={-1}
+            className="flex-1 flex items-center justify-center px-1.5 leading-none"
+            style={{ fontSize: 9, color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+            ▼
+          </button>
+        </div>
+      )}
       {unit && (
         <>
           <span style={{ width: 1, background: "var(--color-border-strong)" }} />
@@ -516,7 +543,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     return {
       value: p.kodeProduk,
       label: p.namaProduk,
-      sublabel: `${p.kodeProduk} · ${paketLabel}`,
+      sublabel: [`${p.kodeProduk} · ${paketLabel}`, p.zatAktif].filter(Boolean).join(" · "),
       group: pelunasan3Bln != null ? "Pernah di PSSP" : (spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya"),
       accent: tier === 0,
       tag,
@@ -651,6 +678,9 @@ function ProdukEntryRow({
                   Nilai R: <strong>{(nilaiRPersen * 100).toFixed(1)}%</strong>
                 </span>
               )}
+              {product.zatAktif && (
+                <span>Zat Aktif: <strong style={{ color: "var(--color-text-muted)" }}>{product.zatAktif}</strong></span>
+              )}
             </div>
           )}
         </div>
@@ -696,6 +726,13 @@ function ProdukEntryRow({
               placeholder="Masukan Jumlah ST per resep" />
           </div>
           {qtyErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+          {product?.qtyPerRxPasien != null && (
+            <span className="text-xs" style={{ color: "var(--color-text-faint)" }} title={product.dosisKekuatanSediaan ?? undefined}>
+              Referensi: {product.qtyPerRxPasien} {product.satuanTerkecil ?? product.satuan}/resep
+              {product.lamaPemberianHari != null ? ` · ${product.lamaPemberianHari} hari` : ""}
+              {product.jumlahPemberianPerHari != null ? ` · ${product.jumlahPemberianPerHari}/hari` : ""}
+            </span>
+          )}
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Standarisasi<Opt /></span>
@@ -839,12 +876,13 @@ function ProdukEntryRow({
       )}
 
       <label className="flex flex-col gap-1" style={{ maxWidth: 160 }}>
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R<Opt /></span>
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
         <UnitInput
           value={entry.pengaliNilaiR}
           onChange={(v) => onChange({ pengaliNilaiR: v })}
           unit="x"
-          placeholder="1" />
+          placeholder="1"
+          step={0.1} />
       </label>
       </div>
       </div>
@@ -1058,20 +1096,23 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, onLabel, onHistory }: {
             <div style={{ color: pctColor }}>{formatRp(sumLunas)}</div>
           </div>
         </div>
-        <div className="space-y-0.5 pt-1 border-t" style={{ borderColor: "var(--color-border)" }}>
+        <div className="space-y-1 pt-1 border-t" style={{ borderColor: "var(--color-border)" }}>
           {rows.map((r) => {
             const rowPct = r.estBaris > 0 ? Math.round((r.totalLunas / r.estBaris) * 100) : null;
             return (
-              <div key={r.id} className="flex items-center justify-between text-xs gap-2">
-                <span style={{ color: "var(--color-text-muted)" }} className="truncate min-w-0">{r.nmProduk ?? r.kdProduk}</span>
-                <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
-                  {formatRp(r.totalLunas)}
-                  {rowPct != null && (
-                    <span className="ml-1" style={{ color: rowPct >= 80 ? "var(--color-success, #16a34a)" : rowPct >= 40 ? "var(--color-warning, #f59e0b)" : "var(--color-red)" }}>
-                      ({rowPct}%)
-                    </span>
-                  )}
-                </span>
+              <div key={r.id} className="text-xs">
+                <div style={{ color: "var(--color-text-muted)" }} className="truncate">{r.nmProduk ?? r.kdProduk}</div>
+                <div className="flex items-center justify-between gap-2 tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                  <span>Est: {formatRp(r.estBaris)}</span>
+                  <span className="text-right">
+                    Lunas: {formatRp(r.totalLunas)}
+                    {rowPct != null && (
+                      <span className="ml-1" style={{ color: rowPct >= 80 ? "var(--color-success, #16a34a)" : rowPct >= 40 ? "var(--color-warning, #f59e0b)" : "var(--color-red)" }}>
+                        ({rowPct}%)
+                      </span>
+                    )}
+                  </span>
+                </div>
               </div>
             );
           })}
@@ -1720,27 +1761,56 @@ function AddPanel({
                 )}
               </div>
             </div>
-            <div className="space-y-1 pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+            <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
                 Estimasi Qty per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
               </p>
-              {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
-                const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
-                if (!p) return null;
-                const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
-                const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
-                return (
-                  <div key={entry.uid} className="flex items-center justify-between text-xs gap-2">
-                    <span style={{ color: "var(--color-text-muted)" }} className="truncate min-w-0">
-                      {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
-                      {p.namaProduk}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
-                      {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
-                    </span>
-                  </div>
-                );
-              })}
+              <table className="w-full text-xs table-fixed">
+                <colgroup>
+                  <col style={{ width: "44%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "20%" }} />
+                </colgroup>
+                <thead>
+                  <tr style={{ color: "var(--color-text-faint)" }}>
+                    <th className="text-left font-medium pb-1">Produk</th>
+                    <th className="text-right font-medium pb-1">Qty</th>
+                    <th className="text-right font-medium pb-1">Estimasi</th>
+                    <th className="text-right font-medium pb-1">Nilai PSSP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
+                    const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
+                    if (!p) return null;
+                    const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
+                    const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
+                    const estimasiTotal = computeEstimasi(entry, dokterFields, p);
+                    const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
+                    const nilaiPSSP = nilaiRPersen != null
+                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(entry.pengaliNilaiR))
+                      : null;
+                    return (
+                      <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
+                        <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
+                          {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
+                          {p.namaProduk}
+                        </td>
+                        <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                          {estimasiTotal > 0 ? formatRp(estimasiTotal) : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                          {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         );
@@ -2480,27 +2550,56 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 )}
               </div>
             </div>
-            <div className="space-y-1 pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+            <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
                 Estimasi Qty per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
               </p>
-              {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
-                const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
-                if (!p) return null;
-                const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
-                const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
-                return (
-                  <div key={entry.uid} className="flex items-center justify-between text-xs gap-2">
-                    <span style={{ color: "var(--color-text-muted)" }} className="truncate min-w-0">
-                      {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
-                      {p.namaProduk}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
-                      {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
-                    </span>
-                  </div>
-                );
-              })}
+              <table className="w-full text-xs table-fixed">
+                <colgroup>
+                  <col style={{ width: "44%" }} />
+                  <col style={{ width: "16%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "20%" }} />
+                </colgroup>
+                <thead>
+                  <tr style={{ color: "var(--color-text-faint)" }}>
+                    <th className="text-left font-medium pb-1">Produk</th>
+                    <th className="text-right font-medium pb-1">Qty</th>
+                    <th className="text-right font-medium pb-1">Estimasi</th>
+                    <th className="text-right font-medium pb-1">Nilai PSSP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
+                    const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
+                    if (!p) return null;
+                    const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
+                    const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
+                    const estimasiTotal = computeEstimasi(entry, dokterFields, p);
+                    const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
+                    const nilaiPSSP = nilaiRPersen != null
+                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(entry.pengaliNilaiR))
+                      : null;
+                    return (
+                      <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
+                        <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
+                          {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
+                          {p.namaProduk}
+                        </td>
+                        <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                          {estimasiTotal > 0 ? formatRp(estimasiTotal) : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+                          {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         );

@@ -295,6 +295,15 @@ model Product {
   // Satuan Terkecil — from Kebutuhan Satuan Terkecil.xlsx
   satuanTerkecil  String?           // Pack_Name, e.g. "TABLET", "BOTOL"
   konversiPembagi Decimal? @db.Decimal(10, 2)   // how many ST per SJ (e.g. 100 for tablet BOX 100's)
+  // Dosis reference data — from "List Product pharos.xlsx" (sheets "Oral Product" / "Injeksi Product").
+  // Keyed by that file's "PROCOD" column, which despite the name matches kodeProduk (Kd Item) directly.
+  dosisKekuatanSediaan   String?           // "Dosis/Kekuatan Sediaan"
+  qtyPerRxPasien         Decimal? @db.Decimal(10, 2)   // "Berapa banyak per Rx per Pasien (Satuan Terkecil)"
+  lamaPemberianHari      Int?              // "Lama pemberian Per Pasien (Hari)"
+  jumlahPemberianPerHari Decimal? @db.Decimal(10, 2)   // "Jumlah pemberian Per hari (Satuan Terkecil)"
+  bentukSediaan          String?
+  packing                String?
+  indikasi               String?  @db.Text
   syncedAt        DateTime
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

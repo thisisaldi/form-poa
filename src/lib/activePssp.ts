@@ -17,7 +17,7 @@ function monthsInRange(prdAwal: string, prdAkhir: string): string[] {
 
 /** Same apportionment as computeBiayaTercacah (DraftChecklist.tsx) uses for regular line items:
  *  full-period value / total months × how many of those months fall in the target quarter. */
-function apportion(value: number, prdAwal: string, prdAkhir: string, quarterMonths: string[]): number {
+export function apportion(value: number, prdAwal: string, prdAkhir: string, quarterMonths: string[]): number {
   if (!prdAwal || !prdAkhir || quarterMonths.length === 0) return 0;
   const months = monthsInRange(prdAwal, prdAkhir);
   if (months.length === 0) return 0;

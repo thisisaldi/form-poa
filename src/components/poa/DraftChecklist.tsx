@@ -13,7 +13,7 @@ import { submitPoaWithSelectionAction } from "@/app/actions/poa";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths } from "@/lib/targetCalculation";
 import type { ActivePsspRow } from "@/app/actions/customer";
-import { computeActivePsspStats } from "@/lib/activePssp";
+import { computeActivePsspStats, apportion } from "@/lib/activePssp";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -152,7 +152,7 @@ function psspPeriodeLabel(awal: string, akhir: string) {
 
 // One doctor's active-PSSP contracts, collapsed to a summary row — mirrors DoctorRow's
 // pattern (name/outlet header, aggregate stats, expandable per-contract/product detail).
-function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
+function ActivePsspDoctorRow({ doctorRows, quarterMonths }: { doctorRows: ActivePsspRow[]; quarterMonths: string[] }) {
   const first = doctorRows[0];
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -166,7 +166,10 @@ function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
   const totalBiaya = [...byContract.values()].reduce((s, rows) => s + rows[0].biaya, 0);
   const totalEst = doctorRows.reduce((s, r) => s + r.estBaris, 0);
   const totalLunas = doctorRows.reduce((s, r) => s + r.totalLunas, 0);
-  const totalSisaEstimasi = Math.max(0, totalEst - totalLunas);
+  // Estimasi Kuartal Ini — estBaris apportioned to just this POA's quarter (a PSSP contract
+  // almost always spans more months than one quarter). Lunas % below stays full-period since
+  // totalLunas is a real cumulative figure with no monthly breakdown to apportion meaningfully.
+  const totalEstKuartal = doctorRows.reduce((s, r) => s + apportion(r.estBaris, r.prdAwal, r.prdAkhir, quarterMonths), 0);
   const lunasPct = totalEst > 0 ? (totalLunas / totalEst) * 100 : null;
 
   return (
@@ -193,7 +196,7 @@ function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
             </p>
           )}
           <p className="text-xs mt-0.5" style={{ color: "var(--color-blue)" }}>
-            Sisa Estimasi: {formatRp(totalSisaEstimasi)}
+            Estimasi Kuartal Ini: {formatRp(totalEstKuartal)}
           </p>
           <button
             type="button"
@@ -209,7 +212,7 @@ function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
           <table className="w-full text-xs">
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)" }}>
-                {["No. Kontrak", "Produk", "Biaya", "Periode", "Lunas", "Sisa Estimasi"].map((h) => (
+                {["No. Kontrak", "Produk", "Biaya", "Periode", "Lunas", "Estimasi Kuartal Ini"].map((h) => (
                   <th key={h} className="text-left px-2.5 py-1.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{h}</th>
                 ))}
               </tr>
@@ -219,7 +222,7 @@ function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
                 .sort((a, b) => a.prdAkhir.localeCompare(b.prdAkhir) || a.cUrut.localeCompare(b.cUrut))
                 .map((r) => {
                   const rowLunasPct = r.estBaris > 0 ? (r.totalLunas / r.estBaris) * 100 : null;
-                  const rowSisaEstimasi = Math.max(0, r.estBaris - r.totalLunas);
+                  const rowEstKuartal = apportion(r.estBaris, r.prdAwal, r.prdAkhir, quarterMonths);
                   return (
                     <tr key={r.id} style={{ borderTop: "1px solid var(--color-border)" }}>
                       <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{r.cUrut}</td>
@@ -230,7 +233,7 @@ function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
                         style={{ color: rowLunasPct != null && rowLunasPct < 80 ? "var(--color-red)" : "var(--color-text-muted)" }}>
                         {rowLunasPct != null ? `${rowLunasPct.toFixed(0)}%` : "—"}
                       </td>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(rowSisaEstimasi)}</td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(rowEstKuartal)}</td>
                     </tr>
                   );
                 })}
@@ -242,7 +245,7 @@ function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
   );
 }
 
-function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
+function ActivePsspListCard({ rows, quarterMonths }: { rows: ActivePsspRow[]; quarterMonths: string[] }) {
   if (rows.length === 0) return null;
 
   const byDoctor = new Map<string, ActivePsspRow[]>();
@@ -266,7 +269,7 @@ function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
       </p>
       <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
         {doctorGroups.map((doctorRows) => (
-          <ActivePsspDoctorRow key={doctorRows[0].kdCust || doctorRows[0].nmCust || doctorRows[0].id} doctorRows={doctorRows} />
+          <ActivePsspDoctorRow key={doctorRows[0].kdCust || doctorRows[0].nmCust || doctorRows[0].id} doctorRows={doctorRows} quarterMonths={quarterMonths} />
         ))}
       </div>
     </Card>
@@ -888,7 +891,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           </div>
         </Card>
 
-        <ActivePsspListCard rows={activePssp} />
+        <ActivePsspListCard rows={activePssp} quarterMonths={quarterMonths} />
 
         {showSubmit && poaId && (
           <div className="rounded-lg border p-4"

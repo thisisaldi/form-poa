@@ -1,84 +1,93 @@
 # REVISI LAYAR POA SYSTEM — TRACKER
 
-*(Direformat jadi tabel per 2026-07-20. Nomor asli dipertahankan biar gampang di-refer — "—" berarti item gak ada nomor asli dari daftar stakeholder. Sebut nomornya aja buat mulai kerjain satu item.)*
+*(Diupdate 2026-07-20 mengikuti "UPDATE PROGRESS REVISI SISTEM POA" dari stakeholder — 38 item, menggantikan penomoran lama. Sebut nomornya aja buat mulai kerjain satu item.)*
 
-## ✅ DONE
+**Ringkasan**: ✅ DONE = 24 · 🟡 ON-PROSES = 5 · ❓ NEED CONFIRMATION = 9 *(#19 & #30 pindah ke DONE 07-20 — lihat catatan; awalnya dihitung ulang dari daftar stakeholder jadi 22/7/9, bukan 22/7/8 seperti tertulis awal karena totalnya harus pas 38)*
+
+## ✅ DONE (24)
 
 | No | Item | Catatan |
 |---|---|---|
-| 2 | Target sifatnya fix, gak bisa naik-turun | Selesai. |
-| 3 | PSSP Aktif (C urut historis, kolom "PSSP Aktif (Kontrak Berjalan)" di Detail POA) | Direstruktur 07-20 jadi per-dokter (pola sama kayak "Daftar User") + toggle Detail expand per kontrak/produk, nama disensor. Bug "tercacah" (nilai kontrak kepakai full-period, bukan diapportion ke kuartal) sudah difix. Sudah ikut ke Excel export (lihat baris terpisah di bawah). Sisa: growth pelunasan 3 bln terakhir — lihat CLARIFY. |
+| 2 | Target sifatnya harus fix, gak bisa naik-turun | Selesai. |
+| 3 | C urut historis drafting (periode aktif, gak boleh diedit) | Direstruktur 07-20 jadi per-dokter + toggle Detail expand per kontrak/produk, nama disensor. Bug "tercacah" (nilai kontrak kepakai full-period, bukan diapportion ke kuartal) sudah difix. Sudah ikut ke Excel export. ⚠️ Sisa kecil: growth pelunasan 3 bln terakhir di section ini masih belum dikerjain (lihat #5 catatan). |
 | 4 | Hari Praktek per-produk, default otomatis dari level dokter | Selesai. |
-| 5 | Growth PSSP 3 bulan terakhir | Kartu terpisah "Growth PSSP (3 Bln Terakhir)" di LineItemEditor, bukan replacement growth berbasis kontrak lama. |
-| 6 | Nama outlet dipanjangin di dropdown | Combobox bisa lebih lebar dari trigger-nya. |
-| 8 | Ratio Budget/Target dihilangin dari stat bar (diganti fokus ke Estimasi) | Selesai — ada feedback minta sebagian balik, lihat entri PENDING FEEDBACK #A.2. |
+| 6 | Nama outlet dipanjangin di dropdown | Combobox bisa lebih lebar dari trigger-nya. Sort outlet chain-first (grup di atas, NON CHAIN di bawah) juga sudah jalan — sempat ada bug 07-20: kolom `groupRS` di DB isinya literal string `"NON CHAIN"` (bukan `null`) utk outlet non-chain, jadi kena anggap truthy dan gak ke-sort; sudah difix pakai helper `isChainGroup()` di `LineItemEditor.tsx`. |
+| 7 | Target Produk Fokus per area (target kuantitas, bukan cuma counter "1/22") | Card baru "Target Produk Fokus (Kuartal Ini)", pakai mesin `targetCalculation.ts`. Posisi di dekat tombol Export Excel. ⚠️ +~3 detik load time, belum di-cache. ⚠️ Semua keluar 0 di data lokal (OutletSalesMonthly kosong) — perlu dicek di production kalau masih "belum muncul". |
+| 8 | Ratio Budget/Target dihilangin dari stat bar | Selesai — tapi ada feedback minta sebagian balik (duplikasi angka di kartu Ringkasan kanan), lihat item #9 (FEEDBACK #A.2). |
+| 9 | Summary atasan perlu direview | Kemungkinan besar = FEEDBACK #A (screenshot Detail POA): (A.1) pindah section PSSP Aktif ke atas + stat "PSSP ESTIMASI AKTIF Q4", (A.2) hapus duplikasi Estimasi/Target/Ratio di kartu Ringkasan kanan, (A.3) growth dari Sales Quarter sebelumnya tampil kecil, (A.4) Pengali Nilai R + info visit/bulan di baris ringkasan dokter. ⚠️ Per cross-check 07-20: A.1/A.3/A.4 masih belum dieksekusi, cuma A.2 yang arahnya udah jelas (resolved) tapi belum jalan — kalau ditandai selesai di sini, perlu diverifikasi lagi item mana yang dimaksud "sudah direview". |
 | 15 | Narfoz injeksi kelipatan jadi 5 | `konversiPembagi` 1 → 5. |
-| 18 | Nilai R Final per dokter di draft | Baris "Nilai R Final" (weighted avg by rencanaTotalBiaya) di Daftar User + kolom per produk di detail expand. Ambiguitas nama field "Nilai R Final" vs "Pengali Nilai R" — lihat CLARIFY. |
-| 20 | Pengali Nilai R per produk, bukan totalan per dokter | Awalnya cuma fix unit `%`→`x`; 07-20 versi "default dokter" **dihapus total** — sekarang murni per-produk. |
-| 21 | Notes tambahan saat "Ajukan ke Atasan" | Selesai. |
-| 22 | Notes alasan reject dari atasan | Tombol Reject eksplisit, wajib isi alasan, tercatat di Riwayat Aktivitas. |
-| 7 | Target Produk Fokus per area (target kuantitas, bukan cuma counter "1/22") | Card baru "Target Produk Fokus (Kuartal Ini)", pakai mesin `targetCalculation.ts` yang sebelumnya NSM/Admin-only. Posisi dipindah 07-20 ke dekat tombol Export Excel. ⚠️ +~3 detik load time, belum di-cache. ⚠️ Semua keluar 0 di data lokal (OutletSalesMonthly kosong) — perlu dicek di production. Sisa: ringkasan estimasi qty produk fokus di card ini, masih ambigu. |
-| 29 | Summary produk belum diajukan tapi rekomendasi PM (kuning/oranye) | Terjawab lewat #33. |
-| 30 | Sidebar "Produk Fokus PM Belum Diajukan" per spesialis | Muncul di sidebar kanan form MR begitu spesialisasi dokter ke-detect, isinya produk tier-0 yang belum ada di produkList. |
-| 32 | Badge "Produk Pernah di PSSP" di product picker | "Pernah PSSP · Pelunasan 3 Bln XX%", warna hijau ≥80% / kuning 40-79% / merah <40%, discope by histori PSSP dokter+outlet 3 bulan terakhir. |
-| 33 | Warna badge "Low Hanging Fruit" (Ada Sales = Oren, Tidak ada sales = Kuning) | Pakai field `OutletProductKriteria.kategori` yang ternyata sudah ada di schema tapi belum pernah di-expose ke app. |
-| — | Histori PSSP panel di form MR (nama outlet, filter, running rate) | 3 dari 4 bagian selesai 07-20: nama RS/outlet tiap kontrak, filter ke outlet yang lagi dipilih, running rate pace pelunasan utk kontrak aktif. Sisa: sumber data "Pak Eko"/item NON ESTIMASI — lihat CLARIFY. |
-| — | Sort dropdown produk (produk pernah-PSSP duluan) + qty & star breakdown di "Total Semua Produk" | FEEDBACK #D poin 5, 6, 7 — selesai 07-20. |
-| — | Riwayat Aktivitas: audit log utk edit biasa (bukan cuma transisi status) | FEEDBACK #D poin 17 — selesai 07-20, di-extend lagi 07-20: sekarang juga nyimpen customer+produk yang diedit di snapshot, ditampilin lewat toggle "Lihat Detail" per entry (label aksi juga jadi spesifik: "menambahkan/mengedit/menghapus produk"). |
-| — | Batch notes 07-20: sort outlet chain-first, border card Estimasi Sales, posisi field Pengali Nilai R, hapus Pengali Nilai R default-dokter | Selesai, 4 perubahan dalam 1 batch, diverifikasi bareng. |
-| — | Jenis PSSP dropdown per produk (PSSP / Retensi / Peremajaan / Perpanjangan) | Full-stack (schema+migration+form+export) selesai, tapi di-hide sementara dari UI per permintaan 07-20 (`{false && ...}` — logic backend tetap ada, gampang di-reenable). |
-| — | Bug: teks error mentah "NEXT_REDIRECT" flash saat klik Simpan | **FIXED 07-19** — re-throw `isRedirectError()` sebelum ditangkep jadi error biasa di 4 catch block LineItemEditor.tsx. |
-| — | Bug: Pengali Nilai R = 0 gak dikali 0 | **FIXED 07-19** — root cause "0 itu falsy di JS", ada di 2 layer (frontend `\|\|` fallback + backend eksplisit treat 0 sama kayak isNaN). |
-| — | Case-insensitive login | Selesai. |
-| — | Kalkulator estimasi quantity per produk | Selesai. |
-| — | ConfirmDialog custom ganti native `confirm()` | Dipasang di tombol "✎ Edit". 2 `confirm()` lain (hapus baris produk, hapus dokter) belum diganti — belum diminta. |
-| — | Tombol Delete draft POA di dashboard | Cuma muncul utk POA status **DRAFT**, pakai `ConfirmDialog` (tone danger), server action `deletePoaAction`. |
-| — | Tombol "+ Daftar User Baru" jadi toast "belum ready" | Gak navigasi lagi — `NotReadyButton` reusable, toast 3 detik. |
-| — | Card Estimasi Sales & Nilai PSSP side-by-side | FEEDBACK #B poin 3 — selesai. |
-| — | Doctor/user combobox: label spesialisasi + nama dipanjangin | FEEDBACK #B poin 1 & 2 — selesai 07-20. Name-width ternyata otomatis kejawab dari CSS global combobox yang sama dipakai outlet (#6). |
-| — | Rename "% PSSP Dokter" → "% PSSP User" | FEEDBACK #D poin 3 — termasuk header kolom Excel export tim. |
-| — | PSSP Aktif ikut ke Excel export | FEEDBACK #D poin 12 (dari catatan section #3) — selesai 07-20. Sheet baru "PSSP Aktif" di export per-POA (`/api/poa/[id]/export`) DAN export tim ASM/SM/NSM (`/api/export/team`, agregat lintas semua MR + atribusi balik ke MR pemiliknya). |
-| — | Verifikasi: ASM/SM/NSM hanya bisa edit, gak bisa bikin draft baru | Diminta user 07-20, ternyata sudah benar dari awal (3 lapis proteksi: nav link role-gated, cek role eksplisit di `createPoaAction`, `canCreatePoa()` nolak siapapun yang punya subordinate). Diverifikasi browser pakai 2 akun ASM real. |
-| — | Placeholder deskriptif (Hari Praktek/Bln, Resep/Hari → Pasien Baru/Hari, Jml Produk ST/Resep) | Bagian dari #19 & #25 — selesai 07-20. |
-| 17 | Data diskon | Selesai 07-20. "% Diskon (DPL/DPF)" sekarang default ke nilai `DiskonKontrak.newOnPi` asli (bukan dummy 10% lagi) begitu outlet+produk+Periode Awal ke-pilih — masih field yang bisa diedit manual, cuma defaultnya sekarang data asli. Kalau ada lebih dari 1 kontrak yang match outlet+produk+periode yang sama ("double"), dipilih yang `newOnPi`-nya TERBESAR (dikonfirmasi user). Diimplementasi lewat action baru `getDiskonByOutlet()` (`src/app/actions/customer.ts`, fetch sekali per outlet, di-cache di state React), helper `resolveDiskonPct()` di `LineItemEditor.tsx` dipanggil di product-picker onChange (3 panel: AddPanel/AddProductPanel/EditDoctorPanel). Fallback ke dummy "10" tetap ada kalau memang gak ada `DiskonKontrak` yang match sama sekali. `avgDiskon` (field metadata di `PoaLineItem`, ditulis server-side saat create) juga ikut dibenerin tie-break-nya (`orderBy: newOnPi desc`, sebelumnya `prdAwal desc`) biar konsisten. Diverifikasi end-to-end pakai data real: outlet FN000441 + produk ACETRAM 37.5/325MG FC TABLET (013390) punya 2 kontrak diskon overlap periode 202601-202606 (newOnPi 30 vs 33.5) → field ke-auto-fill 33.50, sesuai rule "terbesar menang". |
+| 17 | Data diskon sinkron database | "% Diskon (DPL/DPF)" default ke `DiskonKontrak.newOnPi` asli begitu outlet+produk+Periode Awal ke-pilih, tetap bisa diedit manual. Kalau >1 kontrak match (double), dipilih `newOnPi` TERBESAR. Diverifikasi end-to-end (outlet FN000441 + ACETRAM, 2 kontrak overlap 30 vs 33.5 → auto-fill 33.50). 07-20: fallback dummy "10"/"2.5" (diskon/listing fee/entertain) diganti jadi 0 kalau memang gak ada data kontrak sama sekali. |
+| 18 | Nilai R Final per dokter di draft | Baris "Nilai R Final" (weighted avg by rencanaTotalBiaya) di Daftar User + kolom per produk di detail expand. ⚠️ Ambiguitas nama field "Nilai R Final" vs "Pengali Nilai R" masih belum diklarifikasi — *"yang dimasukkin di draft itu bukan nilai R akhir, tapi pengali Nilai R"*. Jangan diubah/dihapus sebelum ada keputusan ganti-label vs tambah-field-baru. 07-20: posisi field "Pengali Nilai R" dipindah biar nempel langsung di bawah card "Nilai PSSP" (satu kolom grid yang sama), bukan lagi full-width di bawah seluruh grid. |
+| 19 | Data dosis per Produk | **Selesai 07-20** — sumber data ternyata udah ada (`internal/List Product pharos.xlsx`, sheet "Oral Product"/"Injeksi Product"), gak perlu nunggu ABED. Kolom "PROCOD" di file itu ternyata sama persis dgn `Product.kodeProduk` (dikonfirmasi user, diverifikasi 191/192 kode match langsung ke DB). Prisma schema nambah 7 kolom baru (`dosisKekuatanSediaan`, `qtyPerRxPasien`, `lamaPemberianHari`, `jumlahPemberianPerHari`, `bentukSediaan`, `packing`, `indikasi`) via migration `20260720085421_add_product_dosis_zat_aktif_fields`, di-sync pakai script baru `scripts/syncProductZatAktifDosis.ts` (194 produk ke-update). Ditampilin sebagai teks abu-abu "Referensi: ..." di bawah field "Jml Produk ST / Resep" di `LineItemEditor.tsx`. Sisa: auto-fill produk kompetitor dari data survey — belum dikerjain. |
+| 20 | Pengali Nilai R per produk, bukan totalan per dokter | Awalnya cuma fix unit `%`→`x`; versi "default dokter" dihapus total — sekarang murni per-produk. |
+| 21 | Notes tambahan "untuk perkuat argumen pengajuan" saat Ajukan ke Atasan | Selesai. |
+| 23 | Halaman approval + jumlah kunjungan MR ke user | ⚠️ **Perlu diverifikasi ulang** — per cross-check kode 07-20 gak ketemu implementasinya (halaman approval yang ada belum nampilin jumlah kunjungan MR). Ditandai selesai sesuai info terbaru dari stakeholder; tolong cross-check langsung ke halaman approval di app kalau perlu dipastikan lagi. |
+| 24 | Satuan jual per box / Estimasi Produk Fokus | Card "Estimasi Produk Fokus" (+ stat bar atas) selesai. ⚠️ Per cross-check 07-20: detail per-produk dgn tanda warna kategori (fokus/red ocean/low hanging fruit) di tabel detail masih tabel polos, belum ada pewarnaan di situ — kalau ini dianggap "final", berarti requirement warna kategorinya cuma dianggap perlu di product picker (sudah ada, lihat #32), bukan di tabel detail. |
+| 28 | Summary produk belum diajukan tapi rekomendasi PM (kuning/oranye) | Terjawab lewat item #31. |
+| 29 | Sidebar "Produk Fokus PM Belum Diajukan" per spesialis | Muncul di sidebar kanan form MR begitu spesialisasi dokter ke-detect, isinya produk tier-0 yang belum ada di produkList. |
+| 30 | Informasi Zat Aktif di product picker | **Selesai 07-20** — bareng #19, dari `internal/List Product pharos.xlsx`. `Product.zatAktif` (udah ada di schema tapi sebelumnya selalu `null` dari `syncProducts.ts`) sekarang keisi via `scripts/syncProductZatAktifDosis.ts`. Ditampilin di sublabel product picker (`buildProductOptions` di `LineItemEditor.tsx`, ikut ke-filter pas search) + di info bar setelah produk dipilih. |
+| 31 | Kriteria Produk "Produk Pernah Di PSSP" | Badge "Pernah PSSP · Pelunasan 3 Bln XX%" di product picker, warna hijau ≥80% / kuning 40-79% / merah <40%, discope by histori PSSP dokter+outlet 3 bulan terakhir. |
+| 32 | Warna Low Hanging Fruit (Ada Sales = Oren, Tidak Ada Sales = Kuning) | Pakai field `OutletProductKriteria.kategori`. 07-20: badge ini diubah jadi dot warna polos (gak nampilin teks "Low Hanging Fruit" lagi) di product picker — badge kriteria lain (standarisasi/kompetisi) tetap pakai teks seperti biasa. |
+| 33 | Sinkron dgn kunjungan & PSSP aktif (kelihatan mana yg dikunjungi/tidak) | ⚠️ **Perlu diverifikasi** — gak ketemu fitur cross-reference kunjungan↔PSSP-aktif di kode per pengecekan 07-20. Kalau maksudnya beda dari yang saya cek, tolong dijelaskan lokasinya di app biar bisa di-follow up. |
+| 34 | Detail periode untuk pelunasan yang buruk | Bagian dari panel Histori PSSP di form MR (nama RS/outlet tiap kontrak + filter ke outlet yang lagi dipilih) — selesai 07-20. |
+| 35 | Detail running rate 3 bulan terakhir | Bagian dari panel Histori PSSP di form MR (running rate pace pelunasan utk kontrak aktif) — selesai 07-20. Sisa dari panel ini: sumber data "Pak Eko"/item NON ESTIMASI, masih CLARIFY (lihat #38-area / bagian bawah). |
+| 37 | Tim NSM Ex-Hospinet gak bisa login ke sistem | Kemungkinan besar = fix "Case-insensitive login" (selesai). ⚠️ Gak ada jejak eksplisit "Hospinet" di kode/commit — kalau masih ada laporan gagal login dari tim ini, perlu dicek kasus spesifiknya (kemungkinan nip/username beda kapitalisasi atau isu lain). |
 
-## 🟡 PARTIAL (sebagian jalan, ada gap)
+## 🟡 ON-PROSES (5)
 
 | No | Item | Catatan |
 |---|---|---|
-| 1 | Struktur baru *(top urgent!!)* | Data staging (OutletStrukturBaru) sudah diimport & di-matching, TAPI belum di-promote ke Outlet/MrOutletAssignment — belum kepakai di workflow approval/assignment MR yang sebenarnya. API Nexus dicoba buat nutup gap tapi cuma nambah 0.6% outlet baru (gak ngebantu banyak). 2190 outlet (36.8%) genuinely belum ada assignment di sistem manapun — keputusan bisnis yang perlu diselesaikan manual. |
-| 26 | Rawat inap vs rawat jalan | Label sudah diganti "Pasien Baru/Hari", tapi logic pembeda formula rawat-inap-vs-jalan belum diimplementasi terpisah. |
-| 24 | Satuan jual per box / Estimasi Produk Fokus | "Estimasi Produk Fokus" (card + stat bar atas) sudah DONE. Sisa: detail per-produk dengan tanda warna kategori (fokus/red ocean/low hanging fruit) di tabel detail — masih tabel polos. |
+| 1 | Struktur baru *(top urgent!!)* | Data staging (OutletStrukturBaru) sudah diimport & di-matching — sistem siap di-inject begitu data final. API Nexus dicoba nutup gap tapi cuma nambah 0.6% outlet baru. 2190 outlet (36.8%) genuinely belum ada assignment di sistem manapun — keputusan bisnis yang perlu diselesaikan manual. Kasus spesifik "AP.K24 Matraman Jakarta Timur → harusnya kategori B" belum ada di data/kode, perlu di-crosscheck manual sebagai bagian dari cleanup struktur ini (lihat juga #36). |
+| 5 | Growth PSSP berdasarkan value 3 bulan terakhir | Card "Growth PSSP (3 Bln Terakhir)" di LineItemEditor sudah ada (nampilin growth dari data sales 3 bln terakhir, terpisah dari growth berbasis kontrak PSSP lama). Yang masih on-proses: growth **pelunasan** 3 bln terakhir khusus di section PSSP Aktif (#3) — konsepnya mirip badge "Pernah PSSP" (#31), scope-nya masih perlu dikonfirmasi. |
+| 22 | Notes alasan reject dari atasan | Tombol Reject eksplisit sudah ada, wajib isi alasan, tercatat di Riwayat Aktivitas — kalau masih dianggap on-proses, kemungkinan ada scope tambahan yang diminta (mis. notifikasi ke MR, atau tempat tampil lain) yang perlu diperjelas. |
+| 25 | History Visit sebelumnya (warna abu-abu, gak perlu tabel) | Placeholder "Hari Praktek/Bln" sudah selesai. Sisa: histori jumlah visit (angka, bukan cuma teks status) ditaruh sebelah field "Rencana Visit/Bulan", styling teks abu-abu aja sesuai arahan. |
+| 26 | Format data survei SFE ke sistem | Rencana: taruh sebagai tab sidebar baru, pola sama kayak tab "Histori PSSP" yang udah ada. Tampilan format masih harus dipikirkan. |
 
-## ❓ CLARIFY (perlu diperjelas dulu sebelum bisa dikerjain)
+## ❓ NEED CONFIRMATION (9)
 
-| Ref | Item | Pertanyaan/status |
+| No | Item | Pertanyaan/status |
 |---|---|---|
 | 10 | PSSP/KPDM per outlet | *"seharusnya kpdm dan dpl itu per outlet, dan sudah teridentifikasi dari pengisian awal"* — belum ada keputusan/implementasi. |
-| 16 | Listing fee otomatis by outlet | `ListingFeeKontrak` data sudah diimport, tapi belum jelas apa "pembagian otomatis per outlet" ini udah kepakai di kalkulasi POA atau masih manual. |
-| 13 | Ratio target 140% dihilangin | Masih ada di kode (`DraftChecklist.tsx`: `ratioEst >= 140`), belum ada rekomendasi angka pengganti. |
-| 3 (poin 16) | Growth pelunasan 3 bulan terakhir di section PSSP Aktif | Belum dikerjain — konsep sama kayak badge "Pernah PSSP" (#32), tinggal scope-nya dikonfirmasi. |
-| 18 | "Nilai R Final" vs "Pengali Nilai R" di baris ringkasan dokter | *"yang dimasukkin di draft itu bukan nilai R akhir, tapi pengali Nilai R"* — belum jelas ini GANTI label yang ada atau TAMBAH field baru di sebelahnya. Jangan hapus "Nilai R Final" sebelum diklarifikasi. |
-| — | "Data Pak Eko" / item "NON ESTIMASI" di Histori PSSP | Gak jelas siapa/apa "Pak Eko" — belum ditindaklanjuti sampai diklarifikasi. |
-
-## ⬜ PENDING (belum dikerjain, scope sudah jelas)
-
-| No | Item | Catatan |
-|---|---|---|
-| 9 | Summary atasan perlu direview | Kemungkinan besar yang dimaksud = FEEDBACK #A (screenshot Detail POA) di bawah — cek situ dulu sebelum nanya lagi. |
-| 11 | Pilihan PS / SP / peremajaan | Kemungkinan terkait dropdown "Jenis PSSP" yang udah dikerjain (lihat DONE) — belum jelas sama atau beda. |
+| 11 | Pilihan PS / SP / peremajaan | Kemungkinan terkait dropdown "Jenis PSSP" yang udah dikerjain (full-stack selesai tapi di-hide sementara dari UI). Belum jelas apakah cukup dropdown simpel atau perlu level otomasi. |
 | 12 | Konsep tabungan | Desain belum dipikirin. |
-| 14 | Monitoring POA lama & sebelumnya | API yang relevan namanya "Nexus" (api-nexus.pharos.id) — sudah dieksplor 07-19, lihat catatan di #1. |
-| 19 | Data dosis | Blocked, nunggu data dari PM. Placeholder terkait sudah DONE. Sisa: auto-fill produk kompetitor dari data survey, taruh field dosis/hari di bawah "Jml Produk ST". |
-| 23 | Halaman approval + jumlah kunjungan MR ke user | Belum dikerjain. |
-| 25 | History Visit sebelumnya | Placeholder "Hari Praktek/Bln" sudah DONE. Sisa: histori jumlah visit (angka, bukan cuma teks status) ditaruh SEBELAH field "Rencana Visit/Bulan". |
-| 27 | Format data survei SFE ke sistem | Taruh sebagai tab sidebar baru, pola sama kayak tab "Histori PSSP" yang udah ada. |
-| 28 | Sisa budget ditampilkan value tahunan | Belum dikerjain. |
-| 31 | Keterangan Zat Aktif di product picker | Sumber data ada di sistem lain ("ABED"), belum pernah diintegrasikan — perlu dicek cara aksesnya dulu. |
-| — | Input Lama Periode dibuat lebih lebar | Belum. |
-| — | Input Lama Periode dibuat nullable | Belum. |
-| FEEDBACK #A.1 | Pindah section PSSP Aktif ke ATAS Daftar User + stat baru "PSSP ESTIMASI AKTIF Q4" | Collapse/expand-nya udah kejawab lewat restrukturisasi #3 (DONE), tapi posisi pindah + stat baru belum dikerjain. |
-| FEEDBACK #A.2 | Hapus duplikasi angka Estimasi/Target/Ratio di kartu Ringkasan (kanan) | Klarifikasi sudah RESOLVED: angka besar cuma di stat bar atas, kartu Ringkasan kanan jangan duplikasi lagi. Tinggal eksekusi — cek kartu mana di StatsPanel (`DraftChecklist.tsx`) yang masih duplikat (Estimasi POA, Target Area, Rasio Estimasi kelihatannya iya). |
-| FEEDBACK #A.3 | Growth dari Sales Quarter sebelumnya, tampil kecil (bukan tabel baru) | Belum dikerjain. |
-| FEEDBACK #A.4 | Pengali Nilai R + info visit/bulan di baris ringkasan dokter (sebelah Nilai R Final) | Belum dikerjain — terkait ambiguitas #18 di CLARIFY. |
-| FEEDBACK #C.2 | Layout summary dashboard (Target/Estimasi/Ratio%/%Budget) disamain gaya visual kayak Detail POA | Belum dikerjain. |
+| 13 | Ratio target 140% dihilangin | Masih ada di kode (`DraftChecklist.tsx`: `ratioEst >= 140`). Perlu dipikirin rekomendasi % pengganti / formulanya. |
+| 14 | Monitoring POA lama & sebelumnya | API yang relevan namanya **"Nexus"** (api-nexus.pharos.id) — bukan "Exodus". Sudah dieksplor, lihat catatan di #1. |
+| 16 | Listing fee otomatis by outlet | `ListingFeeKontrak` data sudah diimport, tapi belum jelas apa "pembagian otomatis per outlet" ini udah kepakai di kalkulasi POA atau masih manual — perlu konfirmasi formula. |
+| 27 | Sisa budget ditampilkan value tahunan | Belum dikerjain — perlu konfirmasi formula (budget historis?). |
+| 36 | Struktur AP.K24 Matraman (Jakarta Timur) → harusnya kategori B | Kasus spesifik, perlu di-crosscheck manual. Terkait #1 (Struktur baru) — lihat catatan di situ. |
+| 38 | Historis Kunjungan By MR by Customer (akumulasi 3 bulan terakhir) | Item baru dari stakeholder, konfirmasi ke Pak Fakhri (via Anthony Pharos). Belum ada implementasi/desain. |
+
+---
+
+## 🔧 Item tambahan (tracked internal, di luar 38-list stakeholder di atas)
+
+*(Ini item yang sebelumnya cuma ditrack internal — gak ada nomor asli dari daftar stakeholder — tapi tetap relevan buat histori kerjaan.)*
+
+### ✅ Selesai
+
+| Item | Catatan |
+|---|---|
+| Sort dropdown produk (produk pernah-PSSP duluan) + qty & star breakdown di "Total Semua Produk" | Selesai. |
+| Riwayat Aktivitas: audit log utk edit biasa (bukan cuma transisi status) | Selesai, di-extend lagi: nyimpen customer+produk yang diedit di snapshot, ditampilin lewat toggle "Lihat Detail" per entry. |
+| Jenis PSSP dropdown per produk (PSSP/Retensi/Peremajaan/Perpanjangan) | Full-stack selesai, di-hide sementara dari UI (`{false && ...}` — logic backend tetap ada, gampang di-reenable). Kemungkinan terkait item #11 di atas. |
+| Bug: teks error mentah "NEXT_REDIRECT" flash saat klik Simpan | **FIXED** — re-throw `isRedirectError()` sebelum ditangkep jadi error biasa. |
+| Bug: Pengali Nilai R = 0 gak dikali 0 | **FIXED** — root cause "0 itu falsy di JS". |
+| Case-insensitive login | Selesai — kemungkinan ini yang menjawab item #37. |
+| Kalkulator estimasi quantity per produk | Selesai. |
+| Tombol Delete draft POA di dashboard | Cuma muncul utk POA status DRAFT. |
+| Tombol "+ Daftar User Baru" jadi toast "belum ready" | Gak navigasi lagi. |
+| Card Estimasi Sales & Nilai PSSP side-by-side | Selesai. |
+| Doctor/user combobox: label spesialisasi + nama dipanjangin | Selesai. |
+| Rename "% PSSP Dokter" → "% PSSP User" | Termasuk header kolom Excel export tim. |
+| PSSP Aktif ikut ke Excel export | Sheet baru "PSSP Aktif" di export per-POA dan export tim ASM/SM/NSM. |
+| Verifikasi: ASM/SM/NSM hanya bisa edit, gak bisa bikin draft baru | Sudah benar dari awal, diverifikasi browser pakai 2 akun ASM real. |
+| Placeholder deskriptif (Hari Praktek/Bln, Resep/Hari → Pasien Baru/Hari, Jml Produk ST/Resep) | Selesai. |
+| Input Lama Periode dibuat lebih lebar | `LineItemEditor.tsx:434` — lebar 220px, sekarang lebih lebar dari field "Periode Awal" di sampingnya (200px). |
+
+### ⬜ Belum
+
+| Item | Catatan |
+|---|---|
+| Input Lama Periode dibuat nullable | ⚠️ Per cross-check kode 07-20: **belum** — kolom `lamaPeriode` di schema masih `Int` (`NOT NULL`, lihat migration `20260710020148_add_line_items_outlets`), dan UI di `LineItemEditor.tsx:435` masih pakai `<Req/>` + validasi wajib isi di submit handler (3 panel: Add/AddProduct/EditDoctor). Kalau memang mau dibuat nullable, ini perlu migration schema + hapus validasi required — bilang aja kalau mau saya kerjain. |
+| Rawat inap vs rawat jalan | Label sudah diganti "Pasien Baru/Hari", logic pembeda formula rawat-inap-vs-jalan belum diimplementasi terpisah. |
+| ConfirmDialog custom ganti native `confirm()` | Dipasang di tombol "✎ Edit". 2 `confirm()` lain (hapus baris produk, hapus dokter) belum diganti. |
