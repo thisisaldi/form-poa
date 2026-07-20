@@ -353,3 +353,30 @@ export async function getSales3BlnByOutlet(kodePI: string): Promise<Sales3BlnByP
 
   return [...byProduct.entries()].map(([itemKode, qty3Bln]) => ({ itemKode, qty3Bln }));
 }
+
+export interface DiskonByProduct {
+  kodeProduk: string;
+  newOnPi: number;  // effective on-invoice discount %, e.g. 12.5 for 12.5%
+  prdAwal: string;  // YYYYMM
+  prdAkhir: string; // YYYYMM
+}
+
+/**
+ * DiskonKontrak rows for a given outlet — used to default "% Diskon (DPL/DPF)"
+ * to the real contracted discount instead of a dummy placeholder. When more
+ * than one contract covers the same product+period at this outlet, the
+ * caller should take the one with the largest newOnPi.
+ */
+export async function getDiskonByOutlet(kodePI: string): Promise<DiskonByProduct[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.diskonKontrak.findMany({
+    where: { kodePI, newOnPi: { not: null } },
+    select: { kodeProduk: true, newOnPi: true, prdAwal: true, prdAkhir: true },
+  });
+  return rows.map((r: { kodeProduk: string; newOnPi: { toString(): string } | null; prdAwal: string; prdAkhir: string }) => ({
+    kodeProduk: r.kodeProduk,
+    newOnPi: parseFloat(r.newOnPi!.toString()),
+    prdAwal: r.prdAwal,
+    prdAkhir: r.prdAkhir,
+  }));
+}

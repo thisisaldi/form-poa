@@ -88,9 +88,11 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       where: { kodePI_itemKode: { kodePI, itemKode } },
     }),
     // Active DPL contract for this outlet+product whose period covers periodeAwal.
+    // When more than one contract matches (a duplicate for the same outlet+product+
+    // period), take the one with the largest newOnPi.
     prisma.diskonKontrak.findFirst({
       where: { kodePI, kodeProduk: itemKode, prdAwal: { lte: periodeAwal }, prdAkhir: { gte: periodeAwal } },
-      orderBy: { prdAwal: "desc" },
+      orderBy: { newOnPi: "desc" },
     }),
   ]);
 

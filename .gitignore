@@ -49,10 +49,12 @@ CLAUDE.md
 # generated mock data (contains real customer/product data from Excel)
 src/lib/mock/generated-data.json
 
-# internal working folder (raw Excel source data + TODO/notes, not for
-# version control) — /excel is a junction to /internal kept for scripts that
-# still reference the old "excel/..." path
-/internal/
+# internal working folder (raw Excel source data + notes, not for version
+# control) — TODO.md is the one exception, kept tracked. /excel is a
+# junction to /internal kept for scripts that still reference the old
+# "excel/..." path
+/internal/*
+!/internal/TODO.md
 /excel
 
 *.txt
