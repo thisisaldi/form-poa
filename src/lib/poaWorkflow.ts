@@ -90,7 +90,8 @@ async function applyTransition(
   transition: TransitionTarget,
   fromStatus: PoaStatus,
   action: AuditAction,
-  notes?: string
+  notes?: string,
+  snapshotExtra?: Record<string, unknown>
 ): Promise<PoaForm> {
   const poa = await loadPoaWithHierarchy(poaId);
 
@@ -124,7 +125,7 @@ async function applyTransition(
         action,
         fromStatus,
         toStatus: transition.toStatus,
-        snapshot: notes ? { notes } : {},
+        snapshot: { ...(notes ? { notes } : {}), ...snapshotExtra },
       },
     }),
   ]);
@@ -242,12 +243,19 @@ export async function rejectPoa(
  * REVISI — but every edit, status-changing or not, still gets its own
  * PoaAuditLog(UPDATE) entry so Riwayat Aktivitas always shows who edited what
  * and when, not just the status transitions.
+ *
+ * `detail` carries which customer/product the edit touched (and what kind of
+ * edit — add/update/delete a line item), so Riwayat Aktivitas can show that
+ * instead of a bare "mengedit". Optional because some callers (e.g. bulk ops)
+ * may not have a single customer/product to point at.
  */
 export async function flagRevisionOnEdit(
   poaId: string,
-  actingUserId: string
+  actingUserId: string,
+  detail?: { customer?: string | null; product?: string | null; op?: "add" | "update" | "delete" }
 ): Promise<PoaForm | null> {
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+  const snapshotExtra = detail ? { ...detail } : undefined;
 
   if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) {
     await prisma.poaAuditLog.create({
@@ -257,7 +265,7 @@ export async function flagRevisionOnEdit(
         action: AuditAction.UPDATE,
         fromStatus: poa.status,
         toStatus: poa.status,
-        snapshot: {},
+        snapshot: snapshotExtra ?? {},
       },
     });
     return null;
@@ -269,7 +277,9 @@ export async function flagRevisionOnEdit(
     actingUserId,
     { toStatus: PoaStatus.REVISI, nextHolderRole: null },
     poa.status,
-    AuditAction.REVISE
+    AuditAction.REVISE,
+    undefined,
+    snapshotExtra
   );
 }
 

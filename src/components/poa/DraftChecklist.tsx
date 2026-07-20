@@ -145,15 +145,116 @@ function computeStats(items: PoaLineItem[]) {
 // One row per (kontrak × produk) — the raw grain PsspKontrak is stored at — for
 // every still-running contract belonging to a doctor+outlet in this POA.
 
+function psspPeriodeLabel(awal: string, akhir: string) {
+  const fmt = (p: string) => `${p.slice(4, 6)}/${p.slice(2, 4)}`;
+  return `${fmt(awal)}–${fmt(akhir)}`;
+}
+
+// One doctor's active-PSSP contracts, collapsed to a summary row — mirrors DoctorRow's
+// pattern (name/outlet header, aggregate stats, expandable per-contract/product detail).
+function ActivePsspDoctorRow({ doctorRows }: { doctorRows: ActivePsspRow[] }) {
+  const first = doctorRows[0];
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  const byContract = new Map<string, ActivePsspRow[]>();
+  for (const r of doctorRows) {
+    const bucket = byContract.get(r.cUrut) ?? [];
+    bucket.push(r);
+    byContract.set(r.cUrut, bucket);
+  }
+  const kontrakTotal = byContract.size;
+  const totalBiaya = [...byContract.values()].reduce((s, rows) => s + rows[0].biaya, 0);
+  const totalEst = doctorRows.reduce((s, r) => s + r.estBaris, 0);
+  const totalLunas = doctorRows.reduce((s, r) => s + r.totalLunas, 0);
+  const totalSisaEstimasi = Math.max(0, totalEst - totalLunas);
+  const lunasPct = totalEst > 0 ? (totalLunas / totalEst) * 100 : null;
+
+  return (
+    <div className="py-3 px-2 rounded-lg">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              {censorName(first.nmCust ?? "—")}
+            </span>
+          </div>
+          <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
+            {first.nmOutlet ?? "—"}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-xs font-medium" style={{ color: "var(--color-text)" }}>
+            {kontrakTotal} kontrak
+          </p>
+          <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{formatRp(totalBiaya)}</p>
+          {lunasPct != null && (
+            <p className="text-xs" style={{ color: lunasPct < 80 ? "var(--color-red)" : "var(--color-text-faint)" }}>
+              Lunas {lunasPct.toFixed(0)}%
+            </p>
+          )}
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-blue)" }}>
+            Sisa Estimasi: {formatRp(totalSisaEstimasi)}
+          </p>
+          <button
+            type="button"
+            onClick={() => setDetailOpen((v) => !v)}
+            className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+            Detail {detailOpen ? "▲" : "▼"}
+          </button>
+        </div>
+      </div>
+
+      {detailOpen && (
+        <div className="mt-2 rounded-lg border overflow-hidden overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ background: "var(--color-bg-subtle)" }}>
+                {["No. Kontrak", "Produk", "Biaya", "Periode", "Lunas", "Sisa Estimasi"].map((h) => (
+                  <th key={h} className="text-left px-2.5 py-1.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...doctorRows]
+                .sort((a, b) => a.prdAkhir.localeCompare(b.prdAkhir) || a.cUrut.localeCompare(b.cUrut))
+                .map((r) => {
+                  const rowLunasPct = r.estBaris > 0 ? (r.totalLunas / r.estBaris) * 100 : null;
+                  const rowSisaEstimasi = Math.max(0, r.estBaris - r.totalLunas);
+                  return (
+                    <tr key={r.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{r.cUrut}</td>
+                      <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>{r.nmProduk ?? "—"}</td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(r.biaya)}</td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{psspPeriodeLabel(r.prdAwal, r.prdAkhir)}</td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap"
+                        style={{ color: rowLunasPct != null && rowLunasPct < 80 ? "var(--color-red)" : "var(--color-text-muted)" }}>
+                        {rowLunasPct != null ? `${rowLunasPct.toFixed(0)}%` : "—"}
+                      </td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(rowSisaEstimasi)}</td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
   if (rows.length === 0) return null;
 
-  const sorted = [...rows].sort((a, b) => a.prdAkhir.localeCompare(b.prdAkhir) || a.cUrut.localeCompare(b.cUrut));
-
-  function periodeLabel(awal: string, akhir: string) {
-    const fmt = (p: string) => `${p.slice(4, 6)}/${p.slice(2, 4)}`;
-    return `${fmt(awal)}–${fmt(akhir)}`;
+  const byDoctor = new Map<string, ActivePsspRow[]>();
+  for (const r of rows) {
+    const key = r.kdCust || r.nmCust || r.id;
+    const bucket = byDoctor.get(key) ?? [];
+    bucket.push(r);
+    byDoctor.set(key, bucket);
   }
+  const doctorGroups = [...byDoctor.values()].sort(
+    (a, b) => (a[0].nmCust ?? "").localeCompare(b[0].nmCust ?? "", "id")
+  );
 
   return (
     <Card>
@@ -163,38 +264,10 @@ function ActivePsspListCard({ rows }: { rows: ActivePsspRow[] }) {
       <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
         Kontrak PSSP yang masih berjalan untuk dokter di outlet yang sama dengan POA ini.
       </p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              {["No. Kontrak", "Dokter", "Outlet", "Produk", "Biaya", "Periode", "Lunas", "Sisa Estimasi"].map((h) => (
-                <th key={h} className="text-left py-1.5 pr-3 font-medium whitespace-nowrap"
-                  style={{ color: "var(--color-text-faint)" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r) => {
-              const lunasPct = r.estBaris > 0 ? (r.totalLunas / r.estBaris) * 100 : null;
-              const sisaEstimasi = Math.max(0, r.estBaris - r.totalLunas);
-              return (
-                <tr key={r.id} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{r.cUrut}</td>
-                  <td className="py-1.5 pr-3" style={{ color: "var(--color-text)" }}>{r.nmCust ?? "—"}</td>
-                  <td className="py-1.5 pr-3" style={{ color: "var(--color-text-muted)" }}>{r.nmOutlet ?? "—"}</td>
-                  <td className="py-1.5 pr-3" style={{ color: "var(--color-text-muted)" }}>{r.nmProduk ?? "—"}</td>
-                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(r.biaya)}</td>
-                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{periodeLabel(r.prdAwal, r.prdAkhir)}</td>
-                  <td className="py-1.5 pr-3 whitespace-nowrap"
-                    style={{ color: lunasPct != null && lunasPct < 80 ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                    {lunasPct != null ? `${lunasPct.toFixed(0)}%` : "—"}
-                  </td>
-                  <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(sisaEstimasi)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+        {doctorGroups.map((doctorRows) => (
+          <ActivePsspDoctorRow key={doctorRows[0].kdCust || doctorRows[0].nmCust || doctorRows[0].id} doctorRows={doctorRows} />
+        ))}
       </div>
     </Card>
   );

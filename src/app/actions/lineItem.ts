@@ -21,14 +21,11 @@ async function requireEditorOnPoa(poaId: string) {
   if (!poa) redirect("/dashboard");
   if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
 
-  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
-  await flagRevisionOnEdit(poaId, actor.nip);
-
   return { poa, actor };
 }
 
 export async function addLineItemAction(poaId: string, formData: FormData): Promise<void> {
-  await requireEditorOnPoa(poaId);
+  const { actor } = await requireEditorOnPoa(poaId);
 
   const customerId = (formData.get("customerId") as string | null)?.trim() ?? "";
   const kodePI = (formData.get("kodePI") as string | null)?.trim() ?? "";
@@ -125,6 +122,9 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       ? (jenisPsspRaw as JenisPssp)
       : null;
 
+  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
+  await flagRevisionOnEdit(poaId, actor.nip, { customer: namaCust, product: product!.namaProduk, op: "add" });
+
   await prisma.poaLineItem.create({
     data: {
       poaId,
@@ -178,7 +178,7 @@ export async function updateLineItemAction(
   lineItemId: string,
   formData: FormData
 ): Promise<void> {
-  await requireEditorOnPoa(poaId);
+  const { actor } = await requireEditorOnPoa(poaId);
 
   const kodeProduk = (formData.get("kodeProduk") as string | null)?.trim() ?? "";
   const rencanaTotalBiayaRaw = (formData.get("rencanaTotalBiaya") as string | null)?.trim() ?? "0";
@@ -192,19 +192,26 @@ export async function updateLineItemAction(
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
 
-  const product = kodeProduk ? await getProductByKode(kodeProduk) : null;
+  const [product, current] = await Promise.all([
+    kodeProduk ? getProductByKode(kodeProduk) : Promise.resolve(null),
+    prisma.poaLineItem.findUnique({ where: { id: lineItemId } }),
+  ]);
 
-  if (product) {
-    const current = await prisma.poaLineItem.findUnique({ where: { id: lineItemId } });
-    if (current) {
-      const duplicate = await prisma.poaLineItem.findFirst({
-        where: { poaId, kodePI: current.kodePI, namaCust: current.namaCust, kodeProduk, id: { not: lineItemId } },
-      });
-      if (duplicate) {
-        redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent(`${product.namaProduk} sudah ada untuk dokter ini.`));
-      }
+  if (product && current) {
+    const duplicate = await prisma.poaLineItem.findFirst({
+      where: { poaId, kodePI: current.kodePI, namaCust: current.namaCust, kodeProduk, id: { not: lineItemId } },
+    });
+    if (duplicate) {
+      redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent(`${product.namaProduk} sudah ada untuk dokter ini.`));
     }
   }
+
+  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
+  await flagRevisionOnEdit(poaId, actor.nip, {
+    customer: current?.namaCust,
+    product: product?.namaProduk ?? current?.namaProduk,
+    op: "update",
+  });
 
   function parsePctU(key: string) {
     const v = parseFloat(formData.get(key) as string);
@@ -275,7 +282,12 @@ export async function updateLineItemAction(
 }
 
 export async function deleteLineItemAction(poaId: string, lineItemId: string): Promise<void> {
-  await requireEditorOnPoa(poaId);
+  const { actor } = await requireEditorOnPoa(poaId);
+
+  const item = await prisma.poaLineItem.findUnique({ where: { id: lineItemId } });
+
+  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
+  await flagRevisionOnEdit(poaId, actor.nip, { customer: item?.namaCust, product: item?.namaProduk, op: "delete" });
 
   await prisma.poaLineItem.delete({ where: { id: lineItemId } });
 

@@ -29,6 +29,22 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   REJECT: "menolak",
 };
 
+const AUDIT_OP_LABELS: Record<string, string> = {
+  add: "menambahkan produk",
+  update: "mengedit produk",
+  delete: "menghapus produk",
+};
+
+type AuditSnapshot = { notes?: string; customer?: string | null; product?: string | null; op?: string } | null;
+
+function auditActionLabel(action: string, snapshot: AuditSnapshot) {
+  if ((action === "UPDATE" || action === "REVISE") && snapshot?.op && AUDIT_OP_LABELS[snapshot.op]) {
+    const base = AUDIT_OP_LABELS[snapshot.op];
+    return action === "REVISE" ? `${base} (kembali ke Revisi)` : base;
+  }
+  return AUDIT_ACTION_LABELS[action] ?? action.toLowerCase();
+}
+
 export default async function PoaDetailPage({
   params,
 }: {
@@ -321,31 +337,51 @@ export default async function PoaDetailPage({
             <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Belum ada aktivitas.</p>
           ) : (
             <ol className="relative space-y-4 pl-5 border-l" style={{ borderColor: "var(--color-border)" }}>
-              {(poa.auditLogs as (AuditLogType & { actor: UserType })[]).map((log) => (
-                <li key={log.id} className="relative">
-                  <span className="absolute left-[-1.4rem] mt-1 h-2.5 w-2.5 rounded-full border-2 border-white"
-                    style={{ background: "var(--color-blue)" }} />
-                  <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                    {new Date(log.createdAt).toLocaleString("id-ID")}
-                  </p>
-                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-                    {log.actor.name}
-                    <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
-                      {AUDIT_ACTION_LABELS[log.action] ?? log.action.toLowerCase()}
-                    </span>
-                  </p>
-                  {log.toStatus && log.toStatus !== log.fromStatus && (
-                    <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      → {log.toStatus.replace(/_/g, " ")}
+              {(poa.auditLogs as (AuditLogType & { actor: UserType })[]).map((log) => {
+                const snapshot = log.snapshot as AuditSnapshot;
+                const hasDetail = !!(snapshot?.customer || snapshot?.product);
+                return (
+                  <li key={log.id} className="relative">
+                    <span className="absolute left-[-1.4rem] mt-1 h-2.5 w-2.5 rounded-full border-2 border-white"
+                      style={{ background: "var(--color-blue)" }} />
+                    <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                      {new Date(log.createdAt).toLocaleString("id-ID")}
                     </p>
-                  )}
-                  {(log.snapshot as { notes?: string } | null)?.notes && (
-                    <p className="mt-1 text-xs italic" style={{ color: "var(--color-text-muted)" }}>
-                      "{(log.snapshot as { notes: string }).notes}"
+                    <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+                      {log.actor.name}
+                      <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
+                        {auditActionLabel(log.action, snapshot)}
+                      </span>
                     </p>
-                  )}
-                </li>
-              ))}
+                    {log.toStatus && log.toStatus !== log.fromStatus && (
+                      <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                        → {log.toStatus.replace(/_/g, " ")}
+                      </p>
+                    )}
+                    {snapshot?.notes && (
+                      <p className="mt-1 text-xs italic" style={{ color: "var(--color-text-muted)" }}>
+                        "{snapshot.notes}"
+                      </p>
+                    )}
+                    {hasDetail && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer select-none text-xs" style={{ color: "var(--color-blue)" }}>
+                          Lihat Detail
+                        </summary>
+                        <div className="mt-1 rounded border px-2 py-1.5 text-xs space-y-0.5"
+                          style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}>
+                          {snapshot?.customer && (
+                            <p><span style={{ color: "var(--color-text-faint)" }}>Customer:</span> {snapshot.customer}</p>
+                          )}
+                          {snapshot?.product && (
+                            <p><span style={{ color: "var(--color-text-faint)" }}>Produk:</span> {snapshot.product}</p>
+                          )}
+                        </div>
+                      </details>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           )}
         </Card>

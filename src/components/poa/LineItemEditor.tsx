@@ -1336,7 +1336,7 @@ function AddPanel({
   const specOptions = useMemo(() => specList.map((s) => ({ value: s, label: spesLabel(s) })), [specList]);
   const customerOptions = useMemo(() => customerList.map((c) => ({
     value: c.id, label: c.namaCustomer,
-    sublabel: c.isFokus ? "⭐ Rekomendasi PM" : undefined,
+    sublabel: [spesLabel(c.spesialisasi), c.isFokus ? "⭐ Rekomendasi PM" : null].filter(Boolean).join(" · "),
   })), [customerList]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
