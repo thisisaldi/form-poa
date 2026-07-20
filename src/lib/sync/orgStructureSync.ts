@@ -1,7 +1,7 @@
 /**
  * MSSQL → PostgreSQL org-structure sync.
  *
- * Source: Struktur_Marketing_PI (one row per outlet assignment, latest Periode, Divisi KAM1).
+ * Source: Struktur_Marketing_PI (one row per outlet assignment, latest Periode, Divisi KAM1 + HPH*).
  * Maps MSSQL roles to app roles:
  *   NSM → NSM,  SM → SM,  ASM → ASM,  SPV → MR,  FF → MR
  *
@@ -67,7 +67,7 @@ async function fetchOrgFromMssql(connectionString: string): Promise<OrgRecord[]>
       FF_NIP,  FF_Nama
     FROM Struktur_Marketing_PI
     WHERE Periode = ${periode}
-      AND Divisi = 'KAM1'
+      AND (Divisi = 'KAM1' OR Divisi LIKE 'HPH%')
   `);
 
   await pool.close();

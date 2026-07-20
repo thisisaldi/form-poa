@@ -151,7 +151,7 @@ function parseStrukturCSV(filePath: string): {
   for (const line of lines.slice(1)) {
     const row = line.split(";");
     const divisi = col(row, "Divisi");
-    if (divisi !== "KAM1") continue;
+    if (divisi !== "KAM1" && !divisi.startsWith("HPH")) continue;
 
     const kodePI       = col(row, "KodePI");
     const namaOutlet   = col(row, "NamaOutlet");

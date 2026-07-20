@@ -1,7 +1,7 @@
 /**
  * MSSQL → PostgreSQL outlet + MR-outlet assignment sync.
  *
- * Source: Struktur_Marketing_PI (Divisi KAM1, current Periode YYYYMM).
+ * Source: Struktur_Marketing_PI (Divisi KAM1 + HPH*, current Periode YYYYMM).
  * - Upserts distinct active outlets into the Outlet table.
  * - Rebuilds MrOutletAssignment rows for current periode:
  *   - If FF_NIP is not vacant → assign FF only (skip SPV)
@@ -50,7 +50,7 @@ export async function runOutletSync(connectionString: string): Promise<OutletSyn
       SPV_NIP, FF_NIP
     FROM Struktur_Marketing_PI
     WHERE Periode = ${periode}
-      AND Divisi = 'KAM1'
+      AND (Divisi = 'KAM1' OR Divisi LIKE 'HPH%')
       AND KodePI IS NOT NULL
   `);
   await pool.close();

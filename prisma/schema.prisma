@@ -282,6 +282,9 @@ model Outlet {
 // Synced from "LIST PRODUK PI" Excel file.
 
 model Product {
+  // "Kd Item" / "Item Kode" — sourced from TKT...LAPORAN HNA SARUASUBUR.xlsx.
+  // Nilai R.xlsx and Kebutuhan Satuan Terkecil.xlsx key by this same code
+  // natively, so no bridge/mapping file is needed for those syncs.
   kodeProduk      String   @id
   namaGroupBrand  String
   namaProduk      String

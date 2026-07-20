@@ -2,7 +2,9 @@
  * Sync Product.nilaiRPersen from excel/Nilai R.xlsx.
  *
  * Sheet "Nilai R", header row 1, data from row 2:
- *   Col 1: KD_PRODUK  (6-digit, matches Product.kodeProduk)
+ *   Col 1: KD_PRODUK  ("Kd Item" — matches Product.kodeProduk directly, since
+ *                      Product is sourced from LAPORAN HNA SARUASUBUR keyed by
+ *                      the same code. No bridge/mapping file needed.)
  *   Col 5: NILAI_R    (absolute value)
  *   Col 6: persentase (NILAI_R / HNA — this is what we store)
  *
