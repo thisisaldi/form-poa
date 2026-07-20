@@ -414,7 +414,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
                 value={fields.hariKerjaBulan}
                 onChange={(v) => onChange({ hariKerjaBulan: v })}
                 unit="Hari"
-                placeholder="22" />
+                placeholder="Jumlah hari praktek / bulan" />
             </div>
             {hariKerjaBulanError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
@@ -675,7 +675,7 @@ function ProdukEntryRow({
               value={entry.jumlahResepHari}
               onChange={(v) => onChange({ jumlahResepHari: v })}
               unit="Resep"
-              placeholder="3" />
+              placeholder="Masukan jumlah pasien" />
           </div>
           {resepErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
         </label>
@@ -688,7 +688,7 @@ function ProdukEntryRow({
               value={entry.qtyProdukResep}
               onChange={(v) => onChange({ qtyProdukResep: v })}
               unit={product?.satuanTerkecil}
-              placeholder="1" />
+              placeholder="Masukan Jumlah ST per resep" />
           </div>
           {qtyErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
         </label>
@@ -877,7 +877,7 @@ function BudgetFieldsRow({
     <div className="space-y-2">
       <div className="grid grid-cols-3 gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>% PSSP Dokter (Nilai R)</span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>% PSSP User (Nilai R)</span>
           <div style={{ opacity: 0.6, cursor: "not-allowed" }}>
             <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
           </div>
@@ -1649,7 +1649,7 @@ function AddPanel({
                 <NumberStepperInput
                   value={dokterFields.pengaliNilaiR}
                   onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
-                  unit="%"
+                  unit="x"
                   placeholder="1"
                   step={0.1}
                   min={0} />
@@ -2386,7 +2386,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 <NumberStepperInput
                   value={dokterFields.pengaliNilaiR}
                   onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
-                  unit="%"
+                  unit="x"
                   placeholder="1"
                   step={0.1}
                   min={0} />

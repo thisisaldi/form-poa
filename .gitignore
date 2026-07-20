@@ -44,6 +44,7 @@ next-env.d.ts
 # internal docs (not for version control)
 AGENTS.md
 CLAUDE.md
+TODO.md
 *.xlsx
 
 # generated mock data (contains real customer/product data from Excel)
@@ -52,6 +53,5 @@ src/lib/mock/generated-data.json
 # source Excel files (contain real data, not for version control)
 /excel/
 
-notes.txt
-api.txt
+*.txt
 dist

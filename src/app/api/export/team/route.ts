@@ -356,7 +356,7 @@ export async function GET(req: NextRequest) {
     { header: "Resep/Hari",           key: "resep",            width: 12 },
     { header: "Qty/Resep",            key: "qty",              width: 10 },
     { header: "Estimasi",             key: "estimasi",         width: 18 },
-    { header: "% PSSP Dokter",        key: "psspDokter",       width: 16 },
+    { header: "% PSSP User",          key: "psspDokter",       width: 16 },
     { header: "% PSSP KPDM",          key: "psspKpdm",         width: 14 },
     { header: "% Discount",           key: "diskon",           width: 12 },
     { header: "% DP",                 key: "dp",               width: 10 },
