@@ -238,7 +238,10 @@ export async function rejectPoa(
  *
  * So only the owning MR's edit is a "real" revision reset here; an approver's
  * edit is a no-op on status, since the ordinary approve step already routes it
- * to their atasan. No-op either way while already DRAFT or REVISI.
+ * to their atasan. Status-wise it's a no-op either way while already DRAFT or
+ * REVISI — but every edit, status-changing or not, still gets its own
+ * PoaAuditLog(UPDATE) entry so Riwayat Aktivitas always shows who edited what
+ * and when, not just the status transitions.
  */
 export async function flagRevisionOnEdit(
   poaId: string,
@@ -246,7 +249,19 @@ export async function flagRevisionOnEdit(
 ): Promise<PoaForm | null> {
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
 
-  if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) return null;
+  if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) {
+    await prisma.poaAuditLog.create({
+      data: {
+        poaId,
+        actorId: actingUserId,
+        action: AuditAction.UPDATE,
+        fromStatus: poa.status,
+        toStatus: poa.status,
+        snapshot: {},
+      },
+    });
+    return null;
+  }
   if (poa.ownerId !== actingUserId) return null;
 
   return applyTransition(

@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { NotReadyButton } from "@/components/ui/NotReadyButton";
+import { DeletePoaButton } from "@/components/poa/DeletePoaButton";
 import type { Role, PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
 
 export const metadata = { title: "Dashboard · Form POA" };
@@ -396,6 +397,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                         <Link href={`/poa/${poa.id}`} style={{ color: "var(--color-blue)" }} className="text-xs font-medium">
                           Detail
                         </Link>
+                        {poa.status === "DRAFT" && editablePoaIds.has(poa.id) && (
+                          <DeletePoaButton poaId={poa.id} period={poa.period} />
+                        )}
                       </div>
                     </td>
                   </tr>

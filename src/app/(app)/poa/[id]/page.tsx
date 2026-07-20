@@ -20,6 +20,15 @@ function formatRp(n: number) {
   return "Rp" + Math.round(n).toLocaleString("id-ID");
 }
 
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  CREATE: "membuat draft",
+  UPDATE: "mengedit",
+  SUBMIT: "mengajukan",
+  APPROVE: "menyetujui",
+  REVISE: "mengedit (kembali ke Revisi)",
+  REJECT: "menolak",
+};
+
 export default async function PoaDetailPage({
   params,
 }: {
@@ -322,10 +331,10 @@ export default async function PoaDetailPage({
                   <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
                     {log.actor.name}
                     <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
-                      {log.action.toLowerCase()}
+                      {AUDIT_ACTION_LABELS[log.action] ?? log.action.toLowerCase()}
                     </span>
                   </p>
-                  {log.toStatus && (
+                  {log.toStatus && log.toStatus !== log.fromStatus && (
                     <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
                       → {log.toStatus.replace(/_/g, " ")}
                     </p>

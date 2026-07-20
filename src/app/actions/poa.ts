@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import { createPoaDraft, submitPoa, approvePoa, rejectPoa } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
@@ -99,4 +100,26 @@ export async function rejectPoaAction(poaId: string, formData: FormData): Promis
 
   await rejectPoa(poaId, session.userId, reason);
   redirect(`/poa/${poaId}`);
+}
+
+// Only DRAFT POAs — once submitted, deleting it would destroy approval/audit history.
+// Restricted to the owning MR (same check submit/edit use), not just "someone who can view it".
+export async function deletePoaAction(poaId: string): Promise<{ error?: string }> {
+  const session = await getCurrentUser();
+  if (!session) redirect("/login");
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) return { error: "POA tidak ditemukan." };
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canEdit(actor, poa))) return { error: "Tidak punya akses." };
+  if (poa.status !== "DRAFT") return { error: "Hanya POA berstatus Draft yang bisa dihapus." };
+
+  await prisma.$transaction([
+    prisma.poaAuditLog.deleteMany({ where: { poaId } }),
+    prisma.poaForm.delete({ where: { id: poaId } }),
+  ]);
+
+  revalidatePath("/dashboard");
+  return {};
 }

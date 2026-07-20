@@ -48,7 +48,6 @@ interface DokterFields {
   lamaPeriode: number;
   hariKerjaBulan: string;
   rencanaVisitMinggu: string;
-  pengaliNilaiR: string;  // multiplier for nilai R per doctor (e.g. "1", "1.2")
 }
 
 function emptyDokterFields(periodeAwal = ""): DokterFields {
@@ -56,7 +55,6 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
     periodeAwal, lamaPeriode: 3,
     hariKerjaBulan: "",
     rencanaVisitMinggu: "4",
-    pengaliNilaiR: "1",
   };
 }
 
@@ -113,13 +111,9 @@ function hargaST(product: Product): number {
 // NEITHER is set. Deliberately not `parseFloat(x) || fallback` — 0 is a valid,
 // intentional multiplier ("nilai PSSP dari produk ini = 0") but is falsy in JS,
 // so that pattern silently discarded an explicit 0 in favor of the fallback.
-function resolvePengaliNilaiR(entryValue: string, doctorValue: string): number {
+function resolvePengaliNilaiR(entryValue: string): number {
   if (entryValue.trim() !== "") {
     const n = parseFloat(entryValue);
-    if (!isNaN(n)) return n;
-  }
-  if (doctorValue.trim() !== "") {
-    const n = parseFloat(doctorValue);
     if (!isNaN(n)) return n;
   }
   return 1;
@@ -134,6 +128,16 @@ function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Prod
   const lama  = dokter.lamaPeriode || 1;
   if (!hst || !resep || !qty || !hari) return 0;
   return Math.round(resep * qty * hari * hst * lama);
+}
+
+// Same inputs as computeEstimasi, but the unit quantity instead of the Rp value.
+function computeQtyTotal(entry: ProdukEntry, dokter: DokterFields): number {
+  const resep = parseFloat(entry.jumlahResepHari) || 0;
+  const qty   = parseFloat(entry.qtyProdukResep) || 0;
+  const hari  = parseFloat(entry.hariKerjaBulan) || parseFloat(dokter.hariKerjaBulan) || 0;
+  const lama  = dokter.lamaPeriode || 1;
+  if (!resep || !qty || !hari) return 0;
+  return Math.round(resep * qty * hari * lama);
 }
 
 // Returns the per-month estimate from the most recent COMPLETED PSSP contract for a product.
@@ -286,58 +290,6 @@ function UnitInput({ value, onChange, unit, placeholder = "0" }: {
   );
 }
 
-// Like UnitInput, plus up/down stepper buttons that bump the value by `step`.
-function NumberStepperInput({ value, onChange, unit, placeholder = "0", step = 1, min }: {
-  value: string;
-  onChange: (v: string) => void;
-  unit?: string | null;
-  placeholder?: string;
-  step?: number;
-  min?: number;
-}) {
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value;
-    if (v === "" || /^\d*\.?\d*$/.test(v)) onChange(v);
-  }
-
-  function bump(delta: number) {
-    const current = parseFloat(value) || 0;
-    let next = Math.round((current + delta) * 100) / 100;
-    if (min != null && next < min) next = min;
-    onChange(String(next));
-  }
-
-  return (
-    <div className="flex items-stretch rounded-md overflow-hidden"
-      style={{ border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}>
-      <input type="text" inputMode="decimal" placeholder={placeholder}
-        value={value}
-        onChange={handleChange}
-        className="flex-1 min-w-0 w-0 px-2.5 py-1.5 text-sm outline-none"
-        style={{ background: "transparent", color: "var(--color-text)" }} />
-      {unit && (
-        <>
-          <span style={{ width: 1, background: "var(--color-border-strong)" }} />
-          <span className="flex items-center px-2 text-xs font-medium whitespace-nowrap"
-            style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
-            {unit}
-          </span>
-        </>
-      )}
-      <span style={{ width: 1, background: "var(--color-border-strong)" }} />
-      <div className="flex flex-col" style={{ width: 18 }}>
-        <button type="button" tabIndex={-1} onClick={() => bump(step)}
-          className="flex-1 flex items-center justify-center leading-none"
-          style={{ fontSize: 8, color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>▲</button>
-        <span style={{ height: 1, background: "var(--color-border-strong)" }} />
-        <button type="button" tabIndex={-1} onClick={() => bump(-step)}
-          className="flex-1 flex items-center justify-center leading-none"
-          style={{ fontSize: 8, color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>▼</button>
-      </div>
-    </div>
-  );
-}
-
 // ─── DokterFieldsSection ──────────────────────────────────────────────────────
 // Per-dokter fields: periode, hari kerja, pasien/hari, visit/minggu, kompetitor
 
@@ -481,11 +433,28 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
 // Shared product-picker options builder — tiers by spesialisasi match, tags paket fokus.
 
 function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, { kriteriaBaru: string; kategori: string }>, psspHistory?: PsspKontrakSummary[]): ComboboxOption[] {
-  const sorted = spesialisasi
+  const tierSorted = spesialisasi
     ? sortProductsBySpesialisasi(products, spesialisasi)
     : products;
   const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
   const TIER_LABEL = ["Produk Fokus Sesuai Spesialisasi", "Produk Fokus Lainnya", "Produk Lainnya"];
+
+  // New top sort priority: products with PSSP history first, then the existing
+  // tier order within each of those two buckets.
+  const pelunasanByProduk = new Map<string, number>();
+  if (psspHistory) {
+    for (const p of tierSorted) {
+      const pct = computePelunasan3Bln(psspHistory, p.namaProduk);
+      if (pct != null) pelunasanByProduk.set(p.kodeProduk, pct);
+    }
+  }
+  const sorted = [...tierSorted].sort((a, b) => {
+    const aHasPssp = pelunasanByProduk.has(a.kodeProduk) ? 0 : 1;
+    const bHasPssp = pelunasanByProduk.has(b.kodeProduk) ? 0 : 1;
+    if (aHasPssp !== bHasPssp) return aHasPssp - bHasPssp;
+    return 0; // keep tier order (tierSorted is already stable-sorted by tier)
+  });
+
   return sorted.map((p) => {
     const allPakets = getAllPakets(p.namaProduk);
     const relevantPaket = allPakets.find((pk) => matchedPakets.includes(pk)) ?? allPakets[0] ?? null;
@@ -509,7 +478,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     const paketLabel = relevantPaket ?? p.namaGroupBrand;
     // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
     // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).
-    const pelunasan3Bln = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
+    const pelunasan3Bln = pelunasanByProduk.get(p.kodeProduk) ?? null;
     const tag2 = pelunasan3Bln != null ? `Pernah PSSP · Pelunasan 3 Bln ${pelunasan3Bln}%` : undefined;
     const tag2Color: "green" | "yellow" | "red" | undefined = pelunasan3Bln == null ? undefined
       : pelunasan3Bln >= 80 ? "green"
@@ -519,7 +488,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
       value: p.kodeProduk,
       label: p.namaProduk,
       sublabel: `${p.kodeProduk} · ${paketLabel}`,
-      group: spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya",
+      group: pelunasan3Bln != null ? "Pernah di PSSP" : (spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya"),
       accent: tier === 0,
       tag,
       tagColor,
@@ -571,7 +540,7 @@ function ProdukEntryRow({
   const hna    = product ? hargaST(product) : 0;  // price per ST
   const lama   = dokterFields.lamaPeriode || 1;
   const nilaiRPersen = product?.nilaiRPersen ? parseFloat(product.nilaiRPersen) : null;
-  const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR, dokterFields.pengaliNilaiR);
+  const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
   const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
@@ -674,7 +643,7 @@ function ProdukEntryRow({
             <UnitInput
               value={entry.jumlahResepHari}
               onChange={(v) => onChange({ jumlahResepHari: v })}
-              unit="Resep"
+              unit="Pasien"
               placeholder="Masukan jumlah pasien" />
           </div>
           {resepErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
@@ -732,7 +701,7 @@ function ProdukEntryRow({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
       {perBulan != null && (
         <div className="rounded-lg border px-3 py-2.5 space-y-2"
-          style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+          style={{ background: "var(--color-bg)", borderColor: "var(--color-border-strong)" }}>
           <p className="text-xs font-semibold uppercase tracking-wider"
             style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
           <div className="flex gap-6 flex-wrap">
@@ -833,8 +802,17 @@ function ProdukEntryRow({
       )}
       </div>
 
+      <label className="flex flex-col gap-1" style={{ maxWidth: 160 }}>
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R<Opt /></span>
+        <UnitInput
+          value={entry.pengaliNilaiR}
+          onChange={(v) => onChange({ pengaliNilaiR: v })}
+          unit="x"
+          placeholder="1" />
+      </label>
+
       {/* Budget % per produk */}
-      <BudgetFieldsRow entry={entry} onChange={onChange} pengaliNilaiR={pengaliNilaiR} dokterDefaultPengaliNilaiR={dokterFields.pengaliNilaiR} />
+      <BudgetFieldsRow entry={entry} onChange={onChange} pengaliNilaiR={pengaliNilaiR} />
     </div>
   );
 }
@@ -845,12 +823,10 @@ function BudgetFieldsRow({
   entry,
   onChange,
   pengaliNilaiR,
-  dokterDefaultPengaliNilaiR,
 }: {
   entry: ProdukEntry;
   onChange: (patch: Partial<ProdukEntry>) => void;
   pengaliNilaiR: number;
-  dokterDefaultPengaliNilaiR: string;
 }) {
   const totalPct =
     (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR +
@@ -882,14 +858,6 @@ function BudgetFieldsRow({
             <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
           </div>
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R<Opt /></span>
-          <UnitInput
-            value={entry.pengaliNilaiR}
-            onChange={(v) => onChange({ pengaliNilaiR: v })}
-            unit="x"
-            placeholder={dokterDefaultPengaliNilaiR || "1"} />
-        </label>
         {numInput("% PSSP KPDM", "persenPsspKpdm")}
         {numInput("% Diskon (DPL/DPF)", "persenDiskon")}
         {numInput("% DP", "persenDp")}
@@ -913,24 +881,39 @@ function BudgetFieldsRow({
 
 // ─── PsspHistoryPanel ─────────────────────────────────────────────────────────
 
-function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
+/** Months elapsed from prdAwal up to (and capped at) the current month, floored at 0. */
+function elapsedMonthsCount(prdAwal: string, prdAkhir: string): { elapsed: number; total: number } {
+  const now = new Date();
+  const currentYYYYMM = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const sy = parseInt(prdAwal.slice(0, 4), 10), sm = parseInt(prdAwal.slice(4), 10);
+  const ey = parseInt(prdAkhir.slice(0, 4), 10), em = parseInt(prdAkhir.slice(4), 10);
+  const total = (ey - sy) * 12 + (em - sm) + 1;
+  const cappedEnd = currentYYYYMM < prdAkhir ? currentYYYYMM : prdAkhir;
+  const cy = parseInt(cappedEnd.slice(0, 4), 10), cm = parseInt(cappedEnd.slice(4), 10);
+  const elapsed = Math.max(0, Math.min(total, (cy - sy) * 12 + (cm - sm) + 1));
+  return { elapsed, total };
+}
+
+function PsspHistoryPanel({ kodeCustomer, kodePI, onLabel, onHistory }: {
   kodeCustomer: string;
+  /** Currently-selected outlet — narrows the panel to contracts at this outlet only. */
+  kodePI?: string;
   onLabel?: (label: string) => void;
   onHistory?: (rows: PsspKontrakSummary[]) => void;
 }) {
-  const [history, setHistory] = useState<PsspKontrakSummary[] | null>(null);
+  const [allHistory, setAllHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [loading, startLoad] = useTransition();
 
   useEffect(() => {
     startLoad(async () => {
       const rows = await getPsspHistory(kodeCustomer);
-      setHistory(rows);
+      setAllHistory(rows);
       onLabel?.(computeLabelCustomer(rows));
       onHistory?.(rows);
     });
   }, [kodeCustomer]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (loading || history === null) {
+  if (loading || allHistory === null) {
     return (
       <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
         Memuat histori PSSP…
@@ -938,7 +921,7 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
     );
   }
 
-  if (history.length === 0) {
+  if (allHistory.length === 0) {
     return (
       <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
         Tidak ada histori PSSP untuk dokter ini.{" "}
@@ -946,6 +929,12 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
       </div>
     );
   }
+
+  // Narrow to the outlet currently selected in the form — but fall back to the
+  // full history if that would hide everything (e.g. kdOutlet not populated on old rows).
+  const filtered = kodePI ? allHistory.filter((r) => r.kdOutlet === kodePI) : allHistory;
+  const history = filtered.length > 0 ? filtered : allHistory;
+  const isFiltered = filtered.length > 0 && filtered.length < allHistory.length;
 
   // Group by cUrut
   const byContract = new Map<string, PsspKontrakSummary[]>();
@@ -966,7 +955,7 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
     (prdAkhir >= currentPeriod ? activeContracts : expiredContracts).push(entry);
   }
 
-  function ContractCard({ cUrut, rows }: { cUrut: string; rows: PsspKontrakSummary[] }) {
+  function ContractCard({ cUrut, rows, isActive }: { cUrut: string; rows: PsspKontrakSummary[]; isActive: boolean }) {
     const first = rows[0];
     const biaya    = first.biaya;
     const sumEst   = rows.reduce((s, r) => s + r.estBaris, 0);
@@ -975,6 +964,18 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
     const pctColor = pct == null ? "var(--color-text-faint)"
       : pct >= 80 ? "var(--color-success, #16a34a)"
       : pct >= 40 ? "var(--color-warning, #f59e0b)"
+      : "var(--color-red)";
+
+    // Running rate — actual pelunasan pace vs how much of the contract's own timeline
+    // has elapsed so far. >=100% = on/ahead of pace, <100% = falling behind.
+    const { elapsed, total } = elapsedMonthsCount(first.prdAwal, first.prdAkhir);
+    const expectedPct = total > 0 ? (elapsed / total) * 100 : null;
+    const runningRate = isActive && expectedPct != null && expectedPct > 0 && pct != null
+      ? Math.round((pct / expectedPct) * 100)
+      : null;
+    const runningRateColor = runningRate == null ? "var(--color-text-faint)"
+      : runningRate >= 100 ? "var(--color-success, #16a34a)"
+      : runningRate >= 70 ? "var(--color-warning, #f59e0b)"
       : "var(--color-red)";
 
     return (
@@ -988,11 +989,23 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
                 {first.prdAwal} – {first.prdAkhir}
               </span>
             </div>
+            {first.nmOutlet && (
+              <div className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>{first.nmOutlet}</div>
+            )}
           </div>
           <span className="text-xs font-semibold shrink-0" style={{ color: pctColor }}>
             {pct != null ? `${pct}%` : "—"}
           </span>
         </div>
+        {isActive && runningRate != null && (
+          <div className="flex items-center justify-between text-xs px-2 py-1 rounded"
+            style={{ background: "var(--color-bg-subtle)" }}>
+            <span style={{ color: "var(--color-text-faint)" }}>
+              Running rate ({elapsed}/{total} bln berjalan, target {Math.round(expectedPct!)}%)
+            </span>
+            <span className="font-semibold" style={{ color: runningRateColor }}>{runningRate}%</span>
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-1 text-xs">
           <div>
             <div style={{ color: "var(--color-text-faint)" }}>Biaya</div>
@@ -1031,12 +1044,17 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
 
   return (
     <div className="space-y-3">
+      {isFiltered && (
+        <p className="text-xs px-2 py-1 rounded" style={{ color: "var(--color-blue)", background: "var(--color-blue-light)" }}>
+          Difilter ke outlet yang lagi dipilih ({filtered.length} dari {allHistory.length} baris)
+        </p>
+      )}
       {activeContracts.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-blue)" }}>
             Aktif ({activeContracts.length})
           </p>
-          {activeContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} />)}
+          {activeContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} isActive />)}
         </div>
       )}
       {expiredContracts.length > 0 && (
@@ -1044,7 +1062,7 @@ function PsspHistoryPanel({ kodeCustomer, onLabel, onHistory }: {
           <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
             Selesai ({expiredContracts.length})
           </p>
-          {expiredContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} />)}
+          {expiredContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} isActive={false} />)}
         </div>
       )}
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
@@ -1180,6 +1198,7 @@ function ProdukFokusPanel({
 
 function PsspSidebar({
   kodeCustomer,
+  kodePI,
   doctorName,
   onLabel,
   onHistory,
@@ -1188,6 +1207,8 @@ function PsspSidebar({
   products,
 }: {
   kodeCustomer: string;
+  /** Currently-selected outlet — narrows the Histori PSSP panel to contracts at this outlet. */
+  kodePI?: string;
   doctorName?: string;
   onLabel?: (label: string) => void;
   onHistory?: (rows: PsspKontrakSummary[]) => void;
@@ -1263,7 +1284,7 @@ function PsspSidebar({
         {spesialisasi && produkList && products && (
           <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} />
         )}
-        <PsspHistoryPanel kodeCustomer={kodeCustomer} onLabel={handleLabel} onHistory={onHistory} />
+        <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} onLabel={handleLabel} onHistory={onHistory} />
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
             Histori Listing Fee
@@ -1305,11 +1326,13 @@ function AddPanel({
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [attempted, setAttempted] = useState(false);
 
-  const outletOptions = useMemo(() => outlets.map((o) => ({
-    value: o.kodePI,
-    label: `${o.kodePI} - ${o.namaOutlet}`,
-    sublabel: o.groupRS ?? "NON CHAIN",
-  })), [outlets]);
+  const outletOptions = useMemo(() => [...outlets]
+    .sort((a, b) => (a.groupRS ? 0 : 1) - (b.groupRS ? 0 : 1))
+    .map((o) => ({
+      value: o.kodePI,
+      label: `${o.kodePI} - ${o.namaOutlet}`,
+      sublabel: o.groupRS ?? "NON CHAIN",
+    })), [outlets]);
   const specOptions = useMemo(() => specList.map((s) => ({ value: s, label: spesLabel(s) })), [specList]);
   const customerOptions = useMemo(() => customerList.map((c) => ({
     value: c.id, label: c.namaCustomer,
@@ -1323,26 +1346,30 @@ function AddPanel({
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
+  const matchedPaketsForFokus = useMemo(
+    () => spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [],
+    [spesialisasi]
+  );
+
   // Same total, filtered to products that are tier-0 (focus) for this doctor's spesialisasi.
   const totalEstimasiFokus = useMemo(() => {
-    const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
-    if (matchedPakets.length === 0) return { total: 0, count: 0 };
+    if (matchedPaketsForFokus.length === 0) return { total: 0, count: 0 };
     let total = 0, count = 0;
     for (const e of produkList) {
       const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
-      if (!p || getProductTier(p.namaProduk, matchedPakets) !== 0) continue;
+      if (!p || getProductTier(p.namaProduk, matchedPaketsForFokus) !== 0) continue;
       total += computeEstimasi(e, dokterFields, p);
       count++;
     }
     return { total, count };
-  }, [produkList, dokterFields, products, spesialisasi]);
+  }, [produkList, dokterFields, products, matchedPaketsForFokus]);
 
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR, dokterFields.pengaliNilaiR);
+    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR);
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -1368,7 +1395,7 @@ function AddPanel({
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR, dokterFields.pengaliNilaiR);
+      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -1427,7 +1454,7 @@ function AddPanel({
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("pengaliNilaiR", entry.pengaliNilaiR || dokterFields.pengaliNilaiR);
+    fd.set("pengaliNilaiR", entry.pengaliNilaiR);
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
@@ -1651,18 +1678,28 @@ function AddPanel({
                 )}
               </div>
             </div>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (default)</span>
-              <div style={{ maxWidth: 120 }}>
-                <NumberStepperInput
-                  value={dokterFields.pengaliNilaiR}
-                  onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
-                  unit="x"
-                  placeholder="1"
-                  step={0.1}
-                  min={0} />
-              </div>
-            </label>
+            <div className="space-y-1 pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Estimasi Qty per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
+              </p>
+              {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
+                const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
+                if (!p) return null;
+                const qtyTotal = computeQtyTotal(entry, dokterFields);
+                const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
+                return (
+                  <div key={entry.uid} className="flex items-center justify-between text-xs gap-2">
+                    <span style={{ color: "var(--color-text-muted)" }} className="truncate min-w-0">
+                      {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
+                      {p.namaProduk}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
+                      {qtyTotal > 0 ? `${qtyTotal.toLocaleString("id-ID")} ${p.satuanTerkecil ?? p.satuan}` : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
         })()}
@@ -1681,6 +1718,7 @@ function AddPanel({
       {selectedCustomer?.kodeCustomer && (
         <PsspSidebar
           kodeCustomer={selectedCustomer.kodeCustomer}
+          kodePI={kodePI}
           doctorName={selectedCustomer.namaCustomer}
           onLabel={setLabelCustomer}
           onHistory={setPsspHistory}
@@ -1711,11 +1749,13 @@ function AddDokterBaruPanel({
   const [success, setSuccess] = useState(false);
   const [attempted, setAttempted] = useState(false);
 
-  const outletOptions = useMemo(() => outlets.map((o) => ({
-    value: o.kodePI,
-    label: `${o.kodePI} - ${o.namaOutlet}`,
-    sublabel: o.groupRS ?? "NON CHAIN",
-  })), [outlets]);
+  const outletOptions = useMemo(() => [...outlets]
+    .sort((a, b) => (a.groupRS ? 0 : 1) - (b.groupRS ? 0 : 1))
+    .map((o) => ({
+      value: o.kodePI,
+      label: `${o.kodePI} - ${o.namaOutlet}`,
+      sublabel: o.groupRS ?? "NON CHAIN",
+    })), [outlets]);
 
   const spesOptions = Object.entries(SPESIALISASI_PM_LABEL).map(([db, pm]) => ({ value: db, label: pm }));
   const selectedOutlet = outlets.find((o) => o.kodePI === kodePI);
@@ -2033,6 +2073,7 @@ function AddProductPanel({
       {kodeCust && (
         <PsspSidebar
           kodeCustomer={kodeCust}
+          kodePI={kodePI}
           doctorName={namaCust}
           onLabel={setLabelCustomer}
           onHistory={setPsspHistory}
@@ -2055,7 +2096,7 @@ interface EditableProdukEntry extends ProdukEntry {
 }
 
 function produkEntryFromItem(
-  item: PoaLineItem, products: Product[], doctorDefaultHariKerja: string, doctorDefaultPengaliNilaiR: string
+  item: PoaLineItem, products: Product[], doctorDefaultHariKerja: string
 ): EditableProdukEntry {
   const p = products.find((pr) => pr.kodeProduk === item.kodeProduk);
   const itemHari = item.hariKerjaBulan?.toString() ?? "";
@@ -2077,9 +2118,10 @@ function produkEntryFromItem(
     persenDp: item.persenDp ? (parseFloat(item.persenDp.toString()) * 100).toFixed(2) : "",
     persenListingFee: item.persenListingFee ? (parseFloat(item.persenListingFee.toString()) * 100).toFixed(2) : "",
     persenEntertain: item.persenEntertain ? (parseFloat(item.persenEntertain.toString()) * 100).toFixed(2) : "",
-    // Only surface as an explicit override when it actually differs from the doctor's default.
+    // Only surface Hari Praktek as an explicit override when it differs from the doctor's
+    // default — Pengali Nilai R has no doctor-level default anymore, so it's always its own value.
     hariKerjaBulan: itemHari && itemHari !== doctorDefaultHariKerja ? itemHari : "",
-    pengaliNilaiR: itemPengali && itemPengali !== doctorDefaultPengaliNilaiR ? itemPengali : "",
+    pengaliNilaiR: itemPengali,
   };
 }
 
@@ -2094,16 +2136,14 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
   const namaCust = first.namaCust;
   const spesialisasi = first.spesialisasi;
 
-  const doctorDefaultPengaliNilaiR = first.pengaliNilaiR ? first.pengaliNilaiR.toString() : "1";
   const [dokterFields, setDokterFields] = useState<DokterFields>({
     periodeAwal: first.periodeAwal,
     lamaPeriode: first.lamaPeriode,
     hariKerjaBulan: first.hariKerjaBulan?.toString() ?? "",
     rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
-    pengaliNilaiR: doctorDefaultPengaliNilaiR,
   });
   const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
-    () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? "", doctorDefaultPengaliNilaiR))
+    () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? ""))
   );
   const [labelCustomer, setLabelCustomer] = useState(first.labelCustomer ?? "");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
@@ -2124,26 +2164,30 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
+  const matchedPaketsForFokus = useMemo(
+    () => spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [],
+    [spesialisasi]
+  );
+
   // Same total, filtered to products that are tier-0 (focus) for this doctor's spesialisasi.
   const totalEstimasiFokus = useMemo(() => {
-    const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
-    if (matchedPakets.length === 0) return { total: 0, count: 0 };
+    if (matchedPaketsForFokus.length === 0) return { total: 0, count: 0 };
     let total = 0, count = 0;
     for (const e of produkList) {
       const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
-      if (!p || getProductTier(p.namaProduk, matchedPakets) !== 0) continue;
+      if (!p || getProductTier(p.namaProduk, matchedPaketsForFokus) !== 0) continue;
       total += computeEstimasi(e, dokterFields, p);
       count++;
     }
     return { total, count };
-  }, [produkList, dokterFields, products, spesialisasi]);
+  }, [produkList, dokterFields, products, matchedPaketsForFokus]);
 
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR, dokterFields.pengaliNilaiR);
+    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR);
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -2169,7 +2213,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR, dokterFields.pengaliNilaiR);
+      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -2209,7 +2253,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("pengaliNilaiR", entry.pengaliNilaiR || dokterFields.pengaliNilaiR);
+    fd.set("pengaliNilaiR", entry.pengaliNilaiR);
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
@@ -2388,18 +2432,28 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 )}
               </div>
             </div>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R (default)</span>
-              <div style={{ maxWidth: 120 }}>
-                <NumberStepperInput
-                  value={dokterFields.pengaliNilaiR}
-                  onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
-                  unit="x"
-                  placeholder="1"
-                  step={0.1}
-                  min={0} />
-              </div>
-            </label>
+            <div className="space-y-1 pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Estimasi Qty per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
+              </p>
+              {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
+                const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
+                if (!p) return null;
+                const qtyTotal = computeQtyTotal(entry, dokterFields);
+                const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
+                return (
+                  <div key={entry.uid} className="flex items-center justify-between text-xs gap-2">
+                    <span style={{ color: "var(--color-text-muted)" }} className="truncate min-w-0">
+                      {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
+                      {p.namaProduk}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-right" style={{ color: "var(--color-text-faint)" }}>
+                      {qtyTotal > 0 ? `${qtyTotal.toLocaleString("id-ID")} ${p.satuanTerkecil ?? p.satuan}` : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
         })()}
@@ -2416,6 +2470,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
       {kodeCust && (
         <PsspSidebar
           kodeCustomer={kodeCust}
+          kodePI={kodePI}
           doctorName={namaCust}
           onLabel={setLabelCustomer}
           onHistory={setPsspHistory}

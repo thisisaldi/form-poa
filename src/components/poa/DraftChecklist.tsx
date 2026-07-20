@@ -240,14 +240,18 @@ export function StatsPanel({
     const t = computeBiayaTercacah(it, quarterMonths);
     return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
   }, { estimasi: 0, nilaiPssp: 0 });
-  const aktifPssp = computeActivePsspStats(activePssp);
+  const aktifPssp = computeActivePsspStats(activePssp, quarterMonths);
   const budgetTotalWithAktif = s.budgetTotal + aktifPssp.nilaiTotal;
   // "Estimasi POA" / Rasio Estimasi include the sales estimate already running via
   // active PSSP contracts — kept separate from s.estimasiTotal so the Anggaran %
   // labels below (which divide by s.estimasiTotal) are unaffected.
   const estimasiDisplay = s.estimasiTotal + aktifPssp.estBarisTotal;
-  const tercacahEstimasiWithAktif = tercacah.estimasi + aktifPssp.estBarisTotal;
-  const tercacahNilaiPsspWithAktif = tercacah.nilaiPssp + aktifPssp.nilaiTotal;
+  // Tercacah = apportioned to just this POA's quarter — active PSSP contracts almost
+  // always span more than one quarter, so their full-period nilaiTotal/estBarisTotal
+  // would overstate what actually falls in this specific quarter. Use the apportioned
+  // nilaiTercacah/estBarisTercacah here instead (see computeActivePsspStats).
+  const tercacahEstimasiWithAktif = tercacah.estimasi + aktifPssp.estBarisTercacah;
+  const tercacahNilaiPsspWithAktif = tercacah.nilaiPssp + aktifPssp.nilaiTercacah;
 
   const ratioEst     = targetArea > 0 ? (estimasiDisplay / targetArea) * 100 : 0;
   const salesPlusEst = dummySales.salesYtd + s.estimasiTotal;

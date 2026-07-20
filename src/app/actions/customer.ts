@@ -89,6 +89,8 @@ export interface PsspKontrakSummary {
   estBaris: number;  // full-period estimate (correct denominator for %)
   totalLunas: number;
   snapshotDate: string | null;
+  kdOutlet: string | null;
+  nmOutlet: string | null;
 }
 
 /** Returns PSSP contract history for a customer by their kodeCustomer. */
@@ -101,7 +103,7 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
       id: true, cUrut: true, nmProduk: true, kdProduk: true,
       prdAwal: true, prdAkhir: true, biaya: true,
       estBaris: true, totalLunas: true,
-      snapshotDate: true,
+      snapshotDate: true, kdOutlet: true, nmOutlet: true,
     },
   });
 
@@ -112,6 +114,7 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
     estBaris: { toString(): string } | null;
     totalLunas: { toString(): string } | null;
     snapshotDate: Date | null;
+    kdOutlet: string | null; nmOutlet: string | null;
   }) => ({
     id: r.id,
     cUrut: r.cUrut,
@@ -123,6 +126,8 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
     estBaris: parseFloat(r.estBaris?.toString() ?? "0") || 0,
     totalLunas: parseFloat(r.totalLunas?.toString() ?? "0") || 0,
     snapshotDate: r.snapshotDate ? r.snapshotDate.toISOString().slice(0, 10) : null,
+    kdOutlet: r.kdOutlet,
+    nmOutlet: r.nmOutlet,
   }));
 }
 

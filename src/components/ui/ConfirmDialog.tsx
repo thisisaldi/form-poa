@@ -11,6 +11,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   /** Colors the icon + confirm button. "warning" for state-resetting actions, "danger" for destructive ones. */
   tone?: "warning" | "danger";
+  /** Disables + shows a spinner on the confirm button — e.g. while the action is in flight. */
+  confirmPending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -22,7 +24,7 @@ const TONE = {
 
 export function ConfirmDialog({
   open, title, message, confirmLabel = "Lanjutkan", cancelLabel = "Batal",
-  tone = "warning", onConfirm, onCancel,
+  tone = "warning", confirmPending = false, onConfirm, onCancel,
 }: ConfirmDialogProps) {
   useEffect(() => {
     if (!open) return;
@@ -64,13 +66,14 @@ export function ConfirmDialog({
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t px-5 py-3" style={{ borderColor: "var(--color-border)" }}>
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={confirmPending}>
             {cancelLabel}
           </Button>
           <Button
             type="button"
             size="sm"
             onClick={onConfirm}
+            loading={confirmPending}
             style={tone === "warning" ? { background: t.fg, color: "#fff" } : undefined}
             variant={tone === "danger" ? "danger" : "primary"}
           >
