@@ -44,6 +44,12 @@ const NAV_ITEMS: NavItem[] = [
   //   icon: <IconTable />,
   //   roles: ["NSM", "ADMIN"],
   // },
+  {
+    href: "/admin",
+    label: "Admin",
+    icon: <IconTable />,
+    roles: ["ADMIN"],
+  },
 ];
 
 interface SidebarProps {
