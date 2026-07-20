@@ -14,6 +14,8 @@ export interface ComboboxOption {
   tag?: string;
   /** Badge color variant — defaults to blue. */
   tagColor?: "blue" | "yellow" | "red" | "green" | "orange";
+  /** Render `tag` as a plain color dot (title = tag text) instead of a text pill. */
+  tagDotOnly?: boolean;
   /** Second, independent badge (e.g. PSSP history) — shown alongside `tag`, not instead of it. */
   tag2?: string;
   tag2Color?: "blue" | "yellow" | "red" | "green" | "orange";
@@ -266,15 +268,27 @@ export function Combobox({
                               {option.label}
                             </span>
                             {option.tag && (
-                              <span
-                                className="shrink-0 text-xs px-1.5 py-0.5 rounded font-medium"
-                                style={{
-                                  background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tagColor ?? "blue"].bg,
-                                  color: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
-                                }}
-                              >
-                                {option.tag}
-                              </span>
+                              option.tagDotOnly ? (
+                                <span
+                                  title={option.tag}
+                                  className="shrink-0 rounded-full"
+                                  style={{
+                                    width: 8,
+                                    height: 8,
+                                    background: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
+                                  }}
+                                />
+                              ) : (
+                                <span
+                                  className="shrink-0 text-xs px-1.5 py-0.5 rounded font-medium"
+                                  style={{
+                                    background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tagColor ?? "blue"].bg,
+                                    color: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
+                                  }}
+                                >
+                                  {option.tag}
+                                </span>
+                              )
                             )}
                             {option.tag2 && (
                               <span

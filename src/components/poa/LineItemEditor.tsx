@@ -31,6 +31,11 @@ const JENIS_PSSP_LABELS: Record<string, string> = {
 
 interface OutletOption { kodePI: string; namaOutlet: string; groupRS?: string | null }
 
+// DB stores "NON CHAIN" as a literal string (not null) for outlets without a real chain group.
+function isChainGroup(groupRS?: string | null): boolean {
+  return !!groupRS && groupRS !== "NON CHAIN";
+}
+
 interface Props {
   poaId: string;
   poaPeriod: string;     // PoaForm.period, e.g. "2026-Q3" — bounds the Periode Awal picker
@@ -124,7 +129,7 @@ function resolvePengaliNilaiR(entryValue: string): number {
  * at this outlet covering periodeAwal. If more than one contract matches (a
  * duplicate for the same outlet+product+period), the one with the largest
  * newOnPi wins. Returns null when there's no contracted discount on file —
- * callers should fall back to the dummy placeholder in that case.
+ * callers should default to 0 in that case.
  */
 function resolveDiskonPct(diskonList: DiskonByProduct[] | undefined, kodeProduk: string, periodeAwal: string): number | null {
   if (!diskonList || !kodeProduk || !periodeAwal) return null;
@@ -498,6 +503,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
       ? "red"
       : undefined;
     const tag = isLowHangingFruit ? "Low Hanging Fruit" : kriteria;
+    const tagDotOnly = isLowHangingFruit;
     const paketLabel = relevantPaket ?? p.namaGroupBrand;
     // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
     // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).
@@ -515,6 +521,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
       accent: tier === 0,
       tag,
       tagColor,
+      tagDotOnly,
       tag2,
       tag2Color,
     };
@@ -619,11 +626,11 @@ function ProdukEntryRow({
                   persenPsspDokter: nr != null ? (nr * 100).toFixed(2) : "",
                   statusStandarisasi: autoStandarisasi,
                   // % Diskon defaults to the real DiskonKontrak value when one's on file for
-                  // this outlet+product+period; otherwise dummy defaults — akan diganti data
-                  // asli kalau sudah ada sumbernya (belum ada utk Listing Fee/Entertain).
-                  persenDiskon: v ? (realDiskonPct != null ? realDiskonPct.toFixed(2) : "10") : "0",
-                  persenListingFee: v ? "2.5" : "0",
-                  persenEntertain: v ? "2.5" : "0",
+                  // this outlet+product+period; 0 when there's no contract on file
+                  // (belum ada sumber data asli utk Listing Fee/Entertain, jadi 0 juga).
+                  persenDiskon: v && realDiskonPct != null ? realDiskonPct.toFixed(2) : "0",
+                  persenListingFee: "0",
+                  persenEntertain: "0",
                 });
               }}
               placeholder="Cari produk…"
@@ -802,7 +809,8 @@ function ProdukEntryRow({
         </div>
       )}
 
-      {/* Nilai PSSP card — shown when estimasi is filled AND product has nilaiRPersen */}
+      {/* Nilai PSSP card + Pengali Nilai R — grouped in the same column so the multiplier sits directly under the calculator */}
+      <div className="flex flex-col gap-3">
       {nilaiPSSPBulan != null && (
         <div className="rounded-lg border px-3 py-2.5 space-y-2"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
@@ -829,7 +837,6 @@ function ProdukEntryRow({
           </div>
         </div>
       )}
-      </div>
 
       <label className="flex flex-col gap-1" style={{ maxWidth: 160 }}>
         <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R<Opt /></span>
@@ -839,6 +846,8 @@ function ProdukEntryRow({
           unit="x"
           placeholder="1" />
       </label>
+      </div>
+      </div>
 
       {/* Budget % per produk */}
       <BudgetFieldsRow entry={entry} onChange={onChange} pengaliNilaiR={pengaliNilaiR} />
@@ -1357,7 +1366,7 @@ function AddPanel({
   const [attempted, setAttempted] = useState(false);
 
   const outletOptions = useMemo(() => [...outlets]
-    .sort((a, b) => (a.groupRS ? 0 : 1) - (b.groupRS ? 0 : 1))
+    .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
     .map((o) => ({
       value: o.kodePI,
       label: `${o.kodePI} - ${o.namaOutlet}`,
@@ -1783,7 +1792,7 @@ function AddDokterBaruPanel({
   const [attempted, setAttempted] = useState(false);
 
   const outletOptions = useMemo(() => [...outlets]
-    .sort((a, b) => (a.groupRS ? 0 : 1) - (b.groupRS ? 0 : 1))
+    .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
     .map((o) => ({
       value: o.kodePI,
       label: `${o.kodePI} - ${o.namaOutlet}`,
