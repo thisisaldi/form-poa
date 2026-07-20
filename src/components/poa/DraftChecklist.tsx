@@ -245,7 +245,7 @@ function ActivePsspDoctorRow({ doctorRows, quarterMonths }: { doctorRows: Active
   );
 }
 
-function ActivePsspListCard({ rows, quarterMonths }: { rows: ActivePsspRow[]; quarterMonths: string[] }) {
+export function ActivePsspListCard({ rows, quarterMonths }: { rows: ActivePsspRow[]; quarterMonths: string[] }) {
   if (rows.length === 0) return null;
 
   const byDoctor = new Map<string, ActivePsspRow[]>();
@@ -890,8 +890,6 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
             ))}
           </div>
         </Card>
-
-        <ActivePsspListCard rows={activePssp} quarterMonths={quarterMonths} />
 
         {showSubmit && poaId && (
           <div className="rounded-lg border p-4"

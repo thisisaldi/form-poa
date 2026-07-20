@@ -517,20 +517,27 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     const kriteriaRow = kriteriaMap?.get(p.kodeProduk);
     const kriteria = kriteriaRow?.kriteriaBaru;
     // Low Hanging Fruit (kategori field, distinct from kriteriaBaru) = easy-win candidate.
-    // Color reflects whether there's sales history, per kriteriaBaru's own
-    // "... - Ada Sales" / "... - Tidak Ada Sales" suffix: Oren = ada sales, Kuning = belum.
+    // Shown as "Ada Sales" (oren) / "Tidak Ada Sales" (kuning) per kriteriaBaru's own
+    // "... - Ada Sales" / "... - Tidak Ada Sales" suffix, not the raw "Low Hanging Fruit" label.
     const isLowHangingFruit = kriteriaRow?.kategori === "Low Hanging Fruit";
+    // "Produk Sudah Terstandarisasi..." still drives the Standarisasi field default
+    // below (autoStandarisasi) — it's just not surfaced as a picker badge anymore.
+    const isStandarisasi = kriteria?.startsWith("Produk Sudah Terstandarisasi") ?? false;
     const tagColor: "blue" | "yellow" | "red" | "orange" | undefined = isLowHangingFruit
       ? (kriteria?.includes("Tidak Ada Sales") ? "yellow" : "orange")
-      : kriteria?.startsWith("Produk Sudah Terstandarisasi")
-      ? "yellow"
       : kriteria?.startsWith("Produk Kompetisi Rendah")
       ? "blue"
       : kriteria?.startsWith("Produk Kompetisi Tinggi")
       ? "red"
       : undefined;
-    const tag = isLowHangingFruit ? "Low Hanging Fruit" : kriteria;
-    const tagDotOnly = isLowHangingFruit;
+    const tag = isLowHangingFruit
+      ? (kriteria?.includes("Tidak Ada Sales") ? "Tidak Ada Sales" : "Ada Sales")
+      : isStandarisasi
+      ? undefined
+      : kriteria;
+    // Only the Low Hanging Fruit badge shows as text — every other kriteria
+    // (Kompetisi Rendah/Tinggi, etc.) is a plain color dot.
+    const tagDotOnly = !isLowHangingFruit;
     const paketLabel = relevantPaket ?? p.namaGroupBrand;
     // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
     // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).

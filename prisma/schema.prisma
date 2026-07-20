@@ -256,6 +256,7 @@ model Outlet {
   subSektor    String?
   kota         String?
   propinsi     String?
+  kategori     String?  // "KATEGORI OUTLET" A/B/C from Struktur Verified org file
 
   // Territory hierarchy (from org structure CSV)
   kodeGT   String?

@@ -1,0 +1,187 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import type { PoaLineItem, PoaStatus } from "@prisma/client";
+import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { DraftChecklist, ActivePsspListCard } from "@/components/poa/DraftChecklist";
+import { quarterToMonths } from "@/lib/targetCalculation";
+import { computeActivePsspStats } from "@/lib/activePssp";
+import type { ActivePsspRow } from "@/app/actions/customer";
+
+type TabKey = "drafting" | "produkFokus" | "pssp";
+
+interface FocusProductTarget {
+  kodeProduk: string;
+  namaProduk: string;
+  quarterlyTargetQty: number;
+}
+
+// Splits the Detail POA page into 3 tabs: Drafting (checklist + light summaries),
+// Produk Fokus (full per-product quarterly target breakdown), History PSSP Aktif
+// (full per-doctor/per-contract breakdown) — the last two used to sit inline as
+// full detail on every page load; now only their summary shows in Drafting.
+export function PoaDetailTabs({
+  items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi,
+  selectable = true, activePssp = [], focusProductTargets,
+}: {
+  items: PoaLineItem[];
+  poaId?: string;
+  poaPeriod: string;
+  poaStatus?: PoaStatus;
+  poaVersion?: number;
+  showSubmit?: boolean;
+  userCanEdit?: boolean;
+  isDraft?: boolean;
+  willTriggerRevisi?: boolean;
+  selectable?: boolean;
+  activePssp?: ActivePsspRow[];
+  focusProductTargets: FocusProductTarget[];
+}) {
+  const [tab, setTab] = useState<TabKey>("drafting");
+
+  const quarterMonths = useMemo(() => {
+    try { return quarterToMonths(poaPeriod); } catch { return []; }
+  }, [poaPeriod]);
+
+  const aktifPsspStats = useMemo(
+    () => computeActivePsspStats(activePssp, quarterMonths),
+    [activePssp, quarterMonths]
+  );
+
+  const focusWithTarget = focusProductTargets.filter((p) => p.quarterlyTargetQty > 0);
+  const focusTotalQty = focusProductTargets.reduce((s, p) => s + p.quarterlyTargetQty, 0);
+
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "drafting", label: "Drafting" },
+    { key: "produkFokus", label: focusProductTargets.length > 0 ? `Produk Fokus (${focusProductTargets.length})` : "Produk Fokus" },
+    { key: "pssp", label: aktifPsspStats.kontrakTotal > 0 ? `History PSSP Aktif (${aktifPsspStats.kontrakTotal})` : "History PSSP Aktif" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Tab switcher */}
+      <div className="flex gap-1 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className="px-3 py-2 text-sm font-medium whitespace-nowrap -mb-px border-b-2 transition-colors"
+            style={{
+              borderColor: tab === t.key ? "var(--color-blue)" : "transparent",
+              color: tab === t.key ? "var(--color-blue)" : "var(--color-text-faint)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Drafting — checklist + light summaries of the other two tabs */}
+      {tab === "drafting" && (
+        <div className="space-y-4">
+          {focusProductTargets.length > 0 && (
+            <Card>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                    Target Produk Fokus (Kuartal Ini)
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                    {focusWithTarget.length} dari {focusProductTargets.length} produk fokus punya target · total {Math.round(focusTotalQty).toLocaleString("id-ID")} unit
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTab("produkFokus")}
+                  className="text-xs font-medium shrink-0"
+                  style={{ color: "var(--color-blue)" }}
+                >
+                  Lihat detail →
+                </button>
+              </div>
+            </Card>
+          )}
+
+          {items.length === 0 ? (
+            <Card>
+              <p className="text-sm py-4" style={{ color: "var(--color-text-muted)" }}>
+                {userCanEdit
+                  ? <a href={`/poa/${poaId}/edit`} style={{ color: "var(--color-blue)" }}>+ Tambah rencana pertama</a>
+                  : "Belum ada baris."}
+              </p>
+            </Card>
+          ) : (
+            <DraftChecklist
+              items={items}
+              poaId={poaId}
+              poaPeriod={poaPeriod}
+              poaStatus={poaStatus}
+              poaVersion={poaVersion}
+              showSubmit={showSubmit}
+              userCanEdit={userCanEdit}
+              isDraft={isDraft}
+              willTriggerRevisi={willTriggerRevisi}
+              selectable={selectable}
+              activePssp={activePssp}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Produk Fokus — full per-product quarterly target detail */}
+      {tab === "produkFokus" && (
+        focusProductTargets.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Target Produk Fokus (Kuartal Ini)</CardTitle>
+            </CardHeader>
+            <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
+              Target kuantitas per produk fokus untuk territory SM dari MR ini, {poaPeriod} —
+              dari mesin simulasi target yang sama dengan halaman Admin.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+                    <th className="text-left py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Produk Fokus</th>
+                    <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Target Unit (Kuartal)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {focusProductTargets.map((p) => (
+                    <tr key={p.kodeProduk} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                      <td className="py-1.5 pr-3" style={{ color: "var(--color-text)" }}>{p.namaProduk}</td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text)" }}>
+                        {Math.round(p.quarterlyTargetQty).toLocaleString("id-ID")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <p className="text-sm py-2" style={{ color: "var(--color-text-muted)" }}>
+              Tidak ada data target produk fokus untuk periode ini.
+            </p>
+          </Card>
+        )
+      )}
+
+      {/* History PSSP Aktif — full per-doctor/per-contract detail */}
+      {tab === "pssp" && (
+        activePssp.length > 0 ? (
+          <ActivePsspListCard rows={activePssp} quarterMonths={quarterMonths} />
+        ) : (
+          <Card>
+            <p className="text-sm py-2" style={{ color: "var(--color-text-muted)" }}>
+              Tidak ada kontrak PSSP aktif untuk dokter di outlet yang sama dengan POA ini.
+            </p>
+          </Card>
+        )
+      )}
+    </div>
+  );
+}
