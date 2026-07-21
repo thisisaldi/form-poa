@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DraftChecklist, ActivePsspListCard } from "@/components/poa/DraftChecklist";
-import { quarterToMonths } from "@/lib/targetCalculation";
+import { quarterToMonths } from "@/lib/quarterUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
 import type { ActivePsspRow } from "@/app/actions/customer";
 

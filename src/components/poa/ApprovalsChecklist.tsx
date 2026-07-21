@@ -6,7 +6,7 @@ import type { PoaForm, PoaLineItem, User } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { quarterToMonths } from "@/lib/targetCalculation";
+import { quarterToMonths } from "@/lib/quarterUtils";
 import {
   StatsPanel, formatRp, toNum, doctorKey,
   computeDummyTarget, computeDummySales,

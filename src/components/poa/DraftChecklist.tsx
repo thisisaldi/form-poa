@@ -11,7 +11,7 @@ import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
 import { submitPoaWithSelectionAction } from "@/app/actions/poa";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
-import { quarterToMonths } from "@/lib/targetCalculation";
+import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
 
