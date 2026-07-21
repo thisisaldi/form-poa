@@ -171,8 +171,13 @@ export function Sidebar({ userRole, userName, userNip }: SidebarProps) {
         className={cn(
           // desktop: sticky, always visible
           "md:sticky md:top-0 md:translate-x-0 md:flex md:h-screen md:w-56 md:flex-col md:border-r",
-          // mobile: fixed drawer, slides in/out
-          "fixed inset-y-0 left-0 z-50 flex h-screen w-64 flex-col border-r transition-transform duration-200",
+          // mobile: fixed drawer, slides in/out. h-dvh (not h-screen/100vh) so the
+          // drawer's real bottom tracks the actual visible viewport on mobile
+          // browsers with a dynamic address bar — with `fixed` + inset-y-0 +
+          // an explicit height all set, height wins over bottom (CSS2.1 §10.6.4),
+          // so 100vh here would push content below the visible screen whenever
+          // the address bar is showing and shrinking the true viewport.
+          "fixed inset-y-0 left-0 z-50 flex h-dvh w-64 flex-col border-r transition-transform duration-200",
           open ? "translate-x-0" : "-translate-x-full"
         )}
         style={{

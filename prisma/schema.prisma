@@ -161,8 +161,15 @@ model PsspHospinetSnapshot {
   customer       Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   kodePI         String
   outlet         Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  // Hospinet's own internal customer numbering (source "Kode Customer" column,
+  // "0" means none) — a DIFFERENT namespace than Customer.kodeCustomer (the
+  // main CDB code, alphanumeric like "F1045097"). Never write this into
+  // Customer.kodeCustomer — customer identity here is still resolved by name.
+  kodeCustomer   String?
   statusCustomer String   // "active-repeat" | "inactive-new"
   psspBerjalan   Boolean  // true when source "Terakhir PSSP" == "Berjalan"
+  periodeAwal    String?  // YYYYMM, source "-" (no current/last PSSP period) → null
+  periodeAkhir   String?  // YYYYMM, same null convention
   valuePssp      Decimal  @db.Decimal(18, 2)
   pelunasan      Decimal  @db.Decimal(18, 2)
   rr             Decimal? @db.Decimal(10, 4) // pelunasan / valuePssp, as given by source

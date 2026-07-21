@@ -3,11 +3,23 @@
  * customer-level PSSP snapshot for the Hospinet division, which the KAM
  * struktur/PsspKontrak imports never covered (see internal/TODO.md #40/#42).
  *
- * Source shape is flat (one row per customer×outlet): Nama Customer,
- * Spesialisasi, Status Customer (active-repeat/inactive-new), Terakhir PSSP
- * ("-"/"Berjalan"), Kode Outlet, Nama Outlet, City, Value PSSP, Pelunasan, RR.
- * No contract number, no product, no monthly breakdown — deliberately does
- * NOT go into PsspKontrak (see PsspHospinetSnapshot doc comment in schema).
+ * Source shape is flat (one row per customer×outlet): Kode Customer, Nama
+ * Customer, Spesialisasi, Status Customer (active-repeat/inactive-new),
+ * Terakhir PSSP ("-"/"Berjalan"), Kode Outlet, Nama Outlet, City, Periode
+ * Awal, Periode Akhir, Value PSSP, Pelunasan, RR. No contract number, no
+ * product, no monthly breakdown — deliberately does NOT go into PsspKontrak
+ * (see PsspHospinetSnapshot doc comment in schema).
+ *
+ * "Kode Customer" (2026-07-21 addition) is Hospinet's OWN internal numbering
+ * (e.g. 168002) — "0" means the row genuinely has none, not a real code — and
+ * it is a completely different namespace than Customer.kodeCustomer (the main
+ * CDB code, alphanumeric like "F1045097"; confirmed zero overlap against the
+ * DB). So it's stored only on PsspHospinetSnapshot for reference, and customer
+ * identity here is still resolved by name, same as before this addition —
+ * writing it into Customer.kodeCustomer would corrupt that field's meaning.
+ *
+ * "Periode Awal"/"Periode Akhir" (2026-07-21 addition): YYYYMM of the
+ * customer's current/last PSSP period, "-" when not applicable → stored null.
  *
  * Effects:
  *   1. Customer: for each distinct (name, spesialisasi) not already matching
@@ -16,7 +28,7 @@
  *      "customers without code" path.
  *   2. CustomerOutlet: junction row per (customer, outlet) from the file.
  *   3. PsspHospinetSnapshot: one row per (customer, outlet) with the
- *      status/value/pelunasan/rr figures.
+ *      kodeCustomer/periode/status/value/pelunasan/rr figures.
  * Rows are skipped (and counted) when: name blank, spesialisasi blank/"NULL",
  * kodeOutlet blank/"NULL", or kodeOutlet doesn't resolve to an existing
  * Outlet (that outlet genuinely isn't in our data yet — logged, not guessed).
@@ -41,9 +53,25 @@ function esc(s: string): string {
   return s.replace(/'/g, "''");
 }
 
+function sqlNullableStr(s: string | null): string {
+  return s == null ? "NULL" : `'${esc(s)}'`;
+}
+
 function isBlankOrNull(s: string): boolean {
   const t = s.trim();
   return t === "" || t.toUpperCase() === "NULL" || t === "-";
+}
+
+// "0" is this source's convention for "no Hospinet customer code" — not a real code.
+function cleanKodeCustomer(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  return s === "" || s === "0" ? null : s;
+}
+
+// "-" is this source's convention for "no periode" (e.g. never had a PSSP contract).
+function cleanPeriode(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  return s === "" || s === "-" ? null : s;
 }
 
 // Only spesialisasi values with an unambiguous 1:1 curated-category match are
@@ -67,11 +95,14 @@ function normalizeSpesialisasi(raw: string): string {
 }
 
 interface SourceRow {
+  kodeCustomer: string | null;
   nama: string;
   spesialisasi: string;
   statusCustomer: string;
   psspBerjalan: boolean;
   kodeOutlet: string;
+  periodeAwal: string | null;
+  periodeAkhir: string | null;
   valuePssp: number;
   pelunasan: number;
   rr: number | null;
@@ -93,14 +124,17 @@ async function main() {
 
   for (let r = 2; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
-    const nama = String(row.getCell(1).value ?? "").trim();
-    const spesialisasi = String(row.getCell(2).value ?? "").trim();
-    const statusCustomer = String(row.getCell(3).value ?? "").trim();
-    const terakhirPssp = String(row.getCell(4).value ?? "").trim();
-    const kodeOutlet = String(row.getCell(5).value ?? "").trim();
-    const valuePsspRaw = row.getCell(8).value;
-    const pelunasanRaw = row.getCell(9).value;
-    const rrCell = row.getCell(10).value;
+    const kodeCustomer = cleanKodeCustomer(row.getCell(1).value);
+    const nama = String(row.getCell(2).value ?? "").trim();
+    const spesialisasi = String(row.getCell(3).value ?? "").trim();
+    const statusCustomer = String(row.getCell(4).value ?? "").trim();
+    const terakhirPssp = String(row.getCell(5).value ?? "").trim();
+    const kodeOutlet = String(row.getCell(6).value ?? "").trim();
+    const periodeAwal = cleanPeriode(row.getCell(9).value);
+    const periodeAkhir = cleanPeriode(row.getCell(10).value);
+    const valuePsspRaw = row.getCell(11).value;
+    const pelunasanRaw = row.getCell(12).value;
+    const rrCell = row.getCell(13).value;
 
     if (!nama) { skippedBlankName++; continue; }
     if (isBlankOrNull(spesialisasi)) { skippedBlankSpec++; continue; }
@@ -118,9 +152,9 @@ async function main() {
     }
 
     rows.push({
-      nama, spesialisasi: normalizeSpesialisasi(spesialisasi), statusCustomer,
+      kodeCustomer, nama, spesialisasi: normalizeSpesialisasi(spesialisasi), statusCustomer,
       psspBerjalan: terakhirPssp === "Berjalan",
-      kodeOutlet, valuePssp, pelunasan, rr,
+      kodeOutlet, periodeAwal, periodeAkhir, valuePssp, pelunasan, rr,
     });
   }
 
@@ -204,14 +238,17 @@ async function main() {
   for (let i = 0; i < resolved.length; i += BATCH) {
     const chunk = resolved.slice(i, i + BATCH);
     const values = chunk.map((r) =>
-      `('${randomUUID()}', '${r.customerId}', '${esc(r.kodeOutlet)}', '${esc(r.statusCustomer)}', ${r.psspBerjalan}, ${r.valuePssp}, ${r.pelunasan}, ${r.rr ?? "NULL"}, '${now.toISOString()}')`
+      `('${randomUUID()}', '${r.customerId}', '${esc(r.kodeOutlet)}', ${sqlNullableStr(r.kodeCustomer)}, '${esc(r.statusCustomer)}', ${r.psspBerjalan}, ${sqlNullableStr(r.periodeAwal)}, ${sqlNullableStr(r.periodeAkhir)}, ${r.valuePssp}, ${r.pelunasan}, ${r.rr ?? "NULL"}, '${now.toISOString()}')`
     ).join(",\n");
     await prisma.$executeRawUnsafe(`
-      INSERT INTO "PsspHospinetSnapshot" ("id","customerId","kodePI","statusCustomer","psspBerjalan","valuePssp","pelunasan","rr","syncedAt")
+      INSERT INTO "PsspHospinetSnapshot" ("id","customerId","kodePI","kodeCustomer","statusCustomer","psspBerjalan","periodeAwal","periodeAkhir","valuePssp","pelunasan","rr","syncedAt")
       VALUES ${values}
       ON CONFLICT ("customerId","kodePI") DO UPDATE SET
+        "kodeCustomer" = EXCLUDED."kodeCustomer",
         "statusCustomer" = EXCLUDED."statusCustomer",
         "psspBerjalan" = EXCLUDED."psspBerjalan",
+        "periodeAwal" = EXCLUDED."periodeAwal",
+        "periodeAkhir" = EXCLUDED."periodeAkhir",
         "valuePssp" = EXCLUDED."valuePssp",
         "pelunasan" = EXCLUDED."pelunasan",
         "rr" = EXCLUDED."rr",

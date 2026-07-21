@@ -35,14 +35,15 @@
  * where only the SPV column is filled get wrongly treated as vacant-MR.
  *
  * NIP "NEW" (v2 file, 2026-07-21): a real, named person (not a DUMMY/VACANT
- * placeholder) whose NIP hasn't been issued by HR yet — currently only seen at
- * ASM level ("NIRA MAYA", 24 rows). Treated as unresolvable (resolvableNip()),
- * same effect as a blank NIP: no phantom User gets created for it, and
- * hierarchy/coverage/assignment correctly skip past it to the next real level
- * up in the meantime. The raw "NEW" text is still preserved as-is in
- * OutletStrukturBaru (step 1) so the outlet↔name mapping isn't lost — once HR
- * issues a real NIP (entered by an admin, or present in a future re-import),
- * re-running this script resolves that person normally.
+ * placeholder) whose NIP hasn't been issued by HR yet. Treated as unresolvable
+ * (resolvableNip()), same effect as a blank NIP: no phantom User gets created
+ * for it, and hierarchy/coverage/assignment correctly skip past it to the next
+ * real level up in the meantime. The raw "NEW" text is still preserved as-is
+ * in OutletStrukturBaru (step 1) so the outlet↔name mapping isn't lost — once
+ * a real NIP is known, either the source file gets updated or (as happened
+ * for "NIRA MAYA" below) it's hardcoded here, then re-running resolves normally.
+ *   - "NIRA MAYA" (ASM, 24 rows): NIP "NEW" in the file → confirmed by the
+ *     business owner 2026-07-21 as L260457, hardcoded as an override below.
  *
  * This file covers only the KAM division ("Part KAM") — it is NOT a full
  * company roster, so unlike orgStructureSync.ts this script never deactivates
@@ -59,8 +60,10 @@
  *      to be vacant — one covered outlet is enough, regardless of the rest.
  *   4. For each outlet with a resolved MR NIP (leaf level), that NIP becomes the
  *      SOLE assignee for the current periode — replacing any other existing
- *      assignee(s) for that outlet. Outlets with no resolved MR NIP are left
- *      completely untouched (existing assignments, if any, are kept as-is).
+ *      assignee(s) for that outlet. Outlets with NO resolved MR NIP (genuinely
+ *      vacant, or a named MR who isn't a real User yet) have any pre-existing
+ *      assignment CLEARED instead — the latest import is authoritative, so a
+ *      stale assignment from before is removed rather than left to linger.
  *
  * Run: npx tsx scripts/importStrukturVerifiedKAM.ts [path-to-excel]
  * Default: internal/Struktur Verified Part KAM.xlsx
@@ -77,6 +80,8 @@ const EKA_NAME = "EKA";
 const EKA_REAL_NIP = "P260205";
 const DODY_NAME = "DODY ALWARDY";
 const DODY_REAL_NIP = "P250442";
+const NIRA_NAME = "NIRA MAYA";
+const NIRA_REAL_NIP = "L260457";
 
 const COL = {
   kodePI: 1, namaOutlet: 2, kota: 3, provinsi: 4,
@@ -148,6 +153,10 @@ async function main() {
     if (nsmNama?.toUpperCase() === EKA_NAME) nsmNip = EKA_REAL_NIP; // data bug override
     if (nsmNama?.toUpperCase() === DODY_NAME) nsmNip = DODY_REAL_NIP; // data bug override
 
+    const asmNama = clean(row.getCell(COL.asmNama).value);
+    let asmNip = clean(row.getCell(COL.asmNip).value);
+    if (asmNama?.toUpperCase() === NIRA_NAME) asmNip = NIRA_REAL_NIP; // her NIP was "NEW" (not yet issued) — now confirmed by the business owner
+
     rows.push({
       kodePI,
       namaOutlet: clean(row.getCell(COL.namaOutlet).value),
@@ -163,8 +172,7 @@ async function main() {
       nsmNama, nsmNip,
       smNama: clean(row.getCell(COL.smNama).value),
       smNip: clean(row.getCell(COL.smNip).value),
-      asmNama: clean(row.getCell(COL.asmNama).value),
-      asmNip: clean(row.getCell(COL.asmNip).value),
+      asmNama, asmNip,
       spvNama: clean(row.getCell(COL.spvNama).value),
       spvNip: clean(row.getCell(COL.spvNip).value),
       mrNama: clean(row.getCell(COL.mrNama).value),
@@ -316,29 +324,41 @@ async function main() {
   console.log(`✅ Outlet upserted: ${outletsUpserted} rows.`);
   console.log(`   Covered by MR: ${coverageCounts.MR} · ASM (vacant MR): ${coverageCounts.ASM} · SM (vacant MR+ASM): ${coverageCounts.SM} · NSM (vacant MR+ASM+SM): ${coverageCounts.NSM} · nobody resolvable: ${coverageCounts.none}\n`);
 
-  // ── 4. MrOutletAssignment — additive/targeted, never a blanket delete ────────
+  // ── 4. MrOutletAssignment — the latest import is authoritative ───────────────
+  // If this outlet has no resolvable MR right now (genuinely vacant, or a named
+  // MR who isn't a real User yet), any pre-existing assignment is CLEARED, not
+  // kept — a stale assignment pointing at whoever held it before is worse than
+  // no assignment, since it'd misrepresent who's actually responsible for it
+  // today (2026-07-21 decision, business owner: "ikuti yang baru, yang lama buang").
   const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
-  let assignmentsWritten = 0, outletsNoMr = 0, outletsMrNotUser = 0;
+  let assignmentsWritten = 0, assignmentsCleared = 0, outletsNoMr = 0, outletsMrNotUser = 0;
 
   for (const r of rows) {
     const mrNip = effectiveMrNip(r);
-    if (!mrNip) { outletsNoMr++; continue; }
-    if (!existingUserNips.has(mrNip)) { outletsMrNotUser++; continue; }
+    const resolvedMr = mrNip && existingUserNips.has(mrNip) ? mrNip : null;
+
+    if (!resolvedMr) {
+      if (!mrNip) outletsNoMr++; else outletsMrNotUser++;
+      const cleared = await prisma.mrOutletAssignment.deleteMany({ where: { kodePI: r.kodePI, periode } });
+      assignmentsCleared += cleared.count;
+      continue;
+    }
 
     await prisma.mrOutletAssignment.deleteMany({
-      where: { kodePI: r.kodePI, periode, nipMR: { not: mrNip } },
+      where: { kodePI: r.kodePI, periode, nipMR: { not: resolvedMr } },
     });
     await prisma.mrOutletAssignment.upsert({
-      where: { nipMR_kodePI_periode: { nipMR: mrNip, kodePI: r.kodePI, periode } },
-      create: { nipMR: mrNip, kodePI: r.kodePI, periode, syncedAt: now },
+      where: { nipMR_kodePI_periode: { nipMR: resolvedMr, kodePI: r.kodePI, periode } },
+      create: { nipMR: resolvedMr, kodePI: r.kodePI, periode, syncedAt: now },
       update: { syncedAt: now },
     });
     assignmentsWritten++;
   }
 
   console.log(`✅ MrOutletAssignment: ${assignmentsWritten} outlets assigned/overridden for periode ${periode}.`);
-  console.log(`   Outlets with no resolved MR (left untouched): ${outletsNoMr}`);
-  console.log(`   Outlets whose MR NIP failed to resolve to a User (left untouched): ${outletsMrNotUser}\n`);
+  console.log(`   Outlets with no resolved MR (assignment cleared if any existed): ${outletsNoMr}`);
+  console.log(`   Outlets whose MR NIP failed to resolve to a User (assignment cleared if any existed): ${outletsMrNotUser}`);
+  console.log(`   Stale assignment rows actually cleared: ${assignmentsCleared}\n`);
 
   if (userErrors.length) {
     console.log("User upsert errors:");
