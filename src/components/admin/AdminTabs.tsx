@@ -362,7 +362,7 @@ function OutletTab() {
 // ─── Tab: Tambah/Edit User + Spesialisasi (dokter) ──────────────────────────
 
 function DokterTab({ outlets }: { outlets: OutletOption[] }) {
-  const emptyForm = { namaCustomer: "", spesialisasi: "", kodePI: "", isFokus: false };
+  const emptyForm = { namaCustomer: "", spesialisasi: "", kodePI: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
@@ -385,7 +385,7 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
 
   function startEdit(row: CustomerRow) {
     setEditingId(row.customerOutletId);
-    setForm({ namaCustomer: row.namaCustomer, spesialisasi: row.spesialisasi, kodePI: row.kodePI, isFokus: row.isFokus });
+    setForm({ namaCustomer: row.namaCustomer, spesialisasi: row.spesialisasi, kodePI: row.kodePI });
     setAttempted(false); setError(null); setNotice(null);
   }
   function cancelEdit() { setEditingId(null); setForm(emptyForm); setAttempted(false); setError(null); }
@@ -398,7 +398,6 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
     fd.set("namaCustomer", form.namaCustomer.trim());
     fd.set("spesialisasi", form.spesialisasi);
     fd.set("kodePI", form.kodePI);
-    fd.set("isFokus", form.isFokus ? "true" : "false");
     if (editingId) fd.set("customerOutletId", editingId);
     startTransition(async () => {
       const result = editingId ? await updateCustomerAction(fd) : await createCustomerAction(fd);
@@ -443,10 +442,9 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
               </select>
             </Field>
           </div>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={form.isFokus} onChange={(e) => setForm({ ...form, isFokus: e.target.checked })} className="rounded" />
-            <span style={{ color: "var(--color-text-muted)" }}>Termasuk Rekomendasi PM</span>
-          </label>
+          <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+            Status &ldquo;Rekomendasi PM&rdquo; hanya berasal dari sinkronisasi RS GROUP (bukan bisa diedit manual di sini).
+          </p>
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={isPending}>{isPending ? "Menyimpan…" : editingId ? "Update" : "Tambah User"}</Button>
             {editingId && <Button type="button" size="sm" variant="ghost" onClick={cancelEdit}>Batal Edit</Button>}

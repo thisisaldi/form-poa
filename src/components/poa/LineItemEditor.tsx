@@ -1944,7 +1944,6 @@ function AddDokterBaruPanel({
   const [kodePI, setKodePI] = useState("");
   const [namaDokter, setNamaDokter] = useState("");
   const [spesialisasi, setSpesialisasi] = useState("");
-  const [isFokus, setIsFokus] = useState(false);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -1978,7 +1977,6 @@ function AddDokterBaruPanel({
     fd.set("namaCustomer", namaDokter.trim());
     fd.set("spesialisasi", spesialisasi);
     fd.set("kodePI", kodePI);
-    fd.set("isFokus", isFokus ? "true" : "false");
     startTransition(async () => {
       const result = await createCustomerAction(fd);
       if (result.ok) {
@@ -2002,7 +2000,7 @@ function AddDokterBaruPanel({
         </p>
         <div className="flex gap-2">
           <Button type="button" size="sm" variant="secondary"
-            onClick={() => { setSuccess(false); setNamaDokter(""); setSpesialisasi(""); setKodePI(""); setIsFokus(false); }}>
+            onClick={() => { setSuccess(false); setNamaDokter(""); setSpesialisasi(""); setKodePI(""); }}>
             Daftar User Lain
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Selesai</Button>
@@ -2068,15 +2066,6 @@ function AddDokterBaruPanel({
             {attempted && !spesialisasi && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
         </div>
-
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input type="checkbox" checked={isFokus}
-            onChange={(e) => setIsFokus(e.target.checked)}
-            className="rounded" />
-          <span style={{ color: "var(--color-text-muted)" }}>
-            Termasuk Rekomendasi PM
-          </span>
-        </label>
 
         <div className="flex items-center gap-3">
           <Button type="submit" size="sm" disabled={isPending}>

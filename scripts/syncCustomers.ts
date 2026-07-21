@@ -6,6 +6,13 @@
  *   and CustomerOutlet junction records (isFokus = false by default).
  *
  * Pass 2 — RS GROUP "Dokter RS NON CHAIN" sheet:
+ *   This sheet is the ONLY source of truth for "Rekomendasi PM" (isFokus) —
+ *   it's never settable by hand anywhere in the app (see createCustomerAction /
+ *   updateCustomerAction). So every run starts by resetting isFokus = false on
+ *   every CustomerOutlet row, THEN re-marks true from the current sheet — a
+ *   doctor removed from the sheet since the last sync correctly loses the flag
+ *   instead of it lingering (2026-07-21 fix, found stale + manually-set rows
+ *   still flagged after their entry had disappeared/never existed in the file).
  *   For each focused doctor listed per outlet+specialty:
  *   - Try to find existing Customer at that outlet by normalized name match.
  *   - If found → set isFokus = true.
@@ -250,6 +257,15 @@ async function syncRSGroup(filePath: string, now: Date) {
       toCreateRaw.push(e);
     }
   }
+
+  // Reset first — this sheet is the sole source of truth for isFokus, so a
+  // doctor no longer in it (or one some manual flow flagged true directly in
+  // the DB, which the app itself never allows) must lose the flag here.
+  const resetResult = await prisma.customerOutlet.updateMany({
+    where: { isFokus: true },
+    data: { isFokus: false },
+  });
+  console.log(`  Reset ${resetResult.count} CustomerOutlet rows to isFokus=false before re-marking.`);
 
   // Bulk mark isFokus = true for matched junctions
   console.log(`  Marking ${idsToMarkFokus.length} existing CustomerOutlet rows as fokus...`);

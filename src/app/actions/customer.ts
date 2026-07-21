@@ -21,7 +21,6 @@ export async function createCustomerAction(formData: FormData): Promise<NewCusto
   const spesialisasi  = (formData.get("spesialisasi")  as string | null)?.trim() ?? "";
   const kodePI        = (formData.get("kodePI")        as string | null)?.trim() ?? "";
   const kodeCustomer  = (formData.get("kodeCustomer")  as string | null)?.trim() || null;
-  const isFokus       = formData.get("isFokus") === "true";
 
   if (!namaCustomer || !spesialisasi || !kodePI) {
     return { ok: false, error: "Nama dokter, spesialisasi, dan outlet wajib diisi." };
@@ -36,12 +35,15 @@ export async function createCustomerAction(formData: FormData): Promise<NewCusto
   });
   if (existing) return { ok: false, error: "Dokter dengan nama dan spesialisasi ini sudah terdaftar di outlet tersebut." };
 
+  // isFokus ("Rekomendasi PM") is exclusively driven by the official RS GROUP
+  // curation spreadsheet (scripts/syncCustomers.ts Pass 2) — never settable
+  // from here, or anyone could self-declare their own doctor a PM recommendation.
   const customer = await prisma.customer.create({
     data: {
       namaCustomer,
       spesialisasi,
       kodeCustomer,
-      outlets: { create: { kodePI, isFokus } },
+      outlets: { create: { kodePI, isFokus: false } },
     },
   });
 

@@ -382,7 +382,7 @@ export async function searchCustomersAction(query: string): Promise<CustomerRow[
   }));
 }
 
-/** Update an existing doctor's name/spesialisasi/outlet/fokus flag. */
+/** Update an existing doctor's name/spesialisasi/outlet. */
 export async function updateCustomerAction(formData: FormData): Promise<AdminActionResult> {
   const authCheck = await requireAdmin();
   if (!authCheck.ok) return authCheck;
@@ -391,7 +391,6 @@ export async function updateCustomerAction(formData: FormData): Promise<AdminAct
   const namaCustomer = str(formData, "namaCustomer");
   const spesialisasi = str(formData, "spesialisasi");
   const kodePI = str(formData, "kodePI");
-  const isFokus = formData.get("isFokus") === "true";
 
   if (!customerOutletId || !namaCustomer || !spesialisasi || !kodePI) {
     return { ok: false, error: "Nama, spesialisasi, dan outlet wajib diisi." };
@@ -403,9 +402,11 @@ export async function updateCustomerAction(formData: FormData): Promise<AdminAct
   const outlet = await prisma.outlet.findUnique({ where: { kodePI } });
   if (!outlet) return { ok: false, error: "Outlet tidak ditemukan." };
 
+  // isFokus ("Rekomendasi PM") is exclusively driven by the official RS GROUP
+  // curation spreadsheet (scripts/syncCustomers.ts Pass 2) — not editable here.
   await prisma.$transaction([
     prisma.customer.update({ where: { id: link.customerId }, data: { namaCustomer, spesialisasi } }),
-    prisma.customerOutlet.update({ where: { id: customerOutletId }, data: { kodePI, isFokus } }),
+    prisma.customerOutlet.update({ where: { id: customerOutletId }, data: { kodePI } }),
   ]);
 
   return { ok: true };
