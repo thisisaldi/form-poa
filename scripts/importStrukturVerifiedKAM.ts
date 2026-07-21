@@ -45,6 +45,15 @@
  *   - "NIRA MAYA" (ASM, 24 rows): NIP "NEW" in the file → confirmed by the
  *     business owner 2026-07-21 as L260457, hardcoded as an override below.
  *
+ * "(SHADOW)" pairs (v2 file, 2026-07-21): at SPV/MR level only (64 rows), some
+ * outlets are jointly held by two people, both packed into one cell each:
+ * name "A - B (SHADOW)", nip "nipA - nipB (SHADOW)". Business owner 2026-07-21:
+ * both should actually hold the outlet, not just one — parseShadowPair() splits
+ * these into two {name,nip} holders, both get collected as Users, and BOTH get
+ * a MrOutletAssignment row for that outlet (Outlet.coveredByNip stays singular,
+ * so it uses only the first-listed holder as the representative for the
+ * vacant-team-coverage feature, which is a different concern from assignment).
+ *
  * This file covers only the KAM division ("Part KAM") — it is NOT a full
  * company roster, so unlike orgStructureSync.ts this script never deactivates
  * users absent from it (that would wrongly affect other divisions).
@@ -111,6 +120,31 @@ function isPlaceholder(name: string | null): boolean {
 // or wire hierarchy/coverage. See file header for the full explanation.
 function resolvableNip(nip: string | null): string | null {
   return nip && !/^new$/i.test(nip) ? nip : null;
+}
+
+const SHADOW_RE = /^(.+?)\s*-\s*(.+?)\s*\(SHADOW\)\s*$/i;
+
+// "A - B (SHADOW)" name + "nipA - nipB (SHADOW)" nip → two separate holders.
+// Returns null when the cell isn't a SHADOW pair (the normal case).
+function parseShadowPair(nama: string | null, nip: string | null): { name: string; nip: string }[] | null {
+  if (!nama || !nip) return null;
+  const nameMatch = nama.match(SHADOW_RE);
+  const nipMatch = nip.match(SHADOW_RE);
+  if (!nameMatch || !nipMatch) return null;
+  return [
+    { name: nameMatch[1].trim(), nip: nipMatch[1].trim() },
+    { name: nameMatch[2].trim(), nip: nipMatch[2].trim() },
+  ];
+}
+
+// Everyone who actually holds this MR/SPV-leaf cell — one holder normally,
+// two for a SHADOW pair, zero for blank/DUMMY/VACANT/"NEW".
+function leafHolders(nama: string | null, nip: string | null): { name: string; nip: string }[] {
+  const pair = parseShadowPair(nama, nip);
+  if (pair) return pair;
+  const resolved = resolvableNip(nip);
+  if (!resolved || isPlaceholder(nama)) return [];
+  return [{ name: nama!, nip: resolved }];
 }
 
 function dominant(values: string[]): string {
@@ -226,18 +260,17 @@ async function main() {
     const nsmNip = resolvableNip(r.nsmNip);
     const smNip = resolvableNip(r.smNip);
     const asmNip = resolvableNip(r.asmNip);
-    const spvNip = resolvableNip(r.spvNip);
-    const mrNip = resolvableNip(r.mrNip);
 
     collect(gmNip, r.gmNama, "GM", null);
     collect(nsmNip, r.nsmNama, "NSM", null);
     collect(smNip, r.smNama, "SM", nsmNip);
     collect(asmNip, r.asmNama, "ASM", firstNonBlank(smNip, nsmNip));
     // SPV collapses to MR (skip-level to ASM); MR is the leaf. Both skip past
-    // a vacant ASM straight to SM, then NSM, same principle as above.
+    // a vacant ASM straight to SM, then NSM, same principle as above. A SHADOW
+    // pair yields two holders here — both collected as their own MR User.
     const mrManager = firstNonBlank(asmNip, smNip, nsmNip);
-    collect(spvNip, r.spvNama, "MR", mrManager);
-    collect(mrNip, r.mrNama, "MR", mrManager);
+    for (const h of leafHolders(r.spvNama, r.spvNip)) collect(h.nip, h.name, "MR", mrManager);
+    for (const h of leafHolders(r.mrNama, r.mrNip)) collect(h.nip, h.name, "MR", mrManager);
   }
 
   console.log(`Collected ${userMap.size} distinct real (non-placeholder) users across GM/NSM/SM/ASM/SPV/MR.\n`);
@@ -275,9 +308,24 @@ async function main() {
   const existingUserNips = new Set([...userMap.keys()]);
 
   // SPV IS MR — a row's SPV and MR columns are two names for the same leaf
-  // level, only one filled per row. This is the effective outlet-owning NIP.
+  // level, only one filled per row (or, for a SHADOW row, two names in one).
+  // Named holder(s) of this outlet's leaf position regardless of whether they
+  // resolved to a real User — usually one, two for a SHADOW pair, empty if
+  // genuinely vacant/blank/DUMMY/"NEW".
+  function rawLeafHolders(r: OutletRow): { name: string; nip: string }[] {
+    return [...leafHolders(r.spvNama, r.spvNip), ...leafHolders(r.mrNama, r.mrNip)];
+  }
+
+  // Same, filtered to holders that actually resolved to a real User.
+  function resolvedLeafHolders(r: OutletRow): string[] {
+    return rawLeafHolders(r).map((h) => h.nip).filter((nip) => existingUserNips.has(nip));
+  }
+
+  // Single representative holder — for Outlet.coveredByNip (a singular field
+  // driving the vacant-team-coverage feature, unrelated to how many people
+  // actually get a MrOutletAssignment row for this outlet).
   function effectiveMrNip(r: OutletRow): string | null {
-    return resolvableNip(r.mrNip) ?? resolvableNip(r.spvNip);
+    return resolvedLeafHolders(r)[0] ?? null;
   }
 
   // Whoever can actually act on this outlet right now — its own MR (or SPV,
@@ -330,28 +378,33 @@ async function main() {
   // kept — a stale assignment pointing at whoever held it before is worse than
   // no assignment, since it'd misrepresent who's actually responsible for it
   // today (2026-07-21 decision, business owner: "ikuti yang baru, yang lama buang").
+  // Normally one holder per outlet, but a SHADOW pair resolves to two — both
+  // get a row (nipMR+kodePI+periode is the unique key, so this isn't a conflict),
+  // and only holders NOT in the current resolved set get cleared out.
   const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
   let assignmentsWritten = 0, assignmentsCleared = 0, outletsNoMr = 0, outletsMrNotUser = 0;
 
   for (const r of rows) {
-    const mrNip = effectiveMrNip(r);
-    const resolvedMr = mrNip && existingUserNips.has(mrNip) ? mrNip : null;
+    const holders = resolvedLeafHolders(r);
 
-    if (!resolvedMr) {
-      if (!mrNip) outletsNoMr++; else outletsMrNotUser++;
+    if (holders.length === 0) {
+      if (rawLeafHolders(r).length === 0) outletsNoMr++; else outletsMrNotUser++;
       const cleared = await prisma.mrOutletAssignment.deleteMany({ where: { kodePI: r.kodePI, periode } });
       assignmentsCleared += cleared.count;
       continue;
     }
 
-    await prisma.mrOutletAssignment.deleteMany({
-      where: { kodePI: r.kodePI, periode, nipMR: { not: resolvedMr } },
+    const cleared = await prisma.mrOutletAssignment.deleteMany({
+      where: { kodePI: r.kodePI, periode, nipMR: { notIn: holders } },
     });
-    await prisma.mrOutletAssignment.upsert({
-      where: { nipMR_kodePI_periode: { nipMR: resolvedMr, kodePI: r.kodePI, periode } },
-      create: { nipMR: resolvedMr, kodePI: r.kodePI, periode, syncedAt: now },
-      update: { syncedAt: now },
-    });
+    assignmentsCleared += cleared.count;
+    for (const nipMR of holders) {
+      await prisma.mrOutletAssignment.upsert({
+        where: { nipMR_kodePI_periode: { nipMR, kodePI: r.kodePI, periode } },
+        create: { nipMR, kodePI: r.kodePI, periode, syncedAt: now },
+        update: { syncedAt: now },
+      });
+    }
     assignmentsWritten++;
   }
 
