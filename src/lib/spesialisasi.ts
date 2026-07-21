@@ -23,3 +23,6 @@ export function spesLabel(dbValue: string | null | undefined): string {
   if (!dbValue) return "—";
   return SPESIALISASI_PM_LABEL[dbValue.toUpperCase()] ?? dbValue;
 }
+
+/** Full static spesialisasi list for dropdowns — always all of them, independent of outlet data. */
+export const ALL_SPESIALISASI_OPTIONS = Object.entries(SPESIALISASI_PM_LABEL).map(([value, label]) => ({ value, label }));

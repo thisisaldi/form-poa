@@ -9,7 +9,7 @@ import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
 import { getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
-import { spesLabel, SPESIALISASI_PM_LABEL } from "@/lib/spesialisasi";
+import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption } from "@/components/ui/Combobox";
@@ -1406,17 +1406,17 @@ function PsspSidebar({
 // ─── AddPanel (new dokter + multi-produk) ─────────────────────────────────────
 
 function AddPanel({
-  poaId, poaPeriod, outlets, products, onCancel, onSuccess, onToast,
+  poaId, poaPeriod, outlets, products, onCancel, onSuccess, onToast, onAddNewCustomer,
 }: {
   poaId: string; poaPeriod: string; outlets: OutletOption[]; products: Product[];
   onCancel?: () => void;
   onSuccess?: () => void;
   onToast?: (msg: string, type?: "success" | "error") => void;
+  onAddNewCustomer?: () => void;
 }) {
   const [kodePI, setKodePI] = useState("");
   const [spesialisasi, setSpesialisasi] = useState("");
   const [customerId, setCustomerId] = useState("");
-  const [specList, setSpecList] = useState<string[]>([]);
   const [customerList, setCustomerList] = useState<CustomerOption[]>([]);
   const [loadingSpec, startLoadSpec] = useTransition();
   const [loadingCust, startLoadCust] = useTransition();
@@ -1442,7 +1442,10 @@ function AddPanel({
       label: `${o.kodePI} - ${o.namaOutlet}`,
       sublabel: o.groupRS ?? "NON CHAIN",
     })), [outlets]);
-  const specOptions = useMemo(() => specList.map((s) => ({ value: s, label: spesLabel(s) })), [specList]);
+  // Full static list, independent of outlet — spesialisasi isn't derived from
+  // existing Customer records, so it never comes up empty even at outlets
+  // with no registered users yet (see onAddNewCustomer below for that case).
+  const specOptions = ALL_SPESIALISASI_OPTIONS;
   const customerOptions = useMemo(() => customerList.map((c) => ({
     value: c.id, label: c.namaCustomer,
     sublabel: [spesLabel(c.spesialisasi), c.isFokus ? "⭐ Rekomendasi PM" : null].filter(Boolean).join(" · "),
@@ -1664,6 +1667,15 @@ function AddPanel({
                   disabled={!spesialisasi || loadingCust} options={customerOptions} />
               </div>
               {attempted && !customerId && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+              {spesialisasi && !loadingCust && onAddNewCustomer && (
+                <button type="button" onClick={onAddNewCustomer}
+                  className="text-xs text-left font-medium"
+                  style={{ color: "var(--color-blue)" }}>
+                  {customerOptions.length === 0
+                    ? "Belum ada user terdaftar di outlet ini — + Daftar User Baru"
+                    : "Gak ketemu usernya? + Daftar User Baru"}
+                </button>
+              )}
             </div>
           </div>
           {selectedCustomer && (
@@ -1899,7 +1911,7 @@ function AddDokterBaruPanel({
       sublabel: o.groupRS ?? "NON CHAIN",
     })), [outlets]);
 
-  const spesOptions = Object.entries(SPESIALISASI_PM_LABEL).map(([db, pm]) => ({ value: db, label: pm }));
+  const spesOptions = ALL_SPESIALISASI_OPTIONS;
   const selectedOutlet = outlets.find((o) => o.kodePI === kodePI);
 
   function handleSubmit(e: React.FormEvent) {
@@ -2908,10 +2920,11 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
           onCancel={formOnly ? undefined : () => setMode("none")}
           onSuccess={formOnly ? handleSuccess : () => { setMode("none"); window.location.reload(); }}
           onToast={showToast}
+          onAddNewCustomer={() => setMode("addBaru")}
         />
       )}
       {mode === "addBaru" && (
-        <AddDokterBaruPanel outlets={outlets} onCancel={() => setMode("none")} />
+        <AddDokterBaruPanel outlets={outlets} onCancel={() => setMode(formOnly ? "add" : "none")} />
       )}
 
       {/* "+ Tambah" button — hidden in formOnly mode */}
