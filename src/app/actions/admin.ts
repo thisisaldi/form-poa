@@ -432,3 +432,93 @@ export async function deleteCustomerAction(customerOutletId: string): Promise<Ad
     return { ok: false, error: "Data dokter tidak bisa dihapus." };
   }
 }
+
+// ─── Outlet ↔ MR assignment CRUD ─────────────────────────────────────────────
+// Manual override on top of MrOutletAssignment (normally kept in sync by
+// scripts/importStrukturVerifiedKAM.ts) — an outlet can have more than one
+// assignee at once (see the SHADOW-pair case in that script), so this is
+// additive/removable per row rather than a single-value "set owner" field.
+
+function currentPeriode(): number {
+  const now = new Date();
+  return now.getFullYear() * 100 + (now.getMonth() + 1);
+}
+
+export interface OutletAssignmentRow {
+  kodePI: string; namaOutlet: string;
+  coveredByNip: string | null; coveredByRole: string | null;
+  assignments: { id: string; nipMR: string; namaMR: string }[];
+}
+
+/** Search outlets by Kode PI or name, with their current-periode MrOutletAssignment(s). */
+export async function searchOutletAssignmentsAction(query: string): Promise<OutletAssignmentRow[]> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return [];
+
+  const q = query.trim();
+  if (!q) return [];
+  const periode = currentPeriode();
+
+  const outlets = await prisma.outlet.findMany({
+    where: { OR: [{ kodePI: { contains: q, mode: "insensitive" } }, { namaOutlet: { contains: q, mode: "insensitive" } }] },
+    orderBy: { namaOutlet: "asc" },
+    take: 20,
+  });
+  const kodePIs = outlets.map((o: { kodePI: string }) => o.kodePI);
+  const assignments = kodePIs.length > 0
+    ? await prisma.mrOutletAssignment.findMany({
+        where: { kodePI: { in: kodePIs }, periode },
+        include: { user: { select: { name: true } } },
+      })
+    : [];
+
+  const byOutlet = new Map<string, { id: string; nipMR: string; namaMR: string }[]>();
+  for (const a of assignments as { id: string; kodePI: string; nipMR: string; user: { name: string } }[]) {
+    const list = byOutlet.get(a.kodePI) ?? [];
+    list.push({ id: a.id, nipMR: a.nipMR, namaMR: a.user.name });
+    byOutlet.set(a.kodePI, list);
+  }
+
+  return outlets.map((o: { kodePI: string; namaOutlet: string; coveredByNip: string | null; coveredByRole: string | null }) => ({
+    kodePI: o.kodePI, namaOutlet: o.namaOutlet,
+    coveredByNip: o.coveredByNip, coveredByRole: o.coveredByRole,
+    assignments: byOutlet.get(o.kodePI) ?? [],
+  }));
+}
+
+/** Assign an outlet to an MR for the current periode. Additive — doesn't remove other assignees. */
+export async function addOutletAssignmentAction(formData: FormData): Promise<AdminActionResult> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return authCheck;
+
+  const kodePI = str(formData, "kodePI");
+  const nipMR = str(formData, "nipMR");
+  if (!kodePI || !nipMR) return { ok: false, error: "Outlet dan NIP MR wajib diisi." };
+
+  const outlet = await prisma.outlet.findUnique({ where: { kodePI } });
+  if (!outlet) return { ok: false, error: "Outlet tidak ditemukan." };
+  const user = await prisma.user.findUnique({ where: { nip: nipMR } });
+  if (!user) return { ok: false, error: `NIP ${nipMR} tidak ditemukan.` };
+
+  const periode = currentPeriode();
+  await prisma.mrOutletAssignment.upsert({
+    where: { nipMR_kodePI_periode: { nipMR, kodePI, periode } },
+    create: { nipMR, kodePI, periode, syncedAt: new Date() },
+    update: { syncedAt: new Date() },
+  });
+
+  return { ok: true };
+}
+
+/** Remove a single outlet↔MR assignment row. */
+export async function removeOutletAssignmentAction(id: string): Promise<AdminActionResult> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return authCheck;
+
+  try {
+    await prisma.mrOutletAssignment.delete({ where: { id } });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Assignment tidak bisa dihapus." };
+  }
+}

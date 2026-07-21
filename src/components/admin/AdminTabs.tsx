@@ -11,10 +11,11 @@ import {
   createOutletAction, updateOutletAction, deleteOutletAction, searchOutletsAction, type OutletRow,
   createProductAction, updateProductAction, deleteProductAction, searchProductsAction, type ProductRow,
   updateCustomerAction, deleteCustomerAction, searchCustomersAction, type CustomerRow,
+  searchOutletAssignmentsAction, addOutletAssignmentAction, removeOutletAssignmentAction, type OutletAssignmentRow,
 } from "@/app/actions/admin";
 import { createCustomerAction } from "@/app/actions/customer";
 
-type TabKey = "user" | "outlet" | "dokter" | "produk";
+type TabKey = "user" | "outlet" | "dokter" | "produk" | "assignment";
 
 interface OutletOption { kodePI: string; namaOutlet: string; groupRS?: string | null }
 
@@ -613,6 +614,109 @@ function ProdukTab() {
   );
 }
 
+// ─── Tab: Outlet ↔ MR assignment ────────────────────────────────────────────
+
+function AssignmentTab() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<OutletAssignmentRow[]>([]);
+  const [searching, startSearch] = useTransition();
+  const [nipInput, setNipInput] = useState<Record<string, string>>({}); // kodePI → NIP being typed
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pendingKey, setPendingKey] = useState<string | null>(null); // kodePI or assignment id currently saving
+  const [isPending, startTransition] = useTransition();
+
+  function runSearch() { startSearch(async () => setResults(await searchOutletAssignmentsAction(query))); }
+
+  function refreshOne(kodePI: string) {
+    startTransition(async () => {
+      const updated = await searchOutletAssignmentsAction(kodePI);
+      const row = updated.find((r) => r.kodePI === kodePI);
+      if (row) setResults((rs) => rs.map((r) => (r.kodePI === kodePI ? row : r)));
+    });
+  }
+
+  function handleAdd(kodePI: string) {
+    const nipMR = (nipInput[kodePI] ?? "").trim();
+    if (!nipMR) return;
+    setError(null); setNotice(null); setPendingKey(kodePI);
+    const fd = new FormData();
+    fd.set("kodePI", kodePI);
+    fd.set("nipMR", nipMR);
+    startTransition(async () => {
+      const result = await addOutletAssignmentAction(fd);
+      setPendingKey(null);
+      if (result.ok) {
+        setNotice(`${nipMR} berhasil di-assign ke ${kodePI}.`);
+        setNipInput((prev) => ({ ...prev, [kodePI]: "" }));
+        refreshOne(kodePI);
+      } else {
+        setError(result.error ?? "Gagal menambah assignment.");
+      }
+    });
+  }
+
+  function handleRemove(kodePI: string, id: string) {
+    setError(null); setNotice(null); setPendingKey(id);
+    startTransition(async () => {
+      const result = await removeOutletAssignmentAction(id);
+      setPendingKey(null);
+      if (result.ok) refreshOne(kodePI);
+      else setError(result.error ?? "Gagal menghapus assignment.");
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <p className="font-semibold text-sm mb-1" style={{ color: "var(--color-text)" }}>Outlet ↔ MR (periode berjalan)</p>
+        <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
+          Satu outlet bisa punya lebih dari satu MR (misal kasus SHADOW/berdua pegang outlet yang sama).
+          Perubahan di sini cuma untuk periode bulan berjalan.
+        </p>
+        {error && <p className="text-sm px-3 py-2 rounded-md mb-3" style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>}
+        {notice && <p className="text-sm px-3 py-2 rounded-md mb-3" style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}>{notice}</p>}
+        <SearchBox query={query} onQueryChange={setQuery} onSearch={runSearch} searching={searching} placeholder="Cari Kode PI atau nama outlet…" />
+        <div className="mt-3 divide-y" style={{ borderColor: "var(--color-border)" }}>
+          {results.length === 0 && <p className="text-xs py-3" style={{ color: "var(--color-text-faint)" }}>Belum ada hasil pencarian.</p>}
+          {results.map((r) => (
+            <div key={r.kodePI} className="py-3 text-sm space-y-2">
+              <div>
+                <p className="truncate" style={{ color: "var(--color-text)" }}>{r.namaOutlet} <span style={{ color: "var(--color-text-faint)" }}>({r.kodePI})</span></p>
+                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  {r.coveredByNip ? `Fallback cover saat ini: ${r.coveredByNip} (${r.coveredByRole})` : "Tidak ada fallback cover."}
+                </p>
+              </div>
+              {r.assignments.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {r.assignments.map((a) => (
+                    <span key={a.id} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+                      style={{ background: "var(--color-bg-subtle)", color: "var(--color-text)" }}>
+                      {a.namaMR} <span style={{ color: "var(--color-text-faint)" }}>({a.nipMR})</span>
+                      <button type="button" onClick={() => handleRemove(r.kodePI, a.id)} disabled={isPending && pendingKey === a.id}
+                        className="text-xs font-medium" style={{ color: "var(--color-red)" }}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input type="text" value={nipInput[r.kodePI] ?? ""}
+                  onChange={(e) => setNipInput((prev) => ({ ...prev, [r.kodePI]: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAdd(r.kodePI); } }}
+                  placeholder="NIP MR (mis. L260348)" className="input-field flex-1 text-xs" />
+                <Button type="button" size="sm" variant="secondary" disabled={isPending && pendingKey === r.kodePI}
+                  onClick={() => handleAdd(r.kodePI)}>
+                  {isPending && pendingKey === r.kodePI ? "Menyimpan…" : "Tambah"}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Tabs shell ──────────────────────────────────────────────────────────────
 
 export function AdminTabs({ outlets }: { outlets: OutletOption[] }) {
@@ -623,6 +727,7 @@ export function AdminTabs({ outlets }: { outlets: OutletOption[] }) {
     { key: "outlet", label: "Tambah Outlet" },
     { key: "dokter", label: "Tambah User + Spesialisasi" },
     { key: "produk", label: "Tambah Produk" },
+    { key: "assignment", label: "Outlet ↔ MR" },
   ];
 
   return (
@@ -648,6 +753,7 @@ export function AdminTabs({ outlets }: { outlets: OutletOption[] }) {
       {tab === "outlet" && <OutletTab />}
       {tab === "dokter" && <DokterTab outlets={outlets} />}
       {tab === "produk" && <ProdukTab />}
+      {tab === "assignment" && <AssignmentTab />}
     </div>
   );
 }
