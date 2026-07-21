@@ -272,6 +272,7 @@ export async function GET(
     { header: "KodePI - Nama Outlet", key: "outlet", width: 32 },
     { header: "Spesialisasi", key: "spesialisasi", width: 22 },
     { header: "Nama User", key: "namaUser", width: 32 },
+    { header: "Sumber User", key: "sumberUser", width: 14 },
     { header: "Label User", key: "labelUser", width: 20 },
     { header: "Nama Produk Kompetitor", key: "produkKompetitor", width: 22 },
     { header: "Item Kode - Nama Produk ", key: "produk", width: 32 },
@@ -397,6 +398,7 @@ export async function GET(
       outlet: `${item.kodePI ?? "-"} - ${item.namaOutlet}`,
       spesialisasi: item.spesialisasi,
       namaUser: `${item.kodeCust ?? "-"} - ${item.namaCust}`,
+      sumberUser: item.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
       labelUser: item.labelCustomer ?? "-",
       produkKompetitor: item.produkKompetitor ?? "-",
       produk: `${item.itemKode} - ${item.namaProduk}`,
@@ -446,6 +448,14 @@ export async function GET(
     }
     for (const key2 of ["estimasiSebelumnya", "historySales", "hargaSatuanTerkecil", "estimasiBulan", "totalEstimasiBulan", "nilaiPsspBulan", "totalNilaiPsspBulan", "estimasiPeriode", "totalEstimasiPeriode", "nilaiPsspPeriode", "totalNilaiPsspPeriode"]) {
       row.getCell(key2).numFmt = RP_FMT;
+    }
+    // Manually-registered doctor (not yet in the synced customer database) — highlight so
+    // reviewers notice at a glance, on top of the "Sumber User" column text itself.
+    if (item.isManualCustomer) {
+      for (const key2 of ["namaUser", "sumberUser"]) {
+        row.getCell(key2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" } };
+        row.getCell(key2).font = { color: { argb: "FF856404" }, bold: key2 === "sumberUser" };
+      }
     }
   }
   if (pengisianItems.length === 0) formSheet.addRow(["(Belum ada line item)"]);

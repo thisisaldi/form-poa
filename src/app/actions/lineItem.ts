@@ -108,12 +108,21 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const spesialisasi = isDirect ? directSpesialisasi : customerResult!.spesialisasi;
 
   // Same doctor (outlet + name) can't have the same product added twice.
-  const duplicate = await prisma.poaLineItem.findFirst({
-    where: { poaId, kodePI, namaCust, kodeProduk },
+  const existingForDoctor: { kodeProduk: string; isManualCustomer: boolean }[] = await prisma.poaLineItem.findMany({
+    where: { poaId, kodePI, namaCust },
+    select: { kodeProduk: true, isManualCustomer: true },
   });
-  if (duplicate) {
+  if (existingForDoctor.some((i) => i.kodeProduk === kodeProduk)) {
     redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent(`${product!.namaProduk} sudah ada untuk dokter ini.`));
   }
+
+  // Manual (unsynced) doctor — Customer.syncedAt is only ever null for doctors
+  // registered via "Daftar User Baru", never for ones synced from the CDB.
+  // Direct mode has no customerId to check, so it inherits the flag from
+  // this doctor's other line item already in the POA (same doctor either way).
+  const isManualCustomer = isDirect
+    ? existingForDoctor[0]?.isManualCustomer ?? false
+    : customerResult!.syncedAt === null;
 
   const statusStandarisasi =
     statusStandarisasiRaw && Object.values(StatusStandarisasi).includes(statusStandarisasiRaw as StatusStandarisasi)
@@ -135,6 +144,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       namaCust,
       role: spesialisasi?.toLowerCase().includes("spesialis") ? "Dokter Spesialis" : "Dokter Umum",
       spesialisasi,
+      isManualCustomer,
       historisPSSP: null,
       kodePI: outlet.kodePI,
       namaOutlet: outlet.namaOutlet,

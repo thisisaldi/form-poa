@@ -158,6 +158,11 @@ model PoaLineItem {
   namaCust       String
   role           String   // e.g. "Dokter Spesialis"
   spesialisasi   String
+  // True when namaCust came from a Customer the MR registered manually via
+  // "Daftar User Baru" (Customer.syncedAt == null at line-item creation time),
+  // not from the synced CDB. Flagged in the Excel exports so reviewers know
+  // this doctor isn't yet in the official customer database.
+  isManualCustomer Boolean @default(false)
   historisPSSP   String?
   kodePI         String?
   namaOutlet     String

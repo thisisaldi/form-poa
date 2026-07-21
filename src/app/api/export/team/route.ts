@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
     ? await prisma.poaLineItem.findMany({ where: { poaId: { in: poaIds } } }) as {
         id: string; poaId: string; kodePI: string | null; namaOutlet: string;
         namaCust: string; kodeCust: string | null; spesialisasi: string; role: string;
+        isManualCustomer: boolean;
         kodeProduk: string; namaProduk: string; periodeAwal: string; lamaPeriode: number;
         statusStandarisasi: string | null; rencanaTotalBiaya: { toString(): string };
         rencanaVisitMinggu: number; hariKerjaBulan: number | null;
@@ -363,6 +364,7 @@ export async function GET(req: NextRequest) {
     { header: "Periode POA",          key: "periodPoa",        width: 12 },
     { header: "Status Approval",      key: "statusApproval",   width: 22 },
     { header: "Nama Customer",        key: "namaCust",         width: 28 },
+    { header: "Sumber User",          key: "sumberUser",       width: 16 },
     { header: "Spesialisasi",         key: "spesialisasi",     width: 18 },
     { header: "Kode PI",              key: "kodePI",           width: 12 },
     { header: "Nama Outlet",          key: "namaOutlet",       width: 28 },
@@ -394,6 +396,7 @@ export async function GET(req: NextRequest) {
     return [poa.id, r] as const;
   }).filter(([id]) => id !== null) as [string, MrRow][]);
 
+  const manualCustomerRows: number[] = [];
   for (const li of lineItems) {
     const mr = poaMRMap.get(li.poaId);
     if (!mr) continue;
@@ -413,7 +416,7 @@ export async function GET(req: NextRequest) {
           ? "Aman (<38%)"
           : "—";
 
-    ws3.addRow({
+    const row = ws3.addRow({
       nsmNip: mr.nsmNip, nsmName: mr.nsmName,
       smNip: mr.smNip,   smName: mr.smName,
       asmNip: mr.asmNip, asmName: mr.asmName,
@@ -421,6 +424,7 @@ export async function GET(req: NextRequest) {
       periodPoa: mr.period ?? "—",
       statusApproval: mr.status.replace(/_/g, " "),
       namaCust: li.namaCust,
+      sumberUser: li.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
       spesialisasi: spesLabel(li.spesialisasi),
       kodePI: li.kodePI ?? "—", namaOutlet: li.namaOutlet,
       kodeProduk: li.kodeProduk, namaProduk: li.namaProduk,
@@ -441,6 +445,7 @@ export async function GET(req: NextRequest) {
       standarisasi: li.statusStandarisasi?.replace(/_/g, " ") ?? "—",
       kompetitor: li.produkKompetitor ?? "—",
     });
+    if (li.isManualCustomer) manualCustomerRows.push(row.number);
   }
 
   ws3.getColumn("estimasi").numFmt = '#,##0';
@@ -449,6 +454,15 @@ export async function GET(req: NextRequest) {
     ws3.getColumn(k).numFmt = '0.00"%"';
   });
   shadeAlt(ws3, 1);
+  // Applied after shadeAlt so the manual-doctor highlight isn't overwritten by
+  // the alternating-row shading above.
+  for (const rowNum of manualCustomerRows) {
+    for (const key of ["namaCust", "sumberUser"]) {
+      const cell = ws3.getRow(rowNum).getCell(key);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" } };
+      cell.font = { color: { argb: "FF856404" }, bold: key === "sumberUser" };
+    }
+  }
 
   if (lineItems.length === 0) ws3.addRow(["(Belum ada data pengajuan)"]);
 
