@@ -534,28 +534,25 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     const tier = getProductTier(p.namaProduk, matchedPakets);
     const kriteriaRow = kriteriaMap?.get(p.kodeProduk);
     const kriteria = kriteriaRow?.kriteriaBaru;
-    // Low Hanging Fruit (kategori field, distinct from kriteriaBaru) = easy-win candidate.
-    // Shown as "Ada Sales" (oren) / "Tidak Ada Sales" (kuning) per kriteriaBaru's own
-    // "... - Ada Sales" / "... - Tidak Ada Sales" suffix, not the raw "Low Hanging Fruit" label.
-    const isLowHangingFruit = kriteriaRow?.kategori === "Low Hanging Fruit";
-    // "Produk Sudah Terstandarisasi..." still drives the Standarisasi field default
-    // below (autoStandarisasi) — it's just not surfaced as a picker badge anymore.
+    // `kategori` ("Low Hanging Fruit" / "Blue Ocean" / "Red Ocean") is never shown
+    // itself (2026-07-21, business owner: keep it fully out of the picker).
+    // "Produk Sudah Terstandarisasi..." (kategori "Low Hanging Fruit") gets a text
+    // badge showing kriteriaBaru IN FULL, colored by its own "- Ada Sales" (orange)
+    // / "- Tidak Ada Sales" (yellow) suffix. NOTE: Kompetisi Rendah/Tinggi rows
+    // carry that same Ada/Tidak Ada Sales suffix in the DB too, but must NOT be
+    // caught here — they keep their existing blue/red dot-only treatment below.
     const isStandarisasi = kriteria?.startsWith("Produk Sudah Terstandarisasi") ?? false;
-    const tagColor: "blue" | "yellow" | "red" | "orange" | undefined = isLowHangingFruit
+    const tagColor: "blue" | "yellow" | "red" | "orange" | undefined = isStandarisasi
       ? (kriteria?.includes("Tidak Ada Sales") ? "yellow" : "orange")
       : kriteria?.startsWith("Produk Kompetisi Rendah")
       ? "blue"
       : kriteria?.startsWith("Produk Kompetisi Tinggi")
       ? "red"
       : undefined;
-    const tag = isLowHangingFruit
-      ? (kriteria?.includes("Tidak Ada Sales") ? "Tidak Ada Sales" : "Ada Sales")
-      : isStandarisasi
-      ? undefined
-      : kriteria;
-    // Only the Low Hanging Fruit badge shows as text — every other kriteria
-    // (Kompetisi Rendah/Tinggi, etc.) is a plain color dot.
-    const tagDotOnly = !isLowHangingFruit;
+    const tag = isStandarisasi ? kriteria : undefined;
+    // Only the Produk Sudah Terstandarisasi badge shows as text — every other
+    // kriteria (Kompetisi Rendah/Tinggi, etc.) is still a plain color dot.
+    const tagDotOnly = !isStandarisasi;
     const paketLabel = relevantPaket ?? p.namaGroupBrand;
     // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
     // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).

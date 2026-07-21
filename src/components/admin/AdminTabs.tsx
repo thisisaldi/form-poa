@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Combobox } from "@/components/ui/Combobox";
-import { SPESIALISASI_PM_LABEL, spesLabel } from "@/lib/spesialisasi";
+import { ALL_SPESIALISASI_OPTIONS, spesLabel } from "@/lib/spesialisasi";
 import {
   createUserAction, updateUserAction, deleteUserAction, searchUsersAction, type UserRow,
   createOutletAction, updateOutletAction, deleteOutletAction, searchOutletsAction, type OutletRow,
@@ -379,7 +379,7 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
   const outletOptions = outlets.map((o) => ({
     value: o.kodePI, label: `${o.kodePI} - ${o.namaOutlet}`, sublabel: o.groupRS ?? "NON CHAIN",
   }));
-  const spesOptions = Object.entries(SPESIALISASI_PM_LABEL).map(([db, pm]) => ({ value: db, label: pm }));
+  const spesOptions = ALL_SPESIALISASI_OPTIONS;
 
   function runSearch() { startSearch(async () => setResults(await searchCustomersAction(query))); }
 
