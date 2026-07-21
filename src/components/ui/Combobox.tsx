@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useId, useCallback, useMemo } from "react";
+import { Fragment, useState, useRef, useEffect, useId, useCallback, useMemo } from "react";
 
 export interface ComboboxOption {
   value: string;
@@ -221,7 +221,7 @@ export function Combobox({
                   const showGroupHeader = option.group !== undefined && option.group !== lastGroup;
                   if (showGroupHeader) lastGroup = option.group;
                   return (
-                    <>
+                    <Fragment key={option.value}>
                       {showGroupHeader && (
                         <li
                           key={`grp-${option.group}`}
@@ -320,7 +320,7 @@ export function Combobox({
                           </span>
                         )}
                       </li>
-                    </>
+                    </Fragment>
                   );
                 });
               })()}

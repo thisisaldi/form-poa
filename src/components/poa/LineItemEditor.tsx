@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -758,7 +758,7 @@ function ProdukEntryRow({
               the fields below it. */}
           <div className="text-xs mt-1 leading-tight" style={{ color: "var(--color-text-faint)" }} title={product?.dosisKekuatanSediaan ?? undefined}>
             <div className="font-medium">Referensi PM</div>
-            <div>Resep per Pasien = {product?.qtyPerRxPasien != null && product?.lamaPemberianHari != null ? `${product.qtyPerRxPasien} / ${product.lamaPemberianHari}` : "—"}</div>
+            <div>Resep per Pasien = {product?.qtyPerRxPasien != null && product?.lamaPemberianHari != null ? `${product.qtyPerRxPasien} ${product.satuanTerkecil} / ${product.lamaPemberianHari} hari` : "—"}</div>
             <div>Dosis per hari = {product?.jumlahPemberianPerHari != null ? `${product.jumlahPemberianPerHari} / hari` : "—"}</div>
           </div>
         </label>
@@ -998,24 +998,71 @@ function elapsedMonthsCount(prdAwal: string, prdAkhir: string): { elapsed: numbe
   return { elapsed, total };
 }
 
-function PsspHistoryPanel({ kodeCustomer, kodePI, onLabel, onHistory }: {
+function PsspHospinetSnapshotCard({ snapshot }: { snapshot: PsspHospinetSnapshotSummary }) {
+  const pct = Math.round((snapshot.rr ?? 0) * 100);
+  const pctColor = pct >= 80 ? "var(--color-success, #16a34a)" : pct >= 40 ? "var(--color-warning, #f59e0b)" : "var(--color-red)";
+  return (
+    <div className="rounded-lg border px-3 py-2 space-y-2"
+      style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Data PSSP Hospinet</span>
+        <span className="text-xs px-1.5 py-0.5 rounded font-medium"
+          style={{
+            background: snapshot.psspBerjalan ? "var(--color-blue-light)" : "var(--color-bg-subtle)",
+            color: snapshot.psspBerjalan ? "var(--color-blue)" : "var(--color-text-faint)",
+          }}>
+          {snapshot.psspBerjalan ? "Berjalan" : "Tidak berjalan"}
+        </span>
+      </div>
+      <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        Status: {snapshot.statusCustomer}
+      </div>
+      <div className="grid grid-cols-3 gap-1 text-xs">
+        <div>
+          <div style={{ color: "var(--color-text-faint)" }}>Value PSSP</div>
+          <div style={{ color: "var(--color-text-muted)" }}>{formatRp(snapshot.valuePssp)}</div>
+        </div>
+        <div>
+          <div style={{ color: "var(--color-text-faint)" }}>Pelunasan</div>
+          <div style={{ color: "var(--color-text-muted)" }}>{formatRp(snapshot.pelunasan)}</div>
+        </div>
+        <div>
+          <div style={{ color: "var(--color-text-faint)" }}>RR</div>
+          <div style={{ color: pctColor }}>{pct}%</div>
+        </div>
+      </div>
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        Snapshot agregat (bukan per-kontrak/per-produk) — dari data Hospinet, belum granular seperti histori PSSP di atas.
+      </p>
+    </div>
+  );
+}
+
+function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory }: {
   kodeCustomer: string;
   /** Currently-selected outlet — narrows the panel to contracts at this outlet only. */
   kodePI?: string;
+  /** Used to look up the Hospinet snapshot fallback (kodeCustomer-less customers). */
+  doctorName?: string;
   onLabel?: (label: string) => void;
   onHistory?: (rows: PsspKontrakSummary[]) => void;
 }) {
   const [allHistory, setAllHistory] = useState<PsspKontrakSummary[] | null>(null);
+  const [hospinetSnapshot, setHospinetSnapshot] = useState<PsspHospinetSnapshotSummary | null>(null);
   const [loading, startLoad] = useTransition();
 
   useEffect(() => {
     startLoad(async () => {
-      const rows = await getPsspHistory(kodeCustomer);
+      const [rows, snapshot] = await Promise.all([
+        getPsspHistory(kodeCustomer),
+        doctorName && kodePI ? getPsspHospinetSnapshot(doctorName, kodePI) : Promise.resolve(null),
+      ]);
       setAllHistory(rows);
+      setHospinetSnapshot(snapshot);
       onLabel?.(computeLabelCustomer(rows));
       onHistory?.(rows);
     });
-  }, [kodeCustomer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [kodeCustomer, doctorName, kodePI]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading || allHistory === null) {
     return (
@@ -1026,10 +1073,11 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, onLabel, onHistory }: {
   }
 
   if (allHistory.length === 0) {
+    if (hospinetSnapshot) return <PsspHospinetSnapshotCard snapshot={hospinetSnapshot} />;
     return (
       <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
         Tidak ada histori PSSP untuk dokter ini.{" "}
-        <span className="font-mono" style={{ opacity: 0.6 }}>({kodeCustomer})</span>
+        {kodeCustomer && <span className="font-mono" style={{ opacity: 0.6 }}>({kodeCustomer})</span>}
       </div>
     );
   }
@@ -1391,7 +1439,7 @@ function PsspSidebar({
         {spesialisasi && produkList && products && (
           <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} />
         )}
-        <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} onLabel={handleLabel} onHistory={onHistory} />
+        <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
             Histori Listing Fee
@@ -1869,9 +1917,9 @@ function AddPanel({
           )}
         </div>
       </form>
-      {selectedCustomer?.kodeCustomer && (
+      {selectedCustomer && (
         <PsspSidebar
-          kodeCustomer={selectedCustomer.kodeCustomer}
+          kodeCustomer={selectedCustomer.kodeCustomer ?? ""}
           kodePI={kodePI}
           doctorName={selectedCustomer.namaCustomer}
           onLabel={setLabelCustomer}
@@ -2230,9 +2278,9 @@ function AddProductPanel({
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
         </div>
       </form>
-      {kodeCust && (
+      {namaCust && (
         <PsspSidebar
-          kodeCustomer={kodeCust}
+          kodeCustomer={kodeCust ?? ""}
           kodePI={kodePI}
           doctorName={namaCust}
           onLabel={setLabelCustomer}
@@ -2662,9 +2710,9 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           <Button type="button" size="sm" variant="ghost" onClick={() => router.push(redirectTo)}>Batal</Button>
         </div>
       </form>
-      {kodeCust && (
+      {namaCust && (
         <PsspSidebar
-          kodeCustomer={kodeCust}
+          kodeCustomer={kodeCust ?? ""}
           kodePI={kodePI}
           doctorName={namaCust}
           onLabel={setLabelCustomer}

@@ -127,6 +127,7 @@ model Customer {
   updatedAt    DateTime @updatedAt
 
   outlets      CustomerOutlet[]
+  psspHospinetSnapshots PsspHospinetSnapshot[]
 
   @@index([spesialisasi])
   @@index([namaCustomer])
@@ -145,6 +146,30 @@ model CustomerOutlet {
   @@index([kodePI])
   @@index([customerId])
   @@index([kodePI, isFokus])
+}
+
+// Customer-level PSSP snapshot for divisions not covered by PsspKontrak's
+// contract-level import (e.g. Hospinet — see internal/TODO.md #40). Source
+// files here have no contract number, no per-product breakdown, and no
+// monthly detail — just one current lump value per customer×outlet — so
+// this deliberately does NOT reuse PsspKontrak's shape (same reasoning as
+// DiskonHistory vs DiskonKontrak: coarser fallback data gets its own model
+// rather than fabricating fields PsspKontrak requires but the source lacks).
+model PsspHospinetSnapshot {
+  id             String   @id @default(uuid())
+  customerId     String
+  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  kodePI         String
+  outlet         Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  statusCustomer String   // "active-repeat" | "inactive-new"
+  psspBerjalan   Boolean  // true when source "Terakhir PSSP" == "Berjalan"
+  valuePssp      Decimal  @db.Decimal(18, 2)
+  pelunasan      Decimal  @db.Decimal(18, 2)
+  rr             Decimal? @db.Decimal(10, 4) // pelunasan / valuePssp, as given by source
+  syncedAt       DateTime
+
+  @@unique([customerId, kodePI])
+  @@index([kodePI])
 }
 
 model PoaLineItem {
@@ -289,6 +314,7 @@ model Outlet {
 
   assignments      MrOutletAssignment[]
   customerOutlets  CustomerOutlet[]
+  psspHospinetSnapshots PsspHospinetSnapshot[]
 
   @@index([statusOutlet])
   @@index([sector])

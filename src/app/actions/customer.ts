@@ -109,6 +109,37 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
   }));
 }
 
+export interface PsspHospinetSnapshotSummary {
+  statusCustomer: string;
+  psspBerjalan: boolean;
+  valuePssp: number;
+  pelunasan: number;
+  rr: number | null;
+}
+
+/**
+ * Customer-level PSSP snapshot for divisions PsspKontrak doesn't cover (e.g.
+ * Hospinet — see PsspHospinetSnapshot in schema.prisma). Many of these
+ * customers have no kodeCustomer (code-less, name-matched at import time),
+ * so this looks them up by name+outlet instead of a code, mirroring how
+ * they were resolved at import.
+ */
+export async function getPsspHospinetSnapshot(namaCustomer: string, kodePI: string): Promise<PsspHospinetSnapshotSummary | null> {
+  if (!namaCustomer || !kodePI) return null;
+  const row = await prisma.psspHospinetSnapshot.findFirst({
+    where: { kodePI, customer: { namaCustomer: { equals: namaCustomer, mode: "insensitive" } } },
+    select: { statusCustomer: true, psspBerjalan: true, valuePssp: true, pelunasan: true, rr: true },
+  });
+  if (!row) return null;
+  return {
+    statusCustomer: row.statusCustomer,
+    psspBerjalan: row.psspBerjalan,
+    valuePssp: parseFloat(row.valuePssp.toString()) || 0,
+    pelunasan: parseFloat(row.pelunasan.toString()) || 0,
+    rr: row.rr != null ? parseFloat(row.rr.toString()) : null,
+  };
+}
+
 export interface ActivePsspRow extends PsspKontrakSummary {
   kdCust: string;
   nmCust: string | null;
