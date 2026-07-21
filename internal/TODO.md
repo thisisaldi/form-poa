@@ -4,6 +4,13 @@
 
 **Ringkasan**: ✅ DONE = 24 · 🟡 ON-PROSES = 5 · ❓ NEED CONFIRMATION = 9 *(#19 & #30 pindah ke DONE 07-20 — lihat catatan; awalnya dihitung ulang dari daftar stakeholder jadi 22/7/9, bukan 22/7/8 seperti tertulis awal karena totalnya harus pas 38)*
 
+## ✅ Beres 07-21 begitu DB remote bisa diakses lagi
+
+- ~~Jalankan `prisma migrate deploy`~~ — ternyata udah ke-apply duluan lewat deploy pipeline (termasuk `20260720163533_grant_admin_p260054`), tapi UPDATE-nya jadi no-op karena User P260054 emang belum pernah ada.
+- **User P260054 dibuat baru** (nama: M NAUFALDI FADHLIRRAHMAN, role ADMIN, isActive true) — sebelumnya gak exist sama sekali di DB.
+- **Hardcode sementara di `src/lib/auth.ts` (`HARDCODE_ADMIN_NIP`) sudah dihapus** — role ADMIN P260054 sekarang murni dari DB.
+- **NIP Anggres Saputra diperbaiki**: L240075 → **L240076** (primary key User di-rename via transaksi, 50 baris `MrOutletAssignment` ikut pindah, plus field lain yang mungkin referensi — verified).
+
 ## ✅ DONE (24)
 
 | No | Item | Catatan |
