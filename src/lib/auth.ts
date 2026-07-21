@@ -10,7 +10,7 @@ import type { User } from "@prisma/client";
 
 export type VerifyResult =
   | { ok: true; user: User }
-  | { ok: false; error: "not_found" | "inactive" };
+  | { ok: false; error: "not_found" | "inactive" | "dummy" };
 
 /**
  * Verify a NIP against the users table (or mock client in USE_MOCK_DB mode).
@@ -22,6 +22,9 @@ export async function verifyNip(nip: string): Promise<VerifyResult> {
   });
   if (!user) return { ok: false, error: "not_found" };
   if (!user.isActive) return { ok: false, error: "inactive" };
+  // Placeholder/workshop accounts (no verified real NIP yet, e.g. "NSM973066")
+  // can't log into the live system — toggle User.isDummy off in Admin to lift this for one.
+  if (user.isDummy) return { ok: false, error: "dummy" };
   return { ok: true, user };
 }
 

@@ -18,6 +18,8 @@ export async function loginAction(formData: FormData): Promise<void> {
       return encodeError("NIP tidak ditemukan. Hubungi administrator.");
     if (result.error === "inactive")
       return encodeError("Akun tidak aktif. Hubungi administrator.");
+    if (result.error === "dummy")
+      return encodeError("Akun ini belum punya NIP resmi terverifikasi dan belum bisa login. Hubungi administrator.");
     return encodeError("Terjadi kesalahan. Coba lagi.");
   }
 

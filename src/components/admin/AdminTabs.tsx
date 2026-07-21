@@ -73,7 +73,7 @@ function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => 
 // ─── Tab: Tambah/Edit User (staff) ──────────────────────────────────────────
 
 function UserTab() {
-  const emptyForm = { nip: "", name: "", role: "", email: "", nipAtasan: "", isActive: true };
+  const emptyForm = { nip: "", name: "", role: "", email: "", nipAtasan: "", isActive: true, isDummy: false };
   const [form, setForm] = useState(emptyForm);
   const [editingNip, setEditingNip] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
@@ -91,7 +91,7 @@ function UserTab() {
 
   function startEdit(row: UserRow) {
     setEditingNip(row.nip);
-    setForm({ nip: row.nip, name: row.name, role: row.role, email: row.email ?? "", nipAtasan: row.nipAtasan ?? "", isActive: row.isActive });
+    setForm({ nip: row.nip, name: row.name, role: row.role, email: row.email ?? "", nipAtasan: row.nipAtasan ?? "", isActive: row.isActive, isDummy: row.isDummy });
     setAttempted(false); setError(null); setNotice(null);
   }
   function cancelEdit() { setEditingNip(null); setForm(emptyForm); setAttempted(false); setError(null); }
@@ -107,6 +107,7 @@ function UserTab() {
     fd.set("email", form.email.trim());
     fd.set("nipAtasan", form.nipAtasan.trim());
     fd.set("isActive", form.isActive ? "true" : "false");
+    fd.set("isDummy", form.isDummy ? "true" : "false");
     startTransition(async () => {
       const result = editingNip ? await updateUserAction(fd) : await createUserAction(fd);
       if (result.ok) {
@@ -164,10 +165,18 @@ function UserTab() {
               <input type="text" value={form.nipAtasan} onChange={(e) => setForm({ ...form, nipAtasan: e.target.value })} placeholder="NIP atasan langsung (kalau ada)" className="input-field w-full" />
             </Field>
             {editingNip && (
-              <label className="flex items-center gap-2 text-sm cursor-pointer pt-5">
-                <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="rounded" />
-                <span style={{ color: "var(--color-text-muted)" }}>Aktif</span>
-              </label>
+              <div className="flex items-center gap-4 pt-5">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="rounded" />
+                  <span style={{ color: "var(--color-text-muted)" }}>Aktif</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={form.isDummy} onChange={(e) => setForm({ ...form, isDummy: e.target.checked })} className="rounded" />
+                  <span style={{ color: "var(--color-text-muted)" }}>
+                    Dummy <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>(NIP belum terverifikasi — tidak bisa login)</span>
+                  </span>
+                </label>
+              </div>
             )}
           </div>
           <div className="flex gap-2">
@@ -188,7 +197,7 @@ function UserTab() {
             <div key={r.nip} className="flex items-center justify-between gap-2 py-2 text-sm">
               <div className="min-w-0">
                 <p className="truncate" style={{ color: "var(--color-text)" }}>{r.name} <span style={{ color: "var(--color-text-faint)" }}>({r.nip})</span></p>
-                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{r.role}{!r.isActive && " · nonaktif"}</p>
+                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{r.role}{!r.isActive && " · nonaktif"}{r.isDummy && " · dummy (tidak bisa login)"}</p>
               </div>
               <RowActions onEdit={() => startEdit(r)} onDelete={() => setToDelete(r)} />
             </div>

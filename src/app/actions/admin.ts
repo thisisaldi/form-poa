@@ -64,7 +64,7 @@ export async function createUserAction(formData: FormData): Promise<AdminActionR
 
 export interface UserRow {
   nip: string; name: string; role: string; email: string | null;
-  nipAtasan: string | null; isActive: boolean;
+  nipAtasan: string | null; isActive: boolean; isDummy: boolean;
 }
 
 /** Search staff accounts by NIP or name — capped at 20 results. */
@@ -76,7 +76,8 @@ export async function searchUsersAction(query: string): Promise<UserRow[]> {
     orderBy: { name: "asc" },
     take: 20,
   });
-  return rows.map((u: { nip: string; name: string; role: string; email: string | null; nipAtasan: string | null; isActive: boolean }) => ({ nip: u.nip, name: u.name, role: u.role, email: u.email, nipAtasan: u.nipAtasan, isActive: u.isActive }));
+  return rows.map((u: { nip: string; name: string; role: string; email: string | null; nipAtasan: string | null; isActive: boolean; isDummy: boolean }) =>
+    ({ nip: u.nip, name: u.name, role: u.role, email: u.email, nipAtasan: u.nipAtasan, isActive: u.isActive, isDummy: u.isDummy }));
 }
 
 /** Update an existing staff account. NIP (the primary key) is not changeable here. */
@@ -90,6 +91,7 @@ export async function updateUserAction(formData: FormData): Promise<AdminActionR
   const email = str(formData, "email");
   const nipAtasan = str(formData, "nipAtasan");
   const isActive = formData.get("isActive") === "true";
+  const isDummy = formData.get("isDummy") === "true";
 
   if (!nip || !name || !role) return { ok: false, error: "NIP, nama, dan role wajib diisi." };
   if (!(Object.values(Role) as string[]).includes(role)) return { ok: false, error: "Role tidak valid." };
@@ -107,7 +109,7 @@ export async function updateUserAction(formData: FormData): Promise<AdminActionR
 
   await prisma.user.update({
     where: { nip },
-    data: { name, role: role as Role, email, nipAtasan, namaAtasan, isActive },
+    data: { name, role: role as Role, email, nipAtasan, namaAtasan, isActive, isDummy },
   });
 
   return { ok: true };
