@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getSpesialisasiByOutlet, getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, SPESIALISASI_PM_LABEL } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -1516,17 +1516,15 @@ function AddPanel({
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setSpecList([]); setCustomerList([]); setKriteriaList([]); setSales3Bln([]); setDiskonList([]); setDiskonHistoryList([]);
+    setCustomerList([]); setKriteriaList([]); setSales3Bln([]); setDiskonList([]); setDiskonHistoryList([]);
     if (!val) return;
     startLoadSpec(async () => {
-      const [specs, kriteria, sales3BlnData, diskonData, diskonHistoryData] = await Promise.all([
-        getSpesialisasiByOutlet(val),
+      const [kriteria, sales3BlnData, diskonData, diskonHistoryData] = await Promise.all([
         getKriteriaByOutlet(val),
         getSales3BlnByOutlet(val),
         getDiskonByOutlet(val),
         getDiskonHistoryByOutlet(val),
       ]);
-      setSpecList(specs);
       setKriteriaList(kriteria);
       setSales3Bln(sales3BlnData);
       setDiskonList(diskonData);
@@ -1646,12 +1644,12 @@ function AddPanel({
             <div className="flex flex-col gap-1"
               {...(attempted && !spesialisasi ? { "data-field-err": "true" } : {})}>
               <span className="text-xs" style={{ color: attempted && !spesialisasi ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                Spesialisasi<Req /> {loadingSpec && <span style={{ color: "var(--color-text-faint)" }}>…</span>}
+                Spesialisasi<Req />
               </span>
               <div style={attempted && !spesialisasi ? ERR_RING : undefined}>
                 <Combobox name="_spesialisasi" value={spesialisasi} onChange={handleSpecChange}
-                  placeholder={kodePI ? (loadingSpec ? "Memuat…" : "Pilih spesialisasi") : "Pilih outlet dulu"}
-                  disabled={!kodePI || loadingSpec} options={specOptions} />
+                  placeholder={kodePI ? "Pilih spesialisasi" : "Pilih outlet dulu"}
+                  disabled={!kodePI} options={specOptions} />
               </div>
               {attempted && !spesialisasi && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
             </div>
