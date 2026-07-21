@@ -382,7 +382,7 @@ export async function searchCustomersAction(query: string): Promise<CustomerRow[
   }));
 }
 
-/** Update an existing doctor's name/spesialisasi/outlet. */
+/** Update an existing doctor's name/spesialisasi/outlet/kode customer. */
 export async function updateCustomerAction(formData: FormData): Promise<AdminActionResult> {
   const authCheck = await requireAdmin();
   if (!authCheck.ok) return authCheck;
@@ -391,6 +391,7 @@ export async function updateCustomerAction(formData: FormData): Promise<AdminAct
   const namaCustomer = str(formData, "namaCustomer");
   const spesialisasi = str(formData, "spesialisasi");
   const kodePI = str(formData, "kodePI");
+  const kodeCustomer = str(formData, "kodeCustomer"); // optional — null clears it
 
   if (!customerOutletId || !namaCustomer || !spesialisasi || !kodePI) {
     return { ok: false, error: "Nama, spesialisasi, dan outlet wajib diisi." };
@@ -402,10 +403,17 @@ export async function updateCustomerAction(formData: FormData): Promise<AdminAct
   const outlet = await prisma.outlet.findUnique({ where: { kodePI } });
   if (!outlet) return { ok: false, error: "Outlet tidak ditemukan." };
 
+  if (kodeCustomer) {
+    const dup = await prisma.customer.findUnique({ where: { kodeCustomer } });
+    if (dup && dup.id !== link.customerId) {
+      return { ok: false, error: `Kode Customer ${kodeCustomer} sudah dipakai oleh ${dup.namaCustomer}.` };
+    }
+  }
+
   // isFokus ("Rekomendasi PM") is exclusively driven by the official RS GROUP
   // curation spreadsheet (scripts/syncCustomers.ts Pass 2) — not editable here.
   await prisma.$transaction([
-    prisma.customer.update({ where: { id: link.customerId }, data: { namaCustomer, spesialisasi } }),
+    prisma.customer.update({ where: { id: link.customerId }, data: { namaCustomer, spesialisasi, kodeCustomer } }),
     prisma.customerOutlet.update({ where: { id: customerOutletId }, data: { kodePI } }),
   ]);
 

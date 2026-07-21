@@ -363,7 +363,7 @@ function OutletTab() {
 // ─── Tab: Tambah/Edit User + Spesialisasi (dokter) ──────────────────────────
 
 function DokterTab({ outlets }: { outlets: OutletOption[] }) {
-  const emptyForm = { namaCustomer: "", spesialisasi: "", kodePI: "" };
+  const emptyForm = { namaCustomer: "", spesialisasi: "", kodePI: "", kodeCustomer: "" };
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
@@ -386,7 +386,7 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
 
   function startEdit(row: CustomerRow) {
     setEditingId(row.customerOutletId);
-    setForm({ namaCustomer: row.namaCustomer, spesialisasi: row.spesialisasi, kodePI: row.kodePI });
+    setForm({ namaCustomer: row.namaCustomer, spesialisasi: row.spesialisasi, kodePI: row.kodePI, kodeCustomer: row.kodeCustomer ?? "" });
     setAttempted(false); setError(null); setNotice(null);
   }
   function cancelEdit() { setEditingId(null); setForm(emptyForm); setAttempted(false); setError(null); }
@@ -399,6 +399,7 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
     fd.set("namaCustomer", form.namaCustomer.trim());
     fd.set("spesialisasi", form.spesialisasi);
     fd.set("kodePI", form.kodePI);
+    fd.set("kodeCustomer", form.kodeCustomer.trim());
     if (editingId) fd.set("customerOutletId", editingId);
     startTransition(async () => {
       const result = editingId ? await updateCustomerAction(fd) : await createCustomerAction(fd);
@@ -442,6 +443,9 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
                 {spesOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
               </select>
             </Field>
+            <Field label="Kode Customer" attempted={attempted} invalid={false}>
+              <input type="text" value={form.kodeCustomer} onChange={(e) => setForm({ ...form, kodeCustomer: e.target.value })} placeholder="mis. F1045097" className="input-field w-full" />
+            </Field>
           </div>
           <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
             Status &ldquo;Rekomendasi PM&rdquo; hanya berasal dari sinkronisasi RS GROUP (bukan bisa diedit manual di sini).
@@ -462,7 +466,7 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
             <div key={r.customerOutletId} className="flex items-center justify-between gap-2 py-2 text-sm">
               <div className="min-w-0">
                 <p className="truncate" style={{ color: "var(--color-text)" }}>{r.namaCustomer} <span style={{ color: "var(--color-text-faint)" }}>({spesLabel(r.spesialisasi)})</span></p>
-                <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>{r.namaOutlet}{r.isFokus && " · ⭐ Rekomendasi PM"}</p>
+                <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>{r.namaOutlet} · {r.kodeCustomer ?? "(belum ada Kode Customer)"}{r.isFokus && " · ⭐ Rekomendasi PM"}</p>
               </div>
               <RowActions onEdit={() => startEdit(r)} onDelete={() => setToDelete(r)} />
             </div>
