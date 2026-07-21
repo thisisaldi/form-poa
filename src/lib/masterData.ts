@@ -58,16 +58,29 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
   const { prisma } = await import("@/lib/prisma");
 
   // Dummy (workshop/demo) accounts can pick from every outlet, not just assigned ones.
-  const user = await prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true } });
+  const user = await prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true, role: true } });
   if (user?.isDummy) return getCustomers();
 
   const assignments = await prisma.mrOutletAssignment.findMany({
     where: { nipMR: userId },
     include: { outlet: true },
   });
-  return assignments.map(({ outlet: o }: { outlet: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null; groupRS: string | null } }) =>
+  const fromAssignments = assignments.map(({ outlet: o }: { outlet: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null; groupRS: string | null } }) =>
     toMockCustomer(o)
   );
+
+  // ASM/SM/NSM never get MrOutletAssignment rows themselves (those are only
+  // ever written for the MR role) — but they can still create a POA scoped to
+  // specific outlets whose own MR/ASM/SM chain is vacant down to them (see
+  // canCreatePoa in authz.ts and Outlet.coveredByNip/coveredByRole).
+  if (user?.role && user.role !== "MR") {
+    const covered = await prisma.outlet.findMany({
+      where: { coveredByNip: userId, coveredByRole: { not: "MR" } },
+    });
+    return [...fromAssignments, ...covered.map(toMockCustomer)];
+  }
+
+  return fromAssignments;
 }
 
 export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | null> {

@@ -380,3 +380,25 @@ export async function getDiskonByOutlet(kodePI: string): Promise<DiskonByProduct
     prdAkhir: r.prdAkhir,
   }));
 }
+
+export interface DiskonHistoryByProduct {
+  kodeProduk: string;
+  avgDiskonPct: number; // weighted-average historical % Total Diskon, not period-scoped
+}
+
+/**
+ * DiskonHistory rows for a given outlet — fallback ONLY, used when
+ * getDiskonByOutlet has no DPL contract covering the outlet+product+period.
+ * See scripts/importDiskonHistory.ts.
+ */
+export async function getDiskonHistoryByOutlet(kodePI: string): Promise<DiskonHistoryByProduct[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.diskonHistory.findMany({
+    where: { kodePI },
+    select: { kodeProduk: true, avgDiskonPct: true },
+  });
+  return rows.map((r: { kodeProduk: string; avgDiskonPct: { toString(): string } }) => ({
+    kodeProduk: r.kodeProduk,
+    avgDiskonPct: parseFloat(r.avgDiskonPct.toString()),
+  }));
+}

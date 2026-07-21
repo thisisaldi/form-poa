@@ -20,17 +20,39 @@ type TransitionTarget = {
   nextHolderRole: "ASM" | "SM" | "NSM" | null;
 };
 
-const SUBMIT_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
-  [PoaStatus.DRAFT]: { toStatus: PoaStatus.SUBMITTED_TO_ASM, nextHolderRole: "ASM" },
-  [PoaStatus.REVISI]: { toStatus: PoaStatus.SUBMITTED_TO_ASM, nextHolderRole: "ASM" },
+// Post-approval re-submit steps only — the DRAFT/REVISI → first-submit step is
+// resolved dynamically by firstSubmitTransition() below, since its target
+// depends on the OWNER's own role (normally MR → ASM, but see canCreatePoa
+// for the vacant-team case where an ASM/SM owns the POA themselves).
+const SUBMIT_TRANSITIONS: Partial<Record<PoaStatus, TransitionTarget>> = {
   [PoaStatus.APPROVED_BY_ASM]: { toStatus: PoaStatus.SUBMITTED_TO_SM, nextHolderRole: "SM" },
   [PoaStatus.APPROVED_BY_SM]: { toStatus: PoaStatus.SUBMITTED_TO_NSM, nextHolderRole: "NSM" },
-  // These statuses are not valid submit sources
-  [PoaStatus.SUBMITTED_TO_ASM]: null,
-  [PoaStatus.SUBMITTED_TO_SM]: null,
-  [PoaStatus.SUBMITTED_TO_NSM]: null,
-  [PoaStatus.APPROVED_BY_NSM]: null,
 };
+
+const ROLE_LEVEL: Record<string, number> = { MR: 0, ASM: 1, SM: 2, NSM: 3 };
+const APPROVAL_CHAIN: ("ASM" | "SM" | "NSM")[] = ["ASM", "SM", "NSM"];
+const CHAIN_STATUS: Record<"ASM" | "SM" | "NSM", PoaStatus> = {
+  ASM: PoaStatus.SUBMITTED_TO_ASM,
+  SM: PoaStatus.SUBMITTED_TO_SM,
+  NSM: PoaStatus.SUBMITTED_TO_NSM,
+};
+
+/**
+ * First submit step for a DRAFT/REVISI POA — starts one level ABOVE the
+ * owner's own role. For a normal MR-owned POA that's ASM, same as before.
+ * For an ASM/SM who owns their own POA (vacant-team case, see canCreatePoa),
+ * it starts one level higher still — they can't be both submitter and
+ * approver of their own first step, so it skips straight to their own atasan.
+ */
+function firstSubmitTransition(ownerRole: string): TransitionTarget {
+  const target = APPROVAL_CHAIN[ROLE_LEVEL[ownerRole] ?? 0];
+  if (!target) {
+    // Owner is already SM+ with no level between them and NSM — shouldn't
+    // normally happen (NSM has nobody to submit "up" to), but resolve safely.
+    return { toStatus: PoaStatus.APPROVED_BY_NSM, nextHolderRole: null };
+  }
+  return { toStatus: CHAIN_STATUS[target], nextHolderRole: target };
+}
 
 // Approve goes directly to the next level — no separate "submit upward" step.
 const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
@@ -47,20 +69,29 @@ const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
 
 // ─── Internal Helpers ─────────────────────────────────────────────────────────
 
-async function resolveNextHolder(
-  poa: PoaForm & { owner: User & { reportsTo: (User & { reportsTo: (User & { reportsTo: User | null }) | null }) | null } },
+interface ReportsToChain extends User {
+  reportsTo?: ReportsToChain | null;
+}
+
+/**
+ * Walk up the owner's reportsTo chain and return the first user at or above
+ * the target role level. Deliberately NOT a fixed number of hops — a vacant
+ * intermediate level (e.g. ASM) has no User row at all, so whoever reports
+ * "through" it already has their nipAtasan pointing past it, one level up.
+ * Walking by role instead of by hop count means that gap just works, instead
+ * of resolveNextHolder needing to know in advance how many levels were skipped.
+ */
+function resolveNextHolder(
+  poa: PoaForm & { owner: ReportsToChain },
   nextHolderRole: "ASM" | "SM" | "NSM"
-): Promise<string | null> {
-  // Walk up the org chain from the MR to find the holder with the right role
-  const owner = poa.owner;
-  switch (nextHolderRole) {
-    case "ASM":
-      return owner.reportsTo?.nip ?? null;
-    case "SM":
-      return owner.reportsTo?.reportsTo?.nip ?? null;
-    case "NSM":
-      return owner.reportsTo?.reportsTo?.reportsTo?.nip ?? null;
+): string | null {
+  const targetLevel = ROLE_LEVEL[nextHolderRole];
+  let current: ReportsToChain | null = poa.owner.reportsTo ?? null;
+  while (current) {
+    if ((ROLE_LEVEL[current.role] ?? -1) >= targetLevel) return current.nip;
+    current = current.reportsTo ?? null;
   }
+  return null;
 }
 
 async function loadPoaWithHierarchy(poaId: string) {
@@ -100,7 +131,7 @@ async function applyTransition(
 
   let nextHolderId: string | null = null;
   if (transition.nextHolderRole) {
-    nextHolderId = await resolveNextHolder(poa, transition.nextHolderRole);
+    nextHolderId = resolveNextHolder(poa, transition.nextHolderRole);
     if (!nextHolderId) {
       throw new Error(
         `Cannot resolve next holder (${transition.nextHolderRole}) for POA ${poaId} — check org hierarchy data`
@@ -145,6 +176,9 @@ async function applyTransition(
  * ASM approves → their "submit upward" also goes through here (after APPROVED_BY_ASM).
  * SM similarly.
  *
+ * The very first submit (from DRAFT/REVISI) targets one level above the
+ * OWNER's own role, not always "ASM" — see firstSubmitTransition().
+ *
  * TODO: add pre-submit validation of poa.data fields once form schema is defined.
  */
 export async function submitPoa(
@@ -152,14 +186,16 @@ export async function submitPoa(
   actingUserId: string,
   notes?: string
 ): Promise<PoaForm> {
-  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId }, include: { owner: true } });
 
   const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
   if (!(await canEdit(actingUser, poa))) {
     throw new Error(`User ${actingUserId} does not have edit rights on POA ${poaId}`);
   }
 
-  const transition = SUBMIT_TRANSITIONS[poa.status];
+  const transition = poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI
+    ? firstSubmitTransition(poa.owner.role)
+    : SUBMIT_TRANSITIONS[poa.status as PoaStatus];
   if (!transition) {
     throw new Error(
       `Cannot submit a POA in status ${poa.status}`
@@ -284,7 +320,8 @@ export async function flagRevisionOnEdit(
 }
 
 /**
- * Create a new POA draft for an MR.
+ * Create a new POA draft — normally for an MR, but also usable by an ASM/SM/NSM
+ * whose own team is vacant (see canCreatePoa in authz.ts).
  */
 export async function createPoaDraft(
   ownerId: string,

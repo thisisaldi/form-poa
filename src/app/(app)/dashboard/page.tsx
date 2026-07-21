@@ -37,7 +37,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const [visibleFilter, pendingFilter, eligible] = await Promise.all([
     getVisiblePoaFilter(actor),
     Promise.resolve(getPendingActionFilter(actor)),
-    isMR ? canCreatePoa(session.userId) : Promise.resolve(false),
+    // Not MR-only anymore — an ASM/SM/NSM with a vacant team is eligible too
+    // (see canCreatePoa in authz.ts).
+    canCreatePoa(session.userId),
   ]);
 
   const [recentRaw, pendingPoas] = await Promise.all([
@@ -221,7 +223,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           {isMR && (
             <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
           )}
-          {isMR && eligible && (
+          {eligible && (
             <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
           )}
           {!isMR && (
@@ -338,7 +340,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <CardTitle>{isMR ? "POA Saya" : "Semua POA"}</CardTitle>
         </CardHeader>
         {recentPoas.length === 0 ? (
-          <EmptyState isMR={isMR} eligible={eligible} role={session.role as Role} />
+          <EmptyState eligible={eligible} role={session.role as Role} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -414,15 +416,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   );
 }
 
-function EmptyState({ isMR, eligible, role }: { isMR: boolean; eligible: boolean; role: Role }) {
+function EmptyState({ eligible, role }: { eligible: boolean; role: Role }) {
   return (
     <div className="py-10 text-center">
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-        {isMR
+        {eligible
           ? "Belum ada POA. Buat POA pertama Anda."
           : `Belum ada POA yang perlu ditinjau sebagai ${role}.`}
       </p>
-      {isMR && eligible && (
+      {eligible && (
         <Link href="/poa/new" className="mt-3 inline-block">
           <Button size="sm">Buat POA</Button>
         </Link>

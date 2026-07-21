@@ -269,6 +269,15 @@ model Outlet {
   kodeReg  String?
   namaReg  String?
 
+  // Who can actually act on this specific outlet right now — normally its MR,
+  // but if the MR (and any level between them and this person) is vacant,
+  // this cascades up to the first active ASM/SM/NSM in that outlet's own
+  // reporting chain. Recomputed by scripts/importStrukturVerifiedKAM.ts.
+  // Drives canCreatePoa()'s "vacant team" exception — scoped to just the
+  // specific outlets a manager covers this way, not their whole subtree.
+  coveredByNip  String?
+  coveredByRole String?  // "MR" | "ASM" | "SM" | "NSM"
+
   syncedAt     DateTime
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -480,6 +489,22 @@ model DiskonKontrak {
   @@index([kodePI])
   @@index([kodeProduk])
   @@index([prdAwal, prdAkhir])
+}
+
+// Fallback discount source when no DiskonKontrak (DPL) covers an outlet+product —
+// a weighted-average "% Total Diskon" per outlet+product derived from actual past
+// invoices (see scripts/importDiskonHistory.ts). Not period-scoped like
+// DiskonKontrak — this is a flat historical average across the whole source file.
+model DiskonHistory {
+  id           String   @id @default(uuid())
+  kodePI       String
+  kodeProduk   String
+  avgDiskonPct Decimal  @db.Decimal(10, 4) // e.g. 7.75 for 7.75%, weighted by Gross Subtotal
+  sourcePeriod String              // e.g. "202601-202604" — the invoice period range this covers
+  syncedAt     DateTime
+
+  @@unique([kodePI, kodeProduk])
+  @@index([kodePI])
 }
 
 // ─── Customer Pengajuan ───────────────────────────────────────────────────────

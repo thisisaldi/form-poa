@@ -19,7 +19,9 @@ export async function createPoaAction(formData: FormData): Promise<void> {
   const period = (formData.get("period") as string | null)?.trim() ?? "";
 
   if (!period) redirect("/poa/new?error=" + encodeURIComponent("Period wajib diisi."));
-  if (session.role !== "MR") redirect("/dashboard");
+  // No hardcoded role check here — canCreatePoa() is the single source of truth.
+  // Normally only MR (leaf, has outlet assignments), but an ASM/SM/NSM whose own
+  // team is vacant can create one too (see canCreatePoa's doc comment).
   if (!(await canCreatePoa(session.userId))) redirect("/dashboard?error=no_outlets");
 
   // Prevent duplicate drafts for the same quarter period

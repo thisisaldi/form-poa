@@ -76,29 +76,38 @@ export async function getVisiblePoaFilter(
       return { ownerId: user.nip };
 
     case Role.ASM: {
-      // ASM sees POAs from their direct MR reports, only after draft
+      // ASM sees POAs from their direct MR reports (only after draft), PLUS their
+      // own POA at any status — an ASM can own a POA themselves when their MR
+      // team is vacant (see canCreatePoa), so it needs the same "always visible
+      // to its owner" treatment a normal MR gets.
       const mrIds = await getMrIdsUnder(user.nip, 1);
       return {
-        ownerId: { in: mrIds },
-        status: { in: NON_DRAFT_STATUSES },
+        OR: [
+          { ownerId: user.nip },
+          { ownerId: { in: mrIds }, status: { in: NON_DRAFT_STATUSES } },
+        ],
       };
     }
 
     case Role.SM: {
-      // SM sees POAs from MRs under their ASMs (2 hops)
+      // SM sees POAs from MRs under their ASMs (2 hops), plus their own (see ASM above).
       const mrIds = await getMrIdsUnder(user.nip, 2);
       return {
-        ownerId: { in: mrIds },
-        status: { in: NON_DRAFT_STATUSES },
+        OR: [
+          { ownerId: user.nip },
+          { ownerId: { in: mrIds }, status: { in: NON_DRAFT_STATUSES } },
+        ],
       };
     }
 
     case Role.NSM: {
-      // NSM sees all POAs (3 hops), after draft
+      // NSM sees all POAs (3 hops), plus their own (see ASM above).
       const mrIds = await getMrIdsUnder(user.nip, 3);
       return {
-        ownerId: { in: mrIds },
-        status: { in: NON_DRAFT_STATUSES },
+        OR: [
+          { ownerId: user.nip },
+          { ownerId: { in: mrIds }, status: { in: NON_DRAFT_STATUSES } },
+        ],
       };
     }
 
@@ -123,12 +132,15 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
   if (user.role === Role.GM) return true; // read-only oversight, sees every POA at any status
 
-  if (user.role === Role.MR) {
-    return poa.ownerId === user.nip;
-  }
+  // The owner always sees their own POA, any status — normally an MR, but an
+  // ASM/SM/NSM can own one too when their team is vacant (see canCreatePoa).
+  if (poa.ownerId === user.nip) return true;
 
-  // For managers: POA must be non-draft AND the MR must be in their subtree.
-  // REVISI behaves like DRAFT — it's back in the MR's hands, not yet visible upward.
+  if (user.role === Role.MR) return false; // MR only ever sees their own (checked above)
+
+  // For managers viewing a SUBORDINATE's POA: must be non-draft AND the MR must
+  // be in their subtree. REVISI behaves like DRAFT — it's back in the MR's
+  // hands, not yet visible upward.
   if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) return false;
 
   const depthByRole: Record<string, number> = {
@@ -160,9 +172,9 @@ export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
   // GM is deliberately excluded here — read-only oversight only (see canView).
 
-  if (user.role === Role.MR) {
-    return poa.ownerId === user.nip;
-  }
+  // The owner can always edit their own POA — normally an MR, but an ASM/SM/NSM
+  // filling in for a vacant team owns theirs the same way (see canCreatePoa).
+  if (poa.ownerId === user.nip) return true;
 
   if (([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role)) {
     return canView(user, poa);
@@ -188,18 +200,38 @@ export function canApprove(user: User, poa: PoaForm): boolean {
 
 /**
  * Can this user create a new POA?
- * Only leaf nodes (no active subordinates) who hold at least one outlet.
+ *
+ * Normal case: an MR (leaf, no subordinates) who holds at least one outlet.
  * Dummy (workshop/demo) accounts skip the outlet-assignment requirement — they
  * can see every outlet (see getOutletsByUser) without needing real assignment rows.
+ *
+ * Vacant-outlet exception: an ASM/SM/NSM can ALSO create a POA if at least one
+ * SPECIFIC outlet's own chain is vacant down to them — e.g. outlet A's MR and
+ * ASM are both vacant, so its SM is the first active person who can act on it.
+ * This is per-outlet (Outlet.coveredByNip/coveredByRole, computed at import
+ * time), not "this manager's whole team is empty" — a mostly-staffed SM still
+ * qualifies if even one of their outlets has nobody below them covering it.
+ * The POA itself isn't restricted here to just those outlets — getOutletsByUser
+ * is what scopes the picker to them.
  */
 export async function canCreatePoa(userId: string): Promise<boolean> {
   const [user, subordinateCount, assignmentCount] = await Promise.all([
-    prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true } }),
+    prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true, role: true } }),
     prisma.user.count({ where: { nipAtasan: userId, isActive: true } }),
     prisma.mrOutletAssignment.count({ where: { nipMR: userId } }),
   ]);
-  if (subordinateCount !== 0) return false;
-  return user?.isDummy ? true : assignmentCount > 0;
+  if (user?.isDummy) return true;
+
+  if (subordinateCount === 0 && assignmentCount > 0) return true; // normal MR case
+
+  if (user?.role && ([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role)) {
+    const coveredCount = await prisma.outlet.count({
+      where: { coveredByNip: userId, coveredByRole: { not: Role.MR } },
+    });
+    if (coveredCount > 0) return true;
+  }
+
+  return false;
 }
 
 /**

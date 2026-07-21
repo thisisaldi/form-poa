@@ -29,8 +29,13 @@
  *
  * Effects (in order):
  *   1. Refresh OutletStrukturBaru (wholesale replace — staging/review copy).
- *   2. Upsert Outlet rows: kota, propinsi, kategori, namaGT/namaSub/namaArea/namaReg.
- *   3. Upsert Users for every resolved non-placeholder NIP + wire nipAtasan/namaAtasan.
+ *   2. Upsert Users for every resolved non-placeholder NIP + wire nipAtasan/namaAtasan.
+ *   3. Upsert Outlet rows: kota, propinsi, kategori, namaGT/namaSub/namaArea/namaReg,
+ *      plus coveredByNip/coveredByRole — whoever can actually act on that outlet
+ *      right now (its MR, or the first active ASM/SM/NSM above a vacant MR/ASM/SM).
+ *      This is what lets a manager create a POA scoped to specific vacant-covered
+ *      outlets (see canCreatePoa in authz.ts) without needing their whole team
+ *      to be vacant — one covered outlet is enough, regardless of the rest.
  *   4. For each outlet with a resolved MR NIP (leaf level), that NIP becomes the
  *      SOLE assignee for the current periode — replacing any other existing
  *      assignee(s) for that outlet. Outlets with no resolved MR NIP are left
@@ -153,29 +158,9 @@ async function main() {
   }
   console.log(`✅ OutletStrukturBaru refreshed: ${stagingData.length} rows.\n`);
 
-  // ── 2. Upsert Outlet territory/kategori fields ───────────────────────────────
   const now = new Date();
-  let outletsUpserted = 0;
-  for (const r of rows) {
-    await prisma.outlet.upsert({
-      where: { kodePI: r.kodePI },
-      create: {
-        kodePI: r.kodePI, namaOutlet: r.namaOutlet ?? r.kodePI, statusOutlet: "A",
-        kota: r.kota, propinsi: r.provinsi, kategori: r.kategoriOutlet,
-        namaGT: r.namaGT, namaSub: r.namaSubArea, namaArea: r.namaArea, namaReg: r.namaRegion,
-        syncedAt: now,
-      },
-      update: {
-        kota: r.kota ?? undefined, propinsi: r.provinsi ?? undefined, kategori: r.kategoriOutlet ?? undefined,
-        namaGT: r.namaGT ?? undefined, namaSub: r.namaSubArea ?? undefined,
-        namaArea: r.namaArea ?? undefined, namaReg: r.namaRegion ?? undefined,
-      },
-    });
-    outletsUpserted++;
-  }
-  console.log(`✅ Outlet upserted: ${outletsUpserted} rows.\n`);
 
-  // ── 3. Collect per-user hierarchy (mirrors orgStructureSync.ts's collect()) ──
+  // ── 2. Collect per-user hierarchy (mirrors orgStructureSync.ts's collect()) ──
   const userMap = new Map<string, { name: string; role: Role; managerNips: string[] }>();
 
   function collect(nip: string | null, name: string | null, role: Role, managerNip: string | null) {
@@ -188,13 +173,25 @@ async function main() {
     }
   }
 
+  // Picks the first non-blank NIP among candidates, in priority order — used to
+  // skip a vacant intermediate level (e.g. ASM) and link straight to the next
+  // real level up (SM, then NSM) instead of leaving nipAtasan null. This is
+  // what makes "ASM/SM vacant → approval goes straight to NSM" work at all:
+  // poaWorkflow.ts's resolveNextHolder() just walks whatever chain is here.
+  function firstNonBlank(...candidates: (string | null)[]): string | null {
+    return candidates.find((c) => !!c) ?? null;
+  }
+
   for (const r of rows) {
     collect(r.gmNip, r.gmNama, "GM", null);
     collect(r.nsmNip, r.nsmNama, "NSM", null);
     collect(r.smNip, r.smNama, "SM", r.nsmNip);
-    collect(r.asmNip, r.asmNama, "ASM", r.smNip);
-    collect(r.spvNip, r.spvNama, "MR", r.asmNip); // SPV collapses to MR, skip-level to ASM
-    collect(r.mrNip, r.mrNama, "MR", r.asmNip);   // leaf MR, skip-level to ASM
+    collect(r.asmNip, r.asmNama, "ASM", firstNonBlank(r.smNip, r.nsmNip));
+    // SPV collapses to MR (skip-level to ASM); MR is the leaf. Both skip past
+    // a vacant ASM straight to SM, then NSM, same principle as above.
+    const mrManager = firstNonBlank(r.asmNip, r.smNip, r.nsmNip);
+    collect(r.spvNip, r.spvNama, "MR", mrManager);
+    collect(r.mrNip, r.mrNama, "MR", mrManager);
   }
 
   console.log(`Collected ${userMap.size} distinct real (non-placeholder) users across GM/NSM/SM/ASM/SPV/MR.\n`);
@@ -229,9 +226,50 @@ async function main() {
   }
   console.log(`✅ Hierarchy (nipAtasan) wired: ${hierarchyWired}${hierarchyUnresolved.length ? ` (${hierarchyUnresolved.length} unresolved)` : ""}\n`);
 
+  const existingUserNips = new Set([...userMap.keys()]);
+
+  // Whoever can actually act on this outlet right now — its own MR if resolved,
+  // else the first active ASM/SM/NSM above it. Independent per outlet, so one
+  // manager can cover outlet A (vacant MR+ASM there) while outlet B down the
+  // road still has its own MR — covering one vacant outlet doesn't require the
+  // manager's WHOLE team to be vacant.
+  function resolveCoverage(r: OutletRow): { nip: string; role: "MR" | "ASM" | "SM" | "NSM" } | null {
+    if (r.mrNip && existingUserNips.has(r.mrNip)) return { nip: r.mrNip, role: "MR" };
+    if (r.asmNip && existingUserNips.has(r.asmNip)) return { nip: r.asmNip, role: "ASM" };
+    if (r.smNip && existingUserNips.has(r.smNip)) return { nip: r.smNip, role: "SM" };
+    if (r.nsmNip && existingUserNips.has(r.nsmNip)) return { nip: r.nsmNip, role: "NSM" };
+    return null;
+  }
+
+  // ── 3. Upsert Outlet territory/kategori/coveredBy fields ─────────────────────
+  let outletsUpserted = 0;
+  const coverageCounts: Record<string, number> = { MR: 0, ASM: 0, SM: 0, NSM: 0, none: 0 };
+  for (const r of rows) {
+    const coverage = resolveCoverage(r);
+    coverageCounts[coverage?.role ?? "none"]++;
+    await prisma.outlet.upsert({
+      where: { kodePI: r.kodePI },
+      create: {
+        kodePI: r.kodePI, namaOutlet: r.namaOutlet ?? r.kodePI, statusOutlet: "A",
+        kota: r.kota, propinsi: r.provinsi, kategori: r.kategoriOutlet,
+        namaGT: r.namaGT, namaSub: r.namaSubArea, namaArea: r.namaArea, namaReg: r.namaRegion,
+        coveredByNip: coverage?.nip ?? null, coveredByRole: coverage?.role ?? null,
+        syncedAt: now,
+      },
+      update: {
+        kota: r.kota ?? undefined, propinsi: r.provinsi ?? undefined, kategori: r.kategoriOutlet ?? undefined,
+        namaGT: r.namaGT ?? undefined, namaSub: r.namaSubArea ?? undefined,
+        namaArea: r.namaArea ?? undefined, namaReg: r.namaRegion ?? undefined,
+        coveredByNip: coverage?.nip ?? null, coveredByRole: coverage?.role ?? null,
+      },
+    });
+    outletsUpserted++;
+  }
+  console.log(`✅ Outlet upserted: ${outletsUpserted} rows.`);
+  console.log(`   Covered by MR: ${coverageCounts.MR} · ASM (vacant MR): ${coverageCounts.ASM} · SM (vacant MR+ASM): ${coverageCounts.SM} · NSM (vacant MR+ASM+SM): ${coverageCounts.NSM} · nobody resolvable: ${coverageCounts.none}\n`);
+
   // ── 4. MrOutletAssignment — additive/targeted, never a blanket delete ────────
   const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
-  const existingUserNips = new Set([...userMap.keys()]);
   let assignmentsWritten = 0, outletsNoMr = 0, outletsMrNotUser = 0;
 
   for (const r of rows) {

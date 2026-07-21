@@ -81,6 +81,10 @@ export default async function PoaDetailPage({
   const rejectWithId = rejectPoaAction.bind(null, id);
 
   const isMR = session.role === "MR";
+  // Whoever owns this POA drives the submit/checklist UI — normally an MR, but
+  // an ASM/SM/NSM can own one themselves when their team is vacant (see
+  // canCreatePoa in authz.ts). isMR alone would wrongly hide those controls.
+  const isOwner = poa.ownerId === session.userId;
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
   const isRevisi = poa.status === "REVISI";
@@ -234,11 +238,11 @@ export default async function PoaDetailPage({
         poaPeriod={poa.period}
         poaStatus={poa.status}
         poaVersion={poa.version}
-        showSubmit={userCanEdit && isMR && (isDraft || isRevisi)}
+        showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
         userCanEdit={userCanEdit}
         isDraft={isDraft}
-        willTriggerRevisi={isMR}
-        selectable={isMR}
+        willTriggerRevisi={isOwner}
+        selectable={isOwner}
         activePssp={activePssp}
         focusProductTargets={focusProductTargets}
       />

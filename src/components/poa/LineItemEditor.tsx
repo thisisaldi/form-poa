@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getSpesialisasiByOutlet, getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct } from "@/app/actions/customer";
+import { getSpesialisasiByOutlet, getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, SPESIALISASI_PM_LABEL } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -138,6 +138,24 @@ function resolveDiskonPct(diskonList: DiskonByProduct[] | undefined, kodeProduk:
   );
   if (candidates.length === 0) return null;
   return Math.max(...candidates.map((d) => d.newOnPi));
+}
+
+/**
+ * Same as resolveDiskonPct, but falls back to DiskonHistory (weighted-average
+ * historical % Total Diskon, not period-scoped — see importDiskonHistory.ts)
+ * when no DPL contract covers this outlet+product+period. DPL always wins
+ * when present; history is only ever used as a last resort.
+ */
+function resolveDiskonPctWithHistory(
+  diskonList: DiskonByProduct[] | undefined,
+  diskonHistoryList: DiskonHistoryByProduct[] | undefined,
+  kodeProduk: string,
+  periodeAwal: string
+): number | null {
+  const fromDpl = resolveDiskonPct(diskonList, kodeProduk, periodeAwal);
+  if (fromDpl != null) return fromDpl;
+  const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
+  return fromHistory?.avgDiskonPct ?? null;
 }
 
 function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Product | null): number {
@@ -566,7 +584,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, index, products, dokterFields, spesialisasi, psspHistory, sales3Bln, kriteriaList, diskonList, usedKodeProduk, onChange, onRemove, showRemove, showError,
+  entry, index, products, dokterFields, spesialisasi, psspHistory, sales3Bln, kriteriaList, diskonList, diskonHistoryList, usedKodeProduk, onChange, onRemove, showRemove, showError,
 }: {
   entry: ProdukEntry;
   index: number;
@@ -577,8 +595,10 @@ function ProdukEntryRow({
   /** Actual sales qty for the last 3 completed months, per product, at this outlet. */
   sales3Bln?: Sales3BlnByProduct[];
   kriteriaList?: KriteriaByOutlet[];
-  /** DiskonKontrak rows at this outlet — used to default "% Diskon (DPL/DPF)" to real data. */
+  /** DiskonKontrak (DPL) rows at this outlet — used to default "% Diskon (DPL/DPF)" to real data. */
   diskonList?: DiskonByProduct[];
+  /** Fallback discount history when no DPL contract covers this outlet+product+period. */
+  diskonHistoryList?: DiskonHistoryByProduct[];
   /** kodeProduk values already used by OTHER rows for this same doctor — excluded from the picker. */
   usedKodeProduk?: Set<string>;
   onChange: (patch: Partial<ProdukEntry>) => void;
@@ -654,7 +674,7 @@ function ProdukEntryRow({
                 const autoStandarisasi = kriteria
                   ? (kriteria.startsWith("Produk Sudah Terstandarisasi") ? "SUDAH_STANDARISASI" : "BELUM_STANDARISASI")
                   : entry.statusStandarisasi;
-                const realDiskonPct = v ? resolveDiskonPct(diskonList, v, dokterFields.periodeAwal) : null;
+                const realDiskonPct = v ? resolveDiskonPctWithHistory(diskonList, diskonHistoryList, v, dokterFields.periodeAwal) : null;
                 onChange({
                   kodeProduk: v,
                   persenPsspDokter: nr != null ? (nr * 100).toFixed(2) : "",
@@ -1408,6 +1428,7 @@ function AddPanel({
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
   const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
+  const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -1495,19 +1516,21 @@ function AddPanel({
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setSpecList([]); setCustomerList([]); setKriteriaList([]); setSales3Bln([]); setDiskonList([]);
+    setSpecList([]); setCustomerList([]); setKriteriaList([]); setSales3Bln([]); setDiskonList([]); setDiskonHistoryList([]);
     if (!val) return;
     startLoadSpec(async () => {
-      const [specs, kriteria, sales3BlnData, diskonData] = await Promise.all([
+      const [specs, kriteria, sales3BlnData, diskonData, diskonHistoryData] = await Promise.all([
         getSpesialisasiByOutlet(val),
         getKriteriaByOutlet(val),
         getSales3BlnByOutlet(val),
         getDiskonByOutlet(val),
+        getDiskonHistoryByOutlet(val),
       ]);
       setSpecList(specs);
       setKriteriaList(kriteria);
       setSales3Bln(sales3BlnData);
       setDiskonList(diskonData);
+      setDiskonHistoryList(diskonHistoryData);
     });
   }
 
@@ -1692,6 +1715,7 @@ function AddPanel({
                 sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 diskonList={diskonList}
+                diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
@@ -2024,6 +2048,7 @@ function AddProductPanel({
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
   const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
+  const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -2033,6 +2058,7 @@ function AddProductPanel({
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
     getSales3BlnByOutlet(kodePI).then(setSales3Bln);
     getDiskonByOutlet(kodePI).then(setDiskonList);
+    getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
@@ -2164,6 +2190,7 @@ function AddProductPanel({
                 sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 diskonList={diskonList}
+                diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
@@ -2273,6 +2300,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
   const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
+  const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -2282,6 +2310,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
     getSales3BlnByOutlet(kodePI).then(setSales3Bln);
     getDiskonByOutlet(kodePI).then(setDiskonList);
+    getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
@@ -2481,6 +2510,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 diskonList={diskonList}
+                diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
