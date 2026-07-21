@@ -28,6 +28,12 @@
  * Names starting with "DUMMY " or "VACANT " are placeholders for an unfilled
  * position — skipped entirely, not created as Users.
  *
+ * SPV IS MR for outlet-ownership purposes (2026-07-21 fix): a row's SPV and MR
+ * columns are two names for the same leaf level — only one is filled per row.
+ * Every place that resolves "who owns/covers this outlet" (resolveCoverage,
+ * MrOutletAssignment) must use `mrNip ?? spvNip`, not `mrNip` alone, or rows
+ * where only the SPV column is filled get wrongly treated as vacant-MR.
+ *
  * This file covers only the KAM division ("Part KAM") — it is NOT a full
  * company roster, so unlike orgStructureSync.ts this script never deactivates
  * users absent from it (that would wrongly affect other divisions).
@@ -236,13 +242,20 @@ async function main() {
 
   const existingUserNips = new Set([...userMap.keys()]);
 
-  // Whoever can actually act on this outlet right now — its own MR if resolved,
-  // else the first active ASM/SM/NSM above it. Independent per outlet, so one
-  // manager can cover outlet A (vacant MR+ASM there) while outlet B down the
-  // road still has its own MR — covering one vacant outlet doesn't require the
-  // manager's WHOLE team to be vacant.
+  // SPV IS MR — a row's SPV and MR columns are two names for the same leaf
+  // level, only one filled per row. This is the effective outlet-owning NIP.
+  function effectiveMrNip(r: OutletRow): string | null {
+    return r.mrNip ?? r.spvNip;
+  }
+
+  // Whoever can actually act on this outlet right now — its own MR (or SPV,
+  // same thing) if resolved, else the first active ASM/SM/NSM above it.
+  // Independent per outlet, so one manager can cover outlet A (vacant MR+ASM
+  // there) while outlet B down the road still has its own MR — covering one
+  // vacant outlet doesn't require the manager's WHOLE team to be vacant.
   function resolveCoverage(r: OutletRow): { nip: string; role: "MR" | "ASM" | "SM" | "NSM" } | null {
-    if (r.mrNip && existingUserNips.has(r.mrNip)) return { nip: r.mrNip, role: "MR" };
+    const mrNip = effectiveMrNip(r);
+    if (mrNip && existingUserNips.has(mrNip)) return { nip: mrNip, role: "MR" };
     if (r.asmNip && existingUserNips.has(r.asmNip)) return { nip: r.asmNip, role: "ASM" };
     if (r.smNip && existingUserNips.has(r.smNip)) return { nip: r.smNip, role: "SM" };
     if (r.nsmNip && existingUserNips.has(r.nsmNip)) return { nip: r.nsmNip, role: "NSM" };
@@ -281,15 +294,16 @@ async function main() {
   let assignmentsWritten = 0, outletsNoMr = 0, outletsMrNotUser = 0;
 
   for (const r of rows) {
-    if (!r.mrNip) { outletsNoMr++; continue; }
-    if (!existingUserNips.has(r.mrNip)) { outletsMrNotUser++; continue; }
+    const mrNip = effectiveMrNip(r);
+    if (!mrNip) { outletsNoMr++; continue; }
+    if (!existingUserNips.has(mrNip)) { outletsMrNotUser++; continue; }
 
     await prisma.mrOutletAssignment.deleteMany({
-      where: { kodePI: r.kodePI, periode, nipMR: { not: r.mrNip } },
+      where: { kodePI: r.kodePI, periode, nipMR: { not: mrNip } },
     });
     await prisma.mrOutletAssignment.upsert({
-      where: { nipMR_kodePI_periode: { nipMR: r.mrNip, kodePI: r.kodePI, periode } },
-      create: { nipMR: r.mrNip, kodePI: r.kodePI, periode, syncedAt: now },
+      where: { nipMR_kodePI_periode: { nipMR: mrNip, kodePI: r.kodePI, periode } },
+      create: { nipMR: mrNip, kodePI: r.kodePI, periode, syncedAt: now },
       update: { syncedAt: now },
     });
     assignmentsWritten++;
