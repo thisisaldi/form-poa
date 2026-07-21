@@ -1,8 +1,8 @@
 # REVISI LAYAR POA SYSTEM — TRACKER
 
-*(Diupdate 2026-07-20 mengikuti "UPDATE PROGRESS REVISI SISTEM POA" dari stakeholder — 38 item, menggantikan penomoran lama. Sebut nomornya aja buat mulai kerjain satu item.)*
+*(Diupdate 2026-07-21 mengikuti "UPDATE PROGRESS REVISI SISTEM POA" dari stakeholder — sekarang 46 item (nambah #39-46). Sebut nomornya aja buat mulai kerjain satu item.)*
 
-**Ringkasan**: ✅ DONE = 24 · 🟡 ON-PROSES = 5 · ❓ NEED CONFIRMATION = 9 *(#19 & #30 pindah ke DONE 07-20 — lihat catatan; awalnya dihitung ulang dari daftar stakeholder jadi 22/7/9, bukan 22/7/8 seperti tertulis awal karena totalnya harus pas 38)*
+**Ringkasan**: ✅ DONE = 28 · 🟡 ON-PROSES = 4 · ❓ NEED CONFIRMATION = 9 · ⬜ BELUM DIKERJAKAN (item baru #39-43) = 5 *(#44/#45/#46 pindah ke DONE 07-21 — lihat catatan masing-masing. #19 tetap saya taruh DONE walau list stakeholder masih nulis ON-PROSES, karena udah diverifikasi langsung di kode. #22 dibiarkan ON-PROSES konsisten sama list stakeholder walau kodenya sebenarnya udah ada, karena ada ambiguitas scope yang belum diklarifikasi.)*
 
 ## ✅ Beres 07-21 begitu DB remote bisa diakses lagi
 
@@ -11,13 +11,14 @@
 - **Hardcode sementara di `src/lib/auth.ts` (`HARDCODE_ADMIN_NIP`) sudah dihapus** — role ADMIN P260054 sekarang murni dari DB.
 - **NIP Anggres Saputra diperbaiki**: L240075 → **L240076** (primary key User di-rename via transaksi, 50 baris `MrOutletAssignment` ikut pindah, plus field lain yang mungkin referensi — verified).
 
-## ✅ DONE (24)
+## ✅ DONE (25)
 
 | No | Item | Catatan |
 |---|---|---|
 | 2 | Target sifatnya harus fix, gak bisa naik-turun | Selesai. |
 | 3 | C urut historis drafting (periode aktif, gak boleh diedit) | Direstruktur 07-20 jadi per-dokter + toggle Detail expand per kontrak/produk, nama disensor. Bug "tercacah" (nilai kontrak kepakai full-period, bukan diapportion ke kuartal) sudah difix. Sudah ikut ke Excel export. ⚠️ Sisa kecil: growth pelunasan 3 bln terakhir di section ini masih belum dikerjain (lihat #5 catatan). |
 | 4 | Hari Praktek per-produk, default otomatis dari level dokter | Selesai. |
+| 5 | Growth PSSP berdasarkan value 3 bulan terakhir | Card "Growth PSSP (3 Bln Terakhir)" di LineItemEditor, nampilin growth dari data sales 3 bln terakhir (terpisah dari growth berbasis kontrak PSSP lama). Ditandai selesai oleh stakeholder 07-21. ⚠️ Sisa kecil: growth **pelunasan** 3 bln terakhir khusus di section PSSP Aktif (#3) — konsepnya mirip badge "Pernah PSSP" (#31), scope-nya masih belum dikerjain/dikonfirmasi. |
 | 6 | Nama outlet dipanjangin di dropdown | Combobox bisa lebih lebar dari trigger-nya. Sort outlet chain-first (grup di atas, NON CHAIN di bawah) juga sudah jalan — sempat ada bug 07-20: kolom `groupRS` di DB isinya literal string `"NON CHAIN"` (bukan `null`) utk outlet non-chain, jadi kena anggap truthy dan gak ke-sort; sudah difix pakai helper `isChainGroup()` di `LineItemEditor.tsx`. |
 | 7 | Target Produk Fokus per area (target kuantitas, bukan cuma counter "1/22") | Card baru "Target Produk Fokus (Kuartal Ini)", pakai mesin `targetCalculation.ts`. Posisi di dekat tombol Export Excel. ⚠️ +~3 detik load time, belum di-cache. ⚠️ Semua keluar 0 di data lokal (OutletSalesMonthly kosong) — perlu dicek di production kalau masih "belum muncul". |
 | 8 | Ratio Budget/Target dihilangin dari stat bar | Selesai — tapi ada feedback minta sebagian balik (duplikasi angka di kartu Ringkasan kanan), lihat item #9 (FEEDBACK #A.2). |
@@ -39,13 +40,15 @@
 | 34 | Detail periode untuk pelunasan yang buruk | Bagian dari panel Histori PSSP di form MR (nama RS/outlet tiap kontrak + filter ke outlet yang lagi dipilih) — selesai 07-20. |
 | 35 | Detail running rate 3 bulan terakhir | Bagian dari panel Histori PSSP di form MR (running rate pace pelunasan utk kontrak aktif) — selesai 07-20. Sisa dari panel ini: sumber data "Pak Eko"/item NON ESTIMASI, masih CLARIFY (lihat #38-area / bagian bawah). |
 | 37 | Tim NSM Ex-Hospinet gak bisa login ke sistem | Kemungkinan besar = fix "Case-insensitive login" (selesai). ⚠️ Gak ada jejak eksplisit "Hospinet" di kode/commit — kalau masih ada laporan gagal login dari tim ini, perlu dicek kasus spesifiknya (kemungkinan nip/username beda kapitalisasi atau isu lain). |
+| 44 | Diskon: pakai DPL kalau ada, fallback ke history diskon kalau gak ada | **Selesai & data ter-import 07-21** — model baru `DiskonHistory` (kodePI+kodeProduk → rata-rata tertimbang "% Total Diskon"), diisi dari `internal/08062026 Data Diskon All Product Jan-Apr'26.xlsx` (sheet "Raw Data", 490.611 baris, file 196MB — dibaca pakai ExcelJS streaming reader biar gak OOM) via script baru `scripts/importDiskonHistory.ts` → **201.963 pasangan outlet+produk** ter-agregasi (periode sumber 202601-202604). "Item Kode" di file ini dikonfirmasi match langsung ke `Product.kodeProduk` (dicek manual: "000070"→NEBACETIN, "013390"→ACETRAM, sesuai). `resolveDiskonPctWithHistory()` di `LineItemEditor.tsx` coba DPL (`DiskonKontrak`) dulu, baru fallback ke history kalau DPL gak ada — DPL tetap prioritas, history cuma fallback sesuai arahan. |
+| 45 | Kalau ASM/SM vacant, approval langsung ke NSM (skip level) | **Selesai 07-21** — `resolveNextHolder()` (`poaWorkflow.ts`) diubah dari fixed-hop (`.reportsTo.reportsTo.reportsTo`) jadi jalan-jalan menyusuri chain berdasarkan **role**, jadi otomatis skip level yang vacant. Data-nya juga dibenerin: `importStrukturVerifiedKAM.ts` sekarang skip-link `nipAtasan` pas import (sebelumnya dibiarkan `null` kalau ASM/SM vacant, sekarang lompat ke level di atasnya) — hierarki lama di-backfill ulang. |
+| 46 | ASM bisa input POA untuk tim yang vacant | **Selesai 07-21** — tapi scope-nya diperbaiki dari implementasi pertama: bukan "subordinate ASM/SM/NSM kosong semua", tapi **per outlet** — kalau outlet tertentu MR & ASM-nya vacant, SM yang bisa input POA khusus utk outlet itu (kalau SM juga vacant, baru NSM), gak peduli tim lain di bawah SM itu penuh atau nggak. Field baru `Outlet.coveredByNip`/`coveredByRole` (dihitung pas import, siapa yang efektif cover outlet itu). `canCreatePoa()` (`authz.ts`), `getOutletsByUser()` (`masterData.ts`, scope outlet picker ke outlet yg di-cover doang), `canView`/`canEdit`/`getVisiblePoaFilter` (generalisasi "pemilik POA selalu bisa akses", gak lagi hardcode role MR), tombol submit di dashboard & Detail POA (gak lagi hardcode `isMR`) — semua disesuaikan. |
 
-## 🟡 ON-PROSES (5)
+## 🟡 ON-PROSES (4)
 
 | No | Item | Catatan |
 |---|---|---|
-| 1 | Struktur baru *(top urgent!!)* | **Progress besar 07-20**: import `internal/Struktur Verified Part KAM.xlsx` (sheet "ALL", 7334 outlet, NIP langsung per level GM/NSM/SM/ASM/SPV/MR — jauh lebih lengkap dari file draft lama). Dieksekusi via `scripts/importStrukturVerifiedKAM.ts`: OutletStrukturBaru refresh, Outlet ter-update (kota/provinsi/kategori/territory), 361 User di-upsert + 327 hierarki (nipAtasan) ke-wire otomatis, **1975 outlet dapat assignment MR baru/ter-override**. Bug data ditemukan & dikonfirmasi user: kolom "NIP NSM" di sheet "Eka" korup (rangkaian kode acak per baris) — NIP asli Eka `P260205`, di-hardcode sebagai override di script. Sisa: 4509 outlet masih gak ada MR yang resolve (dibiarkan pakai assignment lama) + 850 outlet punya NIP MR terisi tapi nama placeholder "DUMMY/VACANT" (kemungkinan sisa data karyawan lama, sengaja di-skip bukan ditebak) — sisanya genuinely keputusan bisnis manual (rekrutmen/reassignment), bukan lagi masalah data. Kasus spesifik "AP.K24 Matraman Jakarta Timur → harusnya kategori B" masih perlu di-crosscheck manual — field `Outlet.kategori` sekarang ada & populated dari file ini, tinggal dicek nilainya utk outlet itu (lihat juga #36). |
-| 5 | Growth PSSP berdasarkan value 3 bulan terakhir | Card "Growth PSSP (3 Bln Terakhir)" di LineItemEditor sudah ada (nampilin growth dari data sales 3 bln terakhir, terpisah dari growth berbasis kontrak PSSP lama). Yang masih on-proses: growth **pelunasan** 3 bln terakhir khusus di section PSSP Aktif (#3) — konsepnya mirip badge "Pernah PSSP" (#31), scope-nya masih perlu dikonfirmasi. |
+| 1 | Struktur baru *(top urgent!!)* | **Progress besar 07-20**: import `internal/Struktur Verified Part KAM.xlsx` (sheet "ALL", 7334 outlet, NIP langsung per level GM/NSM/SM/ASM/SPV/MR — jauh lebih lengkap dari file draft lama). Dieksekusi via `scripts/importStrukturVerifiedKAM.ts`: OutletStrukturBaru refresh, Outlet ter-update (kota/provinsi/kategori/territory), 361 User di-upsert + 327 hierarki (nipAtasan) ke-wire otomatis, **1975 outlet dapat assignment MR baru/ter-override**. Bug data ditemukan & dikonfirmasi user: kolom "NIP NSM" di sheet "Eka" korup (rangkaian kode acak per baris) — NIP asli Eka `P260205`, di-hardcode sebagai override di script. Sisa: 4509 outlet masih gak ada MR yang resolve (dibiarkan pakai assignment lama) + 850 outlet punya NIP MR terisi tapi nama placeholder "DUMMY/VACANT" (kemungkinan sisa data karyawan lama, sengaja di-skip bukan ditebak) — sisanya genuinely keputusan bisnis manual (rekrutmen/reassignment), bukan lagi masalah data. Kasus spesifik "AP.K24 Matraman Jakarta Timur → harusnya kategori B" masih perlu di-crosscheck manual — field `Outlet.kategori` sekarang ada & populated dari file ini, tinggal dicek nilainya utk outlet itu (lihat juga #36). ⚠️ 07-21: stakeholder nambahin ✅ di sebelah item ini tapi labelnya masih "(ON-PROSES)" — saya tetap taruh di sini karena progress-nya emang belum 100% (masih ada 4509+850 outlet belum resolve), tapi kalau maksudnya udah dianggap cukup, tinggal bilang aja. |
 | 22 | Notes alasan reject dari atasan | Tombol Reject eksplisit sudah ada, wajib isi alasan, tercatat di Riwayat Aktivitas — kalau masih dianggap on-proses, kemungkinan ada scope tambahan yang diminta (mis. notifikasi ke MR, atau tempat tampil lain) yang perlu diperjelas. |
 | 25 | History Visit sebelumnya (warna abu-abu, gak perlu tabel) | Placeholder "Hari Praktek/Bln" sudah selesai. Sisa: histori jumlah visit (angka, bukan cuma teks status) ditaruh sebelah field "Rencana Visit/Bulan", styling teks abu-abu aja sesuai arahan. |
 | 26 | Format data survei SFE ke sistem | Rencana: taruh sebagai tab sidebar baru, pola sama kayak tab "Histori PSSP" yang udah ada. Tampilan format masih harus dipikirkan. |
@@ -62,11 +65,23 @@
 | 16 | Listing fee otomatis by outlet | `ListingFeeKontrak` data sudah diimport, tapi belum jelas apa "pembagian otomatis per outlet" ini udah kepakai di kalkulasi POA atau masih manual — perlu konfirmasi formula. |
 | 27 | Sisa budget ditampilkan value tahunan | Belum dikerjain — perlu konfirmasi formula (budget historis?). |
 | 36 | Struktur AP.K24 Matraman (Jakarta Timur) → harusnya kategori B | 07-20: field `Outlet.kategori` sekarang ada di schema & sudah di-populate dari `Struktur Verified Part KAM.xlsx` (lihat #1) — tapi kasus spesifik outlet ini belum di-crosscheck manual, perlu verifikasi nilainya sekarang apa. |
-| 38 | Historis Kunjungan By MR by Customer (akumulasi 3 bulan terakhir) | Item baru dari stakeholder, konfirmasi ke Pak Fakhri (via Anthony Pharos). Belum ada implementasi/desain. |
+| 38 | Historis Kunjungan By MR by Customer (akumulasi 3 bulan terakhir) | Item baru dari stakeholder, konfirmasi ke Pak Fakhri (via Anthony SFE Pharos). Belum ada implementasi/desain. |
+
+## ⬜ BELUM DIKERJAKAN — item baru 07-21 (#39-43)
+
+*(Gak ada tag status dari stakeholder di 5 item ini, jadi ditaruh di sini apa adanya. Beberapa udah saya cross-check cepat ke kode, ada catatan; sisanya belum sempat digali.)*
+
+| No | Item | Catatan |
+|---|---|---|
+| 39 | Check COUNT OF PRODUCT di master Produk, check HNA (harus ikutin kenaikan harga per Juli) | Audit data — belum dicek. Perlu tau sumber "harga baru per Juli"-nya dari mana buat dibandingin ke `Product.hna` yang ada sekarang. |
+| 40 | Check Struktur Hospinet / KAM | Import `Struktur Verified Part KAM.xlsx` (lihat #1) cuma cover divisi **KAM** — Hospinet belum ke-cover sama sekali dari file itu. Perlu sumber data terpisah kalau mau audit Hospinet. |
+| 41 | Fitur Log-out di Mobile | ⚠️ Dicek 07-21: `logoutAction` (`src/app/actions/auth.ts`) udah ada dari lama, tapi **gak dipanggil di mana pun** — gak cuma di mobile, tombol logout belum ada sama sekali di UI (termasuk desktop). Scope-nya kemungkinan lebih besar dari "mobile doang". |
+| 42 | Check Database Customer terbaru | Audit data — belum dicek. |
+| 43 | Optimalisasi Versi Mobile | Belum dikerjain — scope-nya luas (responsive layout dll), belum di-breakdown jadi task konkret. |
 
 ---
 
-## 🔧 Item tambahan (tracked internal, di luar 38-list stakeholder di atas)
+## 🔧 Item tambahan (tracked internal, di luar 46-list stakeholder di atas)
 
 *(Ini item yang sebelumnya cuma ditrack internal — gak ada nomor asli dari daftar stakeholder — tapi tetap relevan buat histori kerjaan.)*
 

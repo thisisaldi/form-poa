@@ -5,12 +5,17 @@
  * gives NIPs directly for every role level (GM/NSM/SM/ASM/SPV/MR), which
  * sidesteps most of the old name-resolution ambiguity.
  *
- * Known data bug (confirmed with the business owner 2026-07-20): the "NIP NSM"
- * column for NSM "EKA" is corrupted — instead of repeating her one real NIP,
- * it contains a distinct sequential code per row (P260205, P260206, ...).
- * Her correct NIP is P260205 — hardcoded as an override below. All other 11
- * NSMs have a single consistent NIP across their rows (verified before this
- * script was written) so no other override is needed.
+ * Known data bugs in the "NIP NSM" column (both confirmed with the business
+ * owner, overrides hardcoded below):
+ *   - "EKA" (2026-07-20): corrupted — instead of repeating her one real NIP,
+ *     it contains a distinct sequential code per row (P260205, P260206, ...).
+ *     Her correct NIP is P260205.
+ *   - "DODY ALWARDY" (2026-07-21): blank on all 580 rows he appears on — the
+ *     column was simply never filled in for him. His correct NIP is P250442.
+ *     Without this override, every outlet under him whose SM/ASM/MR are all
+ *     placeholder (197 of his 580 rows) has nobody to fall back to at all.
+ * All other NSMs have a single consistent NIP across their rows (verified
+ * before this script was written) so no further override is needed.
  *
  * Role mapping mirrors the existing MSSQL org sync (src/lib/sync/orgStructureSync.ts),
  * plus GM (added 2026-07-20 so every NIP in the structure can log in):
@@ -54,6 +59,8 @@ import type { Role } from "@prisma/client";
 const DATA_START = 2;
 const EKA_NAME = "EKA";
 const EKA_REAL_NIP = "P260205";
+const DODY_NAME = "DODY ALWARDY";
+const DODY_REAL_NIP = "P250442";
 
 const COL = {
   kodePI: 1, namaOutlet: 2, kota: 3, provinsi: 4,
@@ -116,6 +123,7 @@ async function main() {
     const nsmNama = clean(row.getCell(COL.nsmNama).value);
     let nsmNip = clean(row.getCell(COL.nsmNip).value);
     if (nsmNama?.toUpperCase() === EKA_NAME) nsmNip = EKA_REAL_NIP; // data bug override
+    if (nsmNama?.toUpperCase() === DODY_NAME) nsmNip = DODY_REAL_NIP; // data bug override
 
     rows.push({
       kodePI,
