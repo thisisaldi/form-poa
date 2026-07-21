@@ -34,6 +34,16 @@
  * MrOutletAssignment) must use `mrNip ?? spvNip`, not `mrNip` alone, or rows
  * where only the SPV column is filled get wrongly treated as vacant-MR.
  *
+ * NIP "NEW" (v2 file, 2026-07-21): a real, named person (not a DUMMY/VACANT
+ * placeholder) whose NIP hasn't been issued by HR yet — currently only seen at
+ * ASM level ("NIRA MAYA", 24 rows). Treated as unresolvable (resolvableNip()),
+ * same effect as a blank NIP: no phantom User gets created for it, and
+ * hierarchy/coverage/assignment correctly skip past it to the next real level
+ * up in the meantime. The raw "NEW" text is still preserved as-is in
+ * OutletStrukturBaru (step 1) so the outlet↔name mapping isn't lost — once HR
+ * issues a real NIP (entered by an admin, or present in a future re-import),
+ * re-running this script resolves that person normally.
+ *
  * This file covers only the KAM division ("Part KAM") — it is NOT a full
  * company roster, so unlike orgStructureSync.ts this script never deactivates
  * users absent from it (that would wrongly affect other divisions).
@@ -89,6 +99,13 @@ function clean(v: unknown): string | null {
 
 function isPlaceholder(name: string | null): boolean {
   return !name || /^(DUMMY|VACANT)\b/i.test(name);
+}
+
+// "NEW" marks a real (named) person still awaiting a real NIP from HR — treat
+// it as unresolvable, same as blank, everywhere a NIP is used to create a User
+// or wire hierarchy/coverage. See file header for the full explanation.
+function resolvableNip(nip: string | null): string | null {
+  return nip && !/^new$/i.test(nip) ? nip : null;
 }
 
 function dominant(values: string[]): string {
@@ -197,15 +214,22 @@ async function main() {
   }
 
   for (const r of rows) {
-    collect(r.gmNip, r.gmNama, "GM", null);
-    collect(r.nsmNip, r.nsmNama, "NSM", null);
-    collect(r.smNip, r.smNama, "SM", r.nsmNip);
-    collect(r.asmNip, r.asmNama, "ASM", firstNonBlank(r.smNip, r.nsmNip));
+    const gmNip = resolvableNip(r.gmNip);
+    const nsmNip = resolvableNip(r.nsmNip);
+    const smNip = resolvableNip(r.smNip);
+    const asmNip = resolvableNip(r.asmNip);
+    const spvNip = resolvableNip(r.spvNip);
+    const mrNip = resolvableNip(r.mrNip);
+
+    collect(gmNip, r.gmNama, "GM", null);
+    collect(nsmNip, r.nsmNama, "NSM", null);
+    collect(smNip, r.smNama, "SM", nsmNip);
+    collect(asmNip, r.asmNama, "ASM", firstNonBlank(smNip, nsmNip));
     // SPV collapses to MR (skip-level to ASM); MR is the leaf. Both skip past
     // a vacant ASM straight to SM, then NSM, same principle as above.
-    const mrManager = firstNonBlank(r.asmNip, r.smNip, r.nsmNip);
-    collect(r.spvNip, r.spvNama, "MR", mrManager);
-    collect(r.mrNip, r.mrNama, "MR", mrManager);
+    const mrManager = firstNonBlank(asmNip, smNip, nsmNip);
+    collect(spvNip, r.spvNama, "MR", mrManager);
+    collect(mrNip, r.mrNama, "MR", mrManager);
   }
 
   console.log(`Collected ${userMap.size} distinct real (non-placeholder) users across GM/NSM/SM/ASM/SPV/MR.\n`);
@@ -245,7 +269,7 @@ async function main() {
   // SPV IS MR — a row's SPV and MR columns are two names for the same leaf
   // level, only one filled per row. This is the effective outlet-owning NIP.
   function effectiveMrNip(r: OutletRow): string | null {
-    return r.mrNip ?? r.spvNip;
+    return resolvableNip(r.mrNip) ?? resolvableNip(r.spvNip);
   }
 
   // Whoever can actually act on this outlet right now — its own MR (or SPV,
@@ -256,9 +280,12 @@ async function main() {
   function resolveCoverage(r: OutletRow): { nip: string; role: "MR" | "ASM" | "SM" | "NSM" } | null {
     const mrNip = effectiveMrNip(r);
     if (mrNip && existingUserNips.has(mrNip)) return { nip: mrNip, role: "MR" };
-    if (r.asmNip && existingUserNips.has(r.asmNip)) return { nip: r.asmNip, role: "ASM" };
-    if (r.smNip && existingUserNips.has(r.smNip)) return { nip: r.smNip, role: "SM" };
-    if (r.nsmNip && existingUserNips.has(r.nsmNip)) return { nip: r.nsmNip, role: "NSM" };
+    const asmNip = resolvableNip(r.asmNip);
+    if (asmNip && existingUserNips.has(asmNip)) return { nip: asmNip, role: "ASM" };
+    const smNip = resolvableNip(r.smNip);
+    if (smNip && existingUserNips.has(smNip)) return { nip: smNip, role: "SM" };
+    const nsmNip = resolvableNip(r.nsmNip);
+    if (nsmNip && existingUserNips.has(nsmNip)) return { nip: nsmNip, role: "NSM" };
     return null;
   }
 
