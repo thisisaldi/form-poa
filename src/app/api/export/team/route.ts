@@ -141,8 +141,15 @@ export async function GET(req: NextRequest) {
 
   // ── Build per-MR stats ──────────────────────────────────────────────────────
 
+  // poas is ordered updatedAt desc (newest first) — keep only the FIRST (most
+  // recently updated) POA seen per MR. An MR can have more than one non-draft
+  // POA across periods when no ?period= filter is applied; naively .set()-ing
+  // on every row would let the LAST-iterated (oldest) one win instead, silently
+  // showing a stale/near-empty POA's numbers — e.g. a real "SUBMITTED TO ASM"
+  // row rendering as all-zero because an older, barely-touched POA for the
+  // same MR shadowed the current one (2026-07-22 fix).
   const poaByMR    = new Map<string, typeof poas[number]>();
-  for (const p of poas) poaByMR.set(p.ownerId, p);
+  for (const p of poas) if (!poaByMR.has(p.ownerId)) poaByMR.set(p.ownerId, p);
 
   const itemsByPoa = new Map<string, typeof lineItems>();
   for (const li of lineItems) {
