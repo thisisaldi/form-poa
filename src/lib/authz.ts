@@ -49,6 +49,34 @@ async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]
   return mrIds;
 }
 
+/**
+ * Resolve IDs of EVERY subordinate (any role, not just MR) within `depth`
+ * hops — unlike getMrIdsUnder, this includes intermediate managers themselves.
+ * Needed by getVisiblePoaFilter/canView: an ASM/SM/NSM can own a POA directly
+ * when their team is vacant (see canCreatePoa), and getMrIdsUnder alone would
+ * never surface that owner's NIP to their own superior (2026-07-22 fix — an
+ * SM couldn't open an ASM's self-owned, already-submitted POA at all, since
+ * the old MR-only subtree check never matched the ASM's own NIP as owner).
+ */
+async function getSubordinateIdsUnder(managerId: string, depth: number): Promise<string[]> {
+  if (depth === 0) return [];
+
+  const directReports = await prisma.user.findMany({
+    where: { nipAtasan: managerId, isActive: true },
+    select: { nip: true, role: true },
+  });
+
+  const ids: string[] = [];
+  for (const report of directReports) {
+    ids.push(report.nip);
+    if (report.role !== Role.MR) {
+      const deeper = await getSubordinateIdsUnder(report.nip, depth - 1);
+      ids.push(...deeper);
+    }
+  }
+  return ids;
+}
+
 /** Public: returns all MR nips in the subtree of the given user (for monitoring, PM dashboard). */
 export async function getSubordinateMRNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
@@ -79,34 +107,36 @@ export async function getVisiblePoaFilter(
       // ASM sees POAs from their direct MR reports (only after draft), PLUS their
       // own POA at any status — an ASM can own a POA themselves when their MR
       // team is vacant (see canCreatePoa), so it needs the same "always visible
-      // to its owner" treatment a normal MR gets.
-      const mrIds = await getMrIdsUnder(user.nip, 1);
+      // to its owner" treatment a normal MR gets. Uses getSubordinateIdsUnder
+      // (not getMrIdsUnder) so a subordinate ASM/SM's OWN self-owned POA is
+      // visible to their superior too, not just plain MR-owned ones.
+      const subIds = await getSubordinateIdsUnder(user.nip, 1);
       return {
         OR: [
           { ownerId: user.nip },
-          { ownerId: { in: mrIds }, status: { in: NON_DRAFT_STATUSES } },
+          { ownerId: { in: subIds }, status: { in: NON_DRAFT_STATUSES } },
         ],
       };
     }
 
     case Role.SM: {
       // SM sees POAs from MRs under their ASMs (2 hops), plus their own (see ASM above).
-      const mrIds = await getMrIdsUnder(user.nip, 2);
+      const subIds = await getSubordinateIdsUnder(user.nip, 2);
       return {
         OR: [
           { ownerId: user.nip },
-          { ownerId: { in: mrIds }, status: { in: NON_DRAFT_STATUSES } },
+          { ownerId: { in: subIds }, status: { in: NON_DRAFT_STATUSES } },
         ],
       };
     }
 
     case Role.NSM: {
       // NSM sees all POAs (3 hops), plus their own (see ASM above).
-      const mrIds = await getMrIdsUnder(user.nip, 3);
+      const subIds = await getSubordinateIdsUnder(user.nip, 3);
       return {
         OR: [
           { ownerId: user.nip },
-          { ownerId: { in: mrIds }, status: { in: NON_DRAFT_STATUSES } },
+          { ownerId: { in: subIds }, status: { in: NON_DRAFT_STATUSES } },
         ],
       };
     }
@@ -138,8 +168,8 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
 
   if (user.role === Role.MR) return false; // MR only ever sees their own (checked above)
 
-  // For managers viewing a SUBORDINATE's POA: must be non-draft AND the MR must
-  // be in their subtree. REVISI behaves like DRAFT — it's back in the MR's
+  // For managers viewing a SUBORDINATE's POA: must be non-draft AND the owner must
+  // be in their subtree. REVISI behaves like DRAFT — it's back in the owner's
   // hands, not yet visible upward.
   if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) return false;
 
@@ -151,8 +181,11 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
   const depth = depthByRole[user.role];
   if (!depth) return false;
 
-  const mrIds = await getMrIdsUnder(user.nip, depth);
-  return mrIds.includes(poa.ownerId);
+  // getSubordinateIdsUnder (not getMrIdsUnder) so a subordinate ASM/SM's own
+  // self-owned POA (vacant-team case, see canCreatePoa) is visible to their
+  // superior — the old MR-only subtree check never matched a manager's own NIP.
+  const subIds = await getSubordinateIdsUnder(user.nip, depth);
+  return subIds.includes(poa.ownerId);
 }
 
 /**
