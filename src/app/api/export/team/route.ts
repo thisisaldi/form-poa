@@ -141,15 +141,22 @@ export async function GET(req: NextRequest) {
 
   // ── Build per-MR stats ──────────────────────────────────────────────────────
 
-  // poas is ordered updatedAt desc (newest first) — keep only the FIRST (most
-  // recently updated) POA seen per MR. An MR can have more than one non-draft
-  // POA across periods when no ?period= filter is applied; naively .set()-ing
-  // on every row would let the LAST-iterated (oldest) one win instead, silently
-  // showing a stale/near-empty POA's numbers — e.g. a real "SUBMITTED TO ASM"
-  // row rendering as all-zero because an older, barely-touched POA for the
-  // same MR shadowed the current one (2026-07-22 fix).
-  const poaByMR    = new Map<string, typeof poas[number]>();
-  for (const p of poas) if (!poaByMR.has(p.ownerId)) poaByMR.set(p.ownerId, p);
+  // An MR can have MORE THAN ONE non-draft POA when no ?period= filter is
+  // applied (one per quarter they've submitted) — earlier this collapsed to
+  // a single "representative" POA per MR (first by updatedAt desc), which
+  // silently DROPPED every other period's real data. A freshly-created,
+  // still-empty POA for the newest quarter would then shadow an older
+  // quarter's fully-submitted-with-real-numbers POA, rendering as
+  // "SUBMITTED TO ASM" with everything showing 0 (2026-07-22 fix — found via
+  // a live export where an MR with real Q2 AND Q3 submissions showed all
+  // zeros because only one of the two was ever surfaced). Fix: don't collapse
+  // at all — every non-draft POA gets its own row below, grouped by MR.
+  const poasByMR = new Map<string, typeof poas>();
+  for (const p of poas) {
+    const list = poasByMR.get(p.ownerId) ?? [];
+    list.push(p);
+    poasByMR.set(p.ownerId, list);
+  }
 
   const itemsByPoa = new Map<string, typeof lineItems>();
   for (const li of lineItems) {
@@ -159,6 +166,7 @@ export async function GET(req: NextRequest) {
   }
 
   interface MrRow {
+    poaId: string | null;
     nip: string; name: string; nipAtasan: string | null;
     asmNip: string; asmName: string; smNip: string; smName: string; nsmNip: string; nsmName: string;
     period: string | null; status: string;
@@ -169,10 +177,9 @@ export async function GET(req: NextRequest) {
     items: typeof lineItems;
   }
 
-  const mrRows: MrRow[] = mrUsers.map(mr => {
-    const poa    = poaByMR.get(mr.nip);
-    const items  = poa ? (itemsByPoa.get(poa.id) ?? []) : [];
-    const anc    = getAncestors(mr.nipAtasan);
+  function buildRow(mr: typeof mrUsers[number], poa: typeof poas[number] | null): MrRow {
+    const items = poa ? (itemsByPoa.get(poa.id) ?? []) : [];
+    const anc   = getAncestors(mr.nipAtasan);
 
     let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
     const fokusProduk = new Set<string>();
@@ -195,6 +202,7 @@ export async function GET(req: NextRequest) {
 
     const budgetTotal = psspTotal + discountTotal + entertainTotal;
     return {
+      poaId: poa?.id ?? null,
       nip: mr.nip, name: mr.name, nipAtasan: mr.nipAtasan,
       ...anc,
       period: poa?.period ?? null,
@@ -207,6 +215,14 @@ export async function GET(req: NextRequest) {
       sudahStandar: sudah, prosesStandar: proses, belumStandar: items.length - sudah,
       items,
     };
+  }
+
+  // One row per (MR, POA) — an MR with 3 submitted quarters gets 3 rows, an
+  // MR with none gets a single "BELUM SUBMIT" placeholder row.
+  const mrRows: MrRow[] = mrUsers.flatMap(mr => {
+    const mrPoas = poasByMR.get(mr.nip) ?? [];
+    if (mrPoas.length === 0) return [buildRow(mr, null)];
+    return mrPoas.map(poa => buildRow(mr, poa));
   });
 
   // ── Workbook ────────────────────────────────────────────────────────────────
@@ -252,7 +268,7 @@ export async function GET(req: NextRequest) {
   const totalSudah   = mrRows.reduce((s, r) => s + r.sudahStandar, 0);
   const totalProses  = mrRows.reduce((s, r) => s + r.prosesStandar, 0);
   const totalBelum   = mrRows.reduce((s, r) => s + r.belumStandar, 0);
-  const mrSubmitted  = mrRows.filter(r => r.status !== "BELUM_SUBMIT").length;
+  const mrSubmitted  = new Set(mrRows.filter(r => r.status !== "BELUM_SUBMIT").map(r => r.nip)).size;
 
   const ws1 = wb.addWorksheet("Ringkasan Tim");
   ws1.columns = [
@@ -395,12 +411,11 @@ export async function GET(req: NextRequest) {
   ];
   styleHeader(ws3);
 
-  // Build POA id → MR row map
-  const poaMRMap = new Map(mrRows.map(r => {
-    const poa = poaByMR.get(r.nip);
-    if (!poa) return [null, r] as const;
-    return [poa.id, r] as const;
-  }).filter(([id]) => id !== null) as [string, MrRow][]);
+  // Build POA id → MR row map — one mrRows entry per actual POA now (see above),
+  // so this covers every non-draft POA's line items, not just one per MR.
+  const poaMRMap = new Map(
+    mrRows.filter((r): r is MrRow & { poaId: string } => r.poaId !== null).map(r => [r.poaId, r])
+  );
 
   const manualCustomerRows: number[] = [];
   for (const li of lineItems) {
@@ -476,6 +491,8 @@ export async function GET(req: NextRequest) {
   // territories — mirrors the "PSSP Aktif (Kontrak Berjalan)" card on the
   // Detail POA page, aggregated team-wide instead of per-POA.
 
+  // Only used for hierarchy names (asm/sm/nsm) below, which are identical across
+  // all of an MR's rows regardless of which POA — collapsing duplicates here is safe.
   const mrRowByNip = new Map(mrRows.map(r => [r.nip, r]));
 
   const ws4 = wb.addWorksheet("PSSP Aktif");
