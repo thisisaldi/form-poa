@@ -45,6 +45,12 @@ const NAV_ITEMS: NavItem[] = [
   //   roles: ["NSM", "ADMIN"],
   // },
   {
+    href: "/admin/target-produk",
+    label: "Target Produk",
+    icon: <IconChart />,
+    roles: ["NSM", "ADMIN"],
+  },
+  {
     href: "/admin",
     label: "Admin",
     icon: <IconTable />,
@@ -75,6 +81,12 @@ export function Sidebar({ userRole, userName, userNip }: SidebarProps) {
     (item) => !item.roles || item.roles.includes(userRole)
   );
 
+  // Highlight only the most specific matching item (longest href prefix),
+  // so e.g. "/admin/target-produk" doesn't also light up the "/admin" item.
+  const activeHref = visibleItems
+    .filter((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+
   const sidebarContent = (
     <>
       {/* Logo / Brand */}
@@ -96,9 +108,7 @@ export function Sidebar({ userRole, userName, userNip }: SidebarProps) {
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="space-y-0.5">
           {visibleItems.map((item) => {
-            const active =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            const active = item.href === activeHref;
             return (
               <li key={item.href}>
                 <Link
