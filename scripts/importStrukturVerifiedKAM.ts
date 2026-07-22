@@ -54,6 +54,33 @@
  * so it uses only the first-listed holder as the representative for the
  * vacant-team-coverage feature, which is a different concern from assignment).
  *
+ * Stale NIP on a vacant position (v2 file, 2026-07-21): 1,233 rows have a
+ * "DUMMY ..."/"VACANT ..." NAME (a genuinely unfilled position) whose NIP
+ * COLUMN was never cleared out to match — e.g. ASM name "DUMMY DORMANT ASM
+ * JAWA BARAT" with NIP "L230095" still sitting in the cell (a real NIP,
+ * usually still active as someone else's real position elsewhere in the
+ * file). resolvableLevelNip() now requires the NAME to be non-placeholder
+ * too, not just the NIP non-blank, before a level counts as "filled" for
+ * hierarchy-skip or coverage purposes — otherwise a vacant ASM with a stale
+ * NIP was wrongly treated as filled, which both silently mis-wired MRs'
+ * nipAtasan to a stale/unrelated NIP (breaking "ASM vacant → approval skips
+ * straight to SM") and could mis-attribute Outlet.coveredByNip to that same
+ * stale NIP.
+ *
+ * More placeholder spelling variants (v2 file, 2026-07-21, found while fixing
+ * the above): 25 NAME variants used "(DUMMY) ..."/"(VACANT) ..." (parens) or
+ * ran the word straight into the next word with no space at all, e.g.
+ * "DUMMYPEKANBARU BARAT + ROHUL" — isPlaceholder()'s old regex required a
+ * word boundary right after DUMMY/VACANT, which none of these have. Separately,
+ * some rows' NIP COLUMN has "-" or the exact same descriptive placeholder text
+ * as the name column pasted into it (e.g. NIP cell literally reading "DUMMY
+ * DORMAN JAKSEL+JATIM UTARA", 1,712 rows) instead of being left blank —
+ * without this fix each distinct placeholder-text "NIP" became its own
+ * phantom User (already caused a nip="-" User merging several unrelated
+ * dormant territories' SM/ASM/MR into one bogus record before this was found
+ * and cleaned up). Bare numeric NIPs with no letter prefix (e.g. "973066")
+ * are untouched by this — those are real people's actual NIP in this file.
+ *
  * This file covers only the KAM division ("Part KAM") — it is NOT a full
  * company roster, so unlike orgStructureSync.ts this script never deactivates
  * users absent from it (that would wrongly affect other divisions).
@@ -111,15 +138,44 @@ function clean(v: unknown): string | null {
   return s === "" ? null : s;
 }
 
+// Matches "DUMMY ...", "VACANT ...", "(DUMMY) ...", "(VACANT) ...", and even
+// "DUMMYPEKANBARU..." (no space at all after the word) — deliberately no
+// trailing \b, since the file uses all of these interchangeably for the same
+// "unfilled position" meaning (2026-07-21: found 25 distinct name variants
+// this used to miss because of the stricter word-boundary-only check).
+const PLACEHOLDER_RE = /^\(?\s*(DUMMY|VACANT)/i;
+
 function isPlaceholder(name: string | null): boolean {
-  return !name || /^(DUMMY|VACANT)\b/i.test(name);
+  return !name || PLACEHOLDER_RE.test(name);
 }
 
 // "NEW" marks a real (named) person still awaiting a real NIP from HR — treat
 // it as unresolvable, same as blank, everywhere a NIP is used to create a User
 // or wire hierarchy/coverage. See file header for the full explanation.
+// Also unresolvable: "-" (a placeholder dash instead of a blank cell) and any
+// value that's actually descriptive placeholder TEXT copy-pasted into the NIP
+// column instead of a real NIP (e.g. nip cell literally reading "DUMMY DORMAN
+// JAKSEL+JATIM UTARA", found repeated 1,712 times in the v2 file). Bare numeric
+// NIPs without a P/L prefix (e.g. "973066") are real, distinct people's actual
+// NIP in this file and must NOT be caught by this — only checked for the same
+// DUMMY/VACANT wording as isPlaceholder(), which no legitimate NIP ever has.
 function resolvableNip(nip: string | null): string | null {
-  return nip && !/^new$/i.test(nip) ? nip : null;
+  if (!nip || nip === "-") return null;
+  if (/^new$/i.test(nip)) return null;
+  if (PLACEHOLDER_RE.test(nip)) return null;
+  return nip;
+}
+
+// A level's NIP only counts for hierarchy-skip/coverage purposes when its own
+// NAME is real too — a "DUMMY ..."/"VACANT ..." position sometimes still has
+// a stale leftover NIP in the column (never cleared when the name was blanked
+// out to mark the position vacant), which must NOT be treated as a valid
+// manager/coverage NIP just because the NIP cell itself isn't blank. Found
+// 1,233 such rows in the v2 file (2026-07-21) — this is what broke "ASM
+// vacant → approval/coverage skips straight to SM" (it was picking up the
+// stale NIP instead of actually skipping).
+function resolvableLevelNip(name: string | null, nip: string | null): string | null {
+  return isPlaceholder(name) ? null : resolvableNip(nip);
 }
 
 const SHADOW_RE = /^(.+?)\s*-\s*(.+?)\s*\(SHADOW\)\s*$/i;
@@ -256,10 +312,10 @@ async function main() {
   }
 
   for (const r of rows) {
-    const gmNip = resolvableNip(r.gmNip);
-    const nsmNip = resolvableNip(r.nsmNip);
-    const smNip = resolvableNip(r.smNip);
-    const asmNip = resolvableNip(r.asmNip);
+    const gmNip = resolvableLevelNip(r.gmNama, r.gmNip);
+    const nsmNip = resolvableLevelNip(r.nsmNama, r.nsmNip);
+    const smNip = resolvableLevelNip(r.smNama, r.smNip);
+    const asmNip = resolvableLevelNip(r.asmNama, r.asmNip);
 
     collect(gmNip, r.gmNama, "GM", null);
     collect(nsmNip, r.nsmNama, "NSM", null);
@@ -336,11 +392,11 @@ async function main() {
   function resolveCoverage(r: OutletRow): { nip: string; role: "MR" | "ASM" | "SM" | "NSM" } | null {
     const mrNip = effectiveMrNip(r);
     if (mrNip && existingUserNips.has(mrNip)) return { nip: mrNip, role: "MR" };
-    const asmNip = resolvableNip(r.asmNip);
+    const asmNip = resolvableLevelNip(r.asmNama, r.asmNip);
     if (asmNip && existingUserNips.has(asmNip)) return { nip: asmNip, role: "ASM" };
-    const smNip = resolvableNip(r.smNip);
+    const smNip = resolvableLevelNip(r.smNama, r.smNip);
     if (smNip && existingUserNips.has(smNip)) return { nip: smNip, role: "SM" };
-    const nsmNip = resolvableNip(r.nsmNip);
+    const nsmNip = resolvableLevelNip(r.nsmNama, r.nsmNip);
     if (nsmNip && existingUserNips.has(nsmNip)) return { nip: nsmNip, role: "NSM" };
     return null;
   }
