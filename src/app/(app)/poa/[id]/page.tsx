@@ -90,6 +90,7 @@ export default async function PoaDetailPage({
   const isRevisi = poa.status === "REVISI";
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
+  const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 
   // PSSP Aktif reflects the MR's whole assigned territory, not just the doctors
   // already drafted into this POA — dummy accounts have no real outlet
@@ -108,7 +109,14 @@ export default async function PoaDetailPage({
   // Quarterly unit-quantity target per focus product for the MR's SM territory
   // (from the same engine the NSM/Admin "Simulasi Target Produk" page uses) —
   // only meaningful for a real "YYYY-Q#" period and a resolvable SM in the org chain.
-  let focusProductTargets: { kodeProduk: string; namaProduk: string; quarterlyTargetQty: number }[] = [];
+  let focusProductTargets: {
+    kodeProduk: string;
+    namaProduk: string;
+    quarterlyTargetQty: number;
+    quarterlyTargetValue: number;
+    estimasiQty: number;
+    estimasiValue: number;
+  }[] = [];
   if (/^\d{4}-Q[1-4]$/.test(poa.period)) {
     const ownerWithChain = await prisma.user.findUnique({
       where: { nip: poa.ownerId },
@@ -116,19 +124,35 @@ export default async function PoaDetailPage({
     });
     const smNip = ownerWithChain?.reportsTo?.nipAtasan ?? null;
     if (smNip) {
+      // This MR's own plan (estimasi), summed per product from their draft line items —
+      // shown alongside the SM-territory target so they can compare plan vs. target directly.
+      const estimasiByProduk = new Map<string, { qty: number; value: number }>();
+      for (const it of allItems) {
+        const cur = estimasiByProduk.get(it.kodeProduk) ?? { qty: 0, value: 0 };
+        cur.qty += it.qtyProdukResep ?? 0;
+        cur.value += toNum(it.rencanaTotalBiaya);
+        estimasiByProduk.set(it.kodeProduk, cur);
+      }
+
       const summary = await computeFocusProductTargetsSummary(poa.period);
       focusProductTargets = summary.products
-        .map((p) => ({
-          kodeProduk: p.kodeProduk,
-          namaProduk: p.namaProduk,
-          quarterlyTargetQty: p.territories.find((t) => t.smNip === smNip)?.quarterlyTargetQty ?? 0,
-        }))
+        .map((p) => {
+          const territory = p.territories.find((t) => t.smNip === smNip);
+          const estimasi = estimasiByProduk.get(p.kodeProduk);
+          return {
+            kodeProduk: p.kodeProduk,
+            namaProduk: p.namaProduk,
+            quarterlyTargetQty: territory?.quarterlyTargetQty ?? 0,
+            quarterlyTargetValue: territory?.quarterlyTargetValue ?? 0,
+            estimasiQty: estimasi?.qty ?? 0,
+            estimasiValue: estimasi?.value ?? 0,
+          };
+        })
         .sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
     }
   }
 
   // Aggregate stats
-  const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
   let estimasiTotal = 0, budgetWeighted = 0;
   for (const it of allItems) {
     const base = toNum(it.rencanaTotalBiaya);

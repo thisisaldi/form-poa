@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { DraftChecklist, ActivePsspListCard } from "@/components/poa/DraftChecklist";
+import { DraftChecklist, ActivePsspListCard, formatRp } from "@/components/poa/DraftChecklist";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
 import type { ActivePsspRow } from "@/app/actions/customer";
@@ -14,6 +14,9 @@ interface FocusProductTarget {
   kodeProduk: string;
   namaProduk: string;
   quarterlyTargetQty: number;
+  quarterlyTargetValue: number;
+  estimasiQty: number;
+  estimasiValue: number;
 }
 
 // Splits the Detail POA page into 3 tabs: Drafting (checklist + light summaries),
@@ -50,6 +53,9 @@ export function PoaDetailTabs({
 
   const focusWithTarget = focusProductTargets.filter((p) => p.quarterlyTargetQty > 0);
   const focusTotalQty = focusProductTargets.reduce((s, p) => s + p.quarterlyTargetQty, 0);
+  const focusTotalValue = focusProductTargets.reduce((s, p) => s + p.quarterlyTargetValue, 0);
+  const focusTotalEstimasiQty = focusProductTargets.reduce((s, p) => s + p.estimasiQty, 0);
+  const focusTotalEstimasiValue = focusProductTargets.reduce((s, p) => s + p.estimasiValue, 0);
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "drafting", label: "Drafting" },
@@ -88,7 +94,8 @@ export function PoaDetailTabs({
                     Target Produk Fokus (Kuartal Ini)
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-                    {focusWithTarget.length} dari {focusProductTargets.length} produk fokus punya target · total {Math.round(focusTotalQty).toLocaleString("id-ID")} unit
+                    {focusWithTarget.length} dari {focusProductTargets.length} produk fokus punya target · total {Math.round(focusTotalQty).toLocaleString("id-ID")} unit ({formatRp(focusTotalValue)}) ·
+                    estimasi draft ini {Math.round(focusTotalEstimasiQty).toLocaleString("id-ID")} unit ({formatRp(focusTotalEstimasiValue)})
                   </p>
                 </div>
                 <button
@@ -137,8 +144,9 @@ export function PoaDetailTabs({
               <CardTitle>Target Produk Fokus (Kuartal Ini)</CardTitle>
             </CardHeader>
             <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
-              Target kuantitas per produk fokus untuk territory SM dari MR ini, {poaPeriod} —
-              dari mesin simulasi target yang sama dengan halaman Admin.
+              Target kuantitas &amp; nilai per produk fokus untuk territory SM dari MR ini, {poaPeriod} —
+              dari mesin simulasi target yang sama dengan halaman Admin, dibandingkan dengan estimasi
+              yang sudah direncanakan MR ini di draft POA.
             </p>
             <div className="overflow-x-auto">
               <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
@@ -146,6 +154,9 @@ export function PoaDetailTabs({
                   <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
                     <th className="text-left py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Produk Fokus</th>
                     <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Target Unit (Kuartal)</th>
+                    <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Nilai Target</th>
+                    <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi Unit (Draft Ini)</th>
+                    <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi Nilai (Draft Ini)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -154,6 +165,15 @@ export function PoaDetailTabs({
                       <td className="py-1.5 pr-3" style={{ color: "var(--color-text)" }}>{p.namaProduk}</td>
                       <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text)" }}>
                         {Math.round(p.quarterlyTargetQty).toLocaleString("id-ID")}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text)" }}>
+                        {formatRp(p.quarterlyTargetValue)}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text-muted)" }}>
+                        {p.estimasiQty > 0 ? Math.round(p.estimasiQty).toLocaleString("id-ID") : "—"}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text-muted)" }}>
+                        {p.estimasiValue > 0 ? formatRp(p.estimasiValue) : "—"}
                       </td>
                     </tr>
                   ))}
