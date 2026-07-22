@@ -359,35 +359,26 @@ export function StatsPanel({
         {[
           { label: "Estimasi POA",  value: estimasiDisplay > 0 ? formatRp(estimasiDisplay) : "—", span: false },
           { label: "Target Area ★", value: formatRp(targetArea), span: false },
-          {
-            label: "Rasio Estimasi",
-            value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "—",
-            sub: ratioEst >= 140 ? "Memenuhi target" : ratioEst > 0 ? "Di bawah target" : undefined,
-            danger: ratioEst > 0 && ratioEst < 140,
-            span: true,
-          },
-        ].map(({ label, value, sub, danger, span }) => (
+          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "—", span: true },
+        ].map(({ label, value, span }) => (
           <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`}
             style={{ background: BG, border: `1px solid ${BORDER}` }}>
             <p className="text-xs" style={{ color: MUTED }}>{label}</p>
-            <p className={`font-bold leading-tight ${span ? "text-lg" : "text-base"}`} style={{ color: danger ? DANGER : TEXT }}>{value}</p>
-            {sub && <p className="text-xs" style={{ color: danger ? DANGER : FAINT }}>{sub}</p>}
+            <p className={`font-bold leading-tight ${span ? "text-lg" : "text-base"}`} style={{ color: TEXT }}>{value}</p>
           </div>
         ))}
       </div>
 
-      {/* Ratio bar */}
+      {/* Ratio bar — no fixed pass/fail threshold, just a plain fill of the ratio itself */}
       {ratioEst > 0 && (
         <div className="mb-5 space-y-1">
           <div className="flex justify-between text-xs" style={{ color: FAINT }}>
             <span>0%</span>
-            <span>Target</span>
             <span>200%</span>
           </div>
           <div className="relative h-2 rounded-full overflow-hidden" style={{ background: BORDER }}>
             <div className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(ratioEst / 2, 100)}%`, background: ratioEst >= 140 ? PRIMARY : DANGER }} />
-            <div className="absolute top-0 bottom-0 w-px" style={{ left: "70%", background: MUTED }} />
+              style={{ width: `${Math.min(ratioEst / 2, 100)}%`, background: PRIMARY }} />
           </div>
         </div>
       )}
@@ -681,14 +672,13 @@ function DoctorRow({
                 <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Resep/Hr</th>
                 <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty</th>
                 <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi</th>
-                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Nilai R Final</th>
+                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</th>
                 <th className="text-left px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Status</th>
               </tr>
             </thead>
             <tbody>
               {doctorItems.map((it) => {
                 const itemPengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
-                const itemNilaiRFinal = toNum(it.persenPsspDokter) * itemPengali * 100;
                 return (
                   <tr key={it.id} style={{ borderTop: "1px solid var(--color-border)" }}>
                     <td className="px-2.5 py-1.5" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
@@ -698,7 +688,7 @@ function DoctorRow({
                       {toNum(it.rencanaTotalBiaya) > 0 ? formatRp(toNum(it.rencanaTotalBiaya)) : "—"}
                     </td>
                     <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text)" }}>
-                      {it.persenPsspDokter != null ? `${itemNilaiRFinal.toFixed(2)}%` : "—"}
+                      {itemPengali.toFixed(2)}x
                     </td>
                     <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>
                       {it.statusStandarisasi ? STATUS_STANDARISASI_LABELS[it.statusStandarisasi] ?? it.statusStandarisasi : "—"}
