@@ -124,7 +124,6 @@ export default async function SummaryPage({
         statusStandarisasi: string | null;
         rencanaTotalBiaya: { toString(): string } | number;
         persenPsspDokter: { toString(): string } | number | null;
-        persenPsspKpdm: { toString(): string } | number | null;
         persenDiskon: { toString(): string } | number | null;
         persenDp: { toString(): string } | number | null;
         persenListingFee: { toString(): string } | number | null;
@@ -152,7 +151,7 @@ export default async function SummaryPage({
 
   const psspProdSet = new Set<string>();
   for (const li of lineItems) {
-    const psspp = toNum(li.persenPsspDokter) + toNum(li.persenPsspKpdm);
+    const psspp = toNum(li.persenPsspDokter);
     if (psspp > 0) psspProdSet.add(li.kodeProduk);
   }
 
@@ -257,7 +256,7 @@ export default async function SummaryPage({
       for (const li of items) {
         const base = toNum(li.rencanaTotalBiaya);
         const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
-        const psspPct = toNum(li.persenPsspDokter) * pengaliNilaiR + toNum(li.persenPsspKpdm);
+        const psspPct = toNum(li.persenPsspDokter) * pengaliNilaiR;
         const discPct = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
         const entPct  = toNum(li.persenEntertain);
         estimasi       += base;

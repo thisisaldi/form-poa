@@ -160,7 +160,7 @@ export default async function PoaDetailPage({
     const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
     estimasiTotal += base;
     budgetWeighted += base * (
-      toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm) +
+      toNum(it.persenPsspDokter) * pengaliNilaiR +
       toNum(it.persenDiskon) + toNum(it.persenDp) +
       toNum(it.persenListingFee) + toNum(it.persenEntertain)
     );

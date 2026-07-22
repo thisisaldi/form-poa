@@ -123,7 +123,7 @@ function computeStats(items: PoaLineItem[]) {
     const base = toNum(it.rencanaTotalBiaya);
     const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
     estimasiTotal  += base;
-    psspTotal      += base * (toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm));
+    psspTotal      += base * (toNum(it.persenPsspDokter) * pengaliNilaiR);
     discountTotal  += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
     entertainTotal += base * toNum(it.persenEntertain);
   }

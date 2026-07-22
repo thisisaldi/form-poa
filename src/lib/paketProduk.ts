@@ -147,6 +147,24 @@ export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   "KEPALA ICU":                             [],
   "CLINICAL PHARMACOLOGY":                  [],
   "ORTHODENTIST":                           [],
+
+  // Non-dokter (stakeholder rumah sakit/apotek, bukan spesialisasi medis) —
+  // ada di Customer_Database sebagai kategori tersendiri di kolom yang sama
+  // dengan spesialisasi dokter, jadi ditambahkan di sini juga (2026-07-22)
+  // supaya MR bisa mendaftarkan mereka sebagai baris rencana POA.
+  "APOTEKER":                               [],
+  "ASISTEN APOTEKER":                       [],
+  "KEPALA INSTALASI FARMASI":               [],
+  "PERAWAT":                                [],
+  "KEPALA PERAWAT":                         [],
+  "BIDAN":                                  [],
+  "BAGIAN PEMBELIAN":                       [],
+  "KABAG PEMBELIAN":                        [],
+  "BAGIAN KEUANGAN":                        [],
+  "DIREKTUR KEUANGAN":                      [],
+  "DIREKSI":                                [],
+  "PRESIDEN DIREKTUR":                      [],
+  "PEMILIK INSTITUSI/USAHA":                [],
 };
 
 /**

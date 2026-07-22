@@ -167,7 +167,7 @@ export async function GET(
     const base = toNum(it.rencanaTotalBiaya);
     const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
     estimasiTotal  += base;
-    psspTotal      += base * (toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm));
+    psspTotal      += base * (toNum(it.persenPsspDokter) * pengaliNilaiR);
     discountTotal  += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
     entertainTotal += base * toNum(it.persenEntertain);
     doctorKeys.add(`${it.kodePI ?? ""}|${it.namaCust}`);
@@ -305,7 +305,6 @@ export async function GET(
     { header: "Rasio Total Biaya(%Estimasi Sales)", key: "rasioTotalBiaya", width: 14 },
     { header: "Rencana Kunjungan/ Bulan", key: "rencanaKunjungan", width: 14 },
     { header: "% PS/SP User", key: "persenPsspUser", width: 12 },
-    { header: "% PS/SP KPDM", key: "persenPsspKpdm", width: 12 },
     { header: "% Discount (DPL/DPF)", key: "persenDiskon", width: 14 },
     { header: "Periode Diskon", key: "periodeDiskon", width: 14 },
     { header: "% DP", key: "persenDp", width: 10 },
@@ -381,12 +380,11 @@ export async function GET(
       : product?.nilaiRPersen != null ? parseFloat(product.nilaiRPersen.toString()) : null;
 
     const persenPsspUser = toNumP(item.persenPsspDokter);
-    const persenPsspKpdm = toNumP(item.persenPsspKpdm);
     const persenDiskon = toNumP(item.persenDiskon);
     const persenDp = toNumP(item.persenDp);
     const persenListingFee = toNumP(item.persenListingFee);
     const persenEntertain = toNumP(item.persenEntertain);
-    const totalPersenBudget = persenPsspUser + persenPsspKpdm + persenDiskon + persenDp + persenListingFee + persenEntertain;
+    const totalPersenBudget = persenPsspUser + persenDiskon + persenDp + persenListingFee + persenEntertain;
 
     const row = formSheet.addRow({
       nomorRencana: groupNumberByKey.get(key),
@@ -431,7 +429,6 @@ export async function GET(
       rasioTotalBiaya: v.estimasiPeriode > 0 ? v.nilaiPsspPeriode / v.estimasiPeriode : null,
       rencanaKunjungan: item.rencanaVisitMinggu,
       persenPsspUser,
-      persenPsspKpdm,
       persenDiskon,
       periodeDiskon: "-",
       persenDp,
@@ -443,7 +440,7 @@ export async function GET(
       approvalNsm,
     });
 
-    for (const key2 of ["pelunasanSebelumnya", "nilaiR", "persenPsspUser", "persenPsspKpdm", "persenDiskon", "persenDp", "persenListingFee", "persenEntertain", "totalPersenBudget"]) {
+    for (const key2 of ["pelunasanSebelumnya", "nilaiR", "persenPsspUser", "persenDiskon", "persenDp", "persenListingFee", "persenEntertain", "totalPersenBudget"]) {
       row.getCell(key2).numFmt = PCT_FMT;
     }
     for (const key2 of ["estimasiSebelumnya", "historySales", "hargaSatuanTerkecil", "estimasiBulan", "totalEstimasiBulan", "nilaiPsspBulan", "totalNilaiPsspBulan", "estimasiPeriode", "totalEstimasiPeriode", "nilaiPsspPeriode", "totalNilaiPsspPeriode"]) {

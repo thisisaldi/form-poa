@@ -931,7 +931,7 @@ function BudgetFieldsRow({
 }) {
   const totalPct =
     (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR +
-    [entry.persenPsspKpdm, entry.persenDiskon,
+    [entry.persenDiskon,
      entry.persenDp, entry.persenListingFee, entry.persenEntertain]
       .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
   const hasTotal = totalPct > 0;
@@ -959,7 +959,6 @@ function BudgetFieldsRow({
             <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
           </div>
         </label>
-        {numInput("% PSSP KPDM", "persenPsspKpdm")}
         {numInput("% Diskon (DPL/DPF)", "persenDiskon")}
         {numInput("% DP", "persenDp")}
         {numInput("% Listing Fee", "persenListingFee")}
@@ -1554,7 +1553,7 @@ function AddPanel({
       if (base <= 0) continue;
       const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
-        + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+        + [entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
       budgetWeighted += base * pct;
       estTotal += base;
@@ -2413,7 +2412,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
       if (base <= 0) continue;
       const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
-        + [entry.persenPsspKpdm, entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+        + [entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
       budgetWeighted += base * pct;
       estTotal += base;

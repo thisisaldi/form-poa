@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
         statusStandarisasi: string | null; rencanaTotalBiaya: { toString(): string };
         rencanaVisitMinggu: number; hariKerjaBulan: number | null;
         jumlahResepHari: number | null; qtyProdukResep: number | null;
-        persenPsspDokter: { toString(): string } | null; persenPsspKpdm: { toString(): string } | null;
+        persenPsspDokter: { toString(): string } | null;
         persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
         persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
         pengaliNilaiR: { toString(): string } | null;
@@ -174,7 +174,7 @@ export async function GET(req: NextRequest) {
     for (const it of items) {
       const base  = toNum(it.rencanaTotalBiaya);
       const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
-      const psspp = toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm);
+      const psspp = toNum(it.persenPsspDokter) * pengaliNilaiR;
       const disc  = toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee);
       const ent   = toNum(it.persenEntertain);
       estimasi      += base;
@@ -377,7 +377,6 @@ export async function GET(req: NextRequest) {
     { header: "Qty/Resep",            key: "qty",              width: 10 },
     { header: "Estimasi",             key: "estimasi",         width: 18 },
     { header: "% PSSP User",          key: "psspDokter",       width: 16 },
-    { header: "% PSSP KPDM",          key: "psspKpdm",         width: 14 },
     { header: "% Discount",           key: "diskon",           width: 12 },
     { header: "% DP",                 key: "dp",               width: 10 },
     { header: "% Listing Fee",        key: "listingFee",       width: 14 },
@@ -403,7 +402,7 @@ export async function GET(req: NextRequest) {
 
     const base     = parseFloat(li.rencanaTotalBiaya.toString());
     const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
-    const psspPct  = toNum(li.persenPsspDokter) * pengaliNilaiR + toNum(li.persenPsspKpdm);
+    const psspPct  = toNum(li.persenPsspDokter) * pengaliNilaiR;
     const discPct  = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
     const entPct   = toNum(li.persenEntertain);
     const rowBudget = base * (psspPct + discPct + entPct);
@@ -435,7 +434,6 @@ export async function GET(req: NextRequest) {
       qty: li.qtyProdukResep ?? "—",
       estimasi: Math.round(base),
       psspDokter: toNum(li.persenPsspDokter) * 100,
-      psspKpdm: toNum(li.persenPsspKpdm) * 100,
       diskon: toNum(li.persenDiskon) * 100,
       dp: toNum(li.persenDp) * 100,
       listingFee: toNum(li.persenListingFee) * 100,
@@ -450,7 +448,7 @@ export async function GET(req: NextRequest) {
 
   ws3.getColumn("estimasi").numFmt = '#,##0';
   ws3.getColumn("totalBudget").numFmt = '#,##0';
-  ["psspDokter","psspKpdm","diskon","dp","listingFee","entertain"].forEach(k => {
+  ["psspDokter","diskon","dp","listingFee","entertain"].forEach(k => {
     ws3.getColumn(k).numFmt = '0.00"%"';
   });
   shadeAlt(ws3, 1);

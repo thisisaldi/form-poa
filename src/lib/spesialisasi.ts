@@ -22,6 +22,21 @@ export const SPESIALISASI_PM_LABEL: Record<string, string> = {
   // one row has a stray-space variant "UMUM ( GP)"; shown per our own naming.
   "UMUM (GP)":                  "DOKTER UMUM",
   "UMUM ( GP)":                 "DOKTER UMUM",
+  // Near-duplicate raw values (2026-07-22) — same specialty, different wording
+  // across whatever source systems fed Rekomendasi Paket Produk Per
+  // Spesialisasi.xlsx Sheet2 (the source ALL_SPESIALISASI_OPTIONS is built
+  // from). Left as distinct SPESIALISASI_TO_PAKET keys (so existing Customer
+  // rows already stored under any of these spellings still match a paket),
+  // but mapped to one shared label here so the dropdown shows a single entry
+  // instead of near-identical duplicates.
+  "INTERNIST":                     "INTERNIST UMUM",
+  "PENYAKIT DALAM (INTERNIST)":    "INTERNIST UMUM",
+  "BEDAH (SURGEON)":               "BEDAH UMUM",
+  "BEDAH (UROLOGIS)":              "BEDAH UROLOGIS",
+  "PENATA ANASTESI":               "PENATA ANESTESI",
+  "KESEHATAN JIWA":                "PSIKIATRI",
+  "T H T (ENT)":                   "THT (ENT)",
+  "CARDIO":                        "JANTUNG (KARDIOLOGI)",
 };
 
 /** Returns the PM display label for a spesialisasi string, falling back to the original. */

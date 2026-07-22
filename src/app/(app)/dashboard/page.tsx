@@ -51,7 +51,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           select: {
             rencanaTotalBiaya: true,
             namaCust: true,
-            persenPsspDokter: true, persenPsspKpdm: true, persenDiskon: true,
+            persenPsspDokter: true, persenDiskon: true,
             persenDp: true, persenListingFee: true, persenEntertain: true, pengaliNilaiR: true,
           },
         },
@@ -71,7 +71,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     rencanaTotalBiaya: { toString(): string };
     namaCust: string;
     persenPsspDokter: { toString(): string } | null;
-    persenPsspKpdm: { toString(): string } | null;
     persenDiskon: { toString(): string } | null;
     persenDp: { toString(): string } | null;
     persenListingFee: { toString(): string } | null;
@@ -97,7 +96,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     for (const it of items) {
       const est = toNum(it.rencanaTotalBiaya);
       const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
-      const pct = toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenPsspKpdm) + toNum(it.persenDiskon)
+      const pct = toNum(it.persenPsspDokter) * pengaliNilaiR + toNum(it.persenDiskon)
         + toNum(it.persenDp) + toNum(it.persenListingFee) + toNum(it.persenEntertain);
       budgetSum += est * pct;
     }
