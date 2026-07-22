@@ -424,17 +424,58 @@ export function StatsPanel({
         </div>
       </div>
 
-      {/* ── 2b. Biaya Tercacah (apportioned to this quarter) ── */}
-      {(tercacahEstimasiWithAktif > 0 || tercacahNilaiPsspWithAktif > 0) && (
-        <div className="grid grid-cols-2 gap-3 mb-5">
-          <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-            <p className="text-xs" style={{ color: MUTED }}>Estimasi Tercacah</p>
-            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRp(tercacahEstimasiWithAktif)}</p>
-          </div>
-          <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-            <p className="text-xs" style={{ color: MUTED }}>Nilai PSSP Tercacah</p>
-            <p className="font-bold leading-tight text-base" style={{ color: TEXT }}>{formatRpPssp(tercacahNilaiPsspWithAktif)}</p>
-          </div>
+      {/* ── 2b. Estimasi & Nilai PSSP — PSSP Berjalan vs POA, Tercacah vs Bukan Tercacah ──
+          Tercacah = apportioned to just this POA's quarter. Bukan Tercacah = full
+          period as originally planned/contracted. Kept as two clearly-labeled tables
+          (not blended into one number) so it's unambiguous which slice of which
+          source a figure represents. */}
+      {(tercacahEstimasiWithAktif > 0 || tercacahNilaiPsspWithAktif > 0 ||
+        estimasiDisplay > 0 || (s.psspTotal + aktifPssp.nilaiTotal) > 0) && (
+        <div className="mb-5 space-y-3">
+          {[
+            {
+              title: "Tercacah (Kuartal Ini)",
+              rows: [
+                { label: "PSSP Berjalan", estimasi: aktifPssp.estBarisTercacah, nilai: aktifPssp.nilaiTercacah },
+                { label: "POA",           estimasi: tercacah.estimasi,          nilai: tercacah.nilaiPssp },
+                { label: "Total",         estimasi: tercacahEstimasiWithAktif,  nilai: tercacahNilaiPsspWithAktif, bold: true },
+              ],
+            },
+            {
+              title: "Bukan Tercacah (Full Periode)",
+              rows: [
+                { label: "PSSP Berjalan", estimasi: aktifPssp.estBarisTotal,          nilai: aktifPssp.nilaiTotal },
+                { label: "POA",           estimasi: s.estimasiTotal,                 nilai: s.psspTotal },
+                { label: "Total",         estimasi: estimasiDisplay,                 nilai: s.psspTotal + aktifPssp.nilaiTotal, bold: true },
+              ],
+            },
+          ].map(({ title, rows }) => (
+            <div key={title} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
+              <p className="text-xs font-semibold px-3 py-1.5" style={{ background: BG, color: MUTED }}>{title}</p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr style={{ color: FAINT }}>
+                    <th className="text-left font-medium px-3 py-1.5"></th>
+                    <th className="text-right font-medium px-3 py-1.5">Estimasi</th>
+                    <th className="text-right font-medium px-3 py-1.5">Nilai PSSP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.label} style={r.bold ? { borderTop: `1px solid ${BORDER}` } : undefined}>
+                      <td className={`px-3 py-1.5 ${r.bold ? "font-semibold" : ""}`} style={{ color: r.bold ? TEXT : MUTED }}>{r.label}</td>
+                      <td className={`text-right px-3 py-1.5 ${r.bold ? "font-semibold" : ""}`} style={{ color: TEXT }}>
+                        {r.estimasi > 0 ? formatRp(r.estimasi) : "—"}
+                      </td>
+                      <td className={`text-right px-3 py-1.5 ${r.bold ? "font-semibold" : ""}`} style={{ color: TEXT }}>
+                        {r.nilai > 0 ? formatRpPssp(r.nilai) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
         </div>
       )}
 
