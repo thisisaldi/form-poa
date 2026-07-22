@@ -365,3 +365,61 @@ export async function listFocusProducts(): Promise<{ kodeProduk: string; namaPro
     .filter((p) => getAllPakets(p.namaProduk).length > 0)
     .map((p) => ({ kodeProduk: p.kodeProduk, namaProduk: p.namaProduk }));
 }
+
+// ─── Org tree for manual cascading target allocation (NSM → SM → ASM → MR) ──
+
+export type OrgLevel = "NSM" | "SM" | "ASM" | "MR";
+export const ORG_LEVELS: OrgLevel[] = ["NSM", "SM", "ASM", "MR"];
+
+export interface OrgUnit {
+  nip: string;
+  name: string;
+  role: OrgLevel;
+}
+
+/**
+ * Direct reports one level down from `parentNip` (null → top-level NSMs).
+ * Also surfaces MRs that report DIRECTLY to an SM/ASM because the level in
+ * between is vacant (same skip-level convention as importStrukturVerifiedKAM.ts)
+ * — otherwise those MRs would never appear under any parent at all and their
+ * target could never be set.
+ */
+export async function getOrgChildren(level: OrgLevel, parentNip: string | null): Promise<OrgUnit[]> {
+  if (level === "NSM") {
+    const rows = await prisma.user.findMany({
+      where: { role: "NSM", isActive: true },
+      select: { nip: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    return rows.map((r: { nip: string; name: string }) => ({ nip: r.nip, name: r.name, role: "NSM" as const }));
+  }
+  if (!parentNip) return [];
+
+  if (level === "SM") {
+    const rows = await prisma.user.findMany({
+      where: { role: "SM", isActive: true, nipAtasan: parentNip },
+      select: { nip: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    return rows.map((r: { nip: string; name: string }) => ({ nip: r.nip, name: r.name, role: "SM" as const }));
+  }
+
+  if (level === "ASM") {
+    const [asms, skipMrs] = await Promise.all([
+      prisma.user.findMany({ where: { role: "ASM", isActive: true, nipAtasan: parentNip }, select: { nip: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.user.findMany({ where: { role: "MR", isActive: true, nipAtasan: parentNip }, select: { nip: true, name: true }, orderBy: { name: "asc" } }),
+    ]);
+    return [
+      ...asms.map((r: { nip: string; name: string }) => ({ nip: r.nip, name: r.name, role: "ASM" as const })),
+      ...skipMrs.map((r: { nip: string; name: string }) => ({ nip: r.nip, name: `${r.name} (langsung ke SM, ASM vacant)`, role: "MR" as const })),
+    ];
+  }
+
+  // level === "MR"
+  const rows = await prisma.user.findMany({
+    where: { role: "MR", isActive: true, nipAtasan: parentNip },
+    select: { nip: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  return rows.map((r: { nip: string; name: string }) => ({ nip: r.nip, name: r.name, role: "MR" as const }));
+}

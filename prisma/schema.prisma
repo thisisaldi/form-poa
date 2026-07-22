@@ -634,6 +634,9 @@ model OutletSalesMonthly {
 // Manual policy input ("Tambahan Target" in the source spreadsheet) — the
 // per-month stretch increment an NSM/Admin sets for a product ahead of a
 // quarter. The calculation engine derives everything else from sales data.
+// Superseded 2026-07-21 by ProductTargetAllocation as the primary way targets
+// get set (manual cascading NSM→SM→ASM→MR instead of this ratio/productivity
+// algorithm) — kept for the existing "Simulasi Target Produk" reference view.
 model ProductTargetInput {
   id          String   @id @default(uuid())
   kodeProduk  String
@@ -644,6 +647,30 @@ model ProductTargetInput {
   updatedAt   DateTime @updatedAt
 
   @@unique([kodeProduk, quarter])
+}
+
+// Manual per-product target, set by hand at EVERY org level, cascading
+// NSM → SM (Area) → ASM → MR (2026-07-21, replaces the ratio+productivity
+// algorithm above as the primary target-setting workflow — an admin sets an
+// NSM's total first, then allocates it across that NSM's SMs, then each SM's
+// total across its ASMs, then each ASM's total across its MRs). `nip` is
+// whichever org-level person this row's qty belongs to; the level itself
+// isn't stored here — it's implied by that NIP's own User.role. Enforcement
+// that children sum to the parent's total is a UI-level nudge, not a DB
+// constraint, since an admin may legitimately save a partial allocation
+// mid-quarter and finish it later.
+model ProductTargetAllocation {
+  id         String   @id @default(uuid())
+  kodeProduk String
+  quarter    String   // e.g. "2026-Q3"
+  nip        String   // NSM, SM, ASM, or MR nip — level implied by User.role
+  qty        Decimal  @db.Decimal(18, 2)
+  setBy      String?  // nip of the admin/NSM who last saved this row
+  updatedAt  DateTime @updatedAt
+
+  @@unique([kodeProduk, quarter, nip])
+  @@index([kodeProduk, quarter])
+  @@index([nip])
 }
 
 // Criteria tag per product per outlet — from ProductPMDatabase Unpivot sheets.
