@@ -35,6 +35,7 @@ export async function createUserAction(formData: FormData): Promise<AdminActionR
   const nip = str(formData, "nip");
   const name = str(formData, "name");
   const role = str(formData, "role");
+  const jabatan = str(formData, "jabatan");
   const email = str(formData, "email");
   const nipAtasan = str(formData, "nipAtasan");
 
@@ -56,14 +57,14 @@ export async function createUserAction(formData: FormData): Promise<AdminActionR
   }
 
   await prisma.user.create({
-    data: { nip, name, role: role as Role, email, nipAtasan, namaAtasan, syncedAt: new Date() },
+    data: { nip, name, role: role as Role, jabatan, email, nipAtasan, namaAtasan, syncedAt: new Date() },
   });
 
   return { ok: true };
 }
 
 export interface UserRow {
-  nip: string; name: string; role: string; email: string | null;
+  nip: string; name: string; role: string; jabatan: string | null; email: string | null;
   nipAtasan: string | null; isActive: boolean; isDummy: boolean;
 }
 
@@ -76,8 +77,8 @@ export async function searchUsersAction(query: string): Promise<UserRow[]> {
     orderBy: { name: "asc" },
     take: 20,
   });
-  return rows.map((u: { nip: string; name: string; role: string; email: string | null; nipAtasan: string | null; isActive: boolean; isDummy: boolean }) =>
-    ({ nip: u.nip, name: u.name, role: u.role, email: u.email, nipAtasan: u.nipAtasan, isActive: u.isActive, isDummy: u.isDummy }));
+  return rows.map((u: { nip: string; name: string; role: string; jabatan: string | null; email: string | null; nipAtasan: string | null; isActive: boolean; isDummy: boolean }) =>
+    ({ nip: u.nip, name: u.name, role: u.role, jabatan: u.jabatan, email: u.email, nipAtasan: u.nipAtasan, isActive: u.isActive, isDummy: u.isDummy }));
 }
 
 /**
@@ -122,6 +123,7 @@ export async function updateUserAction(formData: FormData): Promise<AdminActionR
   const nip = str(formData, "nip");
   const name = str(formData, "name");
   const role = str(formData, "role");
+  const jabatan = str(formData, "jabatan");
   const email = str(formData, "email");
   const nipAtasan = str(formData, "nipAtasan");
   const isActive = formData.get("isActive") === "true";
@@ -143,7 +145,7 @@ export async function updateUserAction(formData: FormData): Promise<AdminActionR
 
   await prisma.user.update({
     where: { nip },
-    data: { name, role: role as Role, email, nipAtasan, namaAtasan, isActive, isDummy },
+    data: { name, role: role as Role, jabatan, email, nipAtasan, namaAtasan, isActive, isDummy },
   });
 
   return { ok: true };

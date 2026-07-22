@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { displayRole } from "@/lib/role";
 
 interface NavItem {
   href: string;
@@ -60,11 +61,12 @@ const NAV_ITEMS: NavItem[] = [
 
 interface SidebarProps {
   userRole: string;
+  userJabatan?: string | null;
   userName: string;
   userNip: string;
 }
 
-export function Sidebar({ userRole, userName, userNip }: SidebarProps) {
+export function Sidebar({ userRole, userJabatan, userName, userNip }: SidebarProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -133,7 +135,7 @@ export function Sidebar({ userRole, userName, userNip }: SidebarProps) {
       <div className="border-t px-4 py-4" style={{ borderColor: "var(--color-border)" }}>
         <p className="text-xs font-medium truncate" style={{ color: "var(--color-text)" }}>{userName}</p>
         <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          {userNip} · {userRole}
+          {userNip} · {displayRole(userRole, userJabatan)}
         </p>
         <form action="/api/auth/logout" method="POST" className="mt-2">
           <button

@@ -8,6 +8,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PoaStatus } from "@prisma/client";
 import { ALL_SPESIALISASI_OPTIONS, spesLabel } from "@/lib/spesialisasi";
+import { displayRole } from "@/lib/role";
 import Link from "next/link";
 import {
   createUserAction, updateUserAction, renameUserNipAction, deleteUserAction, searchUsersAction, type UserRow,
@@ -78,7 +79,7 @@ function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => 
 // ─── Tab: Tambah/Edit User (staff) ──────────────────────────────────────────
 
 function UserTab() {
-  const emptyForm = { nip: "", name: "", role: "", email: "", nipAtasan: "", isActive: true, isDummy: false };
+  const emptyForm = { nip: "", name: "", role: "", jabatan: "", email: "", nipAtasan: "", isActive: true, isDummy: false };
   const [form, setForm] = useState(emptyForm);
   const [editingNip, setEditingNip] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
@@ -96,7 +97,7 @@ function UserTab() {
 
   function startEdit(row: UserRow) {
     setEditingNip(row.nip);
-    setForm({ nip: row.nip, name: row.name, role: row.role, email: row.email ?? "", nipAtasan: row.nipAtasan ?? "", isActive: row.isActive, isDummy: row.isDummy });
+    setForm({ nip: row.nip, name: row.name, role: row.role, jabatan: row.jabatan ?? "", email: row.email ?? "", nipAtasan: row.nipAtasan ?? "", isActive: row.isActive, isDummy: row.isDummy });
     setAttempted(false); setError(null); setNotice(null);
   }
   function cancelEdit() { setEditingNip(null); setForm(emptyForm); setAttempted(false); setError(null); }
@@ -121,6 +122,7 @@ function UserTab() {
       fd.set("nip", newNip);
       fd.set("name", form.name.trim());
       fd.set("role", form.role);
+      fd.set("jabatan", form.jabatan.trim());
       fd.set("email", form.email.trim());
       fd.set("nipAtasan", form.nipAtasan.trim());
       fd.set("isActive", form.isActive ? "true" : "false");
@@ -179,6 +181,12 @@ function UserTab() {
                 {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </Field>
+            <Field label="Jabatan (tampilan)" attempted={attempted} invalid={false}>
+              <input type="text" value={form.jabatan} onChange={(e) => setForm({ ...form, jabatan: e.target.value })} placeholder="mis. SPV — kosongkan untuk pakai Role" className="input-field w-full" />
+              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                Cuma ubah judul yang ditampilkan di web, permission tetap ikut Role.
+              </span>
+            </Field>
             <Field label="Email" attempted={attempted} invalid={false}>
               <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="nama@pharos.co.id" className="input-field w-full" />
             </Field>
@@ -218,7 +226,7 @@ function UserTab() {
             <div key={r.nip} className="flex items-center justify-between gap-2 py-2 text-sm">
               <div className="min-w-0">
                 <p className="truncate" style={{ color: "var(--color-text)" }}>{r.name} <span style={{ color: "var(--color-text-faint)" }}>({r.nip})</span></p>
-                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{r.role}{!r.isActive && " · nonaktif"}{r.isDummy && " · dummy (tidak bisa login)"}</p>
+                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{displayRole(r.role, r.jabatan)}{!r.isActive && " · nonaktif"}{r.isDummy && " · dummy (tidak bisa login)"}</p>
               </div>
               <RowActions onEdit={() => startEdit(r)} onDelete={() => setToDelete(r)} />
             </div>

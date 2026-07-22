@@ -11,6 +11,7 @@ import { PoaDetailTabs } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
 import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
+import { displayRole } from "@/lib/role";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -200,7 +201,7 @@ export default async function PoaDetailPage({
             Periode {poa.period} · {poa.owner.name} ({poa.owner.nip})
             {poa.currentHolder && (
               <span className="ml-2" style={{ color: "var(--color-text-faint)" }}>
-                · Pemegang: {poa.currentHolder.name} ({poa.currentHolder.role})
+                · Pemegang: {poa.currentHolder.name} ({displayRole(poa.currentHolder.role, poa.currentHolder.jabatan)})
               </span>
             )}
           </p>

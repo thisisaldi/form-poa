@@ -20,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--color-bg)" }}>
       <Sidebar
         userRole={session.role}
+        userJabatan={user.jabatan}
         userName={session.name}
         userNip={session.nip}
       />

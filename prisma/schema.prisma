@@ -58,6 +58,11 @@ model User {
   nip         String    @id
   name        String
   role        Role
+  // Display-only override for what's SHOWN as this person's title (e.g. "SPV")
+  // when their actual `role`/permissions are a lower level (SPV collapses to
+  // MR everywhere in this app — same approval rights, same outlet-holding
+  // rules — see scripts/importStrukturHospital.ts). Null means "just show role".
+  jabatan     String?
   email       String?
   isActive    Boolean   @default(true)
   isDummy     Boolean   @default(false)  // workshop/demo account — bypasses outlet-assignment restrictions
@@ -486,6 +491,18 @@ model OutletStrukturBaru {
   @@index([asmNip])
   @@index([spvNip])
   @@index([psrNip])
+}
+
+// Single-row tracker for "which month's org structure is currently loaded" —
+// the source file changes every month with no self-declared period inside it,
+// so scripts/importStrukturHospital.ts stamps the run date as the effective
+// period each time it's re-run. Shown in the Admin page so staff always know
+// how current the structure is without checking the DB directly.
+model OrgStrukturMeta {
+  id         Int      @id @default(1)
+  periode    String   // YYYYMM
+  sourceFile String
+  importedAt DateTime @default(now())
 }
 
 // ─── DPL (Diskon Penjualan Langsung) Contract Data ────────────────────────────
