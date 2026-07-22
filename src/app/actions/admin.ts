@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { Prisma, Role } from "@prisma/client";
+import { Prisma, Role, PoaStatus } from "@prisma/client";
 
 export interface AdminActionResult {
   ok: boolean;
@@ -563,4 +563,65 @@ export async function removeOutletAssignmentAction(id: string): Promise<AdminAct
   } catch {
     return { ok: false, error: "Assignment tidak bisa dihapus." };
   }
+}
+
+// ─── All-POA browser (Admin oversight) ──────────────────────────────────────
+// canView() already grants ADMIN unrestricted access to every PoaForm, but
+// there was no page to actually browse/search across all of them — only the
+// dashboard's "last 10 updated" list, scoped to whatever the logged-in role
+// can see. This gives admin a dedicated searchable list across every MR.
+
+export interface PoaSearchRow {
+  id: string;
+  period: string;
+  status: string;
+  ownerNip: string;
+  ownerName: string;
+  itemCount: number;
+  estimasiTotal: number;
+  target: number | null;
+  updatedAt: string;
+}
+
+/** Search all POAs by owner NIP/name, optionally filtered by period/status — capped at 30 results. */
+export async function searchAllPoaAction(query: string, period?: string, status?: string): Promise<PoaSearchRow[]> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return [];
+
+  const q = query.trim();
+  const where: Prisma.PoaFormWhereInput = {};
+  if (q) {
+    where.owner = { OR: [{ nip: { contains: q, mode: "insensitive" } }, { name: { contains: q, mode: "insensitive" } }] };
+  }
+  if (period?.trim()) where.period = period.trim();
+  if (status?.trim() && (Object.values(PoaStatus) as string[]).includes(status.trim())) {
+    where.status = status.trim() as PoaStatus;
+  }
+
+  const rows = await prisma.poaForm.findMany({
+    where,
+    include: {
+      owner: { select: { nip: true, name: true } },
+      items: { select: { rencanaTotalBiaya: true } },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 30,
+  });
+
+  type Row = {
+    id: string; period: string; status: string; target: Prisma.Decimal | null; updatedAt: Date;
+    owner: { nip: string; name: string };
+    items: { rencanaTotalBiaya: Prisma.Decimal }[];
+  };
+  return (rows as Row[]).map((p) => ({
+    id: p.id,
+    period: p.period,
+    status: p.status,
+    ownerNip: p.owner.nip,
+    ownerName: p.owner.name,
+    itemCount: p.items.length,
+    estimasiTotal: p.items.reduce((s: number, it) => s + (parseFloat(it.rencanaTotalBiaya.toString()) || 0), 0),
+    target: p.target ? parseFloat(p.target.toString()) : null,
+    updatedAt: p.updatedAt.toISOString(),
+  }));
 }

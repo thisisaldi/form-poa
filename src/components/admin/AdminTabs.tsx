@@ -5,17 +5,21 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Combobox } from "@/components/ui/Combobox";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import type { PoaStatus } from "@prisma/client";
 import { ALL_SPESIALISASI_OPTIONS, spesLabel } from "@/lib/spesialisasi";
+import Link from "next/link";
 import {
   createUserAction, updateUserAction, renameUserNipAction, deleteUserAction, searchUsersAction, type UserRow,
   createOutletAction, updateOutletAction, deleteOutletAction, searchOutletsAction, type OutletRow,
   createProductAction, updateProductAction, deleteProductAction, searchProductsAction, type ProductRow,
   updateCustomerAction, deleteCustomerAction, searchCustomersAction, type CustomerRow,
   searchOutletAssignmentsAction, addOutletAssignmentAction, removeOutletAssignmentAction, type OutletAssignmentRow,
+  searchAllPoaAction, type PoaSearchRow,
 } from "@/app/actions/admin";
 import { createCustomerAction } from "@/app/actions/customer";
 
-type TabKey = "user" | "outlet" | "dokter" | "produk" | "assignment";
+type TabKey = "user" | "outlet" | "dokter" | "produk" | "assignment" | "poa";
 
 interface OutletOption { kodePI: string; namaOutlet: string; groupRS?: string | null }
 
@@ -737,6 +741,85 @@ function AssignmentTab() {
   );
 }
 
+// ─── Tab: Semua POA (browse/search across every MR) ─────────────────────────
+
+const POA_STATUS_OPTIONS: PoaStatus[] = [
+  "DRAFT", "SUBMITTED_TO_ASM", "APPROVED_BY_ASM", "SUBMITTED_TO_SM",
+  "APPROVED_BY_SM", "SUBMITTED_TO_NSM", "APPROVED_BY_NSM", "REVISI",
+];
+
+function formatRp(n: number) {
+  if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return "Rp" + Math.round(n).toLocaleString("id-ID");
+}
+
+function PoaTab() {
+  const [query, setQuery] = useState("");
+  const [period, setPeriod] = useState("");
+  const [status, setStatus] = useState("");
+  const [results, setResults] = useState<PoaSearchRow[]>([]);
+  const [searching, startSearch] = useTransition();
+  const [searched, setSearched] = useState(false);
+
+  function runSearch() {
+    startSearch(async () => {
+      setResults(await searchAllPoaAction(query, period, status));
+      setSearched(true);
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <p className="font-semibold text-sm mb-1" style={{ color: "var(--color-text)" }}>Semua POA (semua MR)</p>
+        <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
+          Cari lintas semua MR — termasuk yang masih Draft/Revisi, bukan cuma yang sudah disubmit.
+          Kosongkan pencarian untuk lihat 30 POA terakhir diupdate.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="text" value={query} placeholder="Cari NIP atau nama MR…"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runSearch(); } }}
+            className="input-field flex-1" />
+          <input
+            type="text" value={period} placeholder="Periode (mis. 2026-Q3)"
+            onChange={(e) => setPeriod(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runSearch(); } }}
+            className="input-field sm:w-40" />
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-field sm:w-52">
+            <option value="">— Semua status —</option>
+            {POA_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <Button type="button" size="sm" variant="secondary" onClick={runSearch} disabled={searching}>
+            {searching ? "Mencari…" : "Cari"}
+          </Button>
+        </div>
+        <div className="mt-3 divide-y" style={{ borderColor: "var(--color-border)" }}>
+          {!searched && <p className="text-xs py-3" style={{ color: "var(--color-text-faint)" }}>Belum ada hasil pencarian.</p>}
+          {searched && results.length === 0 && <p className="text-xs py-3" style={{ color: "var(--color-text-faint)" }}>Tidak ada POA yang cocok.</p>}
+          {results.map((r) => (
+            <Link key={r.id} href={`/poa/${r.id}`}
+              className="flex items-center justify-between gap-3 py-2.5 text-sm hover:opacity-80">
+              <div className="min-w-0">
+                <p className="truncate" style={{ color: "var(--color-text)" }}>
+                  {r.ownerName} <span style={{ color: "var(--color-text-faint)" }}>({r.ownerNip})</span>
+                </p>
+                <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
+                  {r.period} · {r.itemCount} item · Estimasi {r.estimasiTotal > 0 ? formatRp(r.estimasiTotal) : "—"}
+                  {r.target != null && ` · Target ${formatRp(r.target)}`}
+                </p>
+              </div>
+              <StatusBadge status={r.status as PoaStatus} className="shrink-0" />
+            </Link>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Tabs shell ──────────────────────────────────────────────────────────────
 
 export function AdminTabs({ outlets }: { outlets: OutletOption[] }) {
@@ -748,6 +831,7 @@ export function AdminTabs({ outlets }: { outlets: OutletOption[] }) {
     { key: "dokter", label: "Tambah User + Spesialisasi" },
     { key: "produk", label: "Tambah Produk" },
     { key: "assignment", label: "Outlet ↔ MR" },
+    { key: "poa", label: "Semua POA" },
   ];
 
   return (
@@ -774,6 +858,7 @@ export function AdminTabs({ outlets }: { outlets: OutletOption[] }) {
       {tab === "dokter" && <DokterTab outlets={outlets} />}
       {tab === "produk" && <ProdukTab />}
       {tab === "assignment" && <AssignmentTab />}
+      {tab === "poa" && <PoaTab />}
     </div>
   );
 }
