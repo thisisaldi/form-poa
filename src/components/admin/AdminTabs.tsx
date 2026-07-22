@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Combobox } from "@/components/ui/Combobox";
 import { ALL_SPESIALISASI_OPTIONS, spesLabel } from "@/lib/spesialisasi";
 import {
-  createUserAction, updateUserAction, deleteUserAction, searchUsersAction, type UserRow,
+  createUserAction, updateUserAction, renameUserNipAction, deleteUserAction, searchUsersAction, type UserRow,
   createOutletAction, updateOutletAction, deleteOutletAction, searchOutletsAction, type OutletRow,
   createProductAction, updateProductAction, deleteProductAction, searchProductsAction, type ProductRow,
   updateCustomerAction, deleteCustomerAction, searchCustomersAction, type CustomerRow,
@@ -99,21 +99,32 @@ function UserTab() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.nip.trim() || !form.name.trim() || !form.role) { setAttempted(true); return; }
+    const newNip = form.nip.trim();
+    if (!newNip || !form.name.trim() || !form.role) { setAttempted(true); return; }
     setError(null); setNotice(null);
-    const fd = new FormData();
-    fd.set("nip", form.nip.trim());
-    fd.set("name", form.name.trim());
-    fd.set("role", form.role);
-    fd.set("email", form.email.trim());
-    fd.set("nipAtasan", form.nipAtasan.trim());
-    fd.set("isActive", form.isActive ? "true" : "false");
-    fd.set("isDummy", form.isDummy ? "true" : "false");
     startTransition(async () => {
+      // NIP changed while editing — rename first (cascades everywhere via
+      // ON UPDATE CASCADE), then save the rest of the fields at the new NIP.
+      if (editingNip && newNip !== editingNip) {
+        const renameFd = new FormData();
+        renameFd.set("oldNip", editingNip);
+        renameFd.set("newNip", newNip);
+        const renameResult = await renameUserNipAction(renameFd);
+        if (!renameResult.ok) { setError(renameResult.error ?? "Gagal mengubah NIP."); return; }
+      }
+
+      const fd = new FormData();
+      fd.set("nip", newNip);
+      fd.set("name", form.name.trim());
+      fd.set("role", form.role);
+      fd.set("email", form.email.trim());
+      fd.set("nipAtasan", form.nipAtasan.trim());
+      fd.set("isActive", form.isActive ? "true" : "false");
+      fd.set("isDummy", form.isDummy ? "true" : "false");
       const result = editingNip ? await updateUserAction(fd) : await createUserAction(fd);
       if (result.ok) {
         setNotice(editingNip ? "User berhasil diupdate." : "User berhasil ditambahkan.");
-        setResults((rs) => rs.map((r) => (r.nip === form.nip ? { ...r, ...form, email: form.email || null, nipAtasan: form.nipAtasan || null } : r)));
+        setResults((rs) => rs.map((r) => (r.nip === editingNip ? { ...r, ...form, nip: newNip, email: form.email || null, nipAtasan: form.nipAtasan || null } : r)));
         cancelEdit();
       } else {
         setError(result.error ?? "Gagal menyimpan user.");
@@ -146,9 +157,14 @@ function UserTab() {
           {notice && <p className="text-sm px-3 py-2 rounded-md" style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}>{notice}</p>}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="NIP" required attempted={attempted} invalid={!form.nip.trim()}>
-              <input type="text" value={form.nip} disabled={!!editingNip}
+              <input type="text" value={form.nip}
                 onChange={(e) => setForm({ ...form, nip: e.target.value })}
                 placeholder="mis. P250431" className="input-field w-full" />
+              {editingNip && form.nip.trim() !== editingNip && (
+                <span className="text-xs" style={{ color: "var(--color-warning, #f59e0b)" }}>
+                  ⚠ Ini ganti NIP login user ini dari {editingNip} — pastikan sudah benar.
+                </span>
+              )}
             </Field>
             <Field label="Nama" required attempted={attempted} invalid={!form.name.trim()}>
               <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nama lengkap" className="input-field w-full" />

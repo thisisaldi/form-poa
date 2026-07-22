@@ -80,7 +80,41 @@ export async function searchUsersAction(query: string): Promise<UserRow[]> {
     ({ nip: u.nip, name: u.name, role: u.role, email: u.email, nipAtasan: u.nipAtasan, isActive: u.isActive, isDummy: u.isDummy }));
 }
 
-/** Update an existing staff account. NIP (the primary key) is not changeable here. */
+/**
+ * Renames a user's NIP (the primary key). Every FK referencing User.nip
+ * (PoaForm.ownerId/currentHolderId, PoaAuditLog.actorId,
+ * MrOutletAssignment.nipMR, User.nipAtasan, CustomerPengajuan.submittedBy)
+ * is declared ON UPDATE CASCADE at the DB level, so this one update
+ * propagates everywhere atomically — no manual multi-table transaction
+ * needed (unlike the historical NIP fixes done by hand before this existed).
+ * Changes the user's login credential, so call this BEFORE any other field
+ * update in the same save (the caller should re-target subsequent calls at
+ * the new NIP).
+ */
+export async function renameUserNipAction(formData: FormData): Promise<AdminActionResult> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return authCheck;
+
+  const oldNip = str(formData, "oldNip");
+  const newNip = str(formData, "newNip");
+  if (!oldNip || !newNip) return { ok: false, error: "NIP lama dan baru wajib diisi." };
+  if (oldNip === newNip) return { ok: true };
+
+  const existing = await prisma.user.findUnique({ where: { nip: oldNip } });
+  if (!existing) return { ok: false, error: `NIP ${oldNip} tidak ditemukan.` };
+
+  const conflict = await prisma.user.findUnique({ where: { nip: newNip } });
+  if (conflict) return { ok: false, error: `NIP ${newNip} sudah dipakai oleh ${conflict.name}.` };
+
+  try {
+    await prisma.user.update({ where: { nip: oldNip }, data: { nip: newNip } });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: `Gagal mengubah NIP: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/** Update an existing staff account (NIP itself is renamed separately via renameUserNipAction). */
 export async function updateUserAction(formData: FormData): Promise<AdminActionResult> {
   const authCheck = await requireAdmin();
   if (!authCheck.ok) return authCheck;
