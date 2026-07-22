@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
+import { getSubordinateMRNips } from "@/lib/authz";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir, formatPeriode } from "@/lib/poaUtils";
@@ -60,10 +60,13 @@ export async function GET(req: NextRequest) {
     ? await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI))
     : [];
 
-  // Same visibility rule as everywhere else a manager looks at a POA (see authz.ts) —
-  // DRAFT/REVISI are still private to the MR until actually submitted; everything
-  // submitted (even if pending approval further up the chain) is included.
-  const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips }, status: { in: NON_DRAFT_STATUSES } };
+  // Unlike the web UI's canView (which keeps DRAFT/REVISI private to the MR
+  // until submitted), this team rekap includes every status — a manager
+  // exporting their team's numbers wants to see real in-progress work too,
+  // not "BELUM SUBMIT" with everything at 0 (2026-07-22, business owner:
+  // "jangan [sengaja 0-in], tampilkan saja" re-scoping this specifically for
+  // the export, not the rest of the app's approval-flow visibility rules).
+  const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips } };
   if (period) poaWhere.period = period;
 
   const poas = await prisma.poaForm.findMany({
@@ -268,7 +271,12 @@ export async function GET(req: NextRequest) {
   const totalSudah   = mrRows.reduce((s, r) => s + r.sudahStandar, 0);
   const totalProses  = mrRows.reduce((s, r) => s + r.prosesStandar, 0);
   const totalBelum   = mrRows.reduce((s, r) => s + r.belumStandar, 0);
-  const mrSubmitted  = new Set(mrRows.filter(r => r.status !== "BELUM_SUBMIT").map(r => r.nip)).size;
+  // "Sudah submit" means actually submitted at least once — DRAFT/REVISI rows
+  // (included above so their real numbers show instead of forced 0) don't count,
+  // same as BELUM_SUBMIT (no POA at all) doesn't.
+  const mrSubmitted  = new Set(
+    mrRows.filter(r => r.status !== "BELUM_SUBMIT" && r.status !== "DRAFT" && r.status !== "REVISI").map(r => r.nip)
+  ).size;
 
   const ws1 = wb.addWorksheet("Ringkasan Tim");
   ws1.columns = [
