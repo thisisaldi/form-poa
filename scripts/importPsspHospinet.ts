@@ -75,9 +75,11 @@ function cleanPeriode(raw: unknown): string | null {
 }
 
 // Only spesialisasi values with an unambiguous 1:1 curated-category match are
-// normalized — everything else (notably "Dokter Umum", 79% of this file, since
-// the curated list has no GP/general-practitioner bucket at all) is left as
-// its raw source value rather than force-mapped into an inaccurate category.
+// normalized — everything else (non-doctor stakeholder roles like "Perawat"/
+// "Bagian Pembelian", or genuinely ambiguous catch-alls like "Lainnya") is
+// left as its raw source value rather than force-mapped into an inaccurate
+// category. "UMUM (GP)" now exists in the curated list (2026-07-22, see
+// spesialisasi.ts) so "Dokter Umum" — 53% of this file — normalizes to it too.
 const SPEC_NORMALIZE: Record<string, string> = {
   "SPESIALIS ANAK": "ANAK (PEDIATRIC)",
   "SPESIALIS OBSTETRI DAN GINEKOLOGI (KANDUNGAN)": "KANDUNGAN (OBSGYN)",
@@ -88,6 +90,17 @@ const SPEC_NORMALIZE: Record<string, string> = {
   "SPESIALIS ORTOPEDI DAN TRAUMATOLOGI": "BEDAH TULANG (ORTHOPEDI)",
   "SPESIALIS BEDAH UMUM": "BEDAH",
   "SPESIALIS ANESTESIOLOGI DAN TERAPI INTENSIF": "ANESTESI",
+  "DOKTER UMUM": "UMUM (GP)",
+  "SPESIALIS KONSERVASI GIGI": "GIGI (DENTIST)",
+  "SPESIALIS KULIT DAN KELAMIN": "KULIT KELAMIN (DV)",
+  "SPESIALIS TELINGA HIDUNG TENGGOROK DAN BEDAH KEPALA LEHER": "THT & BEDAH KEPALA LEHER",
+  "SPESIALIS GIZI KLINIK": "GIZI KLINIK",
+  "SPESIALIS KARDIOLOGI DAN PEMBULUH DARAH": "JANTUNG (KARDIOLOGI)",
+  "SPESIALIS RADIOLOGI KEDOKTERAN GIGI": "RADIOLOGI",
+  "SPESIALIS BEDAH MULUT DAN MAKSILOFASIAL": "BEDAH MULUT",
+  "SPESIALIS PERIODONSIA (GUSI DAN JARINGAN PENYANGGA GIGI)": "GIGI (DENTIST)",
+  "SPESIALIS PATOLOGI KLINIK": "PATOLOGI KLINIK",
+  "SPESIALIS MATA": "MATA (OPTAL)",
 };
 
 function normalizeSpesialisasi(raw: string): string {
@@ -118,6 +131,30 @@ async function main() {
   if (!ws) { console.error('Sheet "Sheet1" not found'); process.exit(1); }
 
   const now = new Date();
+
+  // ── Self-heal previously-imported rows whose raw text is now normalizable ──
+  // A prior run may have already created a Customer under the old raw spesialisasi
+  // (e.g. "Dokter Umum") before it had a SPEC_NORMALIZE entry. New-vs-existing
+  // customer resolution below only matches by name, so it never revisits their
+  // spesialisasi — this pass corrects it in place, scoped to customers that
+  // actually came from THIS file (have a PsspHospinetSnapshot) so it can never
+  // touch an unrelated CDB category that happens to share raw text.
+  console.log("Correcting previously-imported rows with outdated raw spesialisasi...");
+  let correctedTotal = 0;
+  for (const [rawUpper, canonical] of Object.entries(SPEC_NORMALIZE)) {
+    const result = await prisma.customer.updateMany({
+      where: {
+        spesialisasi: { equals: rawUpper, mode: "insensitive" },
+        psspHospinetSnapshots: { some: {} },
+      },
+      data: { spesialisasi: canonical },
+    });
+    if (result.count > 0) {
+      console.log(`  ${result.count} customer(s): "${rawUpper}" → "${canonical}"`);
+      correctedTotal += result.count;
+    }
+  }
+  console.log(`✅ Corrected ${correctedTotal} existing Customer rows.\n`);
 
   const rows: SourceRow[] = [];
   let skippedBlankName = 0, skippedBlankSpec = 0, skippedBlankOutlet = 0;
