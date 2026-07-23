@@ -283,7 +283,7 @@ export async function GET(
     { header: "Nama User", key: "namaUser", width: 32 },
     { header: "Sumber User", key: "sumberUser", width: 14 },
     { header: "Label User", key: "labelUser", width: 20 },
-    { header: "Nama Produk Kompetitor", key: "produkKompetitor", width: 22 },
+    { header: "Nama Produk Kompetitor Utama", key: "produkKompetitor", width: 22 },
     { header: "Item Kode - Nama Produk ", key: "produk", width: 32 },
     { header: "Kriteria Produk", key: "kriteriaProduk", width: 18 },
     { header: "Kategori/ Status Produk Fokus", key: "statusFokus", width: 16 },

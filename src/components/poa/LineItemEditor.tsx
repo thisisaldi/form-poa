@@ -661,6 +661,7 @@ function ProdukEntryRow({
   const produkErr = showError && !entry.kodeProduk;
   const resepErr = showError && !entry.jumlahResepHari;
   const qtyErr = showError && !entry.qtyProdukResep;
+  const kompetitorErr = showError && !entry.produkKompetitor;
 
   return (
     <div className="rounded-lg border p-3 space-y-3"
@@ -740,13 +741,18 @@ function ProdukEntryRow({
         )}
       </div>
 
-      {/* Produk Kompetitor */}
-      <label className="flex flex-col gap-1">
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kompetitor yang dipakai User<Opt /></span>
-        <input type="text" placeholder="Nama produk kompetitor yang digunakan user"
-          value={entry.produkKompetitor}
-          onChange={(e) => onChange({ produkKompetitor: e.target.value })}
-          className="input-field text-xs" />
+      {/* Produk Kompetitor Utama */}
+      <label className="flex flex-col gap-1" {...(kompetitorErr ? { "data-field-err": "true" } : {})}>
+        <span className="text-xs" style={{ color: kompetitorErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
+          Produk Kompetitor Utama yang dipakai User<Req />
+        </span>
+        <div style={kompetitorErr ? ERR_RING : undefined}>
+          <input type="text" placeholder="Nama produk kompetitor utama yang digunakan user"
+            value={entry.produkKompetitor}
+            onChange={(e) => onChange({ produkKompetitor: e.target.value })}
+            className="input-field text-xs" />
+        </div>
+        {kompetitorErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
       </label>
 
       {/* Per-product inputs */}
@@ -1781,7 +1787,7 @@ function AddPanel({
     const hasErrors = !kodePI || !spesialisasi || !customerId || !dokterFields.periodeAwal
       || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12
-      || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep);
+      || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep || !p.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
       setTimeout(() => {
@@ -2315,7 +2321,7 @@ function AddProductPanel({
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
-      || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep);
+      || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep || !e.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
       setTimeout(() => {
@@ -2632,7 +2638,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
-      || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep);
+      || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep || !e.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
       setTimeout(() => {

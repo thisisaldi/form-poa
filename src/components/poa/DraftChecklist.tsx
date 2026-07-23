@@ -845,9 +845,14 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
 
   const [isSubmitting, startSubmit] = useTransition();
   const [submitNotes, setSubmitNotes] = useState("");
+  // Resubmitting from Revisi means an approver bounced this back with feedback —
+  // notes explaining what changed is required here, unlike a normal first-time
+  // submission (2026-07-23 request).
+  const notesRequired = poaStatus === "REVISI";
+  const notesMissing = notesRequired && !submitNotes.trim();
 
   function handleSubmit() {
-    if (!poaId || checked.size === 0) return;
+    if (!poaId || checked.size === 0 || notesMissing) return;
     const keepIds = items
       .filter((it) => checked.has(doctorKey(it)))
       .map((it) => it.id);
@@ -946,19 +951,27 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 : `${checked.size} dari ${allKeys.length} user dipilih — ${allKeys.length - checked.size} user tidak dicentang akan dihapus dari POA.`}
             </p>
             <label className="flex flex-col gap-1 mb-3">
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-                Notes tambahan untuk perkuat argumen pengajuan (opsional)
+              <span className="text-xs" style={{ color: notesMissing ? "var(--color-red)" : "var(--color-text-muted)" }}>
+                {notesRequired
+                  ? "Notes — jelaskan apa yang diubah dari revisi sebelumnya"
+                  : "Notes tambahan untuk perkuat argumen pengajuan (opsional)"}
+                {notesRequired && <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>}
               </span>
-              <textarea
-                value={submitNotes}
-                onChange={(e) => setSubmitNotes(e.target.value)}
-                rows={2}
-                placeholder="mis. konteks tambahan yang tidak terlihat dari angka…"
-                className="input-field text-xs" />
+              <div style={notesMissing ? { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } : undefined}>
+                <textarea
+                  value={submitNotes}
+                  onChange={(e) => setSubmitNotes(e.target.value)}
+                  rows={2}
+                  placeholder={notesRequired
+                    ? "Jelaskan perubahan yang dilakukan untuk menjawab catatan revisi…"
+                    : "mis. konteks tambahan yang tidak terlihat dari angka…"}
+                  className="input-field text-xs" />
+              </div>
+              {notesMissing && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
             </label>
             <Button
               type="button"
-              disabled={checked.size === 0 || isSubmitting}
+              disabled={checked.size === 0 || isSubmitting || notesMissing}
               onClick={handleSubmit}>
               {isSubmitting ? "Mengajukan…" : "Ajukan ke Atasan"}
             </Button>

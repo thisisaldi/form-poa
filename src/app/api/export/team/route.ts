@@ -420,7 +420,7 @@ export async function GET(req: NextRequest) {
     { header: "Total Budget",         key: "totalBudget",      width: 18 },
     { header: "Warning Budget",       key: "warningBudget",    width: 20 },
     { header: "Status Standarisasi",  key: "standarisasi",     width: 22 },
-    { header: "Produk Kompetitor",    key: "kompetitor",       width: 22 },
+    { header: "Produk Kompetitor Utama", key: "kompetitor",    width: 22 },
   ];
   styleHeader(ws3);
 
