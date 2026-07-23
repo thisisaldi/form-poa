@@ -6,6 +6,8 @@ export interface SessionData {
   nip: string;
   name: string;
   role: string;
+  /** Display-only title override (e.g. "SPV") — see src/lib/role.ts displayRole(). */
+  jabatan?: string | null;
   isLoggedIn: boolean;
 }
 

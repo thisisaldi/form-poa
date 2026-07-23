@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ApprovalsChecklist, type PendingPoaRow } from "@/components/poa/ApprovalsChecklist";
 import { getActivePsspByCustomers } from "@/app/actions/customer";
+import { displayRole } from "@/lib/role";
 
 export const metadata = { title: "Persetujuan · Form POA" };
 
@@ -40,7 +41,7 @@ export default async function ApprovalsPage() {
       <div>
         <h1>Persetujuan</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          POA yang menunggu tindakan Anda sebagai {session.role}
+          POA yang menunggu tindakan Anda sebagai {displayRole(session.role, actor.jabatan)}
         </p>
       </div>
 

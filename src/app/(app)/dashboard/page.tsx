@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { NotReadyButton } from "@/components/ui/NotReadyButton";
 import { DeletePoaButton } from "@/components/poa/DeletePoaButton";
-import type { Role, PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
+import type { PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
+import { displayRole } from "@/lib/role";
 
 export const metadata = { title: "Dashboard · Form POA" };
 
@@ -216,7 +217,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             Selamat datang, {session.name}
             <span className="ml-2 rounded px-1.5 py-0.5 text-xs font-medium"
               style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-              {session.role}
+              {displayRole(session.role, session.jabatan)}
             </span>
           </p>
         </div>
@@ -346,7 +347,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <CardTitle>{isMR ? "POA Saya" : "Semua POA"}</CardTitle>
         </CardHeader>
         {recentPoas.length === 0 ? (
-          <EmptyState eligible={eligible} role={session.role as Role} />
+          <EmptyState eligible={eligible} role={displayRole(session.role, session.jabatan)} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -422,7 +423,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   );
 }
 
-function EmptyState({ eligible, role }: { eligible: boolean; role: Role }) {
+function EmptyState({ eligible, role }: { eligible: boolean; role: string }) {
   return (
     <div className="py-10 text-center">
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
