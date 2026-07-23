@@ -517,6 +517,8 @@ function ProdukTab() {
   const emptyForm = {
     kodeProduk: "", namaProduk: "", namaGroupBrand: "", satuan: "", hna: "",
     zatAktif: "", nilaiRPersen: "", satuanTerkecil: "", konversiPembagi: "",
+    dosisKekuatanSediaan: "", qtyPerRxPasien: "", lamaPemberianHari: "",
+    jumlahPemberianPerHari: "", bentukSediaan: "", packing: "", indikasi: "",
   };
   const [form, setForm] = useState(emptyForm);
   const [editingKode, setEditingKode] = useState<string | null>(null);
@@ -541,6 +543,10 @@ function ProdukTab() {
       kodeProduk: row.kodeProduk, namaProduk: row.namaProduk, namaGroupBrand: row.namaGroupBrand, satuan: row.satuan,
       hna: row.hna, zatAktif: row.zatAktif ?? "", nilaiRPersen: row.nilaiRPersen ?? "",
       satuanTerkecil: row.satuanTerkecil ?? "", konversiPembagi: row.konversiPembagi ?? "",
+      dosisKekuatanSediaan: row.dosisKekuatanSediaan ?? "", qtyPerRxPasien: row.qtyPerRxPasien ?? "",
+      lamaPemberianHari: row.lamaPemberianHari?.toString() ?? "",
+      jumlahPemberianPerHari: row.jumlahPemberianPerHari ?? "", bentukSediaan: row.bentukSediaan ?? "",
+      packing: row.packing ?? "", indikasi: row.indikasi ?? "",
     });
     setAttempted(false); setError(null); setNotice(null);
   }
@@ -613,6 +619,32 @@ function ProdukTab() {
               <input type="number" min="0" step="1" value={form.konversiPembagi} onChange={(e) => setForm({ ...form, konversiPembagi: e.target.value })} placeholder="mis. 10" className="input-field w-full" />
             </Field>
           </div>
+
+          <p className="text-xs font-semibold uppercase tracking-wider pt-1" style={{ color: "var(--color-text-faint)" }}>Dosis (opsional)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Dosis / Kekuatan Sediaan" attempted={attempted} invalid={false}>
+              <input type="text" value={form.dosisKekuatanSediaan} onChange={(e) => setForm({ ...form, dosisKekuatanSediaan: e.target.value })} placeholder="mis. 500 MG" className="input-field w-full" />
+            </Field>
+            <Field label="Bentuk Sediaan" attempted={attempted} invalid={false}>
+              <input type="text" value={form.bentukSediaan} onChange={(e) => setForm({ ...form, bentukSediaan: e.target.value })} placeholder="mis. TABLET" className="input-field w-full" />
+            </Field>
+            <Field label="Qty per Resep per Pasien (ST)" attempted={attempted} invalid={false}>
+              <input type="number" min="0" step="0.01" value={form.qtyPerRxPasien} onChange={(e) => setForm({ ...form, qtyPerRxPasien: e.target.value })} className="input-field w-full" />
+            </Field>
+            <Field label="Lama Pemberian per Pasien (Hari)" attempted={attempted} invalid={false}>
+              <input type="number" min="0" step="1" value={form.lamaPemberianHari} onChange={(e) => setForm({ ...form, lamaPemberianHari: e.target.value })} className="input-field w-full" />
+            </Field>
+            <Field label="Jumlah Pemberian per Hari (ST)" attempted={attempted} invalid={false}>
+              <input type="number" min="0" step="0.01" value={form.jumlahPemberianPerHari} onChange={(e) => setForm({ ...form, jumlahPemberianPerHari: e.target.value })} className="input-field w-full" />
+            </Field>
+            <Field label="Packing" attempted={attempted} invalid={false}>
+              <input type="text" value={form.packing} onChange={(e) => setForm({ ...form, packing: e.target.value })} className="input-field w-full" />
+            </Field>
+            <Field label="Indikasi" attempted={attempted} invalid={false}>
+              <textarea value={form.indikasi} onChange={(e) => setForm({ ...form, indikasi: e.target.value })} rows={2} className="input-field w-full" />
+            </Field>
+          </div>
+
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={isPending}>{isPending ? "Menyimpan…" : editingKode ? "Update Produk" : "Tambah Produk"}</Button>
             {editingKode && <Button type="button" size="sm" variant="ghost" onClick={cancelEdit}>Batal Edit</Button>}
@@ -629,7 +661,10 @@ function ProdukTab() {
             <div key={r.kodeProduk} className="flex items-center justify-between gap-2 py-2 text-sm">
               <div className="min-w-0">
                 <p className="truncate" style={{ color: "var(--color-text)" }}>{r.namaProduk} <span style={{ color: "var(--color-text-faint)" }}>({r.kodeProduk})</span></p>
-                <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>{r.namaGroupBrand} · Rp {parseFloat(r.hna).toLocaleString("id-ID")}</p>
+                <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
+                  {r.namaGroupBrand} · Rp {parseFloat(r.hna).toLocaleString("id-ID")}
+                  {r.dosisKekuatanSediaan && ` · ${r.dosisKekuatanSediaan}`}
+                </p>
               </div>
               <RowActions onEdit={() => startEdit(r)} onDelete={() => setToDelete(r)} />
             </div>

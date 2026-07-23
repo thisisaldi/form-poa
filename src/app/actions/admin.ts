@@ -293,6 +293,9 @@ export async function createProductAction(formData: FormData): Promise<AdminActi
 
   const nilaiRPersenPct = num(formData, "nilaiRPersen");
   const konversiPembagi = num(formData, "konversiPembagi");
+  const qtyPerRxPasien = num(formData, "qtyPerRxPasien");
+  const lamaPemberianHari = num(formData, "lamaPemberianHari");
+  const jumlahPemberianPerHari = num(formData, "jumlahPemberianPerHari");
 
   await prisma.product.create({
     data: {
@@ -302,6 +305,13 @@ export async function createProductAction(formData: FormData): Promise<AdminActi
       nilaiRPersen: nilaiRPersenPct != null ? new Prisma.Decimal(nilaiRPersenPct / 100) : null,
       satuanTerkecil: str(formData, "satuanTerkecil"),
       konversiPembagi: konversiPembagi != null ? new Prisma.Decimal(konversiPembagi) : null,
+      dosisKekuatanSediaan: str(formData, "dosisKekuatanSediaan"),
+      qtyPerRxPasien: qtyPerRxPasien != null ? new Prisma.Decimal(qtyPerRxPasien) : null,
+      lamaPemberianHari: lamaPemberianHari != null ? Math.round(lamaPemberianHari) : null,
+      jumlahPemberianPerHari: jumlahPemberianPerHari != null ? new Prisma.Decimal(jumlahPemberianPerHari) : null,
+      bentukSediaan: str(formData, "bentukSediaan"),
+      packing: str(formData, "packing"),
+      indikasi: str(formData, "indikasi"),
       syncedAt: new Date(),
     },
   });
@@ -312,6 +322,8 @@ export async function createProductAction(formData: FormData): Promise<AdminActi
 export interface ProductRow {
   kodeProduk: string; namaProduk: string; namaGroupBrand: string; satuan: string; hna: string;
   zatAktif: string | null; nilaiRPersen: string | null; satuanTerkecil: string | null; konversiPembagi: string | null;
+  dosisKekuatanSediaan: string | null; qtyPerRxPasien: string | null; lamaPemberianHari: number | null;
+  jumlahPemberianPerHari: string | null; bentukSediaan: string | null; packing: string | null; indikasi: string | null;
 }
 
 /** Search products by Kode Produk or name — capped at 20 results. */
@@ -327,6 +339,8 @@ export async function searchProductsAction(query: string): Promise<ProductRow[]>
     kodeProduk: string; namaProduk: string; namaGroupBrand: string; satuan: string;
     hna: { toString(): string }; zatAktif: string | null;
     nilaiRPersen: { toString(): string } | null; satuanTerkecil: string | null; konversiPembagi: { toString(): string } | null;
+    dosisKekuatanSediaan: string | null; qtyPerRxPasien: { toString(): string } | null; lamaPemberianHari: number | null;
+    jumlahPemberianPerHari: { toString(): string } | null; bentukSediaan: string | null; packing: string | null; indikasi: string | null;
   }) => ({
     kodeProduk: p.kodeProduk, namaProduk: p.namaProduk, namaGroupBrand: p.namaGroupBrand,
     satuan: p.satuan, hna: p.hna.toString(),
@@ -334,6 +348,13 @@ export async function searchProductsAction(query: string): Promise<ProductRow[]>
     nilaiRPersen: p.nilaiRPersen != null ? (parseFloat(p.nilaiRPersen.toString()) * 100).toString() : null,
     satuanTerkecil: p.satuanTerkecil,
     konversiPembagi: p.konversiPembagi?.toString() ?? null,
+    dosisKekuatanSediaan: p.dosisKekuatanSediaan,
+    qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
+    lamaPemberianHari: p.lamaPemberianHari,
+    jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
+    bentukSediaan: p.bentukSediaan,
+    packing: p.packing,
+    indikasi: p.indikasi,
   }));
 }
 
@@ -357,6 +378,9 @@ export async function updateProductAction(formData: FormData): Promise<AdminActi
 
   const nilaiRPersenPct = num(formData, "nilaiRPersen");
   const konversiPembagi = num(formData, "konversiPembagi");
+  const qtyPerRxPasien = num(formData, "qtyPerRxPasien");
+  const lamaPemberianHari = num(formData, "lamaPemberianHari");
+  const jumlahPemberianPerHari = num(formData, "jumlahPemberianPerHari");
 
   await prisma.product.update({
     where: { kodeProduk },
@@ -367,6 +391,13 @@ export async function updateProductAction(formData: FormData): Promise<AdminActi
       nilaiRPersen: nilaiRPersenPct != null ? new Prisma.Decimal(nilaiRPersenPct / 100) : null,
       satuanTerkecil: str(formData, "satuanTerkecil"),
       konversiPembagi: konversiPembagi != null ? new Prisma.Decimal(konversiPembagi) : null,
+      dosisKekuatanSediaan: str(formData, "dosisKekuatanSediaan"),
+      qtyPerRxPasien: qtyPerRxPasien != null ? new Prisma.Decimal(qtyPerRxPasien) : null,
+      lamaPemberianHari: lamaPemberianHari != null ? Math.round(lamaPemberianHari) : null,
+      jumlahPemberianPerHari: jumlahPemberianPerHari != null ? new Prisma.Decimal(jumlahPemberianPerHari) : null,
+      bentukSediaan: str(formData, "bentukSediaan"),
+      packing: str(formData, "packing"),
+      indikasi: str(formData, "indikasi"),
     },
   });
 
