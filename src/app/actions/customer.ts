@@ -317,6 +317,28 @@ export async function getCustomersByOutletSpesialisasi(
   }));
 }
 
+/**
+ * Every customer at a given outlet, regardless of spesialisasi — lets an MR
+ * search by the doctor's own NAME first when they don't know/remember the
+ * spesialisasi, instead of being forced to guess through the spesialisasi
+ * dropdown before the customer list can even load (2026-07-23).
+ */
+export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOption[]> {
+  const rows = await prisma.customerOutlet.findMany({
+    where: { kodePI },
+    include: { customer: true },
+    orderBy: [{ isFokus: "desc" }, { customer: { namaCustomer: "asc" } }],
+  });
+
+  return rows.map((r: { isFokus: boolean; customer: { id: string; kodeCustomer: string | null; namaCustomer: string; spesialisasi: string } }) => ({
+    id: r.customer.id,
+    kodeCustomer: r.customer.kodeCustomer,
+    namaCustomer: r.customer.namaCustomer,
+    spesialisasi: r.customer.spesialisasi,
+    isFokus: r.isFokus,
+  }));
+}
+
 export interface KriteriaByOutlet {
   kodeProduk: string;
   paket: string;

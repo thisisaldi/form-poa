@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutletSpesialisasi, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -1490,10 +1490,17 @@ function AddPanel({
   // existing Customer records, so it never comes up empty even at outlets
   // with no registered users yet (see onAddNewCustomer below for that case).
   const specOptions = ALL_SPESIALISASI_OPTIONS;
-  const customerOptions = useMemo(() => customerList.map((c) => ({
-    value: c.id, label: c.namaCustomer,
-    sublabel: [spesLabel(c.spesialisasi), c.isFokus ? "⭐ Rekomendasi PM" : null].filter(Boolean).join(" · "),
-  })), [customerList]);
+  // customerList holds every user at the outlet, any spesialisasi — narrowed
+  // to the picked spesialisasi here only as a convenience filter, never a
+  // hard requirement, so an MR who doesn't know the spesialisasi can just
+  // search the user by name directly (2026-07-23; see handleCustomerChange,
+  // which auto-fills spesialisasi from whichever user actually gets picked).
+  const customerOptions = useMemo(() => customerList
+    .filter((c) => !spesialisasi || c.spesialisasi === spesialisasi)
+    .map((c) => ({
+      value: c.id, label: c.namaCustomer,
+      sublabel: [spesLabel(c.spesialisasi), c.isFokus ? "⭐ Rekomendasi PM" : null].filter(Boolean).join(" · "),
+    })), [customerList, spesialisasi]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
 
@@ -1577,12 +1584,27 @@ function AddPanel({
       setDiskonList(diskonData);
       setDiskonHistoryList(diskonHistoryData);
     });
+    startLoadCust(async () => setCustomerList(await getCustomersByOutlet(val)));
   }
 
+  // Picking a user directly (search-by-name) is now the primary path — this
+  // auto-fills spesialisasi from that user's own record instead of requiring
+  // it to be picked first just to unlock the customer search.
+  function handleCustomerChange(val: string) {
+    setCustomerId(val);
+    const found = customerList.find((c) => c.id === val);
+    if (found) setSpesialisasi(found.spesialisasi);
+  }
+
+  // Now just a narrowing filter on the already-loaded outlet customer list
+  // (see handleOutletChange) — no longer a prerequisite the customer search
+  // is gated behind. Only clears the current pick if it no longer matches.
   function handleSpecChange(val: string) {
-    setSpesialisasi(val); setCustomerId(""); setCustomerList([]);
-    if (!val || !kodePI) return;
-    startLoadCust(async () => setCustomerList(await getCustomersByOutletSpesialisasi(kodePI, val)));
+    setSpesialisasi(val);
+    setCustomerId((prev) => {
+      const stillMatches = customerList.find((c) => c.id === prev)?.spesialisasi === val;
+      return stillMatches ? prev : "";
+    });
   }
 
   function updateProduk(idx: number, patch: Partial<ProdukEntry>) {
@@ -1706,12 +1728,17 @@ function AddPanel({
                 User<Req /> {loadingCust && <span style={{ color: "var(--color-text-faint)" }}>…</span>}
               </span>
               <div style={attempted && !customerId ? ERR_RING : undefined}>
-                <Combobox name="_dokter" value={customerId} onChange={setCustomerId}
-                  placeholder={spesialisasi ? (loadingCust ? "Memuat…" : "Pilih user") : "Pilih spesialisasi dulu"}
-                  disabled={!spesialisasi || loadingCust} options={customerOptions} />
+                <Combobox name="_dokter" value={customerId} onChange={handleCustomerChange}
+                  placeholder={kodePI ? (loadingCust ? "Memuat…" : "Cari nama user…") : "Pilih outlet dulu"}
+                  disabled={!kodePI || loadingCust} options={customerOptions} />
               </div>
               {attempted && !customerId && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-              {spesialisasi && !loadingCust && onAddNewCustomer && (
+              {!spesialisasi && kodePI && !loadingCust && (
+                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  Belum tau spesialisasinya? Langsung cari nama user aja — spesialisasi keisi otomatis.
+                </span>
+              )}
+              {kodePI && !loadingCust && onAddNewCustomer && (
                 <button type="button" onClick={onAddNewCustomer}
                   className="text-xs text-left font-medium"
                   style={{ color: "var(--color-blue)" }}>
