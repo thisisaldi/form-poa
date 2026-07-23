@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getKompetitorHistory, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -616,6 +616,9 @@ function ProdukEntryRow({
   // second product change resolving out of order and stomping the newer
   // selection's own competitor data.
   const latestKodeProduk = useRef(entry.kodeProduk);
+  // Survey's "Potensi / Bulan" for the selected doctor+outlet+product — purely
+  // informational, not part of ProdukEntry since it's never submitted.
+  const [potensiBulan, setPotensiBulan] = useState<number | null>(null);
 
   const productOptions = useMemo(() => {
     const opts = buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory);
@@ -696,13 +699,18 @@ function ProdukEntryRow({
                   persenEntertain: "1",
                 });
 
-                // Auto-suggest "Produk Kompetitor" from the survey's per-product
-                // History Produk (2026-07-23) — only when the field is still
-                // empty, so it never overwrites something the MR already typed.
-                if (v && kodeCustomer && kodePI && !entry.produkKompetitor) {
-                  getKompetitorHistory(kodeCustomer, kodePI, v).then((history) => {
-                    if (latestKodeProduk.current !== v || history.length === 0) return;
-                    const text = history
+                // Survey info for this doctor+outlet+product (2026-07-23):
+                // auto-suggests "Produk Kompetitor Utama" from History Produk
+                // (only when the field is still empty, so it never overwrites
+                // something the MR already typed) and shows "Potensi / Bulan"
+                // alongside it, read-only.
+                setPotensiBulan(null);
+                if (v && kodeCustomer && kodePI) {
+                  getSurveyRekomendasiInfo(kodeCustomer, kodePI, v).then((info) => {
+                    if (latestKodeProduk.current !== v || !info) return;
+                    setPotensiBulan(info.potensiBulan);
+                    if (info.kompetitor.length === 0 || entry.produkKompetitor) return;
+                    const text = info.kompetitor
                       .map((h) => (h.pct > 0 ? `${h.namaProduk} (${h.pct}%)` : h.namaProduk))
                       .join("; ");
                     onChange({ produkKompetitor: text });
@@ -753,6 +761,11 @@ function ProdukEntryRow({
             className="input-field text-xs" />
         </div>
         {kompetitorErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+        {potensiBulan != null && (
+          <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+            Potensi (survey): <strong style={{ color: "var(--color-text-muted)" }}>{potensiBulan}</strong> / bulan
+          </span>
+        )}
       </label>
 
       {/* Per-product inputs */}

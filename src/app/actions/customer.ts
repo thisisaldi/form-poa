@@ -494,23 +494,30 @@ function brandRoot(namaProduk: string): string {
   return m ? m[0] : namaProduk.trim().toUpperCase();
 }
 
+export interface SurveyRekomendasiInfo {
+  /** Non-Pharos products from the row's History Produk — see brandRoot() above. */
+  kompetitor: KompetitorHistoryEntry[];
+  /** Survey's own "Potensi / Bulan" figure for this doctor+outlet+product. */
+  potensiBulan: number | null;
+}
+
 /**
- * Returns the non-Pharos products from a SurveyRekomendasi row's History
- * Produk field for one specific (doctor, outlet, recommended product) —
- * used to auto-suggest "Produk Kompetitor" when an MR picks that exact
- * product in the POA form's product dropdown (see SurveyRekomendasi doc
- * comment in schema.prisma for the source file's shape).
+ * Returns SurveyRekomendasi info for one specific (doctor, outlet,
+ * recommended product) — used to auto-suggest "Produk Kompetitor Utama" and
+ * show the survey's monthly potential when an MR picks that exact product
+ * in the POA form's product dropdown (see SurveyRekomendasi doc comment in
+ * schema.prisma for the source file's shape).
  */
-export async function getKompetitorHistory(
+export async function getSurveyRekomendasiInfo(
   kodeCustomer: string, kodePI: string, kodeProduk: string
-): Promise<KompetitorHistoryEntry[]> {
-  if (!kodeCustomer || !kodePI || !kodeProduk) return [];
+): Promise<SurveyRekomendasiInfo | null> {
+  if (!kodeCustomer || !kodePI || !kodeProduk) return null;
 
   const row = await prisma.surveyRekomendasi.findUnique({
     where: { kodePI_kodeCustomer_kodeProduk: { kodePI, kodeCustomer, kodeProduk } },
-    select: { historyProduk: true },
+    select: { historyProduk: true, potensiBulan: true },
   });
-  if (!row?.historyProduk) return [];
+  if (!row) return null;
 
   const entries: KompetitorHistoryEntry[] = row.historyProduk.split(";").map((s: string) => {
     const trimmed = s.trim();
@@ -521,7 +528,10 @@ export async function getKompetitorHistory(
   const products = await prisma.product.findMany({ select: { namaProduk: true } });
   const pharosRoots = new Set(products.map((p: { namaProduk: string }) => brandRoot(p.namaProduk)));
 
-  return entries.filter((e) => !pharosRoots.has(brandRoot(e.namaProduk)));
+  return {
+    kompetitor: entries.filter((e) => !pharosRoots.has(brandRoot(e.namaProduk))),
+    potensiBulan: row.potensiBulan != null ? parseFloat(row.potensiBulan.toString()) : null,
+  };
 }
 
 export interface Sales3BlnByProduct {
