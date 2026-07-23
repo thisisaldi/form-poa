@@ -476,6 +476,54 @@ export async function getKriteriaByOutlet(kodePI: string): Promise<KriteriaByOut
   return rows as KriteriaByOutlet[];
 }
 
+export interface KompetitorHistoryEntry {
+  namaProduk: string;
+  pct: number;
+}
+
+// First contiguous run of letters/hyphens — a rough "brand root" (e.g.
+// "NEBACETIN" from both "NEBACETIN POWDER 5 G" and the survey's abbreviated
+// "NEBACETIN PWD  5G"). Used to decide whether a History Produk entry is one
+// of our own products: if ANY Product.namaProduk shares this root, treat the
+// entry as ours and exclude it from the competitor suggestion — errs toward
+// under- rather than over-reporting competitors, which matches what was
+// asked ("kalau history produknya produk kita, jangan masukkan ke
+// kompetitor").
+function brandRoot(namaProduk: string): string {
+  const m = namaProduk.trim().toUpperCase().match(/^[A-Z][A-Z-]*/);
+  return m ? m[0] : namaProduk.trim().toUpperCase();
+}
+
+/**
+ * Returns the non-Pharos products from a SurveyRekomendasi row's History
+ * Produk field for one specific (doctor, outlet, recommended product) —
+ * used to auto-suggest "Produk Kompetitor" when an MR picks that exact
+ * product in the POA form's product dropdown (see SurveyRekomendasi doc
+ * comment in schema.prisma for the source file's shape).
+ */
+export async function getKompetitorHistory(
+  kodeCustomer: string, kodePI: string, kodeProduk: string
+): Promise<KompetitorHistoryEntry[]> {
+  if (!kodeCustomer || !kodePI || !kodeProduk) return [];
+
+  const row = await prisma.surveyRekomendasi.findUnique({
+    where: { kodePI_kodeCustomer_kodeProduk: { kodePI, kodeCustomer, kodeProduk } },
+    select: { historyProduk: true },
+  });
+  if (!row?.historyProduk) return [];
+
+  const entries: KompetitorHistoryEntry[] = row.historyProduk.split(";").map((s: string) => {
+    const trimmed = s.trim();
+    const m = trimmed.match(/^(.*)\((\d+(?:\.\d+)?)%\)\s*$/);
+    return m ? { namaProduk: m[1].trim(), pct: parseFloat(m[2]) } : { namaProduk: trimmed, pct: 0 };
+  }).filter((e: KompetitorHistoryEntry) => e.namaProduk);
+
+  const products = await prisma.product.findMany({ select: { namaProduk: true } });
+  const pharosRoots = new Set(products.map((p: { namaProduk: string }) => brandRoot(p.namaProduk)));
+
+  return entries.filter((e) => !pharosRoots.has(brandRoot(e.namaProduk)));
+}
+
 export interface Sales3BlnByProduct {
   itemKode: string;
   qty3Bln: number;  // summed qty over the last 3 completed months

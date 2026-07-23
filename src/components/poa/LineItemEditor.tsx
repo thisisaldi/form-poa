@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getKompetitorHistory, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -581,7 +581,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, index, products, dokterFields, spesialisasi, psspHistory, sales3Bln, kriteriaList, diskonList, diskonHistoryList, usedKodeProduk, onChange, onRemove, showRemove, showError,
+  entry, index, products, dokterFields, spesialisasi, psspHistory, sales3Bln, kriteriaList, diskonList, diskonHistoryList, usedKodeProduk, kodeCustomer, kodePI, onChange, onRemove, showRemove, showError,
 }: {
   entry: ProdukEntry;
   index: number;
@@ -598,6 +598,9 @@ function ProdukEntryRow({
   diskonHistoryList?: DiskonHistoryByProduct[];
   /** kodeProduk values already used by OTHER rows for this same doctor — excluded from the picker. */
   usedKodeProduk?: Set<string>;
+  /** Selected doctor's CDB code + outlet — used to look up SurveyRekomendasi for "Produk Kompetitor" autofill. */
+  kodeCustomer?: string | null;
+  kodePI?: string;
   onChange: (patch: Partial<ProdukEntry>) => void;
   onRemove: () => void;
   showRemove: boolean;
@@ -608,6 +611,11 @@ function ProdukEntryRow({
     for (const k of kriteriaList ?? []) m.set(k.kodeProduk, { kriteriaBaru: k.kriteriaBaru, kategori: k.kategori });
     return m;
   }, [kriteriaList]);
+
+  // Guards the "Produk Kompetitor" autofill fetch below against a fast
+  // second product change resolving out of order and stomping the newer
+  // selection's own competitor data.
+  const latestKodeProduk = useRef(entry.kodeProduk);
 
   const productOptions = useMemo(() => {
     const opts = buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory);
@@ -665,6 +673,7 @@ function ProdukEntryRow({
               name={`_produk_${index}`}
               value={entry.kodeProduk}
               onChange={(v) => {
+                latestKodeProduk.current = v;
                 const prod = products.find((p) => p.kodeProduk === v);
                 const nr = prod?.nilaiRPersen ? parseFloat(prod.nilaiRPersen) : null;
                 const kriteria = kriteriaMap.get(v)?.kriteriaBaru;
@@ -685,6 +694,19 @@ function ProdukEntryRow({
                   persenListingFee: "0",
                   persenEntertain: "1",
                 });
+
+                // Auto-suggest "Produk Kompetitor" from the survey's per-product
+                // History Produk (2026-07-23) — only when the field is still
+                // empty, so it never overwrites something the MR already typed.
+                if (v && kodeCustomer && kodePI && !entry.produkKompetitor) {
+                  getKompetitorHistory(kodeCustomer, kodePI, v).then((history) => {
+                    if (latestKodeProduk.current !== v || history.length === 0) return;
+                    const text = history
+                      .map((h) => (h.pct > 0 ? `${h.namaProduk} (${h.pct}%)` : h.namaProduk))
+                      .join("; ");
+                    onChange({ produkKompetitor: text });
+                  });
+                }
               }}
               placeholder="Cari produk…"
               options={productOptions}
@@ -1908,6 +1930,8 @@ function AddPanel({
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
+                kodeCustomer={selectedCustomer?.kodeCustomer}
+                kodePI={kodePI}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
                 showRemove={produkList.length > 1}
@@ -2374,6 +2398,8 @@ function AddProductPanel({
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
+                kodeCustomer={kodeCust}
+                kodePI={kodePI}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
                 showRemove={produkList.length > 1}
@@ -2696,6 +2722,8 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
+                kodeCustomer={kodeCust}
+                kodePI={kodePI}
                 onChange={(patch) => updateProduk(i, patch)}
                 onRemove={() => setProdukList((prev) => prev.filter((_, idx) => idx !== i))}
                 showRemove={produkList.length > 1}

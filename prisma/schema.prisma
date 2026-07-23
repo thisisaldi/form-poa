@@ -184,6 +184,42 @@ model PsspHospinetSnapshot {
   @@index([kodePI])
 }
 
+// Per-doctor×outlet×recommended-product survey row, from "17062026 Data
+// Rekomendasi Final.xlsx" — for each (doctor, outlet) the survey matched a
+// Pharos product by zat aktif/bentuk sediaan ("Kode Produk"/"Produk
+// Rekomendasi"), and separately recorded what brand-level products that
+// doctor has actually prescribed within that same category ("History
+// Produk", e.g. "AZOMAX CAPLET FC 500MG 10 BLIS (88.8%); AZITHROMYCIN
+// INFUSION VLS 500MG (7.9%)") — a mix of our own and competitor brands.
+// Used to auto-suggest "Produk Kompetitor" on the POA form: when an MR
+// picks a product in the dropdown that matches this row's kodeProduk, the
+// non-Pharos entries in historyProduk are surfaced (see getKompetitorHistory
+// in customer.ts). kodeCustomer/kodePI are matched by string against
+// Customer.kodeCustomer/Outlet.kodePI at query time — not FK'd, since a
+// doctor here doesn't need to already exist as a full Customer row.
+model SurveyRekomendasi {
+  id                     String   @id @default(uuid())
+  kodePI                 String
+  outlet                 Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  kodeCustomer           String   // "Kode Dokter" — same namespace as Customer.kodeCustomer, not FK'd
+  namaCustomer           String
+  kodeProduk             String   // Pharos's own recommended product for this doctor+category
+  namaProdukRekomendasi  String
+  zatAktif               String?
+  dosageForm             String?
+  kodeSpesialis          String?
+  spesialis              String?
+  potensiBulan           Decimal? @db.Decimal(10, 2)
+  historyProduk          String   // raw "PRODUCT NAME (XX.X%); PRODUCT NAME (YY.Y%)" string
+  statusSales            String?
+  statusPssp             String?
+  metodePemilihan        String?
+  syncedAt               DateTime
+
+  @@unique([kodePI, kodeCustomer, kodeProduk])
+  @@index([kodePI, kodeCustomer])
+}
+
 model PoaLineItem {
   id     String  @id @default(uuid())
   poaId  String
@@ -327,6 +363,7 @@ model Outlet {
   assignments      MrOutletAssignment[]
   customerOutlets  CustomerOutlet[]
   psspHospinetSnapshots PsspHospinetSnapshot[]
+  surveyRekomendasi     SurveyRekomendasi[]
 
   @@index([statusOutlet])
   @@index([sector])
