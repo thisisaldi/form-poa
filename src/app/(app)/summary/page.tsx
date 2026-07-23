@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { getSubordinateMRNips } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
 import { Card } from "@/components/ui/Card";
 import { MonitoringChecklist } from "@/components/poa/MonitoringChecklist";
@@ -63,20 +64,6 @@ function dummySales(code: string, estimasi: number): SalesDummy {
   return { historis2025, salesYtd, salesPlusEst: salesYtd + estimasi, growthPct, achievementPct };
 }
 
-async function getSubordinateMRNips(nip: string): Promise<string[]> {
-  const mrNips: string[] = [];
-  let frontier = [nip];
-  for (let depth = 0; depth < 5 && frontier.length > 0; depth++) {
-    const subs = await prisma.user.findMany({
-      where: { nipAtasan: { in: frontier }, isActive: true },
-    }) as { nip: string; role: string }[];
-    if (!subs.length) break;
-    mrNips.push(...subs.filter((u) => u.role === "MR").map((u) => u.nip));
-    frontier = subs.filter((u) => u.role !== "MR").map((u) => u.nip);
-  }
-  return mrNips;
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function SummaryPage({
@@ -94,7 +81,13 @@ export default async function SummaryPage({
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  const mrNips = await getSubordinateMRNips(session.userId);
+  // Shared helper (not a local reimplementation) so ADMIN/GM correctly see
+  // every MR company-wide instead of walking nipAtasan from their own NIP —
+  // neither role reports to/from anyone in that chain, so the old local
+  // getSubordinateMRNips(nip) always returned an empty list for them
+  // (2026-07-23 fix: "sebagai admin harusnya summary-nya kelihatan semua").
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  const mrNips = await getSubordinateMRNips(actor);
 
   const mrUsers = mrNips.length > 0
     ? (await prisma.user.findMany({

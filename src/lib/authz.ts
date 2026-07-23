@@ -80,7 +80,9 @@ async function getSubordinateIdsUnder(managerId: string, depth: number): Promise
 /** Public: returns all MR nips in the subtree of the given user (for monitoring, PM dashboard). */
 export async function getSubordinateMRNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
-  if (user.role === Role.ADMIN) {
+  // GM has the same company-wide read-only oversight as ADMIN everywhere
+  // else in this file (see canView/getVisiblePoaFilter) — same here.
+  if (user.role === Role.ADMIN || user.role === Role.GM) {
     const mrs = await prisma.user.findMany({ where: { role: Role.MR, isActive: true }, select: { nip: true } });
     return mrs.map((m: { nip: string }) => m.nip);
   }
