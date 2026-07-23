@@ -317,26 +317,100 @@ export async function getCustomersByOutletSpesialisasi(
   }));
 }
 
+interface NexusCustomer {
+  vbCode: string | null;
+  namaCustomer: string;
+  spesialisasi: string;
+}
+
+/**
+ * Live fallback lookup against the company-wide Nexus API — public, no auth
+ * (confirmed 2026-07-23). Best-effort only: any failure (network, timeout,
+ * unexpected shape) is swallowed and treated as "no extra results", since
+ * this is purely a safety net for gaps in our own DB, not a hard dependency
+ * the outlet/customer search should ever be blocked by.
+ */
+async function fetchNexusCustomersByOutlet(kodePI: string): Promise<NexusCustomer[]> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(
+      `https://api-nexus.pharos.id/api/r/poa/get_customer_by_outlet?outlet_code=${encodeURIComponent(kodePI)}`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeout);
+    if (!res.ok) return [];
+
+    const json = await res.json();
+    const customers = json?.data?.customers;
+    if (!Array.isArray(customers)) return [];
+
+    return customers
+      .filter((c): c is { vb_code?: string; customer_name?: string; specialist?: string } =>
+        !!c && typeof c.customer_name === "string" && typeof c.specialist === "string")
+      .map((c) => ({
+        vbCode: typeof c.vb_code === "string" && c.vb_code.trim() ? c.vb_code.trim() : null,
+        namaCustomer: c.customer_name!.trim(),
+        spesialisasi: c.specialist!.trim(),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Every customer at a given outlet, regardless of spesialisasi — lets an MR
  * search by the doctor's own NAME first when they don't know/remember the
  * spesialisasi, instead of being forced to guess through the spesialisasi
  * dropdown before the customer list can even load (2026-07-23).
+ *
+ * Merged live with the Nexus API (2026-07-23, business owner: "gabungin aja
+ * bareng" — always merge, not just when the DB looks empty) as a safety net
+ * for outlets our own Customer/CustomerOutlet import hasn't fully covered
+ * yet. Nexus-only entries (no matching local kodeCustomer) get a synthetic
+ * "nexus:<vbCode|name>" id — the caller (LineItemEditor's handleCustomerChange)
+ * detects that prefix and materializes a real Customer row via
+ * createCustomerAction before actually using it as a line item's customerId,
+ * since addLineItemAction requires a real Customer.id to exist.
  */
 export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOption[]> {
-  const rows = await prisma.customerOutlet.findMany({
-    where: { kodePI },
-    include: { customer: true },
-    orderBy: [{ isFokus: "desc" }, { customer: { namaCustomer: "asc" } }],
-  });
+  const [rows, nexusCustomers] = await Promise.all([
+    prisma.customerOutlet.findMany({
+      where: { kodePI },
+      include: { customer: true },
+      orderBy: [{ isFokus: "desc" }, { customer: { namaCustomer: "asc" } }],
+    }),
+    fetchNexusCustomersByOutlet(kodePI),
+  ]);
 
-  return rows.map((r: { isFokus: boolean; customer: { id: string; kodeCustomer: string | null; namaCustomer: string; spesialisasi: string } }) => ({
+  const local: CustomerOption[] = rows.map((r: { isFokus: boolean; customer: { id: string; kodeCustomer: string | null; namaCustomer: string; spesialisasi: string } }) => ({
     id: r.customer.id,
     kodeCustomer: r.customer.kodeCustomer,
     namaCustomer: r.customer.namaCustomer,
     spesialisasi: r.customer.spesialisasi,
     isFokus: r.isFokus,
   }));
+
+  const localKodeSet = new Set(local.map((c) => c.kodeCustomer?.toUpperCase()).filter(Boolean));
+  const localNameSet = new Set(local.map((c) => c.namaCustomer.trim().toUpperCase()));
+
+  const seenNexus = new Set<string>();
+  for (const nc of nexusCustomers) {
+    const alreadyLocal = (nc.vbCode && localKodeSet.has(nc.vbCode.toUpperCase()))
+      || localNameSet.has(nc.namaCustomer.toUpperCase());
+    const dedupeKey = nc.vbCode?.toUpperCase() ?? nc.namaCustomer.toUpperCase();
+    if (alreadyLocal || seenNexus.has(dedupeKey)) continue;
+    seenNexus.add(dedupeKey);
+    local.push({
+      id: `nexus:${nc.vbCode ?? nc.namaCustomer}`,
+      kodeCustomer: nc.vbCode,
+      namaCustomer: nc.namaCustomer,
+      spesialisasi: nc.spesialisasi,
+      isFokus: false,
+    });
+  }
+
+  return local;
 }
 
 export interface KriteriaByOutlet {

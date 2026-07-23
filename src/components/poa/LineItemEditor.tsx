@@ -1501,7 +1501,11 @@ function AddPanel({
     .filter((c) => !spesialisasi || c.spesialisasi === spesialisasi)
     .map((c) => ({
       value: c.id, label: c.namaCustomer,
-      sublabel: [spesLabel(c.spesialisasi), c.isFokus ? "⭐ Rekomendasi PM" : null].filter(Boolean).join(" · "),
+      sublabel: [
+        spesLabel(c.spesialisasi),
+        c.isFokus ? "⭐ Rekomendasi PM" : null,
+        c.id.startsWith("nexus:") ? "Dari Nexus (belum terdaftar lokal)" : null,
+      ].filter(Boolean).join(" · "),
     })), [customerList, spesialisasi]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
@@ -1592,10 +1596,51 @@ function AddPanel({
   // Picking a user directly (search-by-name) is now the primary path — this
   // auto-fills spesialisasi from that user's own record instead of requiring
   // it to be picked first just to unlock the customer search.
-  function handleCustomerChange(val: string) {
-    setCustomerId(val);
+  //
+  // A "nexus:"-prefixed id is a live Nexus-API result with no local Customer
+  // row yet (see getCustomersByOutlet) — materialize it into a real row via
+  // createCustomerAction first, since addLineItemAction needs a real
+  // Customer.id, then swap the synthetic id for the real one everywhere
+  // (customerList so it doesn't re-materialize if picked again, and the
+  // selection itself).
+  async function handleCustomerChange(val: string) {
     const found = customerList.find((c) => c.id === val);
-    if (found) setSpesialisasi(found.spesialisasi);
+    if (!found) { setCustomerId(val); return; }
+
+    if (val.startsWith("nexus:")) {
+      setCustomerId(val);
+      setSpesialisasi(found.spesialisasi);
+      const fd = new FormData();
+      fd.set("namaCustomer", found.namaCustomer);
+      fd.set("spesialisasi", found.spesialisasi);
+      fd.set("kodePI", kodePI);
+      fd.set("kodeCustomer", found.kodeCustomer ?? "");
+      const result = await createCustomerAction(fd);
+      if (result.ok && result.customerId) {
+        const realId = result.customerId;
+        setCustomerList((prev) => prev.map((c) => (c.id === val ? { ...c, id: realId } : c)));
+        setCustomerId(realId);
+      } else {
+        // Most likely: it was materialized locally a moment ago (race) or
+        // already existed under a name/spesialisasi combo our dedup missed —
+        // either way, re-fetch and match by name+spesialisasi to recover the
+        // real id instead of leaving a synthetic, unusable one selected.
+        const refreshed = await getCustomersByOutlet(kodePI);
+        const real = refreshed.find((c) => !c.id.startsWith("nexus:")
+          && c.namaCustomer === found.namaCustomer && c.spesialisasi === found.spesialisasi);
+        setCustomerList(refreshed);
+        if (real) {
+          setCustomerId(real.id);
+        } else {
+          setCustomerId("");
+          setError(result.error ?? "Gagal menyimpan data user dari Nexus.");
+        }
+      }
+      return;
+    }
+
+    setCustomerId(val);
+    setSpesialisasi(found.spesialisasi);
   }
 
   // Now just a narrowing filter on the already-loaded outlet customer list
