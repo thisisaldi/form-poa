@@ -233,6 +233,29 @@ export function canApprove(user: User, poa: PoaForm): boolean {
   );
 }
 
+/** Statuses where a POA is genuinely still awaiting someone's approval. */
+const PENDING_APPROVAL_STATUSES: PoaStatus[] = [
+  PoaStatus.SUBMITTED_TO_ASM,
+  PoaStatus.SUBMITTED_TO_SM,
+  PoaStatus.SUBMITTED_TO_NSM,
+];
+
+/**
+ * NSM-only override: approve a POA straight to fully-approved, regardless of
+ * which stage it's actually at (SUBMITTED_TO_ASM/SM/NSM) and regardless of
+ * who the current holder is — skips ASM/SM review entirely. Unlike
+ * canApprove, this deliberately does NOT check currentHolderId; it only
+ * requires the POA to (a) genuinely be pending somewhere in the chain, not
+ * a draft/already-fully-approved, and (b) be in the NSM's own subtree
+ * (same rule as canView). Business owner, 2026-07-23: "NSM bisa langsung
+ * approve tanpa harus ke ASM atau SM dulu".
+ */
+export async function canFastTrackApprove(user: User, poa: PoaForm): Promise<boolean> {
+  if (user.role !== Role.NSM) return false;
+  if (!PENDING_APPROVAL_STATUSES.includes(poa.status)) return false;
+  return canView(user, poa);
+}
+
 /**
  * Can this user create a new POA?
  *

@@ -3,9 +3,9 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
-import { createPoaDraft, submitPoa, approvePoa, rejectPoa } from "@/lib/poaWorkflow";
+import { createPoaDraft, submitPoa, approvePoa, rejectPoa, fastTrackApprove } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove, canCreatePoa } from "@/lib/authz";
+import { canEdit, canApprove, canCreatePoa, canFastTrackApprove } from "@/lib/authz";
 
 function requireSession() {
   return getCurrentUser().then((session) => {
@@ -85,6 +85,23 @@ export async function approvePoaAction(poaId: string, _formData: FormData): Prom
   if (!canApprove(actor, poa)) redirect(`/poa/${poaId}`);
 
   await approvePoa(poaId, session.userId);
+  redirect(`/poa/${poaId}`);
+}
+
+// NSM-only override — approve straight to fully-approved, skipping ASM/SM
+// review. See canFastTrackApprove/fastTrackApprove for the authorization
+// rule and exact behavior.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function fastTrackApproveAction(poaId: string, _formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canFastTrackApprove(actor, poa))) redirect(`/poa/${poaId}`);
+
+  await fastTrackApprove(poaId, session.userId);
   redirect(`/poa/${poaId}`);
 }
 

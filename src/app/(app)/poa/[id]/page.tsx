@@ -2,8 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove } from "@/lib/authz";
-import { approvePoaAction, rejectPoaAction } from "@/app/actions/poa";
+import { canView, canEdit, canApprove, canFastTrackApprove } from "@/lib/authz";
+import { approvePoaAction, rejectPoaAction, fastTrackApproveAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -78,8 +78,10 @@ export default async function PoaDetailPage({
 
   const userCanEdit = await canEdit(actor, poa);
   const userCanApprove = canApprove(actor, poa);
+  const userCanFastTrack = await canFastTrackApprove(actor, poa);
   const approveWithId = approvePoaAction.bind(null, id);
   const rejectWithId = rejectPoaAction.bind(null, id);
+  const fastTrackWithId = fastTrackApproveAction.bind(null, id);
 
   const isMR = session.role === "MR";
   // Whoever owns this POA drives the submit/checklist UI — normally an MR, but
@@ -273,32 +275,49 @@ export default async function PoaDetailPage({
       />
 
       {/* Actions — approver only (MR submit is inside DraftChecklist) */}
-      {userCanApprove && !isMR && !isFullyApproved && (
+      {(userCanApprove || userCanFastTrack) && !isMR && !isFullyApproved && (
         <Card>
           <CardHeader>
             <CardTitle>Tindakan</CardTitle>
           </CardHeader>
-          <div className="flex gap-3 mb-4">
-            <form action={approveWithId}>
-              <Button type="submit" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
-                Approve &amp; Teruskan
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            {userCanApprove && (
+              <form action={approveWithId}>
+                <Button type="submit" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+                  Approve &amp; Teruskan
+                </Button>
+              </form>
+            )}
+            {userCanFastTrack && poa.status !== "SUBMITTED_TO_NSM" && (
+              <form action={fastTrackWithId}>
+                <Button type="submit" variant="secondary"
+                  style={{ borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning, #f59e0b)" }}>
+                  Approve Langsung (Lewati ASM/SM)
+                </Button>
+              </form>
+            )}
+          </div>
+          {userCanFastTrack && poa.status !== "SUBMITTED_TO_NSM" && (
+            <p className="text-xs -mt-2 mb-4" style={{ color: "var(--color-text-faint)" }}>
+              Sebagai NSM, Anda bisa langsung menyetujui POA ini sampai final tanpa menunggu approval ASM/SM.
+            </p>
+          )}
+          {userCanApprove && (
+            <form action={rejectWithId} className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
+                <textarea
+                  name="reason"
+                  required
+                  rows={2}
+                  placeholder="Jelaskan alasan reject POA ini — MR akan melihat catatan ini di Riwayat Aktivitas…"
+                  className="input-field text-sm" />
+              </label>
+              <Button type="submit" variant="danger">
+                Tolak (kembali ke Revisi)
               </Button>
             </form>
-          </div>
-          <form action={rejectWithId} className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
-              <textarea
-                name="reason"
-                required
-                rows={2}
-                placeholder="Jelaskan alasan reject POA ini — MR akan melihat catatan ini di Riwayat Aktivitas…"
-                className="input-field text-sm" />
-            </label>
-            <Button type="submit" variant="danger">
-              Tolak (kembali ke Revisi)
-            </Button>
-          </form>
+          )}
         </Card>
       )}
 

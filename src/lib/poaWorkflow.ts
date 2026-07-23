@@ -7,7 +7,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove } from "@/lib/authz";
+import { canEdit, canApprove, canFastTrackApprove } from "@/lib/authz";
 import { sendPoaStatusEmail } from "@/lib/notifications";
 import { PoaStatus, AuditAction } from "@prisma/client";
 import type { PoaForm, User } from "@prisma/client";
@@ -229,6 +229,34 @@ export async function approvePoa(
   }
 
   return applyTransition(poaId, actingUserId, transition, poa.status, AuditAction.APPROVE);
+}
+
+/**
+ * NSM-only override — approve straight to APPROVED_BY_NSM regardless of the
+ * POA's current status (SUBMITTED_TO_ASM/SM/NSM) or currentHolderId, skipping
+ * ASM/SM review entirely. See canFastTrackApprove for the authorization rule.
+ * Business owner, 2026-07-23: "NSM bisa langsung approve tanpa harus ke ASM
+ * atau SM dulu".
+ */
+export async function fastTrackApprove(
+  poaId: string,
+  actingUserId: string
+): Promise<PoaForm> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!(await canFastTrackApprove(actingUser, poa))) {
+    throw new Error(`User ${actingUserId} is not authorized to fast-track approve POA ${poaId}`);
+  }
+
+  return applyTransition(
+    poaId,
+    actingUserId,
+    { toStatus: PoaStatus.APPROVED_BY_NSM, nextHolderRole: null },
+    poa.status,
+    AuditAction.APPROVE,
+    "Fast-track approval oleh NSM — melewati ASM/SM"
+  );
 }
 
 /**
