@@ -165,15 +165,38 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       }
     }
 
-    // Get latest period across all MR POAs
+    // Pick the period the team is actually working in — the one with the
+    // most real (non-draft) submissions — rather than just the newest
+    // period string that exists at all. A single MR opening "Buat POA" for
+    // next quarter creates an empty DRAFT stub whose period would otherwise
+    // win via plain "latest period" sorting, silently flipping this whole
+    // panel (and the Export Excel button's default period) to a period
+    // nobody else has touched yet — everyone else then shows BELUM_SUBMIT/0,
+    // looking like a data bug (2026-07-23, reported as "angkanya aneh, 0
+    // semua" for AGUS PRIYONO's NSM export, whose team had exactly one Q4
+    // draft/revisi stub next to a fully-submitted Q3).
     const allMrNips = [...new Set(groupsRaw.flatMap(g => g.mrNips))];
     if (allMrNips.length > 0) {
-      const periodRow = await prisma.poaForm.findFirst({
-        where: { ownerId: { in: allMrNips } },
-        orderBy: { period: "desc" },
-        select: { period: true },
-      });
-      mrProgressPeriod = periodRow?.period ?? null;
+      const submittedByPeriod = await prisma.poaForm.groupBy({
+        by: ["period"],
+        where: { ownerId: { in: allMrNips }, status: { notIn: ["DRAFT", "REVISI"] as PoaStatus[] } },
+        _count: { _all: true },
+      }) as { period: string; _count: { _all: number } }[];
+
+      if (submittedByPeriod.length > 0) {
+        submittedByPeriod.sort((a, b) => b._count._all - a._count._all || (b.period < a.period ? -1 : 1));
+        mrProgressPeriod = submittedByPeriod[0].period;
+      } else {
+        // Nobody has submitted anything anywhere yet — fall back to just
+        // the newest period that exists at all, so the panel still shows
+        // something rather than nothing.
+        const periodRow = await prisma.poaForm.findFirst({
+          where: { ownerId: { in: allMrNips } },
+          orderBy: { period: "desc" },
+          select: { period: true },
+        });
+        mrProgressPeriod = periodRow?.period ?? null;
+      }
 
       if (mrProgressPeriod) {
         const submittedRows = await prisma.poaForm.findMany({
