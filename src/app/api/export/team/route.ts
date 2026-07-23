@@ -15,19 +15,11 @@ import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
-import { computePeriodeAkhir, formatPeriode } from "@/lib/poaUtils";
+import { computePeriodeAkhir } from "@/lib/poaUtils";
 import { spesLabel } from "@/lib/spesialisasi";
 
 const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 const fmtRp = (n: number) => `Rp ${Math.round(n).toLocaleString("id-ID")}`;
-
-function safePeriode(yyyymm: string | null | undefined): string {
-  if (!yyyymm || yyyymm.length < 6) return "—";
-  const year = parseInt(yyyymm.slice(0, 4), 10);
-  const month = parseInt(yyyymm.slice(4, 6), 10);
-  if (isNaN(year) || isNaN(month) || month < 1 || month > 12) return "—";
-  return formatPeriode(yyyymm);
-}
 
 export async function GET(req: NextRequest) {
   const session = await getCurrentUser();
@@ -412,12 +404,14 @@ export async function GET(req: NextRequest) {
     { header: "Nama Outlet",          key: "namaOutlet",       width: 28 },
     { header: "Kode Produk",          key: "kodeProduk",       width: 12 },
     { header: "Nama Produk",          key: "namaProduk",       width: 28 },
+    { header: "Status Produk Fokus",  key: "statusFokus",      width: 16 },
     { header: "Periode Awal",         key: "periodeAwal",      width: 14 },
     { header: "Periode Akhir",        key: "periodeAkhir",     width: 14 },
     { header: "Hari Kerja/Bln",       key: "hariKerja",        width: 14 },
     { header: "Resep/Hari",           key: "resep",            width: 12 },
     { header: "Qty/Resep",            key: "qty",              width: 10 },
     { header: "Estimasi",             key: "estimasi",         width: 18 },
+    { header: "Pengali Nilai R",      key: "pengaliNilaiR",    width: 14 },
     { header: "% PSSP User",          key: "psspDokter",       width: 16 },
     { header: "% Discount",           key: "diskon",           width: 12 },
     { header: "% DP",                 key: "dp",               width: 10 },
@@ -475,12 +469,14 @@ export async function GET(req: NextRequest) {
       spesialisasi: spesLabel(li.spesialisasi),
       kodePI: li.kodePI ?? "—", namaOutlet: li.namaOutlet,
       kodeProduk: li.kodeProduk, namaProduk: li.namaProduk,
-      periodeAwal: safePeriode(li.periodeAwal),
-      periodeAkhir: safePeriode(computePeriodeAkhir(li.periodeAwal, li.lamaPeriode)),
+      statusFokus: getAllPakets(li.namaProduk).length > 0 ? "Y" : "N",
+      periodeAwal: li.periodeAwal,
+      periodeAkhir: computePeriodeAkhir(li.periodeAwal, li.lamaPeriode),
       hariKerja: li.hariKerjaBulan ?? "—",
       resep: li.jumlahResepHari ?? "—",
       qty: li.qtyProdukResep ?? "—",
       estimasi: Math.round(base),
+      pengaliNilaiR: li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1,
       psspDokter: toNum(li.persenPsspDokter) * 100,
       diskon: toNum(li.persenDiskon) * 100,
       dp: toNum(li.persenDp) * 100,
@@ -559,7 +555,7 @@ export async function GET(req: NextRequest) {
       namaUser: r.nmCust ?? "—",
       kodeOutlet: r.kdOutlet ?? "—", namaOutlet: r.nmOutlet ?? "—",
       kodeProduk: r.kdProduk ?? "—", namaProduk: r.nmProduk ?? "—",
-      periodeAwal: safePeriode(r.prdAwal), periodeAkhir: safePeriode(r.prdAkhir),
+      periodeAwal: r.prdAwal, periodeAkhir: r.prdAkhir,
       biaya: Math.round(r.biaya), estBaris: Math.round(r.estBaris), totalLunas: Math.round(r.totalLunas),
       pctLunas: r.estBaris > 0 ? parseFloat(((r.totalLunas / r.estBaris) * 100).toFixed(1)) : 0,
       sisaEstimasi: Math.round(Math.max(r.estBaris - r.totalLunas, 0)),
