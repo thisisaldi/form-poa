@@ -329,6 +329,16 @@ export function StatsPanel({
   const tercacahEstimasiWithAktif = tercacah.estimasi + aktifPssp.estBarisTercacah;
   const tercacahNilaiPsspWithAktif = tercacah.nilaiPssp + aktifPssp.nilaiTercacah;
 
+  // Cakupan User = doctors actually planned in this draft UNION doctors already
+  // under an active PSSP contract — a doctor with a running PSSP but no fresh
+  // line item this quarter still counts as "covered" (2026-07-23). Keyed the
+  // same way as doctorKey() (kodePI|namaCust) so a doctor in both sets isn't
+  // double-counted; ActivePsspRow's kdOutlet/nmCust are the same underlying
+  // Outlet.kodePI / doctor name, just named differently on that type.
+  const draftDoctorKeys = new Set(items.map(doctorKey));
+  const aktifDoctorKeys = new Set(activePssp.map((r) => `${r.kdOutlet ?? ""}|${r.nmCust ?? ""}`));
+  const cakupanUserCount = new Set([...draftDoctorKeys, ...aktifDoctorKeys]).size;
+
   const ratioEst     = targetArea > 0 ? (estimasiDisplay / targetArea) * 100 : 0;
   const salesPlusEst = dummySales.salesYtd + s.estimasiTotal;
   const achievePct   = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
@@ -485,9 +495,9 @@ export function StatsPanel({
         {[
           {
             label: "User",
-            value: selectedDoctorCount,
-            sub: selectedDoctorCount >= 30 ? "min. 30 ✓" : `min. 30 (kurang ${30 - selectedDoctorCount})`,
-            danger: selectedDoctorCount < 30,
+            value: cakupanUserCount,
+            sub: cakupanUserCount >= 30 ? "min. 30 ✓" : `min. 30 (kurang ${30 - cakupanUserCount})`,
+            danger: false,
           },
           {
             label: "Target Produk Fokus ★",
