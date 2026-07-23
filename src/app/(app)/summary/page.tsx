@@ -12,7 +12,7 @@ export const metadata = { title: "Summary · Form POA" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = "reg" | "area" | "sub" | "gt" | "outlet" | "mr";
+type Tab = "outlet" | "produk" | "mr";
 
 interface SalesDummy {
   historis2025: number;
@@ -100,7 +100,7 @@ export default async function SummaryPage({
     ? (await prisma.user.findMany({
         where: { nip: { in: mrNips } },
         orderBy: { name: "asc" },
-      })) as { nip: string; name: string; kodeWilayah: string | null; namaWilayah: string | null }[]
+      })) as { nip: string; name: string }[]
     : [];
 
   const NON_DRAFT = ["APPROVED_BY_ASM", "APPROVED_BY_SM", "APPROVED_BY_NSM"];
@@ -133,15 +133,13 @@ export default async function SummaryPage({
       }[]
     : [];
 
-  // Get outlet territory for line items
+  // Outlet names for the "outlet" tab
   const outletCodes = [...new Set(lineItems.map((li) => li.kodePI).filter(Boolean) as string[])];
   const outletRows = outletCodes.length > 0
-    ? (await prisma.outlet.findMany({ where: { kodePI: { in: outletCodes } } })) as {
-        kodePI: string; namaOutlet: string; kodeGT: string | null; namaGT: string | null;
-        kodeSub: string | null; namaSub: string | null;
-        kodeArea: string | null; namaArea: string | null;
-        kodeReg: string | null; namaReg: string | null;
-      }[]
+    ? (await prisma.outlet.findMany({
+        where: { kodePI: { in: outletCodes } },
+        select: { kodePI: true, namaOutlet: true },
+      })) as { kodePI: string; namaOutlet: string }[]
     : [];
   const outletMap = new Map(outletRows.map((o) => [o.kodePI, o]));
 
@@ -182,25 +180,20 @@ export default async function SummaryPage({
   type TerritoryKey = { code: string; name: string };
 
   function getTerritoryKey(li: typeof lineItems[0]): TerritoryKey {
-    const o = li.kodePI ? outletMap.get(li.kodePI) : null;
-    if (tab === "reg")    return { code: o?.kodeReg  ?? "—", name: o?.namaReg  ?? "Tidak Diketahui" };
-    if (tab === "area")   return { code: o?.kodeArea ?? "—", name: o?.namaArea ?? "Tidak Diketahui" };
-    if (tab === "sub")    return { code: o?.kodeSub  ?? "—", name: o?.namaSub  ?? "Tidak Diketahui" };
-    if (tab === "gt")     return { code: o?.kodeGT   ?? "—", name: o?.namaGT   ?? "Tidak Diketahui" };
-    if (tab === "outlet") return { code: li.kodePI ?? "—", name: o?.namaOutlet ?? "Tidak Diketahui" };
+    if (tab === "outlet") {
+      const o = li.kodePI ? outletMap.get(li.kodePI) : null;
+      return { code: li.kodePI ?? "—", name: o?.namaOutlet ?? "Tidak Diketahui" };
+    }
+    if (tab === "produk") {
+      return { code: li.kodeProduk, name: li.namaProduk };
+    }
     const ownerNip = poaOwnerMap.get(li.poaId) ?? "—";
     const mr = mrUsers.find((u) => u.nip === ownerNip);
     return { code: ownerNip, name: mr?.name ?? ownerNip };
   }
 
-  const allSubordinates = (await prisma.user.findMany({
-    where: { nip: { in: mrNips } },
-  })) as { nip: string; name: string; role: string; kodeWilayah: string | null }[];
-
-  // Fetched unconditionally (not just for non-"mr" tabs) since findPic needs it
-  // for the "outlet" tab too — an outlet's PIC is whichever MR(s) currently
-  // hold that specific MrOutletAssignment, not a kodeWilayah match like the
-  // territory tabs use (a SHADOW-pair outlet can have more than one holder).
+  // An outlet's PIC is whichever MR(s) currently hold that specific
+  // MrOutletAssignment — a SHADOW-pair outlet can have more than one holder.
   const mrOutletRows = mrNips.length > 0
     ? (await prisma.mrOutletAssignment.findMany({
         where: { nipMR: { in: mrNips } },
@@ -224,9 +217,7 @@ export default async function SummaryPage({
       const names = mrNamesByOutlet.get(code);
       return names && names.length > 0 ? names.join(" / ") : "—";
     }
-    const roleForTab = { reg: "SM", area: "ASM", sub: "MR", gt: "MR" }[tab];
-    const user = allSubordinates.find((u) => u.role === roleForTab && u.kodeWilayah === code);
-    return user?.name ?? "—";
+    return "—"; // "produk" tab — no single PIC concept for a product
   }
 
   const groupMap = new Map<string, { key: TerritoryKey; items: typeof lineItems }>();
@@ -246,30 +237,8 @@ export default async function SummaryPage({
     for (const o of mrOutletDetails) {
       if (!groupMap.has(o.kodePI)) groupMap.set(o.kodePI, { key: { code: o.kodePI, name: o.namaOutlet }, items: [] });
     }
-  } else {
-    const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
-    const mrOutletDetails = outletKodesForMR.length > 0
-      ? (await prisma.outlet.findMany({
-          where: { kodePI: { in: outletKodesForMR } },
-          select: { kodePI: true, kodeGT: true, namaGT: true, kodeSub: true, namaSub: true, kodeArea: true, namaArea: true, kodeReg: true, namaReg: true },
-        })) as { kodePI: string; kodeGT: string | null; namaGT: string | null; kodeSub: string | null; namaSub: string | null; kodeArea: string | null; namaArea: string | null; kodeReg: string | null; namaReg: string | null }[]
-      : [];
-    const outletDetailMap = new Map(mrOutletDetails.map((o) => [o.kodePI, o]));
-
-    for (const row of mrOutletRows) {
-      const o = outletDetailMap.get(row.kodePI);
-      if (!o) continue;
-      let code: string | null = null;
-      let name: string | null = null;
-      if (tab === "gt")   { code = o.kodeGT;   name = o.namaGT; }
-      if (tab === "sub")  { code = o.kodeSub;  name = o.namaSub; }
-      if (tab === "area") { code = o.kodeArea; name = o.namaArea; }
-      if (tab === "reg")  { code = o.kodeReg;  name = o.namaReg; }
-      if (code && !groupMap.has(code)) {
-        groupMap.set(code, { key: { code, name: name ?? code }, items: [] });
-      }
-    }
   }
+  // "produk" tab: no pre-seeding — products only appear once actually planned.
 
   for (const li of lineItems) {
     const key = getTerritoryKey(li);
@@ -320,15 +289,12 @@ export default async function SummaryPage({
   // ── Tab labels ────────────────────────────────────────────────────────────
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: "reg",    label: "Region" },
-    { key: "area",   label: "Area" },
-    { key: "sub",    label: "Sub Area" },
-    { key: "gt",     label: "GT" },
     { key: "outlet", label: "Per Outlet" },
-    { key: "mr",     label: "Per MR" },
+    { key: "produk", label: "Per Produk" },
+    { key: "mr",     label: "Per Personil" },
   ];
   const CODE_LABEL: Record<Tab, string> = {
-    reg: "Region", area: "Area", sub: "Sub Area", gt: "GT", outlet: "Outlet", mr: "MR",
+    outlet: "Outlet", produk: "Produk", mr: "Personil",
   };
 
   const monitoringGroups: MonitoringGroup[] = groups.map((g) => ({
