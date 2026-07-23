@@ -708,7 +708,7 @@ function AssignmentTab() {
         </p>
         {error && <p className="text-sm px-3 py-2 rounded-md mb-3" style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>}
         {notice && <p className="text-sm px-3 py-2 rounded-md mb-3" style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}>{notice}</p>}
-        <SearchBox query={query} onQueryChange={setQuery} onSearch={runSearch} searching={searching} placeholder="Cari Kode PI atau nama outlet…" />
+        <SearchBox query={query} onQueryChange={setQuery} onSearch={runSearch} searching={searching} placeholder="Cari Kode PI, nama outlet, NIP, atau nama MR…" />
         <div className="mt-3 divide-y" style={{ borderColor: "var(--color-border)" }}>
           {results.length === 0 && <p className="text-xs py-3" style={{ color: "var(--color-text-faint)" }}>Belum ada hasil pencarian.</p>}
           {results.map((r) => (

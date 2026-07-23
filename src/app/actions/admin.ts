@@ -494,7 +494,11 @@ export interface OutletAssignmentRow {
   assignments: { id: string; nipMR: string; namaMR: string }[];
 }
 
-/** Search outlets by Kode PI or name, with their current-periode MrOutletAssignment(s). */
+/**
+ * Search outlets by Kode PI/name OR by their currently-assigned MR's NIP/name,
+ * with their current-periode MrOutletAssignment(s). Either match surfaces the
+ * outlet — e.g. searching an MR's name finds every outlet they currently hold.
+ */
 export async function searchOutletAssignmentsAction(query: string): Promise<OutletAssignmentRow[]> {
   const authCheck = await requireAdmin();
   if (!authCheck.ok) return [];
@@ -503,11 +507,29 @@ export async function searchOutletAssignmentsAction(query: string): Promise<Outl
   if (!q) return [];
   const periode = currentPeriode();
 
-  const outlets = await prisma.outlet.findMany({
-    where: { OR: [{ kodePI: { contains: q, mode: "insensitive" } }, { namaOutlet: { contains: q, mode: "insensitive" } }] },
-    orderBy: { namaOutlet: "asc" },
-    take: 20,
-  });
+  const [outletsByName, mrMatchedAssignments] = await Promise.all([
+    prisma.outlet.findMany({
+      where: { OR: [{ kodePI: { contains: q, mode: "insensitive" } }, { namaOutlet: { contains: q, mode: "insensitive" } }] },
+      orderBy: { namaOutlet: "asc" },
+      take: 20,
+    }),
+    prisma.mrOutletAssignment.findMany({
+      where: {
+        periode,
+        OR: [{ nipMR: { contains: q, mode: "insensitive" } }, { user: { name: { contains: q, mode: "insensitive" } } }],
+      },
+      select: { kodePI: true },
+      take: 50,
+    }),
+  ]);
+
+  const kodePIsFromMR = [...new Set(mrMatchedAssignments.map((a: { kodePI: string }) => a.kodePI))]
+    .filter((k) => !outletsByName.some((o: { kodePI: string }) => o.kodePI === k));
+  const outletsByMR = kodePIsFromMR.length > 0
+    ? await prisma.outlet.findMany({ where: { kodePI: { in: kodePIsFromMR } } })
+    : [];
+
+  const outlets = [...outletsByName, ...outletsByMR];
   const kodePIs = outlets.map((o: { kodePI: string }) => o.kodePI);
   const assignments = kodePIs.length > 0
     ? await prisma.mrOutletAssignment.findMany({
