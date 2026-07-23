@@ -21,7 +21,7 @@ export interface ComboboxOption {
   tag2Color?: "blue" | "yellow" | "red" | "green" | "orange";
 }
 
-const TAG_COLORS = {
+export const TAG_COLORS = {
   blue: { bg: "var(--color-blue-light)", fg: "var(--color-blue)" },
   yellow: { bg: "var(--color-warning-bg)", fg: "var(--color-warning)" },
   red: { bg: "var(--color-red-light)", fg: "var(--color-red)" },

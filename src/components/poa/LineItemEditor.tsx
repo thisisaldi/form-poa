@@ -12,7 +12,7 @@ import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/po
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
-import { Combobox, type ComboboxOption } from "@/components/ui/Combobox";
+import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
@@ -1319,13 +1319,22 @@ function ProdukFokusPanel({
   spesialisasi,
   produkList,
   products,
+  kriteriaList,
+  psspHistory,
 }: {
   spesialisasi: string;
   produkList: ProdukEntry[];
   products: Product[];
+  /** Same source as the product picker's kriteria badge (low hanging fruit / kompetisi rendah-tinggi). */
+  kriteriaList?: KriteriaByOutlet[];
+  /** Same source as the product picker's "Pernah PSSP" badge. */
+  psspHistory?: PsspKontrakSummary[];
 }) {
   const matchedPakets = getPaketsBySpesialisasi(spesialisasi);
   if (matchedPakets.length === 0) return null;
+
+  const kriteriaMap = new Map<string, { kriteriaBaru: string; kategori: string }>();
+  for (const k of kriteriaList ?? []) kriteriaMap.set(k.kodeProduk, { kriteriaBaru: k.kriteriaBaru, kategori: k.kategori });
 
   const addedKodeProduk = new Set(produkList.map((e) => e.kodeProduk).filter(Boolean));
   const missing = products
@@ -1341,12 +1350,55 @@ function ProdukFokusPanel({
         Produk Fokus PM Belum Diajukan
       </p>
       <ul className="space-y-1.5">
-        {missing.map((p) => (
-          <li key={p.kodeProduk} className="text-xs px-2 py-1.5 rounded"
-            style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" }}>
-            {p.namaProduk}
-          </li>
-        ))}
+        {missing.map((p) => {
+          // Mirrors buildProductOptions' tag/tag2 logic exactly, so this list
+          // shows the same kriteria + PSSP info as the product picker dropdown
+          // (2026-07-23, requested so MRs don't have to open the dropdown just
+          // to see it) — same "kategori text hidden except Low Hanging Fruit"
+          // convention (2026-07-21 business decision), just a colored dot
+          // (title = full text) for Kompetisi Rendah/Tinggi instead.
+          const kriteriaRow = kriteriaMap.get(p.kodeProduk);
+          const kriteria = kriteriaRow?.kriteriaBaru;
+          const isStandarisasi = kriteria?.startsWith("Produk Sudah Terstandarisasi") ?? false;
+          const tagColor: "orange" | "yellow" | "blue" | "red" | undefined = isStandarisasi
+            ? (kriteria?.includes("Tidak Ada Sales") ? "yellow" : "orange")
+            : kriteria?.startsWith("Produk Kompetisi Rendah") ? "blue"
+            : kriteria?.startsWith("Produk Kompetisi Tinggi") ? "red"
+            : undefined;
+
+          const pelunasan3Bln = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
+          const psspLabel = pelunasan3Bln != null ? `Pernah PSSP · Pelunasan 3 Bln ${pelunasan3Bln}%` : "Belum Pernah PSSP";
+          const psspColor: "green" | "yellow" | "red" | null = pelunasan3Bln == null ? null
+            : pelunasan3Bln >= 80 ? "green"
+            : pelunasan3Bln >= 40 ? "yellow"
+            : "red";
+
+          return (
+            <li key={p.kodeProduk} className="text-xs px-2 py-1.5 rounded space-y-1"
+              style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" }}>
+              <div>{p.namaProduk}</div>
+              <div className="flex items-center flex-wrap gap-1.5">
+                {kriteria && (
+                  isStandarisasi ? (
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      style={{ background: TAG_COLORS[tagColor ?? "blue"].bg, color: TAG_COLORS[tagColor ?? "blue"].fg }}>
+                      {kriteria}
+                    </span>
+                  ) : (
+                    <span title={kriteria} className="shrink-0 rounded-full"
+                      style={{ width: 8, height: 8, background: TAG_COLORS[tagColor ?? "blue"].fg }} />
+                  )
+                )}
+                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                  style={psspColor
+                    ? { background: TAG_COLORS[psspColor].bg, color: TAG_COLORS[psspColor].fg }
+                    : { background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
+                  {psspLabel}
+                </span>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -1365,6 +1417,8 @@ function PsspSidebar({
   spesialisasi,
   produkList,
   products,
+  kriteriaList,
+  psspHistory,
 }: {
   kodeCustomer: string;
   /** Currently-selected outlet — narrows the Histori PSSP panel to contracts at this outlet. */
@@ -1375,6 +1429,9 @@ function PsspSidebar({
   spesialisasi?: string;
   produkList?: ProdukEntry[];
   products?: Product[];
+  /** Forwarded into ProdukFokusPanel — same kriteria + PSSP badges as the product picker. */
+  kriteriaList?: KriteriaByOutlet[];
+  psspHistory?: PsspKontrakSummary[];
 }) {
   const [open, setOpen] = useState(true);
   const [label, setLabel] = useState("");
@@ -1442,7 +1499,7 @@ function PsspSidebar({
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
         {spesialisasi && produkList && products && (
-          <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} />
+          <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
         )}
         <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
         <div>
@@ -1511,7 +1568,6 @@ function AddPanel({
       sublabel: [
         spesLabel(c.spesialisasi),
         c.isFokus ? "⭐ Rekomendasi PM" : null,
-        c.id.startsWith("nexus:") ? "Dari Nexus (belum terdaftar lokal)" : null,
       ].filter(Boolean).join(" · "),
     })), [customerList, spesialisasi]);
 
@@ -2004,6 +2060,8 @@ function AddPanel({
           spesialisasi={spesialisasi}
           produkList={produkList}
           products={products}
+          kriteriaList={kriteriaList}
+          psspHistory={psspHistory ?? undefined}
         />
       )}
     </div>
@@ -2354,6 +2412,8 @@ function AddProductPanel({
           spesialisasi={spesialisasi}
           produkList={produkList}
           products={products}
+          kriteriaList={kriteriaList}
+          psspHistory={psspHistory ?? undefined}
         />
       )}
     </div>
@@ -2786,6 +2846,8 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           spesialisasi={spesialisasi}
           produkList={produkList}
           products={products}
+          kriteriaList={kriteriaList}
+          psspHistory={psspHistory ?? undefined}
         />
       )}
     </div>
