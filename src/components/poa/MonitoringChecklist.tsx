@@ -190,7 +190,7 @@ export function MonitoringChecklist({
             label: "Customer per MR",
             value: customer,
             sub: customer >= 30 ? "min. 30 ✓" : `min. 30 (kurang ${30 - customer})`,
-            danger: customer < 30,
+            danger: false,
           },
           { label: "Produk PSSP / MR", value: produkPssp, sub: "variasi × PSSP", danger: false },
           { label: "Total Pengajuan",  value: pengajuan,  sub: "produk × customer", danger: false },
