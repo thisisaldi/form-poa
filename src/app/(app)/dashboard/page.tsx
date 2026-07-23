@@ -185,8 +185,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         }) as { ownerId: string }[];
         const submittedNips = new Set(submittedRows.map(r => r.ownerId));
 
+        // Every direct subordinate shows, even ones with zero MRs under them
+        // (e.g. an ASM whose team is genuinely empty) — previously filtered
+        // out entirely, hiding that the ASM exists with nobody assigned yet.
         mrGroups = groupsRaw
-          .filter(g => g.mrNips.length > 0)
           .map(g => ({
             groupNip: g.nip,
             groupName: g.name,
@@ -280,9 +282,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             {mrGroups.map((g) => {
               const total   = g.mrNips.length;
               const done    = g.submittedNips.size;
+              const isEmpty = total === 0;
               const pct     = total > 0 ? (done / total) * 100 : 0;
-              const allDone = done === total;
-              const noneDone = done === 0;
+              const allDone = !isEmpty && done === total;
+              const noneDone = !isEmpty && done === 0;
               return (
                 <div key={g.groupNip}>
                   <div className="flex items-center justify-between mb-1">
@@ -296,18 +299,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                       </span>
                     </div>
                     <span className="text-sm font-semibold tabular-nums"
-                      style={{ color: allDone ? "var(--color-success, #16a34a)" : noneDone ? "var(--color-danger, #dc2626)" : "var(--color-text)" }}>
-                      {done}/{total}
+                      style={{ color: isEmpty ? "var(--color-text-faint)" : allDone ? "var(--color-success, #16a34a)" : noneDone ? "var(--color-danger, #dc2626)" : "var(--color-text)" }}>
+                      {isEmpty ? "0 MR" : `${done}/${total}`}
                     </span>
                   </div>
                   <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
                     <div className="h-full rounded-full transition-all duration-300"
                       style={{
-                        width: `${pct}%`,
+                        width: isEmpty ? "0%" : `${pct}%`,
                         background: allDone ? "var(--color-success, #16a34a)" : noneDone ? "var(--color-danger, #dc2626)" : "var(--color-blue, #2563eb)",
                       }} />
                   </div>
-                  {!allDone && (
+                  {isEmpty ? (
+                    <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                      Belum ada MR di bawahnya
+                    </p>
+                  ) : !allDone && (
                     <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                       {total - done} MR belum submit
                     </p>
