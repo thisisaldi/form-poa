@@ -91,7 +91,7 @@ function emptyProdukEntry(): ProdukEntry {
     produkKompetitor: "", statusStandarisasi: "", jenisPssp: "",
     // 0 until a product is picked — then populated with dummy defaults / auto-computed from DB
     persenPsspDokter: "", persenPsspKpdm: "0",
-    persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "0",
+    persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "1",
     hariKerjaBulan: "",
     pengaliNilaiR: "",
   };
@@ -678,10 +678,12 @@ function ProdukEntryRow({
                   statusStandarisasi: autoStandarisasi,
                   // % Diskon defaults to the real DiskonKontrak value when one's on file for
                   // this outlet+product+period; 0 when there's no contract on file
-                  // (belum ada sumber data asli utk Listing Fee/Entertain, jadi 0 juga).
+                  // (belum ada sumber data asli utk Listing Fee, jadi 0). % Entertain
+                  // defaults to 1 — no source data either, but 0 read as "field left
+                  // blank/forgotten" in practice, 1 is a deliberate non-zero default.
                   persenDiskon: v && realDiskonPct != null ? realDiskonPct.toFixed(2) : "0",
                   persenListingFee: "0",
-                  persenEntertain: "0",
+                  persenEntertain: "1",
                 });
               }}
               placeholder="Cari produk…"
