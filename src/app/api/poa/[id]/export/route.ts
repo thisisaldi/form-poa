@@ -13,7 +13,7 @@ import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
 import { computePeriodeAkhir } from "@/lib/poaUtils";
 import { getAllPakets } from "@/lib/paketProduk";
-import { getPsspHistory, getActivePsspByOutlets, type PsspKontrakSummary } from "@/app/actions/customer";
+import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, type PsspKontrakSummary } from "@/app/actions/customer";
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
@@ -96,6 +96,7 @@ export async function GET(
   // ─── Active PSSP contracts across the MR's whole outlet territory (mirrors
   // the "PSSP Aktif (Kontrak Berjalan)" card on the Detail POA page) ─────────
   let activePssp: Awaited<ReturnType<typeof getActivePsspByOutlets>> = [];
+  let hospinetSnapshots: Awaited<ReturnType<typeof getHospinetSnapshotsByOutlets>> = [];
   if (!poa.owner.isDummy) {
     const now = new Date();
     const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
@@ -103,7 +104,11 @@ export async function GET(
       where: { nipMR: poa.ownerId, periode },
       select: { kodePI: true },
     });
-    activePssp = await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI));
+    const outletKodePIs = assignments.map((a: { kodePI: string }) => a.kodePI);
+    [activePssp, hospinetSnapshots] = await Promise.all([
+      getActivePsspByOutlets(outletKodePIs),
+      getHospinetSnapshotsByOutlets(outletKodePIs),
+    ]);
   }
 
   // ─── Org hierarchy (MR → ASM → SM → NSM) for the "Pengisian" sheet ────────
@@ -116,6 +121,10 @@ export async function GET(
   const nsm = sm?.nipAtasan
     ? await prisma.user.findUnique({ where: { nip: sm.nipAtasan } })
     : null;
+
+  const hospinetByDoctor = new Map(
+    hospinetSnapshots.map((s) => [`${s.kodePI}|${s.namaCustomer.trim().toUpperCase()}`, s])
+  );
 
   // ─── Batch product master + PSSP history lookups for all line items ──────
   const pengisianItems: PoaLineItem[] = poa.items;
@@ -370,7 +379,12 @@ export async function GET(
     const totals = groupTotals.get(key)!;
 
     const history = item.kodeCust ? psspHistoryMap.get(item.kodeCust) ?? [] : [];
-    const pelunasanPct = computePelunasanPct(history);
+    // Falls back to the Hospinet snapshot's own RR only when there's no
+    // PsspKontrak history at all — mirrors the UI's PsspHistoryPanel, which
+    // shows the Hospinet card as a fallback rather than a duplicate figure
+    // (2026-07-23, requested so Hospinet pelunasan also shows up here).
+    const hospinetPct = hospinetByDoctor.get(`${item.kodePI ?? ""}|${item.namaCust.trim().toUpperCase()}`)?.rr ?? null;
+    const pelunasanPct = history.length > 0 ? computePelunasanPct(history) : hospinetPct;
     const estimasiSebelumnya = computeOldEstPerMonth(history, item.namaProduk);
 
     const hna = product ? parseFloat(product.hna.toString()) : 0;
@@ -500,6 +514,42 @@ export async function GET(
   ["biaya", "estBaris", "totalLunas", "sisaEstimasi"].forEach(k => { psspSheet.getColumn(k).numFmt = RP_FMT; });
   psspSheet.getColumn("pctLunas").numFmt = PCT_FMT;
   if (activePssp.length === 0) psspSheet.addRow(["(Tidak ada kontrak PSSP aktif)"]);
+
+  // ─── Sheet: PSSP Hospinet ────────────────────────────────────────────────
+  // Aggregate-only snapshot for divisions PsspKontrak doesn't cover (see
+  // PsspHospinetSnapshot in schema.prisma) — mirrors the "Data PSSP Hospinet"
+  // card in the POA form, team-wide instead of per-doctor.
+  const hospinetSheet = wb.addWorksheet("PSSP Hospinet");
+  hospinetSheet.columns = [
+    { header: "Kode Outlet", key: "kodeOutlet", width: 12 },
+    { header: "Nama Outlet", key: "namaOutlet", width: 28 },
+    { header: "Nama User", key: "namaUser", width: 28 },
+    { header: "Kode Customer (Hospinet)", key: "kodeCustomer", width: 18 },
+    { header: "Status Customer", key: "statusCustomer", width: 16 },
+    { header: "PSSP Berjalan", key: "psspBerjalan", width: 12 },
+    { header: "Value PSSP", key: "valuePssp", width: 16 },
+    { header: "Pelunasan", key: "pelunasan", width: 16 },
+    { header: "RR", key: "rr", width: 10 },
+  ];
+  hospinetSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+  hospinetSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0063A0" } };
+
+  for (const r of hospinetSnapshots) {
+    hospinetSheet.addRow({
+      kodeOutlet: r.kodePI,
+      namaOutlet: r.namaOutlet ?? "-",
+      namaUser: r.namaCustomer,
+      kodeCustomer: r.kodeCustomer ?? "-",
+      statusCustomer: r.statusCustomer,
+      psspBerjalan: r.psspBerjalan ? "Ya" : "Tidak",
+      valuePssp: r.valuePssp,
+      pelunasan: r.pelunasan,
+      rr: r.rr ?? 0,
+    });
+  }
+  ["valuePssp", "pelunasan"].forEach(k => { hospinetSheet.getColumn(k).numFmt = RP_FMT; });
+  hospinetSheet.getColumn("rr").numFmt = PCT_FMT;
+  if (hospinetSnapshots.length === 0) hospinetSheet.addRow(["(Tidak ada data PSSP Hospinet)"]);
 
   // ─── Sheet 4: Audit Log ──────────────────────────────────────────────────
   const auditSheet = wb.addWorksheet("Audit Log");

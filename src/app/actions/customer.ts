@@ -142,6 +142,51 @@ export async function getPsspHospinetSnapshot(namaCustomer: string, kodePI: stri
   };
 }
 
+export interface HospinetSnapshotRow extends PsspHospinetSnapshotSummary {
+  namaCustomer: string;
+  kodeCustomer: string | null; // Hospinet's own numbering — see PsspHospinetSnapshot.kodeCustomer
+  kodePI: string;
+  namaOutlet: string | null;
+}
+
+/**
+ * Returns every Hospinet PSSP snapshot across a set of outlets — the
+ * aggregate-only counterpart to getActivePsspByOutlets (PsspKontrak), used
+ * for the "PSSP Hospinet" export sheets so managers can see pelunasan for
+ * customers this coarser source covers that PsspKontrak doesn't.
+ */
+export async function getHospinetSnapshotsByOutlets(kodePIs: string[]): Promise<HospinetSnapshotRow[]> {
+  const distinct = [...new Set(kodePIs.filter(Boolean))];
+  if (distinct.length === 0) return [];
+
+  const rows = await prisma.psspHospinetSnapshot.findMany({
+    where: { kodePI: { in: distinct } },
+    include: { customer: { select: { namaCustomer: true } }, outlet: { select: { namaOutlet: true } } },
+  });
+
+  return rows.map((r: {
+    customer: { namaCustomer: string };
+    kodeCustomer: string | null;
+    kodePI: string;
+    outlet: { namaOutlet: string } | null;
+    statusCustomer: string;
+    psspBerjalan: boolean;
+    valuePssp: { toString(): string };
+    pelunasan: { toString(): string };
+    rr: { toString(): string } | null;
+  }) => ({
+    namaCustomer: r.customer.namaCustomer,
+    kodeCustomer: r.kodeCustomer,
+    kodePI: r.kodePI,
+    namaOutlet: r.outlet?.namaOutlet ?? null,
+    statusCustomer: r.statusCustomer,
+    psspBerjalan: r.psspBerjalan,
+    valuePssp: parseFloat(r.valuePssp.toString()) || 0,
+    pelunasan: parseFloat(r.pelunasan.toString()) || 0,
+    rr: r.rr != null ? parseFloat(r.rr.toString()) : null,
+  }));
+}
+
 export interface ActivePsspRow extends PsspKontrakSummary {
   kdCust: string;
   nmCust: string | null;

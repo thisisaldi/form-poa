@@ -1080,6 +1080,12 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
     );
   }
 
+  // A doctor can have BOTH a PsspKontrak history AND a separate Hospinet
+  // snapshot (different divisions/sources) — the snapshot used to only ever
+  // render when contract history was completely empty, silently hiding it
+  // whenever any PsspKontrak row existed at all (2026-07-23 fix, requested
+  // so Hospinet pelunasan shows alongside the regular history, not instead of it).
+
   // Narrow to the outlet currently selected in the form — but fall back to the
   // full history if that would hide everything (e.g. kdOutlet not populated on old rows).
   const filtered = kodePI ? allHistory.filter((r) => r.kdOutlet === kodePI) : allHistory;
@@ -1202,6 +1208,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
           Difilter ke outlet yang lagi dipilih ({filtered.length} dari {allHistory.length} baris)
         </p>
       )}
+      {hospinetSnapshot && <PsspHospinetSnapshotCard snapshot={hospinetSnapshot} />}
       {activeContracts.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-blue)" }}>

@@ -13,7 +13,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
-import { getActivePsspByOutlets } from "@/app/actions/customer";
+import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir, formatPeriode } from "@/lib/poaUtils";
 import { spesLabel } from "@/lib/spesialisasi";
@@ -56,9 +56,10 @@ export async function GET(req: NextRequest) {
       })
     : [];
   const outletToMR = new Map<string, string>(assignments.map((a: { kodePI: string; nipMR: string }) => [a.kodePI, a.nipMR]));
-  const activePsspAll = assignments.length > 0
-    ? await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI))
-    : [];
+  const assignedOutlets = assignments.map((a: { kodePI: string }) => a.kodePI);
+  const [activePsspAll, hospinetSnapshotsAll] = assignedOutlets.length > 0
+    ? await Promise.all([getActivePsspByOutlets(assignedOutlets), getHospinetSnapshotsByOutlets(assignedOutlets)])
+    : [[], []];
 
   // Unlike the web UI's canView (which keeps DRAFT/REVISI private to the MR
   // until submitted), this team rekap includes every status — a manager
@@ -569,6 +570,53 @@ export async function GET(req: NextRequest) {
   shadeAlt(ws4, 1);
 
   if (activePsspAll.length === 0) ws4.addRow(["(Tidak ada kontrak PSSP aktif)"]);
+
+  // ── Sheet 5: PSSP Hospinet ──────────────────────────────────────────────────
+  // Aggregate-only snapshot for divisions PsspKontrak doesn't cover (see
+  // PsspHospinetSnapshot in schema.prisma) — same "PSSP Aktif" pattern, team-wide.
+
+  const ws5 = wb.addWorksheet("PSSP Hospinet");
+  ws5.columns = [
+    { header: "NIP MR",       key: "nipMR",         width: 12 },
+    { header: "Nama MR",      key: "namaMR",        width: 24 },
+    { header: "NIP ASM",      key: "asmNip",        width: 12 },
+    { header: "Nama ASM",     key: "asmName",       width: 24 },
+    { header: "NIP SM",       key: "smNip",         width: 12 },
+    { header: "Nama SM",      key: "smName",        width: 24 },
+    { header: "NIP NSM",      key: "nsmNip",        width: 12 },
+    { header: "Nama NSM",     key: "nsmName",       width: 24 },
+    { header: "Kode Outlet",  key: "kodeOutlet",    width: 12 },
+    { header: "Nama Outlet",  key: "namaOutlet",    width: 28 },
+    { header: "Nama User",    key: "namaUser",      width: 28 },
+    { header: "Kode Customer (Hospinet)", key: "kodeCustomer", width: 18 },
+    { header: "Status Customer", key: "statusCustomer", width: 16 },
+    { header: "PSSP Berjalan", key: "psspBerjalan",  width: 12 },
+    { header: "Value PSSP",   key: "valuePssp",     width: 16 },
+    { header: "Pelunasan",    key: "pelunasan",     width: 16 },
+    { header: "RR",           key: "rr",            width: 10 },
+  ];
+  styleHeader(ws5);
+
+  for (const r of hospinetSnapshotsAll) {
+    const mrNip = outletToMR.get(r.kodePI);
+    const mr = mrNip ? mrRowByNip.get(mrNip) : undefined;
+    ws5.addRow({
+      nipMR: mrNip ?? "—", namaMR: mr?.name ?? "—",
+      asmNip: mr?.asmNip ?? "—", asmName: mr?.asmName ?? "—",
+      smNip: mr?.smNip ?? "—", smName: mr?.smName ?? "—",
+      nsmNip: mr?.nsmNip ?? "—", nsmName: mr?.nsmName ?? "—",
+      kodeOutlet: r.kodePI, namaOutlet: r.namaOutlet ?? "—",
+      namaUser: r.namaCustomer, kodeCustomer: r.kodeCustomer ?? "—",
+      statusCustomer: r.statusCustomer, psspBerjalan: r.psspBerjalan ? "Ya" : "Tidak",
+      valuePssp: Math.round(r.valuePssp), pelunasan: Math.round(r.pelunasan),
+      rr: r.rr != null ? parseFloat((r.rr * 100).toFixed(1)) : 0,
+    });
+  }
+  ["valuePssp", "pelunasan"].forEach(key => { ws5.getColumn(key).numFmt = '#,##0'; });
+  ws5.getColumn("rr").numFmt = '0.0"%"';
+  shadeAlt(ws5, 1);
+
+  if (hospinetSnapshotsAll.length === 0) ws5.addRow(["(Tidak ada data PSSP Hospinet)"]);
 
   // ── Response ─────────────────────────────────────────────────────────────────
 
