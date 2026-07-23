@@ -154,11 +154,21 @@ export async function GET(req: NextRequest) {
   // a live export where an MR with real Q2 AND Q3 submissions showed all
   // zeros because only one of the two was ever surfaced). Fix: don't collapse
   // at all — every non-draft POA gets its own row below, grouped by MR.
+  // "YYYY-Qn" → sortable number (20263, 20262, ...) so an MR with several
+  // periods lists newest-quarter-first within their own block of rows.
+  function periodSortKey(period: string): number {
+    const m = period.match(/^(\d{4})-Q(\d)$/);
+    return m ? parseInt(m[1], 10) * 10 + parseInt(m[2], 10) : 0;
+  }
+
   const poasByMR = new Map<string, typeof poas>();
   for (const p of poas) {
     const list = poasByMR.get(p.ownerId) ?? [];
     list.push(p);
     poasByMR.set(p.ownerId, list);
+  }
+  for (const list of poasByMR.values()) {
+    list.sort((a, b) => periodSortKey(b.period) - periodSortKey(a.period));
   }
 
   const itemsByPoa = new Map<string, typeof lineItems>();
@@ -425,8 +435,15 @@ export async function GET(req: NextRequest) {
     mrRows.filter((r): r is MrRow & { poaId: string } => r.poaId !== null).map(r => [r.poaId, r])
   );
 
+  // Newest quarter first, same as "Per MR" above.
+  const sortedLineItems = [...lineItems].sort((a, b) => {
+    const pa = poaMRMap.get(a.poaId)?.period;
+    const pb = poaMRMap.get(b.poaId)?.period;
+    return periodSortKey(pb ?? "") - periodSortKey(pa ?? "");
+  });
+
   const manualCustomerRows: number[] = [];
-  for (const li of lineItems) {
+  for (const li of sortedLineItems) {
     const mr = poaMRMap.get(li.poaId);
     if (!mr) continue;
 
