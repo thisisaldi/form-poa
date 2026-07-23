@@ -1379,12 +1379,13 @@ function ProdukFokusPanel({
       </p>
       <ul className="space-y-1.5">
         {missing.map((p) => {
-          // Mirrors buildProductOptions' tag/tag2 logic exactly, so this list
-          // shows the same kriteria + PSSP info as the product picker dropdown
-          // (2026-07-23, requested so MRs don't have to open the dropdown just
-          // to see it) — same "kategori text hidden except Low Hanging Fruit"
-          // convention (2026-07-21 business decision), just a colored dot
-          // (title = full text) for Kompetisi Rendah/Tinggi instead.
+          // Same kriteria + PSSP source as the product picker dropdown
+          // (2026-07-23), but shown as full text for every kriteria here —
+          // unlike the dropdown, which deliberately dot-only's Kompetisi
+          // Rendah/Tinggi (2026-07-21 business decision scoped to that
+          // compact picker specifically), this list has room to spell it
+          // out, and hiding it behind a tooltip-only dot made it read as
+          // "missing" (2026-07-23 follow-up).
           const kriteriaRow = kriteriaMap.get(p.kodeProduk);
           const kriteria = kriteriaRow?.kriteriaBaru;
           const isStandarisasi = kriteria?.startsWith("Produk Sudah Terstandarisasi") ?? false;
@@ -1407,15 +1408,10 @@ function ProdukFokusPanel({
               <div>{p.namaProduk}</div>
               <div className="flex items-center flex-wrap gap-1.5">
                 {kriteria && (
-                  isStandarisasi ? (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
-                      style={{ background: TAG_COLORS[tagColor ?? "blue"].bg, color: TAG_COLORS[tagColor ?? "blue"].fg }}>
-                      {kriteria}
-                    </span>
-                  ) : (
-                    <span title={kriteria} className="shrink-0 rounded-full"
-                      style={{ width: 8, height: 8, background: TAG_COLORS[tagColor ?? "blue"].fg }} />
-                  )
+                  <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                    style={{ background: TAG_COLORS[tagColor ?? "blue"].bg, color: TAG_COLORS[tagColor ?? "blue"].fg }}>
+                    {kriteria}
+                  </span>
                 )}
                 <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
                   style={psspColor
