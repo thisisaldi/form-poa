@@ -636,6 +636,14 @@ function ProdukEntryRow({
   // second product change resolving out of order and stomping the newer
   // selection's own competitor data.
   const latestKodeProduk = useRef(entry.kodeProduk);
+  // Text WE last wrote into produkKompetitor via autofill (not the MR) — lets
+  // a subsequent product change tell "still exactly what we auto-filled, safe
+  // to replace" apart from "MR edited/typed it themselves, leave it alone".
+  // Without this, entry.produkKompetitor being non-empty (because OUR OWN
+  // earlier autofill filled it) made every later product change think the MR
+  // had typed something, so the old product's competitor text stuck around
+  // forever (2026-07-24 bug report: "ganti produk... kompetitornya ga keganti").
+  const lastAutoFilledCompetitor = useRef<string | null>(null);
   // Survey's "Potensi / Bulan" for the selected doctor+outlet+product — purely
   // informational, not part of ProdukEntry since it's never submitted.
   const [potensiBulan, setPotensiBulan] = useState<number | null>(null);
@@ -721,20 +729,29 @@ function ProdukEntryRow({
 
                 // Survey info for this doctor+outlet+product (2026-07-23):
                 // auto-suggests "Produk Kompetitor Utama" from History Produk
-                // (only when the field is still empty, so it never overwrites
-                // something the MR already typed) and shows "Potensi / Bulan"
-                // alongside it, read-only.
+                // and shows "Potensi / Bulan" alongside it, read-only.
                 setPotensiBulan(null);
+                // Clear a still-untouched-since-our-own-autofill competitor
+                // text before fetching the new product's — otherwise it just
+                // sits there showing the OLD product's competitors. Leaves a
+                // genuine manual edit (text that differs from what we last
+                // wrote) alone either way.
+                const isOwnAutofill = entry.produkKompetitor && entry.produkKompetitor === lastAutoFilledCompetitor.current;
+                if (isOwnAutofill) onChange({ produkKompetitor: "" });
                 if (v && kodeCustomer && kodePI) {
                   getSurveyRekomendasiInfo(kodeCustomer, kodePI, v).then((info) => {
                     if (latestKodeProduk.current !== v || !info) return;
                     setPotensiBulan(info.potensiBulan);
-                    if (info.kompetitor.length === 0 || entry.produkKompetitor) return;
+                    if (info.kompetitor.length === 0) return;
+                    if (entry.produkKompetitor && !isOwnAutofill) return; // MR typed something — don't clobber it
                     const text = info.kompetitor
                       .map((h) => (h.pct > 0 ? `${h.namaProduk} (${h.pct}%)` : h.namaProduk))
                       .join("; ");
+                    lastAutoFilledCompetitor.current = text;
                     onChange({ produkKompetitor: text });
                   });
+                } else {
+                  lastAutoFilledCompetitor.current = null;
                 }
               }}
               placeholder="Cari produk…"
