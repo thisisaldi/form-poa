@@ -709,6 +709,28 @@ model OutletSalesMonthly {
   @@index([periode])
 }
 
+// Outlet-level (not per-product) monthly Rupiah sales value from
+// mkt_insight.dbo.DIR10001B — feeds the Detail POA page's "Data Sales" card
+// (Historis [tahun lalu] / Sales YTD / Growth YTD), scoped to whichever
+// outlets the viewed POA's MR holds. Deliberately outlet-level only (not
+// per-product like OutletSalesMonthly above) and covers a much wider window
+// (full previous year through current YTD, not just a rolling 12 months) —
+// see outletSalesValueMonthlySync.ts.
+model OutletSalesValueMonthly {
+  id         String   @id @default(uuid())
+  // Not FK'd to Outlet — same as OutletSalesMonthly/OutletSalesHistory above,
+  // this is raw source data and shouldn't reject rows for an outlet our
+  // Outlet table hasn't synced yet.
+  kodePI     String
+  periode    String   // YYYYMM
+  valueSales Decimal  @db.Decimal(18, 2)
+  syncedAt   DateTime
+
+  @@unique([kodePI, periode])
+  @@index([kodePI])
+  @@index([periode])
+}
+
 // Manual policy input ("Tambahan Target" in the source spreadsheet) — the
 // per-month stretch increment an NSM/Admin sets for a product ahead of a
 // quarter. The calculation engine derives everything else from sales data.

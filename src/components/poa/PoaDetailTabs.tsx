@@ -25,7 +25,7 @@ interface FocusProductTarget {
 // full detail on every page load; now only their summary shows in Drafting.
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi,
-  selectable = true, activePssp = [], focusProductTargets,
+  selectable = true, activePssp = [], focusProductTargets, salesSummary,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -39,6 +39,7 @@ export function PoaDetailTabs({
   selectable?: boolean;
   activePssp?: ActivePsspRow[];
   focusProductTargets: FocusProductTarget[];
+  salesSummary?: { historisTahunLalu: number; historisTahunLaluLabel: string; salesYtd: number; growthPct: number };
 }) {
   const [tab, setTab] = useState<TabKey>("drafting");
 
@@ -131,6 +132,7 @@ export function PoaDetailTabs({
               willTriggerRevisi={willTriggerRevisi}
               selectable={selectable}
               activePssp={activePssp}
+              salesSummary={salesSummary}
             />
           )}
         </div>

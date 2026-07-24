@@ -124,7 +124,7 @@ export function ApprovalsChecklist({ pending, activePssp = [] }: {
             selectedDoctorCount={selectedDoctorCount}
             totalDoctorCount={totalDoctorCount}
             targetArea={targetArea}
-            dummySales={dummySales}
+            salesFigures={dummySales}
             quarterMonths={quarterMonths}
           />
         </div>
@@ -162,7 +162,7 @@ export function ApprovalsChecklist({ pending, activePssp = [] }: {
           selectedDoctorCount={selectedDoctorCount}
           totalDoctorCount={totalDoctorCount}
           targetArea={targetArea}
-          dummySales={dummySales}
+          salesFigures={dummySales}
           quarterMonths={quarterMonths}
           activePssp={activePssp}
         />

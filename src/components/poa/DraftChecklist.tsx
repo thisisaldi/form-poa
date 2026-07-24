@@ -92,8 +92,13 @@ function hashSeed(s: string): number {
   return Math.abs(h);
 }
 
-export interface DummySales {
-  historis2025: number;
+// Shared by the real (DraftChecklist, from getMrSalesSummary) and still-dummy
+// (ApprovalsChecklist, bulk multi-MR view — see computeDummySales below)
+// "Data Sales" figures, so StatsPanel renders both without needing to know
+// which one it got.
+export interface SalesFigures {
+  historisTahunLalu: number;
+  historisTahunLaluLabel: string;
   salesYtd: number;
   growthPct: number;
 }
@@ -106,13 +111,21 @@ export function computeDummyTarget(): number {
   return DUMMY_TARGET_AREA;
 }
 
-export function computeDummySales(seed: string, totalEstimasi: number): DummySales {
+// Still dummy — used only by ApprovalsChecklist's bulk multi-POA view, where
+// "the MR's outlets" isn't a single well-defined set the way it is for one
+// POA's own Detail page (see getMrSalesSummary for the real counterpart).
+export function computeDummySales(seed: string, totalEstimasi: number): SalesFigures {
   const h = hashSeed(seed);
   const base = Math.max(totalEstimasi, 5_000_000);
-  const historis2025 = base * (10 + (h % 10));
+  const historisTahunLalu = base * (10 + (h % 10));
   const growthFactor = 0.88 + (h % 25) / 100;
-  const salesYtd = historis2025 * growthFactor * (7 / 12);
-  return { historis2025, salesYtd, growthPct: (growthFactor - 1) * 100 };
+  const salesYtd = historisTahunLalu * growthFactor * (7 / 12);
+  return {
+    historisTahunLalu,
+    historisTahunLaluLabel: String(new Date().getFullYear() - 1),
+    salesYtd,
+    growthPct: (growthFactor - 1) * 100,
+  };
 }
 
 // ─── Stats computation ────────────────────────────────────────────────────────
@@ -299,13 +312,16 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 // ─── Stats Panel ─────────────────────────────────────────────────────────────
 
 export function StatsPanel({
-  items, selectedDoctorCount, totalDoctorCount, targetArea, dummySales, quarterMonths, activePssp = [],
+  items, selectedDoctorCount, totalDoctorCount, targetArea, salesFigures, salesIsReal = false, quarterMonths, activePssp = [],
 }: {
   items: PoaLineItem[];
   selectedDoctorCount: number;
   totalDoctorCount: number;
   targetArea: number;
-  dummySales: DummySales;
+  salesFigures: SalesFigures;
+  /** True when salesFigures came from getMrSalesSummary (real MSSQL-sourced
+   * data) rather than computeDummySales — hides the "data sementara" caveat. */
+  salesIsReal?: boolean;
   quarterMonths: string[];
   /** Still-active PSSP contracts (from earlier POAs) for the doctors currently in view. */
   activePssp?: ActivePsspRow[];
@@ -340,7 +356,7 @@ export function StatsPanel({
   const cakupanUserCount = new Set([...draftDoctorKeys, ...aktifDoctorKeys]).size;
 
   const ratioEst     = targetArea > 0 ? (estimasiDisplay / targetArea) * 100 : 0;
-  const salesPlusEst = dummySales.salesYtd + s.estimasiTotal;
+  const salesPlusEst = salesFigures.salesYtd + s.estimasiTotal;
   const achievePct   = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
 
   const allSelected  = selectedDoctorCount === totalDoctorCount;
@@ -544,14 +560,14 @@ export function StatsPanel({
         )}
       </div>
 
-      {/* ── 5. Data Sales (collapsible, dummy) ── */}
+      {/* ── 5. Data Sales (collapsible) ── */}
       <button
         type="button"
         onClick={() => setSalesOpen((v) => !v)}
         className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
         style={{ background: BG, border: `1px solid ${BORDER}` }}>
         <span className="text-xs" style={{ color: MUTED }}>
-          Data Sales <span style={{ color: FAINT }}>★ data sementara</span>
+          Data Sales {!salesIsReal && <span style={{ color: FAINT }}>★ data sementara</span>}
         </span>
         <span className="text-xs" style={{ color: FAINT }}>{salesOpen ? "▲" : "▼"}</span>
       </button>
@@ -559,10 +575,10 @@ export function StatsPanel({
       {salesOpen && (
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {[
-            { label: "Historis 2025",       value: formatRp(dummySales.historis2025) },
-            { label: "Sales YTD 2026",      value: formatRp(dummySales.salesYtd) },
+            { label: `Historis ${salesFigures.historisTahunLaluLabel}`, value: formatRp(salesFigures.historisTahunLalu) },
+            { label: `Sales YTD ${new Date().getFullYear()}`,           value: formatRp(salesFigures.salesYtd) },
             { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
-            { label: "Growth YTD",          value: `${dummySales.growthPct >= 0 ? "+" : ""}${dummySales.growthPct.toFixed(1)}%`, danger: dummySales.growthPct < 0 },
+            { label: "Growth YTD",          value: `${salesFigures.growthPct >= 0 ? "+" : ""}${salesFigures.growthPct.toFixed(1)}%`, danger: salesFigures.growthPct < 0 },
             { label: "Achievement YTD+Est", value: achievePct > 0 ? `${achievePct.toFixed(1)}%` : "—", danger: achievePct > 0 && achievePct < 100 },
           ].map(({ label, value, danger }) => (
             <div key={label} className="rounded-lg p-2.5"
@@ -571,9 +587,11 @@ export function StatsPanel({
               <p className="text-sm font-semibold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
             </div>
           ))}
-          <p className="col-span-full text-xs mt-1" style={{ color: FAINT }}>
-            ★ Data dummy — akan diganti data aktual.
-          </p>
+          {!salesIsReal && (
+            <p className="col-span-full text-xs mt-1" style={{ color: FAINT }}>
+              ★ Data dummy — akan diganti data aktual.
+            </p>
+          )}
         </div>
       )}
     </Card>
@@ -757,7 +775,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi, selectable = true, activePssp = [] }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi, selectable = true, activePssp = [], salesSummary }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -772,6 +790,10 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   selectable?: boolean;
   /** Still-active PSSP contracts for the doctors on this POA, for the ringkasan. */
   activePssp?: ActivePsspRow[];
+  /** Real "Data Sales" figures from getMrSalesSummary (server-computed, scoped
+   * to this POA's own MR) — absent only if the caller genuinely couldn't
+   * compute it, in which case the card shows zeros rather than a guess. */
+  salesSummary?: SalesFigures;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -822,15 +844,12 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
     setChecked(checked.size === allKeys.length ? new Set() : new Set(allKeys));
   }
 
-  // Stable dummy values (not affected by checklist)
-  const { targetArea, salesDummy } = useMemo(() => {
-    const totalEst = items.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
-    const seed = items.length > 0 ? (items[0].kodePI ?? items[0].namaCust ?? "x") : "x";
-    return {
-      targetArea: computeDummyTarget(),
-      salesDummy: computeDummySales(seed, totalEst),
-    };
-  }, [items]);
+  // targetArea is still a dummy stand-in (not affected by checklist selection);
+  // salesFigures is the real server-computed summary for this POA's MR.
+  const targetArea = useMemo(() => computeDummyTarget(), []);
+  const salesFigures: SalesFigures = salesSummary ?? {
+    historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0,
+  };
 
   const selectedItems = useMemo(
     () => items.filter((it) => checked.has(doctorKey(it))),
@@ -874,7 +893,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
             selectedDoctorCount={checked.size}
             totalDoctorCount={allKeys.length}
             targetArea={targetArea}
-            dummySales={salesDummy}
+            salesFigures={salesFigures}
+            salesIsReal={!!salesSummary}
             quarterMonths={quarterMonths}
             activePssp={activePssp}
           />
@@ -986,7 +1006,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           selectedDoctorCount={checked.size}
           totalDoctorCount={allKeys.length}
           targetArea={targetArea}
-          dummySales={salesDummy}
+          salesFigures={salesFigures}
+          salesIsReal={!!salesSummary}
           quarterMonths={quarterMonths}
           activePssp={activePssp}
         />

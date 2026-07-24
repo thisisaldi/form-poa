@@ -12,6 +12,7 @@ import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
 import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { displayRole } from "@/lib/role";
+import { getMrSalesSummary } from "@/lib/salesSummary";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -108,6 +109,13 @@ export default async function PoaDetailPage({
     });
     activePssp = await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI));
   }
+
+  // "Data Sales" card — real figures (mkt_insight.dbo.DIR10001B, synced into
+  // OutletSalesValueMonthly), scoped to this MR's own outlets. Same dummy-
+  // account exception as PSSP Aktif above.
+  const salesSummary = poa.owner.isDummy
+    ? { historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0 }
+    : await getMrSalesSummary(poa.ownerId);
 
   // Quarterly unit-quantity target per focus product for the MR's SM territory
   // (from the same engine the NSM/Admin "Simulasi Target Produk" page uses) —
@@ -272,6 +280,7 @@ export default async function PoaDetailPage({
         selectable={isOwner}
         activePssp={activePssp}
         focusProductTargets={focusProductTargets}
+        salesSummary={salesSummary}
       />
 
       {/* Actions — approver only (MR submit is inside DraftChecklist) */}
