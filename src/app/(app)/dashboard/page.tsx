@@ -266,7 +266,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           {eligible && (
             <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
           )}
-          {!isMR && (
+          {/* SFE is monitoring-only (2026-07-24) — the full team export goes
+              well past what /summary shows, so it's hidden here too (see
+              matching block in /api/export/team). */}
+          {!isMR && session.role !== "SFE" && (
             <a href={mrProgressPeriod ? `/api/export/team?period=${mrProgressPeriod}` : "/api/export/team"}>
               <Button variant="secondary" size="sm">↓ Export Excel</Button>
             </a>

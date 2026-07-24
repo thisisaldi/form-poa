@@ -16,6 +16,7 @@ enum Role {
   NSM
   GM
   ADMIN
+  SFE
 }
 
 enum PoaStatus {

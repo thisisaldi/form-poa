@@ -37,7 +37,9 @@ const NAV_ITEMS: NavItem[] = [
     href: "/summary",
     label: "Summary",
     icon: <IconChart />,
-    roles: ["ASM", "SM", "NSM", "ADMIN"],
+    // SFE is a monitoring-only role (2026-07-24) — Summary is the only page
+    // besides Dashboard it's allowed to see at all.
+    roles: ["ASM", "SM", "NSM", "ADMIN", "SFE"],
   },
   // PM Dashboard temporarily hidden for all roles — re-add roles to bring it back.
   // {

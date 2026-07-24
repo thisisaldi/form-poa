@@ -80,9 +80,12 @@ async function getSubordinateIdsUnder(managerId: string, depth: number): Promise
 /** Public: returns all MR nips in the subtree of the given user (for monitoring, PM dashboard). */
 export async function getSubordinateMRNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
-  // GM has the same company-wide read-only oversight as ADMIN everywhere
-  // else in this file (see canView/getVisiblePoaFilter) — same here.
-  if (user.role === Role.ADMIN || user.role === Role.GM) {
+  // GM/SFE have the same company-wide read-only oversight as ADMIN everywhere
+  // else in this file (see canView/getVisiblePoaFilter) — same here. SFE is
+  // summary-only (no per-POA drill-down, see canView/getVisiblePoaFilter
+  // default case), but /summary itself needs the full company-wide MR list
+  // to aggregate over (2026-07-24: new SFE role, "hanya monitor summarynya").
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE) {
     const mrs = await prisma.user.findMany({ where: { role: Role.MR, isActive: true }, select: { nip: true } });
     return mrs.map((m: { nip: string }) => m.nip);
   }
@@ -151,6 +154,13 @@ export async function getVisiblePoaFilter(
     case Role.ADMIN:
       // ADMIN sees everything
       return {};
+
+    case Role.SFE:
+      // SFE is monitoring-only (2026-07-24: new role, "hanya monitor
+      // summarynya saja") — no per-POA visibility at all, not even read-only
+      // like GM. They only ever read the aggregate /summary page, which goes
+      // through getSubordinateMRNips (also updated for SFE), not this filter.
+      return { id: "impossible" };
 
     default:
       return { id: "impossible" }; // safe fallback — matches nothing
@@ -286,7 +296,10 @@ export async function canCreatePoa(userId: string): Promise<boolean> {
   // view (which already shows everything company-wide) ever sees it.
   if (user?.role === Role.ADMIN) return true;
 
-  if (subordinateCount === 0 && assignmentCount > 0) return true; // normal MR case
+  // Explicit MR check (not just "no subordinates + has an outlet assignment")
+  // so a role that'll never have subordinates or assignments anyway — like
+  // SFE, which is monitoring-only by design — can't slip through this branch.
+  if (user?.role === Role.MR && subordinateCount === 0 && assignmentCount > 0) return true;
 
   if (user?.role && ([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role)) {
     const coveredCount = await prisma.outlet.count({
