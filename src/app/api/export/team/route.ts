@@ -53,6 +53,30 @@ export async function GET(req: NextRequest) {
     ? await Promise.all([getActivePsspByOutlets(assignedOutlets), getHospinetSnapshotsByOutlets(assignedOutlets)])
     : [[], []];
 
+  // Raw org-structure text per outlet (includes "(VACANT) ..."/"DUMMY ..."
+  // placeholder names for unfilled ASM/SM/NSM positions) — OutletStrukturBaru
+  // is the staging copy of the source file, refreshed wholesale on import,
+  // and unlike the User table it does NOT skip placeholder rows (see
+  // importStrukturVerifiedKAM.ts). Used below as a fallback so a genuinely
+  // vacant level shows its real placeholder label instead of "—" (2026-07-24
+  // request) — the nipAtasan hierarchy chain itself skip-links straight past
+  // vacant levels by design (that's what makes approval-routing skip them),
+  // so it alone can never recover this text.
+  const mrToOutlets = new Map<string, string[]>();
+  for (const a of assignments as { kodePI: string; nipMR: string }[]) {
+    const list = mrToOutlets.get(a.nipMR) ?? [];
+    list.push(a.kodePI);
+    mrToOutlets.set(a.nipMR, list);
+  }
+  type StrukturRow = { kodePI: string; asmNama: string | null; smNama: string | null; nsmNama: string | null };
+  const strukturRows: StrukturRow[] = assignedOutlets.length > 0
+    ? await prisma.outletStrukturBaru.findMany({
+        where: { kodePI: { in: assignedOutlets } },
+        select: { kodePI: true, asmNama: true, smNama: true, nsmNama: true },
+      })
+    : [];
+  const strukturByOutlet = new Map<string, StrukturRow>(strukturRows.map((r) => [r.kodePI, r]));
+
   // Unlike the web UI's canView (which keeps DRAFT/REVISI private to the MR
   // until submitted), this team rekap includes every status — a manager
   // exporting their team's numbers wants to see real in-progress work too,
@@ -121,7 +145,7 @@ export async function GET(req: NextRequest) {
     : [];
   round3Users.forEach(u => hierMap.set(u.nip, u));
 
-  function getAncestors(nipAtasan: string | null) {
+  function getAncestors(nipAtasan: string | null, mrNip?: string) {
     const result = { asmNip: "—", asmName: "—", smNip: "—", smName: "—", nsmNip: "—", nsmName: "—" };
     let cur: string | null = nipAtasan;
     while (cur) {
@@ -131,6 +155,18 @@ export async function GET(req: NextRequest) {
       if (u.role === "SM"  && result.smNip  === "—") { result.smNip  = u.nip; result.smName  = u.name; }
       if (u.role === "NSM" && result.nsmNip === "—") { result.nsmNip = u.nip; result.nsmName = u.name; }
       cur = u.nipAtasan ?? null;
+    }
+    // Fill remaining "—" levels from the raw struktur text at this MR's own
+    // outlet(s) — e.g. "(VACANT) MALANG" instead of a bare dash. First
+    // outlet with a non-blank value for that level wins.
+    if (mrNip) {
+      for (const kodePI of mrToOutlets.get(mrNip) ?? []) {
+        const s = strukturByOutlet.get(kodePI);
+        if (!s) continue;
+        if (result.asmName === "—" && s.asmNama) result.asmName = s.asmNama;
+        if (result.smName === "—" && s.smNama) result.smName = s.smNama;
+        if (result.nsmName === "—" && s.nsmNama) result.nsmName = s.nsmNama;
+      }
     }
     return result;
   }
@@ -185,7 +221,7 @@ export async function GET(req: NextRequest) {
 
   function buildRow(mr: typeof mrUsers[number], poa: typeof poas[number] | null): MrRow {
     const items = poa ? (itemsByPoa.get(poa.id) ?? []) : [];
-    const anc   = getAncestors(mr.nipAtasan);
+    const anc   = getAncestors(mr.nipAtasan, mr.nip);
 
     let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
     const fokusProduk = new Set<string>();
@@ -398,6 +434,7 @@ export async function GET(req: NextRequest) {
     { header: "Periode POA",          key: "periodPoa",        width: 12 },
     { header: "Status Approval",      key: "statusApproval",   width: 22 },
     { header: "Nama Customer",        key: "namaCust",         width: 28 },
+    { header: "Kode Customer",        key: "kodeCust",         width: 14 },
     { header: "Sumber User",          key: "sumberUser",       width: 16 },
     { header: "Spesialisasi",         key: "spesialisasi",     width: 18 },
     { header: "Kode PI",              key: "kodePI",           width: 12 },
@@ -418,9 +455,12 @@ export async function GET(req: NextRequest) {
     { header: "% Listing Fee",        key: "listingFee",       width: 14 },
     { header: "% Entertain",          key: "entertain",        width: 14 },
     { header: "Total Budget",         key: "totalBudget",      width: 18 },
+    { header: "Ratio Budget",         key: "ratioBudget",      width: 14 },
     { header: "Warning Budget",       key: "warningBudget",    width: 20 },
     { header: "Status Standarisasi",  key: "standarisasi",     width: 22 },
     { header: "Produk Kompetitor Utama", key: "kompetitor",    width: 22 },
+    { header: "Total Estimasi (Dokter)", key: "totalEstimasiDokter", width: 20 },
+    { header: "Total Nilai PSSP (Dokter)", key: "totalNilaiPsspDokter", width: 20 },
   ];
   styleHeader(ws3);
 
@@ -436,6 +476,26 @@ export async function GET(req: NextRequest) {
     const pb = poaMRMap.get(b.poaId)?.period;
     return periodSortKey(pb ?? "") - periodSortKey(pa ?? "");
   });
+
+  // Doctor-group totals — same (poaId, kodePI, namaCust) grouping as
+  // LineItemEditor's own doctorKey(), so an MR's multiple products for one
+  // doctor share one total (2026-07-24 request: "harusnya ada [total per
+  // dokter], bukan cuma per produk" — this sheet only ever had per-product
+  // rows before).
+  function doctorKey(li: (typeof lineItems)[number]): string {
+    return `${li.poaId}|${li.kodePI ?? ""}|${li.namaCust}`;
+  }
+  const doctorTotals = new Map<string, { estimasi: number; nilaiPssp: number }>();
+  for (const li of lineItems) {
+    const base = parseFloat(li.rencanaTotalBiaya.toString());
+    const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+    const nilaiPssp = base * toNum(li.persenPsspDokter) * pengaliNilaiR;
+    const key = doctorKey(li);
+    const acc = doctorTotals.get(key) ?? { estimasi: 0, nilaiPssp: 0 };
+    acc.estimasi += base;
+    acc.nilaiPssp += nilaiPssp;
+    doctorTotals.set(key, acc);
+  }
 
   const manualCustomerRows: number[] = [];
   for (const li of sortedLineItems) {
@@ -456,6 +516,7 @@ export async function GET(req: NextRequest) {
         : rowBudgetPct > 0
           ? "Aman (<38%)"
           : "—";
+    const dTotal = doctorTotals.get(doctorKey(li))!;
 
     const row = ws3.addRow({
       nsmNip: mr.nsmNip, nsmName: mr.nsmName,
@@ -465,6 +526,7 @@ export async function GET(req: NextRequest) {
       periodPoa: mr.period ?? "—",
       statusApproval: mr.status.replace(/_/g, " "),
       namaCust: li.namaCust,
+      kodeCust: li.kodeCust ?? "—",
       sumberUser: li.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
       spesialisasi: spesLabel(li.spesialisasi),
       kodePI: li.kodePI ?? "—", namaOutlet: li.namaOutlet,
@@ -483,15 +545,21 @@ export async function GET(req: NextRequest) {
       listingFee: toNum(li.persenListingFee) * 100,
       entertain: toNum(li.persenEntertain) * 100,
       totalBudget: Math.round(rowBudget),
+      ratioBudget: parseFloat(rowBudgetPct.toFixed(2)),
       warningBudget,
       standarisasi: li.statusStandarisasi?.replace(/_/g, " ") ?? "—",
       kompetitor: li.produkKompetitor ?? "—",
+      totalEstimasiDokter: Math.round(dTotal.estimasi),
+      totalNilaiPsspDokter: Math.round(dTotal.nilaiPssp),
     });
     if (li.isManualCustomer) manualCustomerRows.push(row.number);
   }
 
   ws3.getColumn("estimasi").numFmt = '#,##0';
   ws3.getColumn("totalBudget").numFmt = '#,##0';
+  ws3.getColumn("totalEstimasiDokter").numFmt = '#,##0';
+  ws3.getColumn("totalNilaiPsspDokter").numFmt = '#,##0';
+  ws3.getColumn("ratioBudget").numFmt = '0.00"%"';
   ["psspDokter","diskon","dp","listingFee","entertain"].forEach(k => {
     ws3.getColumn(k).numFmt = '0.00"%"';
   });
@@ -509,9 +577,13 @@ export async function GET(req: NextRequest) {
   if (lineItems.length === 0) ws3.addRow(["(Belum ada data pengajuan)"]);
 
   // ── Sheet 4: PSSP Aktif ──────────────────────────────────────────────────────
-  // Every still-running PSSP contract across ALL subordinate MRs' outlet
-  // territories — mirrors the "PSSP Aktif (Kontrak Berjalan)" card on the
-  // Detail POA page, aggregated team-wide instead of per-POA.
+  // Every still-running PSSP contract (PsspKontrak) PLUS every Hospinet
+  // aggregate snapshot, across all subordinate MRs' outlet territories —
+  // one combined sheet (2026-07-24: "kok PSSP Aktif sama PSSP Hospinet
+  // dipisah? disatuin aja") distinguished by a "Sumber" column, since the
+  // two sources have different granularity (Kontrak is per-contract-product,
+  // Hospinet is one aggregate row per customer — no per-product breakdown,
+  // hence "—" in the product/contract columns for those rows).
 
   // Only used for hierarchy names (asm/sm/nsm) below, which are identical across
   // all of an MR's rows regardless of which POA — collapsing duplicates here is safe.
@@ -527,19 +599,23 @@ export async function GET(req: NextRequest) {
     { header: "Nama SM",      key: "smName",        width: 24 },
     { header: "NIP NSM",      key: "nsmNip",        width: 12 },
     { header: "Nama NSM",     key: "nsmName",       width: 24 },
+    { header: "Sumber",       key: "sumber",        width: 14 },
     { header: "No. Kontrak",  key: "cUrut",         width: 14 },
     { header: "Nama User",    key: "namaUser",      width: 28 },
+    { header: "Kode Customer",key: "kodeCustomer",  width: 14 },
     { header: "Kode Outlet",  key: "kodeOutlet",    width: 12 },
     { header: "Nama Outlet",  key: "namaOutlet",    width: 28 },
     { header: "Kode Produk",  key: "kodeProduk",    width: 12 },
     { header: "Nama Produk",  key: "namaProduk",    width: 28 },
     { header: "Periode Awal", key: "periodeAwal",   width: 14 },
     { header: "Periode Akhir",key: "periodeAkhir",  width: 14 },
-    { header: "Biaya (Kontrak)", key: "biaya",      width: 16 },
+    { header: "Biaya / Value PSSP", key: "biaya",   width: 18 },
     { header: "Estimasi Sales",  key: "estBaris",   width: 16 },
-    { header: "Total Lunas",  key: "totalLunas",    width: 16 },
-    { header: "% Lunas",      key: "pctLunas",      width: 12 },
+    { header: "Total Lunas / Pelunasan", key: "totalLunas", width: 18 },
+    { header: "% Lunas / RR", key: "pctLunas",      width: 14 },
     { header: "Sisa Estimasi",key: "sisaEstimasi",  width: 16 },
+    { header: "Status Customer", key: "statusCustomer", width: 16 },
+    { header: "PSSP Berjalan (Hospinet)", key: "psspBerjalan", width: 18 },
   ];
   styleHeader(ws4);
 
@@ -551,68 +627,47 @@ export async function GET(req: NextRequest) {
       asmNip: mr?.asmNip ?? "—", asmName: mr?.asmName ?? "—",
       smNip: mr?.smNip ?? "—", smName: mr?.smName ?? "—",
       nsmNip: mr?.nsmNip ?? "—", nsmName: mr?.nsmName ?? "—",
+      sumber: "PSSP Kontrak",
       cUrut: r.cUrut,
       namaUser: r.nmCust ?? "—",
+      kodeCustomer: r.kdCust ?? "—",
       kodeOutlet: r.kdOutlet ?? "—", namaOutlet: r.nmOutlet ?? "—",
       kodeProduk: r.kdProduk ?? "—", namaProduk: r.nmProduk ?? "—",
       periodeAwal: r.prdAwal, periodeAkhir: r.prdAkhir,
       biaya: Math.round(r.biaya), estBaris: Math.round(r.estBaris), totalLunas: Math.round(r.totalLunas),
       pctLunas: r.estBaris > 0 ? parseFloat(((r.totalLunas / r.estBaris) * 100).toFixed(1)) : 0,
       sisaEstimasi: Math.round(Math.max(r.estBaris - r.totalLunas, 0)),
+      statusCustomer: "—", psspBerjalan: "—",
     });
   }
-  ["biaya", "estBaris", "totalLunas", "sisaEstimasi"].forEach(key => { ws4.getColumn(key).numFmt = '#,##0'; });
-  ws4.getColumn("pctLunas").numFmt = '0.0"%"';
-  shadeAlt(ws4, 1);
-
-  if (activePsspAll.length === 0) ws4.addRow(["(Tidak ada kontrak PSSP aktif)"]);
-
-  // ── Sheet 5: PSSP Hospinet ──────────────────────────────────────────────────
-  // Aggregate-only snapshot for divisions PsspKontrak doesn't cover (see
-  // PsspHospinetSnapshot in schema.prisma) — same "PSSP Aktif" pattern, team-wide.
-
-  const ws5 = wb.addWorksheet("PSSP Hospinet");
-  ws5.columns = [
-    { header: "NIP MR",       key: "nipMR",         width: 12 },
-    { header: "Nama MR",      key: "namaMR",        width: 24 },
-    { header: "NIP ASM",      key: "asmNip",        width: 12 },
-    { header: "Nama ASM",     key: "asmName",       width: 24 },
-    { header: "NIP SM",       key: "smNip",         width: 12 },
-    { header: "Nama SM",      key: "smName",        width: 24 },
-    { header: "NIP NSM",      key: "nsmNip",        width: 12 },
-    { header: "Nama NSM",     key: "nsmName",       width: 24 },
-    { header: "Kode Outlet",  key: "kodeOutlet",    width: 12 },
-    { header: "Nama Outlet",  key: "namaOutlet",    width: 28 },
-    { header: "Nama User",    key: "namaUser",      width: 28 },
-    { header: "Kode Customer (Hospinet)", key: "kodeCustomer", width: 18 },
-    { header: "Status Customer", key: "statusCustomer", width: 16 },
-    { header: "PSSP Berjalan", key: "psspBerjalan",  width: 12 },
-    { header: "Value PSSP",   key: "valuePssp",     width: 16 },
-    { header: "Pelunasan",    key: "pelunasan",     width: 16 },
-    { header: "RR",           key: "rr",            width: 10 },
-  ];
-  styleHeader(ws5);
 
   for (const r of hospinetSnapshotsAll) {
     const mrNip = outletToMR.get(r.kodePI);
     const mr = mrNip ? mrRowByNip.get(mrNip) : undefined;
-    ws5.addRow({
+    ws4.addRow({
       nipMR: mrNip ?? "—", namaMR: mr?.name ?? "—",
       asmNip: mr?.asmNip ?? "—", asmName: mr?.asmName ?? "—",
       smNip: mr?.smNip ?? "—", smName: mr?.smName ?? "—",
       nsmNip: mr?.nsmNip ?? "—", nsmName: mr?.nsmName ?? "—",
+      sumber: "PSSP Hospinet",
+      cUrut: "—",
+      namaUser: r.namaCustomer,
+      kodeCustomer: r.kodeCustomer ?? "—",
       kodeOutlet: r.kodePI, namaOutlet: r.namaOutlet ?? "—",
-      namaUser: r.namaCustomer, kodeCustomer: r.kodeCustomer ?? "—",
+      kodeProduk: "—", namaProduk: "—",
+      periodeAwal: r.periodeAwal ?? "—", periodeAkhir: r.periodeAkhir ?? "—",
+      biaya: Math.round(r.valuePssp), estBaris: "—", totalLunas: Math.round(r.pelunasan),
+      pctLunas: r.rr != null ? parseFloat((r.rr * 100).toFixed(1)) : 0,
+      sisaEstimasi: "—",
       statusCustomer: r.statusCustomer, psspBerjalan: r.psspBerjalan ? "Ya" : "Tidak",
-      valuePssp: Math.round(r.valuePssp), pelunasan: Math.round(r.pelunasan),
-      rr: r.rr != null ? parseFloat((r.rr * 100).toFixed(1)) : 0,
     });
   }
-  ["valuePssp", "pelunasan"].forEach(key => { ws5.getColumn(key).numFmt = '#,##0'; });
-  ws5.getColumn("rr").numFmt = '0.0"%"';
-  shadeAlt(ws5, 1);
 
-  if (hospinetSnapshotsAll.length === 0) ws5.addRow(["(Tidak ada data PSSP Hospinet)"]);
+  ["biaya", "estBaris", "totalLunas", "sisaEstimasi"].forEach(key => { ws4.getColumn(key).numFmt = '#,##0'; });
+  ws4.getColumn("pctLunas").numFmt = '0.0"%"';
+  shadeAlt(ws4, 1);
+
+  if (activePsspAll.length === 0 && hospinetSnapshotsAll.length === 0) ws4.addRow(["(Tidak ada data PSSP aktif)"]);
 
   // ── Response ─────────────────────────────────────────────────────────────────
 

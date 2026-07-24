@@ -147,6 +147,8 @@ export interface HospinetSnapshotRow extends PsspHospinetSnapshotSummary {
   kodeCustomer: string | null; // Hospinet's own numbering — see PsspHospinetSnapshot.kodeCustomer
   kodePI: string;
   namaOutlet: string | null;
+  periodeAwal: string | null;  // YYYYMM
+  periodeAkhir: string | null; // YYYYMM
 }
 
 /**
@@ -171,6 +173,8 @@ export async function getHospinetSnapshotsByOutlets(kodePIs: string[]): Promise<
     outlet: { namaOutlet: string } | null;
     statusCustomer: string;
     psspBerjalan: boolean;
+    periodeAwal: string | null;
+    periodeAkhir: string | null;
     valuePssp: { toString(): string };
     pelunasan: { toString(): string };
     rr: { toString(): string } | null;
@@ -181,6 +185,8 @@ export async function getHospinetSnapshotsByOutlets(kodePIs: string[]): Promise<
     namaOutlet: r.outlet?.namaOutlet ?? null,
     statusCustomer: r.statusCustomer,
     psspBerjalan: r.psspBerjalan,
+    periodeAwal: r.periodeAwal,
+    periodeAkhir: r.periodeAkhir,
     valuePssp: parseFloat(r.valuePssp.toString()) || 0,
     pelunasan: parseFloat(r.pelunasan.toString()) || 0,
     rr: r.rr != null ? parseFloat(r.rr.toString()) : null,
