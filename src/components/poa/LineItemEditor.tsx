@@ -1499,6 +1499,112 @@ function ProdukFokusPanel({
   );
 }
 
+// ─── KriteriaProdukPanel ──────────────────────────────────────────────────────
+// Every product matching one of the 4 product-criteria buckets that used to
+// only show up inline in the picker dropdown (2026-07-24) — Produk Fokus PM,
+// Pernah PSSP, Listing Corporate - Ada Sales, Listing Corporate - Tidak Ada
+// Sales (the general "Low Hanging Fruit" bucket, same kriteriaBaru prefix,
+// see formatKriteriaLabel) — always in that order. Sections aren't mutually
+// exclusive: a product matching more than one criterion appears in each.
+
+function KriteriaSectionList({ items }: {
+  items: { key: string; label: string; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[]
+}) {
+  return (
+    <ul className="space-y-1">
+      {items.map((it) => (
+        <li key={it.key} className="flex items-center justify-between gap-2 text-xs px-2 py-1.5 rounded"
+          style={{ background: "var(--color-bg-subtle)" }}>
+          <span className="truncate" style={{ color: "var(--color-text)" }}>{it.label}</span>
+          {it.badge && (
+            <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+              style={{ background: TAG_COLORS[it.badgeColor ?? "blue"].bg, color: TAG_COLORS[it.badgeColor ?? "blue"].fg }}>
+              {it.badge}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function KriteriaProdukPanel({
+  spesialisasi,
+  products,
+  kriteriaList,
+  psspHistory,
+}: {
+  spesialisasi?: string;
+  products?: Product[];
+  kriteriaList?: KriteriaByOutlet[];
+  psspHistory?: PsspKontrakSummary[];
+}) {
+  if (!products || products.length === 0) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Belum ada data produk.
+      </div>
+    );
+  }
+
+  const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
+  const kriteriaMap = new Map<string, string>();
+  for (const k of kriteriaList ?? []) kriteriaMap.set(k.kodeProduk, k.kriteriaBaru);
+
+  const fokusPM: Product[] = [];
+  const pernahPssp: { p: Product; pct: number }[] = [];
+  const listingSales: Product[] = [];
+  const listingNoSales: Product[] = [];
+
+  for (const p of products) {
+    if (matchedPakets.length > 0 && getProductTier(p.namaProduk, matchedPakets) === 0) fokusPM.push(p);
+
+    const pct = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
+    if (pct != null) pernahPssp.push({ p, pct });
+
+    const kriteria = kriteriaMap.get(p.kodeProduk);
+    if (kriteria?.startsWith("Produk Sudah Terstandarisasi")) {
+      (kriteria.includes("Tidak Ada Sales") ? listingNoSales : listingSales).push(p);
+    }
+  }
+
+  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[] };
+  const allSections: Section[] = [
+    { title: "Produk Fokus PM", color: "blue", items: fokusPM.map((p) => ({ key: p.kodeProduk, label: p.namaProduk })) },
+    {
+      title: "Pernah PSSP", color: "green",
+      items: [...pernahPssp].sort((a, b) => b.pct - a.pct).map(({ p, pct }) => ({
+        key: p.kodeProduk, label: p.namaProduk,
+        badge: `${pct}%`, badgeColor: pct >= 80 ? "green" : pct >= 40 ? "yellow" : "red",
+      })),
+    },
+    { title: "Listing Corporate - Ada Sales", color: "orange", items: listingSales.map((p) => ({ key: p.kodeProduk, label: p.namaProduk })) },
+    { title: "Listing Corporate - Tidak Ada Sales", color: "yellow", items: listingNoSales.map((p) => ({ key: p.kodeProduk, label: p.namaProduk })) },
+  ];
+  const sections = allSections.filter((s) => s.items.length > 0);
+
+  if (sections.length === 0) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Tidak ada produk yang cocok kriteria untuk outlet/spesialisasi ini.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {sections.map((s) => (
+        <div key={s.title}>
+          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: TAG_COLORS[s.color].fg, marginBottom: 6 }}>
+            {s.title} <span style={{ color: "var(--color-text-faint)", fontWeight: 600 }}>({s.items.length})</span>
+          </p>
+          <KriteriaSectionList items={s.items} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── SurveyDataPanel ──────────────────────────────────────────────────────────
 // Every SurveyRekomendasi row for the currently-selected doctor+outlet — unlike
 // the per-product "Potensi (survey)" hint in ProdukEntryRow, this shows the
@@ -1565,17 +1671,19 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
 }
 
 // ─── PsspSidebar ─────────────────────────────────────────────────────────────
-// Two independent fixed right-side panels — "Histori PSSP" (blue) and
-// "Data Survey" (orange, 2026-07-24, full SurveyRekomendasi picture for this
-// doctor). Only one is open at a time: collapsed, both show as a stacked pair
-// of thin vertical tabs; opening either fills the same 300px slot on the
-// right and freezes on scroll (position:fixed). While open, a small pill
-// switcher for BOTH tabs stays visible in the header (2026-07-24 UX fix — Data
-// Survey defaulted to hidden behind Histori PSSP, opening first, with no clue
-// it existed; the switcher makes it discoverable regardless of which is active).
+// Three independent fixed right-side panels — "Data Survey" (orange), "Kriteria
+// Produk" (green, 2026-07-24, full picture of the 4 criteria buckets previously
+// only shown inline in the picker dropdown), and "Histori PSSP" (blue). Only one
+// is open at a time: collapsed, all three show as a stacked set of thin vertical
+// tabs; opening any fills the same 300px slot on the right and freezes on
+// scroll (position:fixed). While open, a small pill switcher for ALL THREE tabs
+// stays visible in the header (2026-07-24 UX fix — Data Survey defaulted to
+// hidden behind Histori PSSP, opening first, with no clue it existed; the
+// switcher makes every tab discoverable regardless of which is active).
 
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_BLUE = "var(--color-blue)";
+const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
 
 function sidebarEdgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -1589,7 +1697,9 @@ function sidebarEdgeTabStyle(color: string): React.CSSProperties {
   };
 }
 
-function SidebarTabSwitcher({ activeTab, onChange }: { activeTab: "survey" | "pssp"; onChange: (tab: "survey" | "pssp") => void }) {
+type SidebarTab = "survey" | "kriteria" | "pssp";
+
+function SidebarTabSwitcher({ activeTab, onChange }: { activeTab: SidebarTab; onChange: (tab: SidebarTab) => void }) {
   function pillStyle(color: string, active: boolean): React.CSSProperties {
     return {
       fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999,
@@ -1599,9 +1709,12 @@ function SidebarTabSwitcher({ activeTab, onChange }: { activeTab: "survey" | "ps
     };
   }
   return (
-    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+    <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
       <button type="button" onClick={() => onChange("survey")} style={pillStyle(SIDEBAR_ORANGE, activeTab === "survey")}>
         Data Survey
+      </button>
+      <button type="button" onClick={() => onChange("kriteria")} style={pillStyle(SIDEBAR_GREEN, activeTab === "kriteria")}>
+        Kriteria Produk
       </button>
       <button type="button" onClick={() => onChange("pssp")} style={pillStyle(SIDEBAR_BLUE, activeTab === "pssp")}>
         Histori PSSP
@@ -1635,7 +1748,7 @@ function PsspSidebar({
   kriteriaList?: KriteriaByOutlet[];
   psspHistory?: PsspKontrakSummary[];
 }) {
-  const [activeTab, setActiveTab] = useState<"survey" | "pssp" | null>("pssp");
+  const [activeTab, setActiveTab] = useState<SidebarTab | null>("pssp");
   const [label, setLabel] = useState("");
 
   function handleLabel(l: string) {
@@ -1648,6 +1761,9 @@ function PsspSidebar({
       <div style={{ position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", zIndex: 40, display: "flex", flexDirection: "column", gap: 4 }}>
         <button type="button" onClick={() => setActiveTab("survey")} style={sidebarEdgeTabStyle(SIDEBAR_ORANGE)}>
           Data Survey
+        </button>
+        <button type="button" onClick={() => setActiveTab("kriteria")} style={sidebarEdgeTabStyle(SIDEBAR_GREEN)}>
+          Kriteria Produk
         </button>
         <button type="button" onClick={() => setActiveTab("pssp")} style={sidebarEdgeTabStyle(SIDEBAR_BLUE)}>
           Histori PSSP
@@ -1692,6 +1808,8 @@ function PsspSidebar({
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
         {activeTab === "survey" ? (
           <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
+        ) : activeTab === "kriteria" ? (
+          <KriteriaProdukPanel spesialisasi={spesialisasi} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
         ) : (
           <>
             {spesialisasi && produkList && products && (
