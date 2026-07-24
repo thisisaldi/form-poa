@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getPsspStatusByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -397,13 +397,14 @@ function periodeAwalFormatError(periodeAwal: string, poaPeriod: string): string 
   return null;
 }
 
-function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError }: {
+function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError }: {
   fields: DokterFields;
   onChange: (patch: Partial<DokterFields>) => void;
   poaPeriod: string;
   periodeAwalError?: boolean;
   hariKerjaBulanError?: boolean;
   lamaPeriodeRequiredError?: boolean;
+  jenisPsSpError?: boolean;
 }) {
   const lamaPeriodeTooLong = fields.lamaPeriode > 12;
   const lamaPeriodeError = lamaPeriodeTooLong || !!lamaPeriodeRequiredError;
@@ -500,17 +501,20 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
               </div>
             </div>
           )}
-          <label className="flex flex-col gap-1 shrink-0" style={{ width: 130 }}>
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>PS / SP<Opt /></span>
-            <select
-              value={fields.jenisPsSp}
-              onChange={(e) => onChange({ jenisPsSp: e.target.value })}
-              className="input-field w-full"
-              style={{ color: fields.jenisPsSp ? "var(--color-text)" : "var(--color-text-faint)" }}>
-              <option value="">Pilih</option>
-              <option value="PS">PS</option>
-              <option value="SP">SP</option>
-            </select>
+          <label className="flex flex-col gap-1 shrink-0" style={{ width: 130 }} {...(jenisPsSpError ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs" style={{ color: jenisPsSpError ? "var(--color-red)" : "var(--color-text-muted)" }}>PS / SP<Req /></span>
+            <div style={jenisPsSpError ? ERR_RING : undefined}>
+              <select
+                value={fields.jenisPsSp}
+                onChange={(e) => onChange({ jenisPsSp: e.target.value })}
+                className="input-field w-full"
+                style={{ color: fields.jenisPsSp ? "var(--color-text)" : "var(--color-text-faint)" }}>
+                <option value="">Pilih</option>
+                <option value="PS">PS</option>
+                <option value="SP">SP</option>
+              </select>
+            </div>
+            {jenisPsSpError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
         </div>
       </div>
@@ -1013,17 +1017,18 @@ function BudgetFieldsRow({
     <div className="space-y-2">
       <div className="grid grid-cols-3 gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-xs flex items-center gap-1 flex-wrap" style={{ color: "var(--color-text-muted)" }}>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pihak PSSP</span>
+          <select
+            value={entry.pihakPssp}
+            onChange={(e) => onChange({ pihakPssp: e.target.value })}
+            className="input-field text-xs">
+            <option value="USER">User</option>
+            <option value="KPDM">KPDM</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
             % PSSP {entry.pihakPssp === "KPDM" ? "KPDM" : "User"} (Nilai R)
-            <select
-              value={entry.pihakPssp}
-              onChange={(e) => onChange({ pihakPssp: e.target.value })}
-              title="Pihak PSSP"
-              className="text-[10px] rounded border"
-              style={{ padding: "1px 2px", borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text-muted)" }}>
-              <option value="USER">User</option>
-              <option value="KPDM">KPDM</option>
-            </select>
           </span>
           <div style={{ opacity: 0.6, cursor: "not-allowed" }}>
             <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
@@ -1592,6 +1597,7 @@ function AddPanel({
   const [spesialisasi, setSpesialisasi] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [customerList, setCustomerList] = useState<CustomerOption[]>([]);
+  const [psspStatusList, setPsspStatusList] = useState<PsspStatusByCustomer[]>([]);
   const [loadingSpec, startLoadSpec] = useTransition();
   const [loadingCust, startLoadCust] = useTransition();
 
@@ -1616,24 +1622,56 @@ function AddPanel({
       label: `${o.kodePI} - ${o.namaOutlet}`,
       sublabel: o.groupRS ?? "NON CHAIN",
     })), [outlets]);
-  // Full static list, independent of outlet — spesialisasi isn't derived from
-  // existing Customer records, so it never comes up empty even at outlets
-  // with no registered users yet (see onAddNewCustomer below for that case).
-  const specOptions = ALL_SPESIALISASI_OPTIONS;
+  // Static list (independent of outlet, so it never comes up empty even
+  // before any user is registered there — see onAddNewCustomer below), but
+  // tagged with how many of this outlet's ALREADY-registered doctors fall
+  // in each spesialisasi, so the MR can tell at a glance which one their
+  // doctor is likely under (2026-07-24 request).
+  const specOptions = useMemo(() => {
+    const counts = new Map<string, number>(); // PM label -> count
+    for (const c of customerList) {
+      const label = spesLabel(c.spesialisasi);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return ALL_SPESIALISASI_OPTIONS.map((o) => {
+      const n = counts.get(o.label) ?? 0;
+      return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined };
+    });
+  }, [customerList]);
   // customerList holds every user at the outlet, any spesialisasi — narrowed
   // to the picked spesialisasi here only as a convenience filter, never a
   // hard requirement, so an MR who doesn't know the spesialisasi can just
   // search the user by name directly (2026-07-23; see handleCustomerChange,
   // which auto-fills spesialisasi from whichever user actually gets picked).
+  const psspStatusByCust = useMemo(
+    () => new Map(psspStatusList.map((s) => [s.kdCust, s])),
+    [psspStatusList]
+  );
+  // Tags each option with PSSP status BEFORE the MR even picks anyone
+  // (2026-07-24 request) — same pelunasan color thresholds as the product
+  // picker's "Pernah PSSP" badge (buildProductOptions above), but sourced
+  // from this doctor's own MOST RECENT contract rather than a 3-month window.
   const customerOptions = useMemo(() => customerList
     .filter((c) => !spesialisasi || c.spesialisasi === spesialisasi)
-    .map((c) => ({
-      value: c.id, label: c.namaCustomer,
-      sublabel: [
-        spesLabel(c.spesialisasi),
-        c.isFokus ? "⭐ Rekomendasi PM" : null,
-      ].filter(Boolean).join(" · "),
-    })), [customerList, spesialisasi]);
+    .map((c) => {
+      const psspStatus = c.kodeCustomer ? psspStatusByCust.get(c.kodeCustomer) : undefined;
+      const pct = psspStatus?.latestPelunasanPct ?? null;
+      const tag2 = psspStatus
+        ? (pct != null ? `Pernah PSSP · Pelunasan Terakhir ${Math.round(pct)}%` : "Pernah PSSP")
+        : undefined;
+      const tag2Color: "green" | "yellow" | "red" | undefined = pct == null ? undefined
+        : pct >= 80 ? "green"
+        : pct >= 40 ? "yellow"
+        : "red";
+      return {
+        value: c.id, label: c.namaCustomer,
+        sublabel: [
+          spesLabel(c.spesialisasi),
+          c.isFokus ? "⭐ Rekomendasi PM" : null,
+        ].filter(Boolean).join(" · "),
+        tag2, tag2Color,
+      };
+    }), [customerList, spesialisasi, psspStatusByCust]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
 
@@ -1703,7 +1741,7 @@ function AddPanel({
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setCustomerList([]); setKriteriaList([]); setSales3Bln([]); setDiskonList([]); setDiskonHistoryList([]);
+    setCustomerList([]); setKriteriaList([]); setSales3Bln([]); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
     if (!val) return;
     startLoadSpec(async () => {
       const [kriteria, sales3BlnData, diskonData, diskonHistoryData] = await Promise.all([
@@ -1718,6 +1756,7 @@ function AddPanel({
       setDiskonHistoryList(diskonHistoryData);
     });
     startLoadCust(async () => setCustomerList(await getCustomersByOutlet(val)));
+    getPsspStatusByOutlet(val).then(setPsspStatusList);
   }
 
   // Picking a user directly (search-by-name) is now the primary path — this
@@ -1825,6 +1864,7 @@ function AddPanel({
     const hasErrors = !kodePI || !spesialisasi || !customerId || !dokterFields.periodeAwal
       || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12
+      || !dokterFields.jenisPsSp
       || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep || !p.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
@@ -1949,6 +1989,7 @@ function AddPanel({
           periodeAwalError={attempted && !dokterFields.periodeAwal}
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
+          jenisPsSpError={attempted && !dokterFields.jenisPsSp}
         />
 
         {/* Products */}
@@ -2147,11 +2188,17 @@ function AddDokterBaruPanel({
   const [kodePI, setKodePI] = useState("");
   const [namaDokter, setNamaDokter] = useState("");
   const [spesialisasi, setSpesialisasi] = useState("");
+  const [customerList, setCustomerList] = useState<CustomerOption[]>([]);
 
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [attempted, setAttempted] = useState(false);
+
+  useEffect(() => {
+    if (!kodePI) return;
+    getCustomersByOutlet(kodePI).then(setCustomerList);
+  }, [kodePI]);
 
   const outletOptions = useMemo(() => [...outlets]
     .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
@@ -2161,7 +2208,20 @@ function AddDokterBaruPanel({
       sublabel: o.groupRS ?? "NON CHAIN",
     })), [outlets]);
 
-  const spesOptions = ALL_SPESIALISASI_OPTIONS;
+  // Tagged with how many of this outlet's already-registered doctors fall in
+  // each spesialisasi — helps catch an accidental duplicate registration
+  // (2026-07-24 request, same as the main "Tambah Rencana POA" picker).
+  const spesOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of customerList) {
+      const label = spesLabel(c.spesialisasi);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return ALL_SPESIALISASI_OPTIONS.map((o) => {
+      const n = counts.get(o.label) ?? 0;
+      return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined };
+    });
+  }, [customerList]);
   const selectedOutlet = outlets.find((o) => o.kodePI === kodePI);
 
   function handleSubmit(e: React.FormEvent) {
@@ -2262,8 +2322,8 @@ function AddDokterBaruPanel({
               className="input-field"
               style={attempted && !spesialisasi ? ERR_RING : undefined}>
               <option value="">— Pilih —</option>
-              {spesOptions.map(({ value, label }) => (
-                <option key={value} value={value}>{label}</option>
+              {spesOptions.map(({ value, label, sublabel }) => (
+                <option key={value} value={value}>{sublabel ? `${label} (${sublabel})` : label}</option>
               ))}
             </select>
             {attempted && !spesialisasi && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
@@ -2361,6 +2421,7 @@ function AddProductPanel({
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
+      || !dokterFields.jenisPsSp
       || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep || !e.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
@@ -2420,6 +2481,7 @@ function AddProductPanel({
           periodeAwalError={attempted && !dokterFields.periodeAwal}
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
+          jenisPsSpError={attempted && !dokterFields.jenisPsSp}
         />
 
         <div>
@@ -2682,6 +2744,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
+      || !dokterFields.jenisPsSp
       || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep || !e.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
@@ -2748,6 +2811,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           periodeAwalError={attempted && !dokterFields.periodeAwal}
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
+          jenisPsSpError={attempted && !dokterFields.jenisPsSp}
         />
 
         <div>

@@ -304,6 +304,60 @@ export async function getActivePsspByCustomers(kodeCustomers: string[]): Promise
   }));
 }
 
+export interface PsspStatusByCustomer {
+  kdCust: string;
+  everPssp: boolean;
+  /** Most recent contract's pelunasan % (0-100) — null only if everPssp is
+   * true but that contract has no est/lunas figures to compute a ratio from. */
+  latestPelunasanPct: number | null;
+  isActive: boolean; // true if that most-recent contract hasn't expired yet
+}
+
+/**
+ * PSSP status per customer at an outlet — "pernah PSSP or not", and their
+ * MOST RECENT contract's pelunasan % (summed across that contract's
+ * products) — used to tag the doctor picker so an MR can see this before
+ * even selecting anyone (2026-07-24 request). Distinct from
+ * computePelunasan3Bln (LineItemEditor.tsx), which is a rolling-3-month
+ * figure scoped to one already-selected doctor.
+ */
+export async function getPsspStatusByOutlet(kodePI: string): Promise<PsspStatusByCustomer[]> {
+  if (!kodePI) return [];
+
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const rows = await prisma.psspKontrak.findMany({
+    where: { kdOutlet: kodePI },
+    orderBy: [{ prdAkhir: "desc" }],
+    select: { kdCust: true, cUrut: true, prdAkhir: true, estBaris: true, totalLunas: true },
+  });
+
+  // Group by customer, then by contract (cUrut) within that customer.
+  const byCustomer = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const list = byCustomer.get(r.kdCust) ?? [];
+    list.push(r);
+    byCustomer.set(r.kdCust, list);
+  }
+
+  const result: PsspStatusByCustomer[] = [];
+  for (const [kdCust, custRows] of byCustomer) {
+    // Rows are already prdAkhir-desc, so the first row's cUrut is the most recent contract.
+    const latestCUrut = custRows[0].cUrut;
+    const latestRows = custRows.filter((r: { cUrut: string }) => r.cUrut === latestCUrut);
+    const est = latestRows.reduce((s: number, r: { estBaris: { toString(): string } | null }) => s + (parseFloat(r.estBaris?.toString() ?? "0") || 0), 0);
+    const lunas = latestRows.reduce((s: number, r: { totalLunas: { toString(): string } | null }) => s + (parseFloat(r.totalLunas?.toString() ?? "0") || 0), 0);
+    result.push({
+      kdCust,
+      everPssp: true,
+      latestPelunasanPct: est > 0 ? (lunas / est) * 100 : null,
+      isActive: custRows[0].prdAkhir >= currentPeriod,
+    });
+  }
+  return result;
+}
+
 export interface ListingFeeKontrakSummary {
   id: string;
   noreq: string;
