@@ -423,6 +423,8 @@ export async function GET(req: NextRequest) {
 
   const ws3 = wb.addWorksheet("Semua Pengajuan");
   ws3.columns = [
+    { header: "Periode POA",          key: "periodPoa",        width: 12 },
+    { header: "Status Approval",      key: "statusApproval",   width: 22 },
     { header: "NIP NSM",              key: "nsmNip",           width: 12 },
     { header: "Nama NSM",             key: "nsmName",          width: 24 },
     { header: "NIP SM",               key: "smNip",            width: 12 },
@@ -431,8 +433,6 @@ export async function GET(req: NextRequest) {
     { header: "Nama ASM",             key: "asmName",          width: 24 },
     { header: "NIP MR",               key: "nipMR",            width: 12 },
     { header: "Nama MR",              key: "namaMR",           width: 24 },
-    { header: "Periode POA",          key: "periodPoa",        width: 12 },
-    { header: "Status Approval",      key: "statusApproval",   width: 22 },
     { header: "Nama Customer",        key: "namaCust",         width: 28 },
     { header: "Kode Customer",        key: "kodeCust",         width: 14 },
     { header: "Sumber User",          key: "sumberUser",       width: 16 },
