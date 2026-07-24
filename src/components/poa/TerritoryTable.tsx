@@ -14,7 +14,7 @@ function formatRp(n: number) {
  * (2026-07-23: the whole point of "bisa lihat per outlet, per personil" is
  * seeing the individual rows, not just one aggregate card).
  */
-export function TerritoryTable({ groups, codeLabel }: { groups: MonitoringGroup[]; codeLabel: string }) {
+export function TerritoryTable({ groups, codeLabel, showRealisasi = false }: { groups: MonitoringGroup[]; codeLabel: string; showRealisasi?: boolean }) {
   if (groups.length === 0) {
     return (
       <Card>
@@ -34,6 +34,12 @@ export function TerritoryTable({ groups, codeLabel }: { groups: MonitoringGroup[
               <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>{codeLabel}</th>
               <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>PIC</th>
               <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Estimasi</th>
+              {showRealisasi && (
+                <>
+                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Realisasi Sebelumnya</th>
+                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Gap</th>
+                </>
+              )}
               <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Customer</th>
               <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Produk Fokus</th>
               <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Pengajuan</th>
@@ -55,6 +61,17 @@ export function TerritoryTable({ groups, codeLabel }: { groups: MonitoringGroup[
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     {g.estimasi > 0 ? formatRp(g.estimasi) : "—"}
                   </td>
+                  {showRealisasi && (
+                    <>
+                      <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                        {g.realisasi > 0 ? formatRp(g.realisasi) : "—"}
+                      </td>
+                      <td className="py-2 px-3 text-right whitespace-nowrap"
+                        style={{ color: g.gapVsRealisasi > 0 ? "var(--color-danger, #dc2626)" : "var(--color-text-muted)" }}>
+                        {g.gapVsRealisasi !== 0 ? formatRp(g.gapVsRealisasi) : "—"}
+                      </td>
+                    </>
+                  )}
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.customer}</td>
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.variasiProdukFokus}</td>
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.pengajuan}</td>

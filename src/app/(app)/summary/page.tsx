@@ -13,7 +13,7 @@ export const metadata = { title: "Summary · Form POA" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = "outlet" | "produk" | "mr";
+type Tab = "outlet" | "customer" | "produk" | "mr";
 
 interface SalesDummy {
   historis2025: number;
@@ -40,6 +40,8 @@ interface TerritoryGroup {
   discountTotal: number;
   entertainTotal: number;
   budgetTotal: number;
+  realisasi: number;
+  gapVsRealisasi: number;
   sales: SalesDummy;
 }
 
@@ -112,6 +114,7 @@ export default async function SummaryPage({
     ? (await prisma.poaLineItem.findMany({ where: { poaId: { in: poaIds } } })) as {
         poaId: string;
         kodePI: string | null;
+        kodeCust: string | null;
         namaCust: string;
         namaProduk: string;
         kodeProduk: string;
@@ -135,6 +138,24 @@ export default async function SummaryPage({
       })) as { kodePI: string; namaOutlet: string }[]
     : [];
   const outletMap = new Map(outletRows.map((o) => [o.kodePI, o]));
+
+  // Realisasi sebelumnya — every PSSP kontrak (running or already finished;
+  // PsspKontrak has no separate "active" flag, prdAkhir in the past just
+  // means it's done) aggregated by outlet and by customer, so the "outlet"
+  // and "customer" tabs can be sorted by gap = estimasi sekarang - realisasi
+  // sebelumnya (2026-07-24 request: surface "dulu jelek kok estimasinya
+  // tinggi sekarang" outlets/customers at the top instead of by raw estimasi).
+  const custCodes = [...new Set(lineItems.map((li) => li.kodeCust).filter(Boolean) as string[])];
+  const [realisasiByOutletRaw, realisasiByCustRaw] = await Promise.all([
+    outletCodes.length > 0
+      ? prisma.psspKontrak.groupBy({ by: ["kdOutlet"], where: { kdOutlet: { in: outletCodes } }, _sum: { totalLunas: true } })
+      : Promise.resolve([]),
+    custCodes.length > 0
+      ? prisma.psspKontrak.groupBy({ by: ["kdCust"], where: { kdCust: { in: custCodes } }, _sum: { totalLunas: true } })
+      : Promise.resolve([]),
+  ]) as [{ kdOutlet: string | null; _sum: { totalLunas: { toString(): string } | null } }[], { kdCust: string; _sum: { totalLunas: { toString(): string } | null } }[]];
+  const realisasiByOutlet = new Map(realisasiByOutletRaw.filter((r) => r.kdOutlet).map((r) => [r.kdOutlet as string, toNum(r._sum.totalLunas)]));
+  const realisasiByCust = new Map(realisasiByCustRaw.map((r) => [r.kdCust, toNum(r._sum.totalLunas)]));
 
   // Build poa→owner map
   const poaOwnerMap = new Map(poas.map((p) => [p.id, p.ownerId]));
@@ -179,6 +200,9 @@ export default async function SummaryPage({
     }
     if (tab === "produk") {
       return { code: li.kodeProduk, name: li.namaProduk };
+    }
+    if (tab === "customer") {
+      return { code: li.kodeCust ?? `no-code:${li.namaCust}`, name: li.namaCust };
     }
     const ownerNip = poaOwnerMap.get(li.poaId) ?? "—";
     const mr = mrUsers.find((u) => u.nip === ownerNip);
@@ -257,6 +281,9 @@ export default async function SummaryPage({
       }
       const terstandarisasi = items.filter((li) => li.statusStandarisasi === "SUDAH_STANDARISASI").length;
       const prosesStandar   = items.filter((li) => li.statusStandarisasi === "PROSES_PENGAJUAN").length;
+      const realisasi = tab === "outlet" ? (realisasiByOutlet.get(key.code) ?? 0)
+        : tab === "customer" ? (realisasiByCust.get(key.code) ?? 0)
+        : 0;
       return {
         code: key.code,
         name: key.name,
@@ -274,20 +301,28 @@ export default async function SummaryPage({
         discountTotal,
         entertainTotal,
         budgetTotal: psspTotal + discountTotal + entertainTotal,
+        realisasi,
+        gapVsRealisasi: estimasi - realisasi,
         sales: dummySales(key.code, estimasi),
       };
     })
-    .sort((a, b) => b.estimasi - a.estimasi);
+    // "outlet"/"customer": biggest gap between current estimasi and prior
+    // realisasi first — flags "dulu jelek kok estimasinya tinggi sekarang".
+    // Other tabs have no realisasi concept, so they keep the old estimasi sort.
+    .sort((a, b) => (tab === "outlet" || tab === "customer")
+      ? b.gapVsRealisasi - a.gapVsRealisasi
+      : b.estimasi - a.estimasi);
 
   // ── Tab labels ────────────────────────────────────────────────────────────
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: "outlet", label: "Per Outlet" },
-    { key: "produk", label: "Per Produk" },
-    { key: "mr",     label: "Per Personil" },
+    { key: "outlet",   label: "Per Outlet" },
+    { key: "customer", label: "Per Customer" },
+    { key: "produk",   label: "Per Produk" },
+    { key: "mr",       label: "Per Personil" },
   ];
   const CODE_LABEL: Record<Tab, string> = {
-    outlet: "Outlet", produk: "Produk", mr: "Personil",
+    outlet: "Outlet", customer: "Customer", produk: "Produk", mr: "Personil",
   };
 
   const monitoringGroups: MonitoringGroup[] = groups.map((g) => ({
@@ -307,6 +342,8 @@ export default async function SummaryPage({
     discountTotal: g.discountTotal,
     entertainTotal: g.entertainTotal,
     budgetTotal: g.budgetTotal,
+    realisasi: g.realisasi,
+    gapVsRealisasi: g.gapVsRealisasi,
     historis2025: g.sales.historis2025,
     salesYtd: g.sales.salesYtd,
     salesPlusEst: g.sales.salesPlusEst,
@@ -369,7 +406,7 @@ export default async function SummaryPage({
 
       {/* Per-row breakdown for the active tab — Ringkasan above only shows the
           grand total, this is what actually differs between tabs. */}
-      <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} />
+      <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} />
     </div>
   );
 }

@@ -561,6 +561,23 @@ export interface SurveyRekomendasiInfo {
   potensiBulan: number | null;
 }
 
+// Shared by getSurveyRekomendasiInfo (single row) and getSurveyRekomendasiByOutlet
+// (all rows) — parses the raw "PRODUCT NAME (XX.X%); ..." string and drops
+// entries that are actually our own products (see brandRoot() above).
+function parseKompetitorHistory(historyProduk: string, pharosRoots: Set<string>): KompetitorHistoryEntry[] {
+  const entries: KompetitorHistoryEntry[] = historyProduk.split(";").map((s: string) => {
+    const trimmed = s.trim();
+    const m = trimmed.match(/^(.*)\((\d+(?:\.\d+)?)%\)\s*$/);
+    return m ? { namaProduk: m[1].trim(), pct: parseFloat(m[2]) } : { namaProduk: trimmed, pct: 0 };
+  }).filter((e: KompetitorHistoryEntry) => e.namaProduk);
+  return entries.filter((e) => !pharosRoots.has(brandRoot(e.namaProduk)));
+}
+
+async function getPharosRoots(): Promise<Set<string>> {
+  const products = await prisma.product.findMany({ select: { namaProduk: true } });
+  return new Set(products.map((p: { namaProduk: string }) => brandRoot(p.namaProduk)));
+}
+
 /**
  * Returns SurveyRekomendasi info for one specific (doctor, outlet,
  * recommended product) — used to auto-suggest "Produk Kompetitor Utama" and
@@ -579,19 +596,48 @@ export async function getSurveyRekomendasiInfo(
   });
   if (!row) return null;
 
-  const entries: KompetitorHistoryEntry[] = row.historyProduk.split(";").map((s: string) => {
-    const trimmed = s.trim();
-    const m = trimmed.match(/^(.*)\((\d+(?:\.\d+)?)%\)\s*$/);
-    return m ? { namaProduk: m[1].trim(), pct: parseFloat(m[2]) } : { namaProduk: trimmed, pct: 0 };
-  }).filter((e: KompetitorHistoryEntry) => e.namaProduk);
-
-  const products = await prisma.product.findMany({ select: { namaProduk: true } });
-  const pharosRoots = new Set(products.map((p: { namaProduk: string }) => brandRoot(p.namaProduk)));
+  const pharosRoots = await getPharosRoots();
 
   return {
-    kompetitor: entries.filter((e) => !pharosRoots.has(brandRoot(e.namaProduk))),
+    kompetitor: parseKompetitorHistory(row.historyProduk, pharosRoots),
     potensiBulan: row.potensiBulan != null ? parseFloat(row.potensiBulan.toString()) : null,
   };
+}
+
+export interface SurveyRekomendasiRow {
+  kodeProduk: string;
+  namaProdukRekomendasi: string;
+  kompetitor: KompetitorHistoryEntry[];
+  potensiBulan: number | null;
+}
+
+/**
+ * Returns every SurveyRekomendasi row for one (doctor, outlet) — the full
+ * set of recommended products, unlike getSurveyRekomendasiInfo() above which
+ * is narrowed to whatever product is currently selected in the POA form.
+ * Powers the "Data Survey" sidebar tab (2026-07-24) so an MR can see the
+ * complete survey picture for this doctor, not just the current row's product.
+ */
+export async function getSurveyRekomendasiByOutlet(
+  kodeCustomer: string, kodePI: string
+): Promise<SurveyRekomendasiRow[]> {
+  if (!kodeCustomer || !kodePI) return [];
+
+  const rows = await prisma.surveyRekomendasi.findMany({
+    where: { kodePI, kodeCustomer },
+    select: { kodeProduk: true, namaProdukRekomendasi: true, historyProduk: true, potensiBulan: true },
+    orderBy: { namaProdukRekomendasi: "asc" },
+  });
+  if (rows.length === 0) return [];
+
+  const pharosRoots = await getPharosRoots();
+
+  return rows.map((r: { kodeProduk: string; namaProdukRekomendasi: string; historyProduk: string; potensiBulan: { toString(): string } | null }) => ({
+    kodeProduk: r.kodeProduk,
+    namaProdukRekomendasi: r.namaProdukRekomendasi,
+    kompetitor: parseKompetitorHistory(r.historyProduk, pharosRoots),
+    potensiBulan: r.potensiBulan != null ? parseFloat(r.potensiBulan.toString()) : null,
+  }));
 }
 
 export interface Sales3BlnByProduct {

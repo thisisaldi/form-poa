@@ -26,6 +26,8 @@ export interface MonitoringGroup {
   discountTotal: number;
   entertainTotal: number;
   budgetTotal: number;
+  realisasi: number;
+  gapVsRealisasi: number;
   historis2025: number;
   salesYtd: number;
   salesPlusEst: number;

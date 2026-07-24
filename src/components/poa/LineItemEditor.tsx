@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getPsspStatusByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
@@ -1499,9 +1499,87 @@ function ProdukFokusPanel({
   );
 }
 
+// ─── SurveyDataPanel ──────────────────────────────────────────────────────────
+// Every SurveyRekomendasi row for the currently-selected doctor+outlet — unlike
+// the per-product "Potensi (survey)" hint in ProdukEntryRow, this shows the
+// full set of recommended products (2026-07-24), each with its own competitor
+// history and potential.
+
+function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodePI?: string }) {
+  const [rows, setRows] = useState<SurveyRekomendasiRow[] | null>(null);
+  const [loading, startLoad] = useTransition();
+
+  useEffect(() => {
+    startLoad(async () => {
+      if (!kodeCustomer || !kodePI) { setRows([]); return; }
+      setRows(await getSurveyRekomendasiByOutlet(kodeCustomer, kodePI));
+    });
+  }, [kodeCustomer, kodePI]);
+
+  if (loading || rows === null) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Memuat data survey…
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Tidak ada data survey untuk dokter ini.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        {rows.length} produk direkomendasikan survey untuk dokter ini.
+      </p>
+      {rows.map((r) => (
+        <div key={r.kodeProduk} className="rounded-lg border px-3 py-2 space-y-1.5"
+          style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+          <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProdukRekomendasi}</div>
+          {r.potensiBulan != null && (
+            <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              Potensi: <strong style={{ color: "var(--color-text-muted)" }}>{r.potensiBulan}</strong> / bulan
+            </div>
+          )}
+          {r.kompetitor.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {r.kompetitor.map((k, i) => (
+                <span key={i} className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                  style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
+                  {k.namaProduk}{k.pct > 0 ? ` (${k.pct}%)` : ""}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Tidak ada kompetitor tercatat.</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── PsspSidebar ─────────────────────────────────────────────────────────────
-// Fixed right-side panel showing PSSP history for the currently-selected doctor.
-// Freezes on scroll (position:fixed), collapsible to a thin tab.
+// Two independent fixed right-side panels — "Histori PSSP" (unchanged) and
+// "Data Survey" (2026-07-24, full SurveyRekomendasi picture for this doctor).
+// Only one is open at a time: collapsed, both show as a stacked pair of thin
+// vertical tabs ("Data Survey" above "Histori PSSP"); opening either fills the
+// same 300px slot on the right and freezes on scroll (position:fixed).
+
+const SIDEBAR_TAB_STYLE: React.CSSProperties = {
+  display: "flex", flexDirection: "column", alignItems: "center",
+  padding: "18px 10px", gap: 2,
+  background: "var(--color-blue)",
+  border: "1px solid var(--color-blue)", borderRight: "none",
+  borderRadius: "8px 0 0 8px",
+  color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+  writingMode: "vertical-rl", letterSpacing: "0.05em",
+};
 
 function PsspSidebar({
   kodeCustomer,
@@ -1528,7 +1606,7 @@ function PsspSidebar({
   kriteriaList?: KriteriaByOutlet[];
   psspHistory?: PsspKontrakSummary[];
 }) {
-  const [open, setOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<"survey" | "pssp" | null>("pssp");
   const [label, setLabel] = useState("");
 
   function handleLabel(l: string) {
@@ -1536,21 +1614,13 @@ function PsspSidebar({
     onLabel?.(l);
   }
 
-  if (!open) {
+  if (activeTab === null) {
     return (
-      <div style={{ position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", zIndex: 40 }}>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          style={{
-            display: "flex", flexDirection: "column", alignItems: "center",
-            padding: "18px 10px", gap: 2,
-            background: "var(--color-blue)",
-            border: "1px solid var(--color-blue)", borderRight: "none",
-            borderRadius: "8px 0 0 8px",
-            color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-            writingMode: "vertical-rl", letterSpacing: "0.05em",
-          }}>
+      <div style={{ position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", zIndex: 40, display: "flex", flexDirection: "column", gap: 4 }}>
+        <button type="button" onClick={() => setActiveTab("survey")} style={SIDEBAR_TAB_STYLE}>
+          Data Survey
+        </button>
+        <button type="button" onClick={() => setActiveTab("pssp")} style={SIDEBAR_TAB_STYLE}>
           Histori PSSP
         </button>
       </div>
@@ -1574,18 +1644,18 @@ function PsspSidebar({
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)" }}>
-            Histori PSSP
+            {activeTab === "survey" ? "Data Survey" : "Histori PSSP"}
           </p>
           {doctorName && (
             <p className="truncate" style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginTop: 1 }}>
               {doctorName}
             </p>
           )}
-          {label && <div style={{ marginTop: 4 }}><LabelCustomerBadge label={label} /></div>}
+          {activeTab === "pssp" && label && <div style={{ marginTop: 4 }}><LabelCustomerBadge label={label} /></div>}
         </div>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={() => setActiveTab(null)}
           style={{ color: "var(--color-text-faint)", fontSize: 18, lineHeight: 1, padding: "0 2px", cursor: "pointer", flexShrink: 0 }}>
           ›
         </button>
@@ -1593,16 +1663,22 @@ function PsspSidebar({
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
-        {spesialisasi && produkList && products && (
-          <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
+        {activeTab === "survey" ? (
+          <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
+        ) : (
+          <>
+            {spesialisasi && produkList && products && (
+              <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
+            )}
+            <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
+                Histori Listing Fee
+              </p>
+              <ListingFeeHistoryPanel kodeCustomer={kodeCustomer} />
+            </div>
+          </>
         )}
-        <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
-        <div>
-          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
-            Histori Listing Fee
-          </p>
-          <ListingFeeHistoryPanel kodeCustomer={kodeCustomer} />
-        </div>
       </div>
     </div>
   );
