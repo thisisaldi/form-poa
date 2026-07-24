@@ -58,8 +58,10 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
   const { prisma } = await import("@/lib/prisma");
 
   // Dummy (workshop/demo) accounts can pick from every outlet, not just assigned ones.
+  // ADMIN gets the same treatment (2026-07-24, testing-only POAs — see canCreatePoa
+  // in authz.ts) — an admin has no MrOutletAssignment/coveredBy rows of their own.
   const user = await prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true, role: true } });
-  if (user?.isDummy) return getCustomers();
+  if (user?.isDummy || user?.role === "ADMIN") return getCustomers();
 
   const assignments = await prisma.mrOutletAssignment.findMany({
     where: { nipMR: userId },

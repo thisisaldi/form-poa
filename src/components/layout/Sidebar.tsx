@@ -23,7 +23,9 @@ const NAV_ITEMS: NavItem[] = [
     href: "/poa/new",
     label: "New POA",
     icon: <IconPlus />,
-    roles: ["MR"],
+    // ADMIN included for testing-only POAs (2026-07-24) — never surfaces in
+    // anyone else's ringkasan, see canCreatePoa in authz.ts.
+    roles: ["MR", "ADMIN"],
   },
   {
     href: "/approvals",

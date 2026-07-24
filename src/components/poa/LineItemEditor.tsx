@@ -1565,21 +1565,50 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
 }
 
 // ─── PsspSidebar ─────────────────────────────────────────────────────────────
-// Two independent fixed right-side panels — "Histori PSSP" (unchanged) and
-// "Data Survey" (2026-07-24, full SurveyRekomendasi picture for this doctor).
-// Only one is open at a time: collapsed, both show as a stacked pair of thin
-// vertical tabs ("Data Survey" above "Histori PSSP"); opening either fills the
-// same 300px slot on the right and freezes on scroll (position:fixed).
+// Two independent fixed right-side panels — "Histori PSSP" (blue) and
+// "Data Survey" (orange, 2026-07-24, full SurveyRekomendasi picture for this
+// doctor). Only one is open at a time: collapsed, both show as a stacked pair
+// of thin vertical tabs; opening either fills the same 300px slot on the
+// right and freezes on scroll (position:fixed). While open, a small pill
+// switcher for BOTH tabs stays visible in the header (2026-07-24 UX fix — Data
+// Survey defaulted to hidden behind Histori PSSP, opening first, with no clue
+// it existed; the switcher makes it discoverable regardless of which is active).
 
-const SIDEBAR_TAB_STYLE: React.CSSProperties = {
-  display: "flex", flexDirection: "column", alignItems: "center",
-  padding: "18px 10px", gap: 2,
-  background: "var(--color-blue)",
-  border: "1px solid var(--color-blue)", borderRight: "none",
-  borderRadius: "8px 0 0 8px",
-  color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
-  writingMode: "vertical-rl", letterSpacing: "0.05em",
-};
+const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
+const SIDEBAR_BLUE = "var(--color-blue)";
+
+function sidebarEdgeTabStyle(color: string): React.CSSProperties {
+  return {
+    display: "flex", flexDirection: "column", alignItems: "center",
+    padding: "18px 10px", gap: 2,
+    background: color,
+    border: `1px solid ${color}`, borderRight: "none",
+    borderRadius: "8px 0 0 8px",
+    color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
+    writingMode: "vertical-rl", letterSpacing: "0.05em",
+  };
+}
+
+function SidebarTabSwitcher({ activeTab, onChange }: { activeTab: "survey" | "pssp"; onChange: (tab: "survey" | "pssp") => void }) {
+  function pillStyle(color: string, active: boolean): React.CSSProperties {
+    return {
+      fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 999,
+      cursor: "pointer", letterSpacing: "0.01em", border: `1px solid ${color}`,
+      background: active ? color : "transparent",
+      color: active ? "#fff" : color,
+    };
+  }
+  return (
+    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+      <button type="button" onClick={() => onChange("survey")} style={pillStyle(SIDEBAR_ORANGE, activeTab === "survey")}>
+        Data Survey
+      </button>
+      <button type="button" onClick={() => onChange("pssp")} style={pillStyle(SIDEBAR_BLUE, activeTab === "pssp")}>
+        Histori PSSP
+      </button>
+    </div>
+  );
+}
 
 function PsspSidebar({
   kodeCustomer,
@@ -1617,10 +1646,10 @@ function PsspSidebar({
   if (activeTab === null) {
     return (
       <div style={{ position: "fixed", right: 0, top: "50%", transform: "translateY(-50%)", zIndex: 40, display: "flex", flexDirection: "column", gap: 4 }}>
-        <button type="button" onClick={() => setActiveTab("survey")} style={SIDEBAR_TAB_STYLE}>
+        <button type="button" onClick={() => setActiveTab("survey")} style={sidebarEdgeTabStyle(SIDEBAR_ORANGE)}>
           Data Survey
         </button>
-        <button type="button" onClick={() => setActiveTab("pssp")} style={SIDEBAR_TAB_STYLE}>
+        <button type="button" onClick={() => setActiveTab("pssp")} style={sidebarEdgeTabStyle(SIDEBAR_BLUE)}>
           Histori PSSP
         </button>
       </div>
@@ -1643,9 +1672,7 @@ function PsspSidebar({
         display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)" }}>
-            {activeTab === "survey" ? "Data Survey" : "Histori PSSP"}
-          </p>
+          <SidebarTabSwitcher activeTab={activeTab} onChange={setActiveTab} />
           {doctorName && (
             <p className="truncate" style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginTop: 1 }}>
               {doctorName}

@@ -279,6 +279,12 @@ export async function canCreatePoa(userId: string): Promise<boolean> {
     prisma.mrOutletAssignment.count({ where: { nipMR: userId } }),
   ]);
   if (user?.isDummy) return true;
+  // ADMIN can always create a POA — testing only (2026-07-24): since ADMIN
+  // isn't role MR, getSubordinateMRNips() (used by every summary/export/PM
+  // dashboard query) never includes an ADMIN-owned POA, so this test data
+  // never surfaces in anyone else's ringkasan — only ADMIN's own dashboard/POA
+  // view (which already shows everything company-wide) ever sees it.
+  if (user?.role === Role.ADMIN) return true;
 
   if (subordinateCount === 0 && assignmentCount > 0) return true; // normal MR case
 
