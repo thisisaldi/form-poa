@@ -1508,14 +1508,21 @@ function ProdukFokusPanel({
 // exclusive: a product matching more than one criterion appears in each.
 
 function KriteriaSectionList({ items }: {
-  items: { key: string; label: string; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[]
+  items: { key: string; label: string; added?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[]
 }) {
   return (
     <ul className="space-y-1">
       {items.map((it) => (
         <li key={it.key} className="flex items-center justify-between gap-2 text-xs px-2 py-1.5 rounded"
           style={{ background: "var(--color-bg-subtle)" }}>
-          <span className="truncate" style={{ color: "var(--color-text)" }}>{it.label}</span>
+          <span className="flex items-center gap-1.5 min-w-0">
+            {it.added && (
+              <span title="Sudah ditambahkan ke POA ini" style={{ color: "var(--color-success, #16a34a)", fontWeight: 700, flexShrink: 0 }}>
+                ✓
+              </span>
+            )}
+            <span className="truncate" style={{ color: "var(--color-text)" }}>{it.label}</span>
+          </span>
           {it.badge && (
             <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
               style={{ background: TAG_COLORS[it.badgeColor ?? "blue"].bg, color: TAG_COLORS[it.badgeColor ?? "blue"].fg }}>
@@ -1530,11 +1537,14 @@ function KriteriaSectionList({ items }: {
 
 function KriteriaProdukPanel({
   spesialisasi,
+  produkList,
   products,
   kriteriaList,
   psspHistory,
 }: {
   spesialisasi?: string;
+  /** Which products are already in this doctor's POA — shown as a ✓ (2026-07-24). */
+  produkList?: ProdukEntry[];
   products?: Product[];
   kriteriaList?: KriteriaByOutlet[];
   psspHistory?: PsspKontrakSummary[];
@@ -1547,6 +1557,7 @@ function KriteriaProdukPanel({
     );
   }
 
+  const addedKodeProduk = new Set((produkList ?? []).map((e) => e.kodeProduk).filter(Boolean));
   const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
   const kriteriaMap = new Map<string, string>();
   for (const k of kriteriaList ?? []) kriteriaMap.set(k.kodeProduk, k.kriteriaBaru);
@@ -1568,18 +1579,18 @@ function KriteriaProdukPanel({
     }
   }
 
-  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[] };
+  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[] };
   const allSections: Section[] = [
-    { title: "Produk Fokus PM", color: "blue", items: fokusPM.map((p) => ({ key: p.kodeProduk, label: p.namaProduk })) },
+    { title: "Produk Fokus PM", color: "blue", items: fokusPM.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
     {
       title: "Pernah PSSP", color: "green",
       items: [...pernahPssp].sort((a, b) => b.pct - a.pct).map(({ p, pct }) => ({
-        key: p.kodeProduk, label: p.namaProduk,
+        key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk),
         badge: `${pct}%`, badgeColor: pct >= 80 ? "green" : pct >= 40 ? "yellow" : "red",
       })),
     },
-    { title: "Listing Corporate - Ada Sales", color: "orange", items: listingSales.map((p) => ({ key: p.kodeProduk, label: p.namaProduk })) },
-    { title: "Listing Corporate - Tidak Ada Sales", color: "yellow", items: listingNoSales.map((p) => ({ key: p.kodeProduk, label: p.namaProduk })) },
+    { title: "Listing Corporate - Ada Sales", color: "orange", items: listingSales.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
+    { title: "Listing Corporate - Tidak Ada Sales", color: "yellow", items: listingNoSales.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
   ];
   const sections = allSections.filter((s) => s.items.length > 0);
 
@@ -1809,7 +1820,7 @@ function PsspSidebar({
         {activeTab === "survey" ? (
           <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
         ) : activeTab === "kriteria" ? (
-          <KriteriaProdukPanel spesialisasi={spesialisasi} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
+          <KriteriaProdukPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
         ) : (
           <>
             {spesialisasi && produkList && products && (
