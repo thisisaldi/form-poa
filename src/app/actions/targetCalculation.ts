@@ -160,6 +160,23 @@ export async function getTargetChildrenAction(
   };
 }
 
+/** Removes a single NIP's allocation for a product+quarter — distinct from saving qty=0,
+ * this makes the row "never set" again rather than "explicitly zero". */
+export async function deleteTargetAllocationAction(
+  kodeProduk: string,
+  quarter: string,
+  nip: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await requireNsmOrAdmin();
+    await prisma.productTargetAllocation.deleteMany({ where: { kodeProduk, quarter, nip } });
+    revalidatePath("/admin/target-produk");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Gagal menghapus." };
+  }
+}
+
 /** Bulk-saves qty for a set of NIPs at whatever level the caller is currently viewing. */
 export async function setTargetAllocationsAction(
   kodeProduk: string,

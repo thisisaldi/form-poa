@@ -457,7 +457,7 @@ export async function GET(req: NextRequest) {
     { header: "Total Budget",         key: "totalBudget",      width: 18 },
     { header: "Ratio Budget",         key: "ratioBudget",      width: 14 },
     { header: "Warning Budget",       key: "warningBudget",    width: 20 },
-    { header: "Status Standarisasi",  key: "standarisasi",     width: 22 },
+    { header: "Status Listing Corporate", key: "standarisasi", width: 22 },
     { header: "Produk Kompetitor Utama", key: "kompetitor",    width: 22 },
     { header: "Total Estimasi (Dokter)", key: "totalEstimasiDokter", width: 20 },
     { header: "Total Nilai PSSP (Dokter)", key: "totalNilaiPsspDokter", width: 20 },

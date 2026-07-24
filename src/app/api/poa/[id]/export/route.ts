@@ -318,7 +318,7 @@ export async function GET(
     { header: "% Pelunasan Sebelumnya", key: "pelunasanSebelumnya", width: 16 },
     { header: "Estimasi PS/SP Sebelumnya", key: "estimasiSebelumnya", width: 18 },
     { header: "History Sales \n(B-12)", key: "historySales", width: 16 },
-    { header: "Status Standarisasi/ Listing", key: "statusStandarisasi", width: 20 },
+    { header: "Status Listing Corporate", key: "statusStandarisasi", width: 20 },
     { header: "Jumlah Hari Praktek(Bulan)", key: "hariKerjaBulan", width: 14 },
     { header: "Jumlah R / Hari", key: "jumlahResepHari", width: 12 },
     { header: "Jumlah \nSatuan Terkecil (ST)\n/R", key: "qtyProdukResep", width: 14 },

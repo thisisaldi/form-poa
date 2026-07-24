@@ -21,6 +21,15 @@ const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   TIDAK_TAHU: "Tidak Tahu",
 };
 
+// kriteriaBaru rows come verbatim from the ProductPMDatabase.xlsx import (see
+// scripts/seedOutletProductKriteria.ts) and still read "Terstandarisasi" at the
+// source — only the on-screen badge text is renamed to "Listing Corporate"
+// (2026-07-24 business terminology change); matching against the raw value
+// (startsWith("Produk Sudah Terstandarisasi")) must stay untouched.
+function formatKriteriaLabel(kriteria: string): string {
+  return kriteria.replace(/Terstandarisasi/gi, "Listing Corporate");
+}
+
 const JENIS_PSSP_LABELS: Record<string, string> = {
   PSSP: "PSSP",
   PSSP_RETENSI: "PSSP Retensi",
@@ -510,8 +519,8 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
                 className="input-field w-full"
                 style={{ color: fields.jenisPsSp ? "var(--color-text)" : "var(--color-text-faint)" }}>
                 <option value="">Pilih</option>
-                <option value="PS">PS</option>
-                <option value="SP">SP</option>
+                <option value="PS">PS - Pemberian di belakang</option>
+                <option value="SP">SP - Pemberian di depan</option>
               </select>
             </div>
             {jenisPsSpError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
@@ -569,7 +578,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
       : kriteria?.startsWith("Produk Kompetisi Tinggi")
       ? "red"
       : undefined;
-    const tag = isStandarisasi ? kriteria : undefined;
+    const tag = isStandarisasi && kriteria ? formatKriteriaLabel(kriteria) : undefined;
     // Only the Produk Sudah Terstandarisasi badge shows as text — every other
     // kriteria (Kompetisi Rendah/Tinggi, etc.) is still a plain color dot.
     const tagDotOnly = !isStandarisasi;
@@ -1472,7 +1481,7 @@ function ProdukFokusPanel({
                 {kriteria && (
                   <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
                     style={{ background: TAG_COLORS[tagColor ?? "blue"].bg, color: TAG_COLORS[tagColor ?? "blue"].fg }}>
-                    {kriteria}
+                    {formatKriteriaLabel(kriteria)}
                   </span>
                 )}
                 <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
@@ -1652,8 +1661,8 @@ function AddPanel({
     }
     return ALL_SPESIALISASI_OPTIONS.map((o) => {
       const n = counts.get(o.label) ?? 0;
-      return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined };
-    });
+      return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined, _count: n };
+    }).sort((a, b) => b._count - a._count);
   }, [customerList]);
   // customerList holds every user at the outlet, any spesialisasi — narrowed
   // to the picked spesialisasi here only as a convenience filter, never a
@@ -1686,9 +1695,12 @@ function AddPanel({
           spesLabel(c.spesialisasi),
           c.isFokus ? "⭐ Rekomendasi PM" : null,
         ].filter(Boolean).join(" · "),
-        tag2, tag2Color,
+        tag2, tag2Color, _pct: pct,
       };
-    }), [customerList, spesialisasi, psspStatusByCust]);
+      // Sorted best-pelunasan-first (2026-07-24 request) — doctors who never
+      // had a PSSP (pct null) have nothing to rank, so they sink to the bottom
+      // rather than interleaving with real percentages.
+    }).sort((a, b) => (b._pct ?? -1) - (a._pct ?? -1)), [customerList, spesialisasi, psspStatusByCust]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
 
@@ -2236,8 +2248,8 @@ function AddDokterBaruPanel({
     }
     return ALL_SPESIALISASI_OPTIONS.map((o) => {
       const n = counts.get(o.label) ?? 0;
-      return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined };
-    });
+      return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined, _count: n };
+    }).sort((a, b) => b._count - a._count);
   }, [customerList]);
   const selectedOutlet = outlets.find((o) => o.kodePI === kodePI);
 

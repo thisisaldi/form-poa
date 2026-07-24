@@ -12,6 +12,13 @@ import { displayRole } from "@/lib/role";
 
 export const metadata = { title: "Dashboard · Form POA" };
 
+function buildPageHref(page: number, size: string) {
+  const sp = new URLSearchParams();
+  sp.set("page", String(page));
+  sp.set("size", size);
+  return `/dashboard?${sp.toString()}`;
+}
+
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
   if (n >= 1_000_000)     return `Rp${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
@@ -43,6 +50,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     canCreatePoa(session.userId),
   ]);
 
+  const pageSizeParam = params.size ?? "25";
+  const pageSize = pageSizeParam === "all" ? null : (Number(pageSizeParam) || 25);
+  const requestedPage = Math.max(1, Number(params.page) || 1);
+
+  const totalPoaCount = await prisma.poaForm.count({ where: visibleFilter });
+  const totalPages = pageSize ? Math.max(1, Math.ceil(totalPoaCount / pageSize)) : 1;
+  const page = Math.min(requestedPage, totalPages);
+
   const [recentRaw, pendingPoas] = await Promise.all([
     prisma.poaForm.findMany({
       where: visibleFilter,
@@ -58,7 +73,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         },
       },
       orderBy: { updatedAt: "desc" },
-      take: 10,
+      ...(pageSize ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
     }),
     prisma.poaForm.findMany({
       where: pendingFilter,
@@ -439,6 +454,54 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {recentPoas.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-3"
+            style={{ borderTop: "1px solid var(--color-border)" }}>
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              Menampilkan {pageSize ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, totalPoaCount)}` : `1–${totalPoaCount}`} dari {totalPoaCount} POA
+            </p>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
+                <span>Tampilkan:</span>
+                {(["25", "50", "100", "all"] as const).map((s) => (
+                  <Link key={s} href={buildPageHref(1, s)}
+                    className="rounded px-1.5 py-0.5"
+                    style={{
+                      background: pageSizeParam === s ? "var(--color-blue-light)" : "transparent",
+                      color: pageSizeParam === s ? "var(--color-blue)" : "var(--color-text-faint)",
+                      fontWeight: pageSizeParam === s ? 600 : 400,
+                    }}>
+                    {s === "all" ? "Semua" : s}
+                  </Link>
+                ))}
+              </div>
+              {pageSize && totalPages > 1 && (
+                <div className="flex items-center gap-1 text-xs">
+                  <Link href={buildPageHref(Math.max(1, page - 1), pageSizeParam)}
+                    className="rounded px-2 py-1"
+                    style={{
+                      color: page <= 1 ? "var(--color-text-faint)" : "var(--color-text-muted)",
+                      pointerEvents: page <= 1 ? "none" : "auto",
+                      border: "1px solid var(--color-border)",
+                    }}>
+                    ← Prev
+                  </Link>
+                  <span style={{ color: "var(--color-text-muted)" }}>Hal {page} / {totalPages}</span>
+                  <Link href={buildPageHref(Math.min(totalPages, page + 1), pageSizeParam)}
+                    className="rounded px-2 py-1"
+                    style={{
+                      color: page >= totalPages ? "var(--color-text-faint)" : "var(--color-text-muted)",
+                      pointerEvents: page >= totalPages ? "none" : "auto",
+                      border: "1px solid var(--color-border)",
+                    }}>
+                    Next →
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Card>

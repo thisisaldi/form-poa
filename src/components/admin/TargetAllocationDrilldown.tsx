@@ -2,10 +2,12 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   listFocusProductsAction,
   getTargetChildrenAction,
   setTargetAllocationsAction,
+  deleteTargetAllocationAction,
   applyManualTargetsAction,
   type TargetChildRow,
 } from "@/app/actions/targetCalculation";
@@ -34,6 +36,8 @@ export function TargetAllocationDrilldown() {
   const [loading, startLoad] = useTransition();
   const [saving, startSave] = useTransition();
   const [applying, startApply] = useTransition();
+  const [deleting, startDelete] = useTransition();
+  const [toDelete, setToDelete] = useState<TargetChildRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -86,6 +90,18 @@ export function TargetAllocationDrilldown() {
       const result = await setTargetAllocationsAction(kodeProduk, quarter, entries);
       if (!result.ok) { setError(result.error ?? "Gagal menyimpan."); return; }
       setNotice(`${entries.length} baris tersimpan.`);
+      loadLevel(path);
+    });
+  }
+
+  function confirmDelete() {
+    if (!toDelete) return;
+    setError(null); setNotice(null);
+    startDelete(async () => {
+      const result = await deleteTargetAllocationAction(kodeProduk, quarter, toDelete.nip);
+      if (!result.ok) { setError(result.error ?? "Gagal menghapus."); setToDelete(null); return; }
+      setNotice(`Alokasi ${toDelete.name} dihapus.`);
+      setToDelete(null);
       loadLevel(path);
     });
   }
@@ -183,12 +199,15 @@ export function TargetAllocationDrilldown() {
                         onChange={(e) => setEdited((prev) => ({ ...prev, [r.nip]: e.target.value }))}
                         className="input-field text-right" style={{ maxWidth: 120, marginLeft: "auto" }} />
                     </td>
-                    <td className="py-1.5 px-3 text-right">
+                    <td className="py-1.5 px-3 text-right whitespace-nowrap">
                       {r.role !== "MR" && (
-                        <button type="button" onClick={() => drillInto(r)} className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+                        <button type="button" onClick={() => drillInto(r)} className="text-xs font-medium mr-3" style={{ color: "var(--color-blue)" }}>
                           Detail →
                         </button>
                       )}
+                      <button type="button" onClick={() => setToDelete(r)} className="text-xs font-medium" style={{ color: "var(--color-red)" }}>
+                        Hapus
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -206,6 +225,12 @@ export function TargetAllocationDrilldown() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!toDelete} tone="danger" title="Hapus alokasi?"
+        message={`Alokasi ${toDelete?.name} (${toDelete?.nip}) untuk produk ini di kuartal ${quarter} akan dihapus — beda dengan menyimpan qty 0, baris ini jadi "belum diset" lagi.`}
+        confirmLabel="Hapus" confirmPending={deleting}
+        onConfirm={confirmDelete} onCancel={() => setToDelete(null)} />
     </div>
   );
 }

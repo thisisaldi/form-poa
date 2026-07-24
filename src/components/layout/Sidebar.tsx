@@ -48,7 +48,8 @@ const NAV_ITEMS: NavItem[] = [
     href: "/admin/target-produk",
     label: "Target Produk",
     icon: <IconChart />,
-    roles: ["NSM", "ADMIN"],
+    // NSM temporarily hidden from sidebar (2026-07-24) — re-add "NSM" to bring it back.
+    roles: ["ADMIN"],
   },
   {
     href: "/admin",
