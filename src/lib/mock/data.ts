@@ -4,7 +4,7 @@
  */
 
 import type { User, PoaForm, PoaAuditLog, PoaLineItem } from "@prisma/client";
-import { Role, PoaStatus, AuditAction, StatusStandarisasi, Prisma } from "@prisma/client";
+import { Role, PoaStatus, AuditAction, StatusStandarisasi, PihakPssp, Prisma } from "@prisma/client";
 
 const d = (v: string) => new Prisma.Decimal(v);
 
@@ -337,6 +337,8 @@ export const MOCK_LINE_ITEMS: PoaLineItem[] = [
     persenDp: null,
     persenListingFee: null,
     persenEntertain: null,
+    pihakPssp: PihakPssp.USER,
+    jenisPsSp: null,
     createdAt: EARLIER,
     updatedAt: NOW,
   },
@@ -393,6 +395,8 @@ export const MOCK_LINE_ITEMS: PoaLineItem[] = [
     persenDp: null,
     persenListingFee: null,
     persenEntertain: null,
+    pihakPssp: PihakPssp.USER,
+    jenisPsSp: null,
     createdAt: EARLIER,
     updatedAt: NOW,
   },
@@ -449,6 +453,8 @@ export const MOCK_LINE_ITEMS: PoaLineItem[] = [
     persenDp: null,
     persenListingFee: null,
     persenEntertain: null,
+    pihakPssp: PihakPssp.USER,
+    jenisPsSp: null,
     createdAt: EARLIER,
     updatedAt: NOW,
   },

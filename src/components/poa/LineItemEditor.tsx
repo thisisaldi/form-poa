@@ -53,6 +53,7 @@ interface DokterFields {
   lamaPeriode: number;
   hariKerjaBulan: string;
   rencanaVisitMinggu: string;
+  jenisPsSp: string;  // "PS" | "SP" | "" (unselected — optional)
 }
 
 function emptyDokterFields(periodeAwal = ""): DokterFields {
@@ -60,6 +61,7 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
     periodeAwal, lamaPeriode: 3,
     hariKerjaBulan: "",
     rencanaVisitMinggu: "4",
+    jenisPsSp: "",
   };
 }
 
@@ -81,6 +83,7 @@ interface ProdukEntry {
   persenEntertain: string;
   hariKerjaBulan: string;  // per-product override of the doctor-level default; "" = inherit
   pengaliNilaiR: string;   // per-product override of the doctor-level default; "" = inherit
+  pihakPssp: string;       // "USER" | "KPDM" — relabels "% PSSP User" below, doesn't change the formula
   // kriteriaProduk & rasioEstimasiGrowth: auto (not user input)
 }
 
@@ -94,6 +97,7 @@ function emptyProdukEntry(): ProdukEntry {
     persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "1",
     hariKerjaBulan: "",
     pengaliNilaiR: "",
+    pihakPssp: "USER",
   };
 }
 
@@ -496,6 +500,18 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
               </div>
             </div>
           )}
+          <label className="flex flex-col gap-1 shrink-0" style={{ width: 130 }}>
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>PS / SP<Opt /></span>
+            <select
+              value={fields.jenisPsSp}
+              onChange={(e) => onChange({ jenisPsSp: e.target.value })}
+              className="input-field w-full"
+              style={{ color: fields.jenisPsSp ? "var(--color-text)" : "var(--color-text-faint)" }}>
+              <option value="">Pilih</option>
+              <option value="PS">PS</option>
+              <option value="SP">SP</option>
+            </select>
+          </label>
         </div>
       </div>
     </div>
@@ -997,7 +1013,18 @@ function BudgetFieldsRow({
     <div className="space-y-2">
       <div className="grid grid-cols-3 gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>% PSSP User (Nilai R)</span>
+          <span className="text-xs flex items-center gap-1 flex-wrap" style={{ color: "var(--color-text-muted)" }}>
+            % PSSP {entry.pihakPssp === "KPDM" ? "KPDM" : "User"} (Nilai R)
+            <select
+              value={entry.pihakPssp}
+              onChange={(e) => onChange({ pihakPssp: e.target.value })}
+              title="Pihak PSSP"
+              className="text-[10px] rounded border"
+              style={{ padding: "1px 2px", borderColor: "var(--color-border)", background: "var(--color-bg)", color: "var(--color-text-muted)" }}>
+              <option value="USER">User</option>
+              <option value="KPDM">KPDM</option>
+            </select>
+          </span>
           <div style={{ opacity: 0.6, cursor: "not-allowed" }}>
             <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
           </div>
@@ -1777,6 +1804,8 @@ function AddPanel({
     fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
+    fd.set("pihakPssp", entry.pihakPssp);
+    fd.set("jenisPsSp", dokterFields.jenisPsSp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
@@ -2312,6 +2341,8 @@ function AddProductPanel({
     fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
+    fd.set("pihakPssp", entry.pihakPssp);
+    fd.set("jenisPsSp", dokterFields.jenisPsSp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
@@ -2497,6 +2528,7 @@ function produkEntryFromItem(
     // default — Pengali Nilai R has no doctor-level default anymore, so it's always its own value.
     hariKerjaBulan: itemHari && itemHari !== doctorDefaultHariKerja ? itemHari : "",
     pengaliNilaiR: itemPengali,
+    pihakPssp: item.pihakPssp ?? "USER",
   };
 }
 
@@ -2516,6 +2548,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     lamaPeriode: first.lamaPeriode,
     hariKerjaBulan: first.hariKerjaBulan?.toString() ?? "",
     rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
+    jenisPsSp: first.jenisPsSp ?? "",
   });
   const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
     () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? ""))
@@ -2628,6 +2661,8 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
+    fd.set("pihakPssp", entry.pihakPssp);
+    fd.set("jenisPsSp", dokterFields.jenisPsSp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);

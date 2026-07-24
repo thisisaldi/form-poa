@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { canEdit } from "@/lib/authz";
 import { flagRevisionOnEdit } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
-import { StatusStandarisasi, JenisPssp, Prisma } from "@prisma/client";
+import { StatusStandarisasi, JenisPssp, PihakPssp, PsSp, Prisma } from "@prisma/client";
 
 async function requireEditorOnPoa(poaId: string) {
   const session = await getCurrentUser();
@@ -38,6 +38,8 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const labelCustomer = (formData.get("labelCustomer") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
   const jenisPsspRaw = formData.get("jenisPssp") as string | null;
+  const pihakPsspRaw = formData.get("pihakPssp") as string | null;
+  const jenisPsSpRaw = formData.get("jenisPsSp") as string | null;
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
   const jumlahResepHari = parseInt(formData.get("jumlahResepHari") as string, 10) || null;
   const qtyProdukResep = parseInt(formData.get("qtyProdukResep") as string, 10) || null;
@@ -132,6 +134,14 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     jenisPsspRaw && Object.values(JenisPssp).includes(jenisPsspRaw as JenisPssp)
       ? (jenisPsspRaw as JenisPssp)
       : null;
+  const pihakPssp =
+    pihakPsspRaw && Object.values(PihakPssp).includes(pihakPsspRaw as PihakPssp)
+      ? (pihakPsspRaw as PihakPssp)
+      : PihakPssp.USER;
+  const jenisPsSp =
+    jenisPsSpRaw && Object.values(PsSp).includes(jenisPsSpRaw as PsSp)
+      ? (jenisPsSpRaw as PsSp)
+      : null;
 
   // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
   await flagRevisionOnEdit(poaId, actor.nip, { customer: namaCust, product: product!.namaProduk, op: "add" });
@@ -164,6 +174,8 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       labelCustomer,
       statusStandarisasi,
       jenisPssp,
+      pihakPssp,
+      jenisPsSp,
       lamaPeriode: lamaPeriodeRaw,
       periodeAwal,
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),
@@ -198,6 +210,8 @@ export async function updateLineItemAction(
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
   const jenisPsspRaw = formData.get("jenisPssp") as string | null;
+  const pihakPsspRaw = formData.get("pihakPssp") as string | null;
+  const jenisPsSpRaw = formData.get("jenisPsSp") as string | null;
   const lamaPeriodeRaw = parseInt(formData.get("lamaPeriode") as string, 10);
   const periodeAwal = (formData.get("periodeAwal") as string | null)?.trim() ?? "";
   const hariKerjaBulan = parseInt(formData.get("hariKerjaBulan") as string, 10) || null;
@@ -253,6 +267,17 @@ export async function updateLineItemAction(
     jenisPsspRaw && Object.values(JenisPssp).includes(jenisPsspRaw as JenisPssp)
       ? (jenisPsspRaw as JenisPssp)
       : null;
+  // Falls back to `undefined` (leave existing value untouched), not a forced
+  // default — unlike create, pihakPssp already has a real value here that an
+  // unparseable/missing raw value shouldn't clobber.
+  const pihakPssp =
+    pihakPsspRaw && Object.values(PihakPssp).includes(pihakPsspRaw as PihakPssp)
+      ? (pihakPsspRaw as PihakPssp)
+      : undefined;
+  const jenisPsSp =
+    jenisPsSpRaw && Object.values(PsSp).includes(jenisPsSpRaw as PsSp)
+      ? (jenisPsSpRaw as PsSp)
+      : null;
 
   await prisma.poaLineItem.update({
     where: { id: lineItemId },
@@ -272,6 +297,8 @@ export async function updateLineItemAction(
       produkKompetitor,
       statusStandarisasi,
       jenisPssp,
+      pihakPssp,
+      jenisPsSp,
       lamaPeriode: isNaN(lamaPeriodeRaw) ? undefined : lamaPeriodeRaw,
       periodeAwal: periodeAwal || undefined,
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),

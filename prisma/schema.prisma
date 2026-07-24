@@ -52,6 +52,24 @@ enum JenisPssp {
   PSSP_PERPANJANGAN
 }
 
+// Which party the "% PSSP" figure on a line item belongs to — purely a
+// display-label switch (2026-07-24 request): selecting KPDM renames "%
+// PSSP User" to "% PSSP KPDM" in the form/exports, the field and formula
+// underneath are unchanged (persenPsspDokter stays the one source of truth
+// — see LineItemEditor.tsx history around persenPsspKpdm's removal).
+enum PihakPssp {
+  USER
+  KPDM
+}
+
+// Simple PS/SP classification at doctor level — business meaning not yet
+// pinned down at request time (2026-07-24); kept as a plain 2-value choice
+// rather than folded into JenisPssp.
+enum PsSp {
+  PS
+  SP
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
@@ -253,6 +271,12 @@ model PoaLineItem {
   kriteriaProduk        String?
   statusStandarisasi    StatusStandarisasi?
   jenisPssp             JenisPssp?
+  // Per-product — see PihakPssp doc comment above.
+  pihakPssp             PihakPssp @default(USER)
+  // Doctor-level (same value duplicated across all of one doctor's product
+  // rows, same pattern as hariKerjaBulan/rencanaVisitMinggu below) — see
+  // PsSp doc comment above.
+  jenisPsSp             PsSp?
 
   // tentative fields (C20-C23) — nullable
   hariKerjaBulan   Int?
