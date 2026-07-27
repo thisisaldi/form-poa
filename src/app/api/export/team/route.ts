@@ -3,9 +3,12 @@
  *
  * Bulk Excel export for NSM/SM/ASM — all POA data for their subordinate MRs.
  * Sheets:
- *   1. Ringkasan Tim  — aggregate totals
- *   2. Per MR         — one row per MR with key metrics
- *   3. Semua Pengajuan — all line items across all POAs
+ *   1. Ringkasan Tim     — aggregate totals
+ *   2. Per MR            — one row per MR with key metrics
+ *   3. Semua Pengajuan   — all line items across all POAs
+ *   4. PSSP Aktif        — every still-running PSSP contract + Hospinet snapshot
+ *   5. Summary Per Outlet — same metrics as the /summary "Per Outlet" tab (#47),
+ *                           scoped to this export's team (2026-07-27, #55)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -671,6 +674,120 @@ export async function GET(req: NextRequest) {
   shadeAlt(ws4, 1);
 
   if (activePsspAll.length === 0 && hospinetSnapshotsAll.length === 0) ws4.addRow(["(Tidak ada data PSSP aktif)"]);
+
+  // ── Sheet 5: Summary Per Outlet ──────────────────────────────────────────────
+  // Same metrics as the /summary "Per Outlet" tab (src/app/(app)/summary/page.tsx,
+  // #47 2026-07-27) — reused here scoped to THIS export's team instead of
+  // globally: Estimasi Aktif+Pengajuan, Jumlah User PSSP (Aktif+Estimasi),
+  // Variasi Produk (Fokus/Non-Fokus), Budget, Cost Ratio, Sales Aktif (2026),
+  // Estimasi Per User, Listing Fee. Uses lineItems/activePsspAll/assignedOutlets
+  // already fetched above for the other sheets — no new per-line-item queries,
+  // just two new groupBy calls (Listing Fee, Sales Value) scoped to
+  // assignedOutlets. Deliberately includes DRAFT/REVISI rows same as the rest
+  // of this export (see "this team rekap includes every status" comment above).
+
+  const [listingFeeRaw, salesValueRaw] = (assignedOutlets.length > 0
+    ? await Promise.all([
+        prisma.listingFeeKontrak.groupBy({ by: ["kdOutlet"], where: { kdOutlet: { in: assignedOutlets } }, _sum: { value: true } }),
+        prisma.outletSalesValueMonthly.groupBy({ by: ["kodePI"], where: { kodePI: { in: assignedOutlets }, periode: { gte: "202601" } }, _sum: { valueSales: true } }),
+      ])
+    : [[], []]) as [
+      { kdOutlet: string | null; _sum: { value: { toString(): string } | null } }[],
+      { kodePI: string; _sum: { valueSales: { toString(): string } | null } }[],
+    ];
+  const listingFeeByOutlet = new Map(listingFeeRaw.filter((r) => r.kdOutlet).map((r) => [r.kdOutlet as string, toNum(r._sum.value)]));
+  const salesValueByOutlet = new Map(salesValueRaw.map((r) => [r.kodePI, toNum(r._sum.valueSales)]));
+
+  const activePsspByOutlet = new Map<string, typeof activePsspAll>();
+  for (const r of activePsspAll) {
+    if (!r.kdOutlet) continue;
+    const list = activePsspByOutlet.get(r.kdOutlet) ?? [];
+    list.push(r);
+    activePsspByOutlet.set(r.kdOutlet, list);
+  }
+
+  const outletGroups = new Map<string, { namaOutlet: string; items: typeof lineItems }>();
+  for (const li of lineItems) {
+    const key = li.kodePI ?? "—";
+    if (!outletGroups.has(key)) outletGroups.set(key, { namaOutlet: li.namaOutlet, items: [] });
+    outletGroups.get(key)!.items.push(li);
+  }
+
+  interface OutletSummaryRow {
+    kodePI: string; namaOutlet: string;
+    estimasi: number; estimasiAktif: number; userCount: number;
+    variasiProduk: number; variasiProdukFokus: number;
+    budgetTotal: number; salesAktif: number; listingFeeTotal: number;
+  }
+  const outletSummaryRows: OutletSummaryRow[] = [...outletGroups.entries()].map(([kodePI, { namaOutlet, items }]) => {
+    let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
+    for (const li of items) {
+      const base = toNum(li.rencanaTotalBiaya);
+      const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+      const psspPct = toNum(li.persenPsspDokter) * pengaliNilaiR;
+      const discPct = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
+      const entPct = toNum(li.persenEntertain);
+      estimasi += base;
+      psspTotal += base * psspPct;
+      discountTotal += base * discPct;
+      entertainTotal += base * entPct;
+    }
+    const activeRows = kodePI !== "—" ? (activePsspByOutlet.get(kodePI) ?? []) : [];
+    const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+    const activeCustKeys = new Set(activeRows.map((r) => r.kdCust));
+    const draftCustKeys = new Set(items.map((li) => li.kodeCust ?? `name:${li.namaCust}`));
+    const userCount = new Set([...activeCustKeys, ...draftCustKeys]).size;
+    return {
+      kodePI, namaOutlet,
+      estimasi, estimasiAktif, userCount,
+      variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
+      variasiProdukFokus: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
+      budgetTotal: psspTotal + discountTotal + entertainTotal,
+      salesAktif: kodePI !== "—" ? (salesValueByOutlet.get(kodePI) ?? 0) : 0,
+      listingFeeTotal: kodePI !== "—" ? (listingFeeByOutlet.get(kodePI) ?? 0) : 0,
+    };
+  }).sort((a, b) => (b.estimasi + b.estimasiAktif) - (a.estimasi + a.estimasiAktif));
+
+  const ws5 = wb.addWorksheet("Summary Per Outlet");
+  ws5.columns = [
+    { header: "Kode Outlet",                  key: "kodePI",                width: 14 },
+    { header: "Nama Outlet",                  key: "namaOutlet",            width: 28 },
+    { header: "Estimasi Aktif+Pengajuan",     key: "estimasiAktifPengajuan", width: 22 },
+    { header: "User PSSP (Aktif+Estimasi)",   key: "userCount",             width: 20 },
+    { header: "Variasi Produk Fokus",         key: "variasiProdukFokus",    width: 16 },
+    { header: "Variasi Produk Non-Fokus",     key: "variasiProdukNonFokus", width: 18 },
+    { header: "Budget",                       key: "budget",                width: 18 },
+    { header: "Cost Ratio",                   key: "costRatio",             width: 12 },
+    { header: "Sales Aktif (2026)",           key: "salesAktif",            width: 18 },
+    { header: "Estimasi Per User",            key: "estimasiPerUser",       width: 18 },
+    { header: "Listing Fee",                  key: "listingFee",            width: 16 },
+  ];
+  styleHeader(ws5);
+
+  for (const r of outletSummaryRows) {
+    const estimasiAktifPengajuan = r.estimasi + r.estimasiAktif;
+    const costRatio = r.estimasi > 0 ? (r.budgetTotal / r.estimasi) * 100 : 0;
+    ws5.addRow({
+      kodePI: r.kodePI, namaOutlet: r.namaOutlet,
+      estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
+      userCount: r.userCount,
+      variasiProdukFokus: r.variasiProdukFokus,
+      variasiProdukNonFokus: r.variasiProduk - r.variasiProdukFokus,
+      budget: Math.round(r.budgetTotal),
+      costRatio: parseFloat(costRatio.toFixed(1)),
+      salesAktif: Math.round(r.salesAktif),
+      estimasiPerUser: r.userCount > 0 ? Math.round(estimasiAktifPengajuan / r.userCount) : 0,
+      listingFee: Math.round(r.listingFeeTotal),
+    });
+  }
+
+  ["estimasiAktifPengajuan", "budget", "salesAktif", "estimasiPerUser", "listingFee"].forEach((key) => {
+    ws5.getColumn(key).numFmt = '#,##0';
+  });
+  ws5.getColumn("costRatio").numFmt = '0.0"%"';
+  shadeAlt(ws5, 1);
+
+  if (outletSummaryRows.length === 0) ws5.addRow(["(Belum ada data pengajuan)"]);
 
   // ── Response ─────────────────────────────────────────────────────────────────
 

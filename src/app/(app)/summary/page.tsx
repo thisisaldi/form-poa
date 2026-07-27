@@ -96,6 +96,12 @@ export default async function SummaryPage({
   const params = await searchParams;
   const tab: Tab = (params.tab as Tab) ?? "mr";
   const periodFilter = params.period ?? null;
+  // Fitur Sorting pada Summary (2026-07-27) — GAP tertinggi (vs realisasi
+  // sebelumnya) is the default, matching the existing outlet/customer sort;
+  // "estimasi" is the only alternative offered, since that's what produk/mr
+  // already used as their (non-configurable) sort before this feature.
+  const sortMode: "gap" | "estimasi" = params.sort === "estimasi" ? "estimasi" : "gap";
+  const sortQuery = sortMode === "estimasi" ? "&sort=estimasi" : "";
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
@@ -424,10 +430,12 @@ export default async function SummaryPage({
         avgStPerPasien,
       };
     })
-    // "outlet"/"customer": biggest gap between current estimasi and prior
-    // realisasi first — flags "dulu jelek kok estimasinya tinggi sekarang".
-    // Other tabs have no realisasi concept, so they keep the old estimasi sort.
-    .sort((a, b) => (tab === "outlet" || tab === "customer")
+    // "outlet"/"customer": GAP tertinggi (vs prior realisasi) is the default —
+    // flags "dulu jelek kok estimasinya tinggi sekarang" — with "Estimasi
+    // Tertinggi" as the user-selectable alternative (sortMode, #51 2026-07-27).
+    // Other tabs have no realisasi/gap concept at all, so they always sort by
+    // estimasi regardless of sortMode.
+    .sort((a, b) => (sortMode === "gap" && (tab === "outlet" || tab === "customer"))
       ? b.gapVsRealisasi - a.gapVsRealisasi
       : b.estimasi - a.estimasi);
 
@@ -490,7 +498,7 @@ export default async function SummaryPage({
         {/* Period filter */}
         {allPeriods.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            <Link href={`/summary?tab=${tab}`}
+            <Link href={`/summary?tab=${tab}${sortQuery}`}
               className="rounded px-2.5 py-1 text-xs font-medium border"
               style={!periodFilter
                 ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
@@ -498,7 +506,7 @@ export default async function SummaryPage({
               Semua
             </Link>
             {allPeriods.map((p) => (
-              <Link key={p} href={`/summary?tab=${tab}&period=${p}`}
+              <Link key={p} href={`/summary?tab=${tab}&period=${p}${sortQuery}`}
                 className="rounded px-2.5 py-1 text-xs font-medium border"
                 style={periodFilter === p
                   ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
@@ -515,7 +523,7 @@ export default async function SummaryPage({
         <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
           {TABS.map((t) => (
             <Link key={t.key}
-              href={`/summary?tab=${t.key}${periodFilter ? `&period=${periodFilter}` : ""}`}
+              href={`/summary?tab=${t.key}${periodFilter ? `&period=${periodFilter}` : ""}${sortQuery}`}
               className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
               style={tab === t.key
                 ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
@@ -525,6 +533,30 @@ export default async function SummaryPage({
           ))}
         </div>
       </Card>
+
+      {/* Fitur Sorting pada Summary (2026-07-27, #51) — only meaningful for
+          "outlet"/"customer", the only tabs with a real GAP-vs-realisasi
+          concept; produk/mr always sort by estimasi so the toggle would be
+          a no-op there. */}
+      {(tab === "outlet" || tab === "customer") && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Urutkan:</span>
+          <Link href={`/summary?tab=${tab}${periodFilter ? `&period=${periodFilter}` : ""}`}
+            className="rounded px-2.5 py-1 text-xs font-medium border"
+            style={sortMode === "gap"
+              ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
+              : { color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+            GAP Tertinggi
+          </Link>
+          <Link href={`/summary?tab=${tab}${periodFilter ? `&period=${periodFilter}` : ""}&sort=estimasi`}
+            className="rounded px-2.5 py-1 text-xs font-medium border"
+            style={sortMode === "estimasi"
+              ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
+              : { color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+            Estimasi Tertinggi
+          </Link>
+        </div>
+      )}
 
       {/* Stats */}
       <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} />

@@ -10,8 +10,12 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { PoaStatus, Role } from "@prisma/client";
+import { PoaStatus, Role, AuditAction } from "@prisma/client";
 import type { Prisma, PoaForm, User } from "@prisma/client";
+
+// Small local copy of poaWorkflow.ts's ROLE_LEVEL — not imported from there to
+// avoid a circular dependency (poaWorkflow.ts already imports FROM authz.ts).
+const ROLE_LEVEL: Record<string, number> = { MR: 0, ASM: 1, SM: 2, NSM: 3 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -201,6 +205,36 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
 }
 
 /**
+ * Lock Edit Logic (2026-07-27, business decision): once an ASM/SM/NSM
+ * approves OR edits a POA that isn't their own, everyone at a STRICTLY LOWER
+ * role level is locked out of editing it — the actor's own level, and anyone
+ * above them, can still edit. Returns the lock threshold as a role level
+ * (-1 = nobody locked yet this cycle).
+ *
+ * Detected by reading PoaAuditLog rather than a stored flag (chosen over a
+ * schema migration) — only entries since the most recent DRAFT/REVISI
+ * transition count, so a fresh cycle (after a Reject or Cancel Approved NSM,
+ * both of which land on REVISI) always starts fully unlocked again.
+ */
+async function getEditLockLevel(poaId: string, ownerId: string): Promise<number> {
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { poaId },
+    orderBy: { createdAt: "desc" },
+    select: { action: true, actorId: true, toStatus: true, actor: { select: { role: true } } },
+  });
+
+  let lockLevel = -1;
+  for (const log of logs) {
+    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break; // cycle reset point
+    if ((log.action === AuditAction.APPROVE || log.action === AuditAction.UPDATE) && log.actorId !== ownerId) {
+      const level = ROLE_LEVEL[log.actor.role] ?? -1;
+      if (level > lockLevel) lockLevel = level;
+    }
+  }
+  return lockLevel;
+}
+
+/**
  * Can this user edit this specific POA right now?
  *
  * MR: their own POA, any status/time — editing a POA that already left DRAFT
@@ -212,10 +246,21 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
  *     normal Approve step (see flagRevisionOnEdit in poaWorkflow.ts) — only
  *     the ACT of approving & forwarding is restricted to the current holder,
  *     which is what canApprove() below is for.
+ *
+ * Lock Edit Logic gate runs FIRST (ADMIN excepted): if someone above this
+ * user's role level has already approved/edited this POA this cycle, this
+ * user — owner included — is locked out until it cycles back to REVISI.
+ * See getEditLockLevel above.
  */
 export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
   // GM is deliberately excluded here — read-only oversight only (see canView).
+
+  const userLevel = ROLE_LEVEL[user.role] ?? -1;
+  if (userLevel >= 0) {
+    const lockLevel = await getEditLockLevel(poa.id, poa.ownerId);
+    if (userLevel < lockLevel) return false;
+  }
 
   // The owner can always edit their own POA — normally an MR, but an ASM/SM/NSM
   // filling in for a vacant team owns theirs the same way (see canCreatePoa).
@@ -226,6 +271,17 @@ export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
   }
 
   return false;
+}
+
+/**
+ * UI-friendly companion to the Lock Edit Logic gate above — used to show a
+ * "terkunci karena X" message instead of silently hiding the edit button.
+ * Returns null when nobody is locked (fresh cycle, or POA still DRAFT/REVISI).
+ */
+export async function getEditLockRoleLabel(poa: PoaForm): Promise<string | null> {
+  const lockLevel = await getEditLockLevel(poa.id, poa.ownerId);
+  const label = Object.entries(ROLE_LEVEL).find(([, level]) => level === lockLevel)?.[0];
+  return label ?? null;
 }
 
 /**

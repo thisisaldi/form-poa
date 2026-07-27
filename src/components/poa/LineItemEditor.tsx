@@ -1555,6 +1555,22 @@ function KriteriaSectionList({ items }: {
   );
 }
 
+// Shared by SurveyDataPanel and the "Produk Survey" section of
+// KriteriaProdukPanel — both render the same getSurveyRekomendasiByOutlet
+// rows, so the sort must stay consistent between them. Order requested
+// 2026-07-27: Produk Fokus PM first (same getAllPakets() check used
+// everywhere else for a product-level, non-doctor-specific "Fokus" flag —
+// see Matriks Summary Per Produk), then within each bucket by Potensi
+// Terbesar (potensiBulan descending, null sinks to the bottom).
+function sortSurveyRows(rows: SurveyRekomendasiRow[]): SurveyRekomendasiRow[] {
+  return [...rows].sort((a, b) => {
+    const aFokus = getAllPakets(a.namaProdukRekomendasi).length > 0;
+    const bFokus = getAllPakets(b.namaProdukRekomendasi).length > 0;
+    if (aFokus !== bFokus) return aFokus ? -1 : 1;
+    return (b.potensiBulan ?? -1) - (a.potensiBulan ?? -1);
+  });
+}
+
 function KriteriaProdukPanel({
   kodeCustomer,
   kodePI,
@@ -1631,7 +1647,7 @@ function KriteriaProdukPanel({
     { title: "Produk Fokus PM", color: "blue", items: fokusPM.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
     {
       title: "Produk Survey", color: "orange",
-      items: (surveyRows ?? []).map((r) => ({
+      items: sortSurveyRows(surveyRows ?? []).map((r) => ({
         key: r.kodeProduk, label: r.namaProdukRekomendasi, added: addedKodeProduk.has(r.kodeProduk),
         badge: r.potensiBulan != null ? `${r.potensiBulan}/bln` : undefined, badgeColor: "orange" as const,
       })),
@@ -1676,7 +1692,7 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
   useEffect(() => {
     startLoad(async () => {
       if (!kodeCustomer || !kodePI) { setRows([]); return; }
-      setRows(await getSurveyRekomendasiByOutlet(kodeCustomer, kodePI));
+      setRows(sortSurveyRows(await getSurveyRekomendasiByOutlet(kodeCustomer, kodePI)));
     });
   }, [kodeCustomer, kodePI]);
 

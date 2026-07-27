@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved } from "@/lib/authz";
+import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel } from "@/lib/authz";
 import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -82,6 +82,12 @@ export default async function PoaDetailPage({
   const userCanApprove = canApprove(actor, poa);
   const userCanFastTrack = await canFastTrackApprove(actor, poa);
   const userCanCancelApproved = await canCancelApproved(actor, poa);
+  // Lock Edit Logic (2026-07-27): only worth explaining to roles that could
+  // otherwise have edited (MR/ASM/SM/NSM) — GM/SFE/ADMIN never hit this path
+  // (GM is always read-only, ADMIN always passes canEdit regardless).
+  const editLockRoleLabel = !userCanEdit && (["MR", "ASM", "SM", "NSM"] as string[]).includes(session.role)
+    ? await getEditLockRoleLabel(poa)
+    : null;
   const approveWithId = approvePoaAction.bind(null, id);
   const rejectWithId = rejectPoaAction.bind(null, id);
   const fastTrackWithId = fastTrackApproveAction.bind(null, id);
@@ -268,6 +274,13 @@ export default async function PoaDetailPage({
           <Button size="sm" variant="ghost">↓ Export Excel</Button>
         </a>
       </div>
+
+      {editLockRoleLabel && (
+        <div className="rounded-md px-4 py-3 text-sm font-medium"
+          style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #f59e0b)" }}>
+          POA ini terkunci untuk diedit — sudah ada tindakan (approve/edit) dari level {displayRole(editLockRoleLabel)} ke atas. Tunggu sampai direject atau dibatalkan approvalnya oleh atasan supaya bisa diedit lagi.
+        </div>
+      )}
 
       {/* Drafting / Produk Fokus / History PSSP Aktif tabs */}
       <PoaDetailTabs
