@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
@@ -211,27 +211,15 @@ function qtyToUB(qtyST: number, product: Product): number {
   return qtyST / konversi;
 }
 
-// Returns the per-month estimate from the most recent COMPLETED PSSP contract for a product.
-// Matches by product name only (Procode ≠ Item Kode across systems).
-// estBaris is the full-period total, divided by months to get per-month baseline.
-function computeOldEstPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
-  const now = new Date();
-  const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const norm = namaProduk.toLowerCase().trim();
-  // Only expired contracts, matched by name
-  const rows = history.filter(
-    (r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir < currentPeriod
-  );
-  if (rows.length === 0) return null;
-  const latest = rows[0]; // sorted desc by prdAkhir from query — most recent expired
-  const sy = parseInt(latest.prdAwal.slice(0, 4)), sm = parseInt(latest.prdAwal.slice(4));
-  const ey = parseInt(latest.prdAkhir.slice(0, 4)), em = parseInt(latest.prdAkhir.slice(4));
-  const months = (ey - sy) * 12 + (em - sm) + 1;
-  return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
-}
-
-// Like computeOldEstPerMonth but includes active contracts too (for total-level growth card).
-// Requires estBaris > 0 — active contracts often have estBaris = 0 before data is filled.
+// Returns the per-month estimate from the most recent PSSP contract for a product —
+// EXPIRED OR STILL ACTIVE. Matches by product name only (Procode ≠ Item Kode across
+// systems). estBaris is the full-period total, divided by months to get per-month
+// baseline. Requires estBaris > 0 — active contracts often have estBaris = 0 before
+// data is filled, in which case this falls through to an older contract if one exists.
+// (2026-07-27 fix: used to be expired-only via a separate computeOldEstPerMonth, which
+// meant "Growth Estimasi" silently disappeared whenever the doctor's most recent PSSP
+// for that product was still running — reported as "ada estimasinya di PSSP
+// sebelumnya" with no growth shown. Also used by the total-level growth card.)
 function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
   const norm = namaProduk.toLowerCase().trim();
   const rows = history
@@ -245,25 +233,41 @@ function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: str
   return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
 }
 
-// "Pernah di PSSP" product tag: pelunasan % across PSSP rows for this product (already
-// scoped to the selected doctor+outlet via kdCust) that were active at any point in the
-// last 3 months — i.e. prdAkhir falls within that window. Matches computeOldEstPerMonth's
-// name-matching convention (Procode ≠ Item Kode across systems).
-function computePelunasan3Bln(history: PsspKontrakSummary[], namaProduk: string): number | null {
+// Rows for a product (matched by name — Procode ≠ Item Kode across systems) that were
+// active at any point in the last 3 months, i.e. prdAkhir falls within that window.
+// Shared by computePelunasan3Bln (% realized, used for the "Pernah PSSP" tag) and
+// computePelunasanAktual3BlnPerMonth (Rp/month, used as Growth Pelunasan's baseline).
+function rowsActiveLast3Months(history: PsspKontrakSummary[], namaProduk: string): PsspKontrakSummary[] {
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth() + 1; // 1-12
   const threeMonthsAgoY = m > 3 ? y : y - 1;
   const threeMonthsAgoM = m > 3 ? m - 3 : m - 3 + 12;
   const threeMonthsAgoPeriod = `${threeMonthsAgoY}${String(threeMonthsAgoM).padStart(2, "0")}`;
-
   const norm = namaProduk.toLowerCase().trim();
-  const rows = history.filter(
-    (r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir >= threeMonthsAgoPeriod
-  );
+  return history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir >= threeMonthsAgoPeriod);
+}
+
+// "Pernah di PSSP" product tag: pelunasan % across PSSP rows for this product (already
+// scoped to the selected doctor+outlet via kdCust) that were active at any point in the
+// last 3 months.
+function computePelunasan3Bln(history: PsspKontrakSummary[], namaProduk: string): number | null {
+  const rows = rowsActiveLast3Months(history, namaProduk);
   if (rows.length === 0) return null;
   const sumEst = rows.reduce((s, r) => s + r.estBaris, 0);
   const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
   return sumEst > 0 ? Math.round((sumLunas / sumEst) * 100) : null;
+}
+
+// Growth Pelunasan's baseline: actual PSSP settlement (totalLunas) realized over the
+// last 3 months for this product, averaged to a Rp/month figure comparable to
+// `perBulan` (2026-07-27 fix: this used to compare against actual SALES qty via
+// getSales3BlnByOutlet instead of actual PSSP pelunasan — wrong data source for a
+// metric labeled "Growth Pelunasan").
+function computePelunasanAktual3BlnPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
+  const rows = rowsActiveLast3Months(history, namaProduk);
+  if (rows.length === 0) return null;
+  const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
+  return sumLunas > 0 ? sumLunas / 3 : null;
 }
 
 function computeLabelCustomer(history: PsspKontrakSummary[]): string {
@@ -619,7 +623,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, index, products, dokterFields, spesialisasi, psspHistory, sales3Bln, kriteriaList, diskonList, diskonHistoryList, usedKodeProduk, kodeCustomer, kodePI, onChange, onRemove, showRemove, showError,
+  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, diskonList, diskonHistoryList, usedKodeProduk, kodeCustomer, kodePI, onChange, onRemove, showRemove, showError,
 }: {
   entry: ProdukEntry;
   index: number;
@@ -627,8 +631,6 @@ function ProdukEntryRow({
   dokterFields: DokterFields;
   spesialisasi?: string;
   psspHistory?: PsspKontrakSummary[];
-  /** Actual sales qty for the last 3 completed months, per product, at this outlet. */
-  sales3Bln?: Sales3BlnByProduct[];
   kriteriaList?: KriteriaByOutlet[];
   /** DiskonKontrak (DPL) rows at this outlet — used to default "% Diskon (DPL/DPF)" to real data. */
   diskonList?: DiskonByProduct[];
@@ -692,19 +694,21 @@ function ProdukEntryRow({
   const nilaiPSSPTotal = nilaiPSSPBulan != null ? nilaiPSSPBulan * lama : null;
 
   const oldEstPerMonth = (psspHistory && psspHistory.length > 0 && product)
-    ? computeOldEstPerMonth(psspHistory, product.namaProduk)
+    ? computeLatestEstPerMonth(psspHistory, product.namaProduk)
     : null;
   const growthRatio = (perBulan != null && oldEstPerMonth != null && oldEstPerMonth > 0)
     ? perBulan / oldEstPerMonth
     : null;
   const growthPct = growthRatio != null ? (growthRatio - 1) * 100 : null;
 
-  // Additional Growth Pelunasan metric based on actual sales qty from the last 3 completed
-  // months (separate from — not a replacement for — the PSSP-contract-based growth above).
-  const qty3Bln = product ? (sales3Bln?.find((s) => s.itemKode === product.kodeProduk)?.qty3Bln ?? 0) : 0;
-  const estValue3BlnPerMonth = qty3Bln > 0 && hna > 0 ? (qty3Bln / 3) * hna : null;
-  const growthPct3Bln = (perBulan != null && estValue3BlnPerMonth != null && estValue3BlnPerMonth > 0)
-    ? ((perBulan / estValue3BlnPerMonth) - 1) * 100
+  // Growth Pelunasan: perBulan vs actual PSSP settlement (pelunasan) realized over the
+  // last 3 months for this product — a real-money check separate from (not a
+  // replacement for) the PSSP-contract-ESTIMATE-based growth above.
+  const pelunasanAktual3BlnPerMonth = (psspHistory && psspHistory.length > 0 && product)
+    ? computePelunasanAktual3BlnPerMonth(psspHistory, product.namaProduk)
+    : null;
+  const growthPct3Bln = (perBulan != null && pelunasanAktual3BlnPerMonth != null && pelunasanAktual3BlnPerMonth > 0)
+    ? ((perBulan / pelunasanAktual3BlnPerMonth) - 1) * 100
     : null;
 
   const produkErr = showError && !entry.kodeProduk;
@@ -949,9 +953,9 @@ function ProdukEntryRow({
             style={{ borderColor: "var(--color-border)" }}>
             <div>
               <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Pelunasan (3 Bln Terakhir)</div>
-              {estValue3BlnPerMonth != null && (
+              {pelunasanAktual3BlnPerMonth != null && (
                 <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                  Actual {formatRp(Math.round(estValue3BlnPerMonth))}/bln
+                  Pelunasan aktual {formatRp(Math.round(pelunasanAktual3BlnPerMonth))}/bln
                 </div>
               )}
             </div>
@@ -962,7 +966,7 @@ function ProdukEntryRow({
               </span>
             ) : (
               <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                Belum ada data sales 3 bln
+                Belum ada pelunasan PSSP 3 bln terakhir
               </span>
             )}
           </div>
@@ -1528,7 +1532,7 @@ function ProdukFokusPanel({
 // exclusive: a product matching more than one criterion appears in each.
 
 function KriteriaSectionList({ items }: {
-  items: { key: string; label: string; added?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[]
+  items: { key: string; label: string; added?: boolean; isFokus?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[]
 }) {
   return (
     <ul className="space-y-1">
@@ -1539,6 +1543,11 @@ function KriteriaSectionList({ items }: {
             {it.added && (
               <span title="Sudah ditambahkan ke POA ini" style={{ color: "var(--color-success, #16a34a)", fontWeight: 700, flexShrink: 0 }}>
                 ✓
+              </span>
+            )}
+            {it.isFokus && (
+              <span title="Produk Fokus PM" style={{ color: "var(--color-blue)", flexShrink: 0 }}>
+                ★
               </span>
             )}
             <span className="truncate" style={{ color: "var(--color-text)" }}>{it.label}</span>
@@ -1635,7 +1644,7 @@ function KriteriaProdukPanel({
   // Order requested 2026-07-27: Pernah PSSP (sort pelunasan terbaik) -> Produk
   // Fokus PM -> Produk Survey, then the two Listing Corporate sections kept
   // after (not part of the requested 3, but not removed either).
-  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[] };
+  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; isFokus?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[] };
   const allSections: Section[] = [
     {
       title: "Pernah PSSP", color: "green",
@@ -1649,6 +1658,7 @@ function KriteriaProdukPanel({
       title: "Produk Survey", color: "orange",
       items: sortSurveyRows(surveyRows ?? []).map((r) => ({
         key: r.kodeProduk, label: r.namaProdukRekomendasi, added: addedKodeProduk.has(r.kodeProduk),
+        isFokus: getAllPakets(r.namaProdukRekomendasi).length > 0,
         badge: r.potensiBulan != null ? `${r.potensiBulan}/bln` : undefined, badgeColor: "orange" as const,
       })),
     },
@@ -1933,7 +1943,6 @@ function AddPanel({
   const [labelCustomer, setLabelCustomer] = useState("");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
-  const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
 
@@ -2068,21 +2077,6 @@ function AddPanel({
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
-  // Sum of latest PSSP per-month estimates across all filled products (active + expired)
-  const totalOldEstPerMonth = useMemo(() => {
-    if (!psspHistory || psspHistory.length === 0) return null;
-    let sum = 0; let hasAny = false;
-    for (const entry of produkList) {
-      if (!entry.kodeProduk) continue;
-      const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
-      if (!p) continue;
-      const old = computeLatestEstPerMonth(psspHistory, p.namaProduk);
-      if (old == null) continue;
-      sum += old; hasAny = true;
-    }
-    return hasAny ? sum : null;
-  }, [produkList, products, psspHistory]);
-
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
   const totalPctBudget = useMemo(() => {
     let budgetWeighted = 0, estTotal = 0;
@@ -2102,17 +2096,15 @@ function AddPanel({
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setCustomerList([]); setKriteriaList([]); setSales3Bln([]); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
+    setCustomerList([]); setKriteriaList([]); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
     if (!val) return;
     startLoadSpec(async () => {
-      const [kriteria, sales3BlnData, diskonData, diskonHistoryData] = await Promise.all([
+      const [kriteria, diskonData, diskonHistoryData] = await Promise.all([
         getKriteriaByOutlet(val),
-        getSales3BlnByOutlet(val),
         getDiskonByOutlet(val),
         getDiskonHistoryByOutlet(val),
       ]);
       setKriteriaList(kriteria);
-      setSales3Bln(sales3BlnData);
       setDiskonList(diskonData);
       setDiskonHistoryList(diskonHistoryData);
     });
@@ -2214,7 +2206,7 @@ function AddPanel({
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
-    const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
+    const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeLatestEstPerMonth(psspHistory, product.namaProduk) : null;
     const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
     fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
@@ -2371,7 +2363,6 @@ function AddPanel({
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
-                sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
@@ -2396,8 +2387,6 @@ function AddPanel({
         {filledCount > 0 && totalEstimasi > 0 && (() => {
           const lama = dokterFields.lamaPeriode || 1;
           const newPerMonth = totalEstimasi / lama;
-          const growthPct = totalOldEstPerMonth != null && totalOldEstPerMonth > 0
-            ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
           return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
@@ -2435,35 +2424,19 @@ function AddPanel({
                   </div>
                 </div>
               )}
-              <div>
-                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Growth vs PSSP</div>
-                {growthPct != null ? (
-                  <>
-                    <div className="text-xl font-bold"
-                      style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                      {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                      PSSP lama {formatRp(Math.round(totalOldEstPerMonth! * lama))}/{lama}bln
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                    {psspHistory === null ? "Memuat…" : psspHistory.length === 0 ? "Tidak ada histori PSSP" : "Belum ada data PSSP"}
-                  </div>
-                )}
-              </div>
             </div>
             <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
-                Estimasi Qty per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
+                Estimasi Qty & Growth vs PSSP per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "44%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "20%" }} />
-                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "17.5%" }} />
+                  <col style={{ width: "17.5%" }} />
                 </colgroup>
                 <thead>
                   <tr style={{ color: "var(--color-text-faint)" }}>
@@ -2471,6 +2444,8 @@ function AddPanel({
                     <th className="text-right font-medium pb-1">Qty</th>
                     <th className="text-right font-medium pb-1">Estimasi</th>
                     <th className="text-right font-medium pb-1">Nilai PSSP</th>
+                    <th className="text-right font-medium pb-1">Growth Estimasi</th>
+                    <th className="text-right font-medium pb-1">Growth Pelunasan</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2484,6 +2459,19 @@ function AddPanel({
                     const nilaiPSSP = nilaiRPersen != null
                       ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(entry.pengaliNilaiR))
                       : null;
+                    // Per-product Growth Estimasi/Pelunasan — same formulas as the
+                    // per-product calculator card above (ProdukEntryRow), just
+                    // re-derived here since this table works off the whole
+                    // produkList rather than one row's own local state.
+                    const perBulanProduk = lama > 0 ? estimasiTotal / lama : 0;
+                    const oldEstProduk = (psspHistory && psspHistory.length > 0)
+                      ? computeLatestEstPerMonth(psspHistory, p.namaProduk) : null;
+                    const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk > 0)
+                      ? (perBulanProduk / oldEstProduk - 1) * 100 : null;
+                    const pelunasanProduk = (psspHistory && psspHistory.length > 0)
+                      ? computePelunasanAktual3BlnPerMonth(psspHistory, p.namaProduk) : null;
+                    const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk > 0)
+                      ? (perBulanProduk / pelunasanProduk - 1) * 100 : null;
                     return (
                       <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
@@ -2498,6 +2486,14 @@ function AddPanel({
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
                           {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums"
+                          style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums"
+                          style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "—"}
                         </td>
                       </tr>
                     );
@@ -2717,7 +2713,6 @@ function AddProductPanel({
   const [labelCustomer, setLabelCustomer] = useState("");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
-  const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -2727,7 +2722,6 @@ function AddProductPanel({
 
   useEffect(() => {
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
-    getSales3BlnByOutlet(kodePI).then(setSales3Bln);
     getDiskonByOutlet(kodePI).then(setDiskonList);
     getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
@@ -2771,7 +2765,7 @@ function AddProductPanel({
     const totalBiayaAP = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiayaAP));
     const perBulanAP = dokterFields.lamaPeriode > 0 ? totalBiayaAP / dokterFields.lamaPeriode : 0;
-    const oldEstAP = (product && psspHistory && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
+    const oldEstAP = (product && psspHistory && psspHistory.length > 0) ? computeLatestEstPerMonth(psspHistory, product.namaProduk) : null;
     const rasioAP = perBulanAP > 0 && oldEstAP && oldEstAP > 0 ? perBulanAP / oldEstAP : null;
     fd.set("rasioEstimasiGrowth", rasioAP != null ? rasioAP.toFixed(4) : "");
     return fd;
@@ -2862,7 +2856,6 @@ function AddProductPanel({
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
-                sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
@@ -2979,7 +2972,6 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
   const [labelCustomer, setLabelCustomer] = useState(first.labelCustomer ?? "");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
-  const [sales3Bln, setSales3Bln] = useState<Sales3BlnByProduct[]>([]);
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -2989,7 +2981,6 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
 
   useEffect(() => {
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
-    getSales3BlnByOutlet(kodePI).then(setSales3Bln);
     getDiskonByOutlet(kodePI).then(setDiskonList);
     getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
@@ -3025,21 +3016,6 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     const pengali = resolvePengaliNilaiR(e.pengaliNilaiR);
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
-
-  // Sum of latest PSSP per-month estimates across all filled products (active + expired)
-  const totalOldEstPerMonth = useMemo(() => {
-    if (!psspHistory || psspHistory.length === 0) return null;
-    let sum = 0; let hasAny = false;
-    for (const entry of produkList) {
-      if (!entry.kodeProduk) continue;
-      const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
-      if (!p) continue;
-      const old = computeLatestEstPerMonth(psspHistory, p.namaProduk);
-      if (old == null) continue;
-      sum += old; hasAny = true;
-    }
-    return hasAny ? sum : null;
-  }, [produkList, products, psspHistory]);
 
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
   const totalPctBudget = useMemo(() => {
@@ -3094,7 +3070,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
-    const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeOldEstPerMonth(psspHistory, product.namaProduk) : null;
+    const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeLatestEstPerMonth(psspHistory, product.namaProduk) : null;
     const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
     fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
@@ -3192,7 +3168,6 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 dokterFields={dokterFields}
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
-                sales3Bln={sales3Bln}
                 kriteriaList={kriteriaList}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
@@ -3217,8 +3192,6 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
         {filledCount > 0 && totalEstimasi > 0 && (() => {
           const lama = dokterFields.lamaPeriode || 1;
           const newPerMonth = totalEstimasi / lama;
-          const growthPct = totalOldEstPerMonth != null && totalOldEstPerMonth > 0
-            ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
           return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
@@ -3256,35 +3229,19 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                   </div>
                 </div>
               )}
-              <div>
-                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Growth vs PSSP</div>
-                {growthPct != null ? (
-                  <>
-                    <div className="text-xl font-bold"
-                      style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                      {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                      PSSP lama {formatRp(Math.round(totalOldEstPerMonth! * lama))}/{lama}bln
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                    {psspHistory === null ? "Memuat…" : psspHistory.length === 0 ? "Tidak ada histori PSSP" : "Belum ada data PSSP"}
-                  </div>
-                )}
-              </div>
             </div>
             <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
-                Estimasi Qty per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
+                Estimasi Qty & Growth vs PSSP per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "44%" }} />
-                  <col style={{ width: "16%" }} />
-                  <col style={{ width: "20%" }} />
-                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "17.5%" }} />
+                  <col style={{ width: "17.5%" }} />
                 </colgroup>
                 <thead>
                   <tr style={{ color: "var(--color-text-faint)" }}>
@@ -3292,6 +3249,8 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     <th className="text-right font-medium pb-1">Qty</th>
                     <th className="text-right font-medium pb-1">Estimasi</th>
                     <th className="text-right font-medium pb-1">Nilai PSSP</th>
+                    <th className="text-right font-medium pb-1">Growth Estimasi</th>
+                    <th className="text-right font-medium pb-1">Growth Pelunasan</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3305,6 +3264,19 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     const nilaiPSSP = nilaiRPersen != null
                       ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(entry.pengaliNilaiR))
                       : null;
+                    // Per-product Growth Estimasi/Pelunasan — same formulas as the
+                    // per-product calculator card above (ProdukEntryRow), just
+                    // re-derived here since this table works off the whole
+                    // produkList rather than one row's own local state.
+                    const perBulanProduk = lama > 0 ? estimasiTotal / lama : 0;
+                    const oldEstProduk = (psspHistory && psspHistory.length > 0)
+                      ? computeLatestEstPerMonth(psspHistory, p.namaProduk) : null;
+                    const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk > 0)
+                      ? (perBulanProduk / oldEstProduk - 1) * 100 : null;
+                    const pelunasanProduk = (psspHistory && psspHistory.length > 0)
+                      ? computePelunasanAktual3BlnPerMonth(psspHistory, p.namaProduk) : null;
+                    const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk > 0)
+                      ? (perBulanProduk / pelunasanProduk - 1) * 100 : null;
                     return (
                       <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
@@ -3319,6 +3291,14 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
                           {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums"
+                          style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums"
+                          style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "—"}
                         </td>
                       </tr>
                     );
