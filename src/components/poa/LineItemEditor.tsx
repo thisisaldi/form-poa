@@ -235,8 +235,8 @@ function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: str
 
 // Rows for a product (matched by name — Procode ≠ Item Kode across systems) that were
 // active at any point in the last 3 months, i.e. prdAkhir falls within that window.
-// Shared by computePelunasan3Bln (% realized, used for the "Pernah PSSP" tag) and
-// computePelunasanAktual3BlnPerMonth (Rp/month, used as Growth Pelunasan's baseline).
+// Used by computePelunasan3Bln (% realized, used for the "Pernah PSSP" tag) —
+// Growth Pelunasan below no longer uses this window (see comment there).
 function rowsActiveLast3Months(history: PsspKontrakSummary[], namaProduk: string): PsspKontrakSummary[] {
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth() + 1; // 1-12
@@ -258,16 +258,23 @@ function computePelunasan3Bln(history: PsspKontrakSummary[], namaProduk: string)
   return sumEst > 0 ? Math.round((sumLunas / sumEst) * 100) : null;
 }
 
-// Growth Pelunasan's baseline: actual PSSP settlement (totalLunas) realized over the
-// last 3 months for this product, averaged to a Rp/month figure comparable to
-// `perBulan` (2026-07-27 fix: this used to compare against actual SALES qty via
-// getSales3BlnByOutlet instead of actual PSSP pelunasan — wrong data source for a
-// metric labeled "Growth Pelunasan").
-function computePelunasanAktual3BlnPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
-  const rows = rowsActiveLast3Months(history, namaProduk);
+// Growth Pelunasan's baseline: the most recent PSSP contract for this product (active
+// or expired, matched by name) with any money actually realized against it — its
+// totalLunas spread across however many months it's ACTUALLY been running so far
+// (elapsedMonthsCount, same "running rate" convention as ContractCard below and the
+// Summary page's Pelunasan Running Rate column), NOT a fixed /3. (2026-07-27
+// correction: "12jt dibagi berapa bulan sudah berjalan [...] atau selama bulannya
+// sudah berjalan kalau kurang dari 3 bulan" — a contract only 1 month in was wrongly
+// diluted by dividing its totalLunas by a flat 3 regardless of how long it'd run.)
+function computePelunasanAktualPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
+  const norm = namaProduk.toLowerCase().trim();
+  const rows = history
+    .filter((r) => r.nmProduk?.toLowerCase().trim() === norm && (r.totalLunas ?? 0) > 0)
+    .sort((a, b) => b.prdAkhir.localeCompare(a.prdAkhir));
   if (rows.length === 0) return null;
-  const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
-  return sumLunas > 0 ? sumLunas / 3 : null;
+  const latest = rows[0];
+  const { elapsed } = elapsedMonthsCount(latest.prdAwal, latest.prdAkhir);
+  return elapsed > 0 ? latest.totalLunas / elapsed : null;
 }
 
 function computeLabelCustomer(history: PsspKontrakSummary[]): string {
@@ -705,7 +712,7 @@ function ProdukEntryRow({
   // last 3 months for this product — a real-money check separate from (not a
   // replacement for) the PSSP-contract-ESTIMATE-based growth above.
   const pelunasanAktual3BlnPerMonth = (psspHistory && psspHistory.length > 0 && product)
-    ? computePelunasanAktual3BlnPerMonth(psspHistory, product.namaProduk)
+    ? computePelunasanAktualPerMonth(psspHistory, product.namaProduk)
     : null;
   const growthPct3Bln = (perBulan != null && pelunasanAktual3BlnPerMonth != null && pelunasanAktual3BlnPerMonth > 0)
     ? ((perBulan / pelunasanAktual3BlnPerMonth) - 1) * 100
@@ -2387,6 +2394,20 @@ function AddPanel({
         {filledCount > 0 && totalEstimasi > 0 && (() => {
           const lama = dokterFields.lamaPeriode || 1;
           const newPerMonth = totalEstimasi / lama;
+          // Aggregate Growth Estimasi across all filled products (2026-07-27: kept
+          // as a headline total alongside the per-product breakdown table below —
+          // "growth estimasi total semua produk nya tetap ada").
+          let totalOldEstPerMonth = 0; let hasOldEst = false;
+          for (const entry of produkList) {
+            if (!entry.kodeProduk || !psspHistory || psspHistory.length === 0) continue;
+            const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
+            if (!p) continue;
+            const old = computeLatestEstPerMonth(psspHistory, p.namaProduk);
+            if (old == null) continue;
+            totalOldEstPerMonth += old; hasOldEst = true;
+          }
+          const growthEstimasiTotalPct = hasOldEst && totalOldEstPerMonth > 0
+            ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
           return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
@@ -2424,6 +2445,24 @@ function AddPanel({
                   </div>
                 </div>
               )}
+              <div>
+                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
+                {growthEstimasiTotalPct != null ? (
+                  <>
+                    <div className="text-xl font-bold"
+                      style={{ color: growthEstimasiTotalPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      {growthEstimasiTotalPct >= 0 ? "+" : ""}{growthEstimasiTotalPct.toFixed(1)}%
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                      PSSP lama {formatRp(Math.round(totalOldEstPerMonth))}/bln
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                    {psspHistory === null ? "Memuat…" : psspHistory.length === 0 ? "Tidak ada histori PSSP" : "Belum ada data PSSP"}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
@@ -2469,7 +2508,7 @@ function AddPanel({
                     const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk > 0)
                       ? (perBulanProduk / oldEstProduk - 1) * 100 : null;
                     const pelunasanProduk = (psspHistory && psspHistory.length > 0)
-                      ? computePelunasanAktual3BlnPerMonth(psspHistory, p.namaProduk) : null;
+                      ? computePelunasanAktualPerMonth(psspHistory, p.namaProduk) : null;
                     const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk > 0)
                       ? (perBulanProduk / pelunasanProduk - 1) * 100 : null;
                     return (
@@ -3192,6 +3231,20 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
         {filledCount > 0 && totalEstimasi > 0 && (() => {
           const lama = dokterFields.lamaPeriode || 1;
           const newPerMonth = totalEstimasi / lama;
+          // Aggregate Growth Estimasi across all filled products (2026-07-27: kept
+          // as a headline total alongside the per-product breakdown table below —
+          // "growth estimasi total semua produk nya tetap ada").
+          let totalOldEstPerMonth = 0; let hasOldEst = false;
+          for (const entry of produkList) {
+            if (!entry.kodeProduk || !psspHistory || psspHistory.length === 0) continue;
+            const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
+            if (!p) continue;
+            const old = computeLatestEstPerMonth(psspHistory, p.namaProduk);
+            if (old == null) continue;
+            totalOldEstPerMonth += old; hasOldEst = true;
+          }
+          const growthEstimasiTotalPct = hasOldEst && totalOldEstPerMonth > 0
+            ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
           return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
@@ -3229,6 +3282,24 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                   </div>
                 </div>
               )}
+              <div>
+                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
+                {growthEstimasiTotalPct != null ? (
+                  <>
+                    <div className="text-xl font-bold"
+                      style={{ color: growthEstimasiTotalPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      {growthEstimasiTotalPct >= 0 ? "+" : ""}{growthEstimasiTotalPct.toFixed(1)}%
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                      PSSP lama {formatRp(Math.round(totalOldEstPerMonth))}/bln
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                    {psspHistory === null ? "Memuat…" : psspHistory.length === 0 ? "Tidak ada histori PSSP" : "Belum ada data PSSP"}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
@@ -3274,7 +3345,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk > 0)
                       ? (perBulanProduk / oldEstProduk - 1) * 100 : null;
                     const pelunasanProduk = (psspHistory && psspHistory.length > 0)
-                      ? computePelunasanAktual3BlnPerMonth(psspHistory, p.namaProduk) : null;
+                      ? computePelunasanAktualPerMonth(psspHistory, p.namaProduk) : null;
                     const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk > 0)
                       ? (perBulanProduk / pelunasanProduk - 1) * 100 : null;
                     return (
