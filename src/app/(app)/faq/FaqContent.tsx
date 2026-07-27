@@ -442,7 +442,7 @@ const SECTION_KEYWORDS: Record<string, string> = {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export function DefinisiContent() {
+export function FaqContent() {
   const [query, setQuery] = useState("");
 
   const filteredSections = useMemo(() => {
@@ -458,7 +458,7 @@ export function DefinisiContent() {
   return (
     <div className="space-y-5">
       <div>
-        <h1>Definisi</h1>
+        <h1>FAQ</h1>
         <p className="mt-1 text-sm max-w-[68ch]" style={{ color: "var(--color-text-muted)" }}>
           Referensi istilah &amp; cara hitung yang GAK umum di halaman <Link href="/summary">Summary</Link> dan form
           Rencana PSSP per dokter — istilah yang sudah jelas dari nama kolomnya sendiri sengaja tidak dimasukkan.

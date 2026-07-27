@@ -42,8 +42,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ASM", "SM", "NSM", "ADMIN", "SFE"],
   },
   {
-    href: "/definisi",
-    label: "Definisi",
+    href: "/faq",
+    label: "FAQ",
     icon: <IconBook />,
     // No roles restriction — every role, including MR, can see this.
   },
