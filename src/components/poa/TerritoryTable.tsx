@@ -45,7 +45,15 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
         <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>{codeLabel}</th>
+              {/* Frozen first column (2026-07-27 request: "difreeze biar tetep
+                  keliatan kalau geser kanan") — sticky needs an opaque
+                  background matching the Card so scrolled columns don't show
+                  through underneath, plus a right border marking the freeze
+                  edge since there's no shadow-based affordance in this table. */}
+              <th className="text-left py-2 px-3 font-medium whitespace-nowrap sticky left-0 z-10"
+                style={{ color: "var(--color-text-faint)", background: "var(--color-surface)", borderRight: "1px solid var(--color-border)" }}>
+                {codeLabel}
+              </th>
               {isProduk && (
                 <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Status</th>
               )}
@@ -109,7 +117,8 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
               const salesPerUser = userCount > 0 ? g.salesAktif / userCount : null;
               return (
                 <tr key={g.code} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <td className="py-2 px-3" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2 px-3 sticky left-0 z-10"
+                    style={{ color: "var(--color-text)", background: "var(--color-surface)", borderRight: "1px solid var(--color-border)" }}>
                     <p className="font-medium truncate max-w-[16rem]">{g.name}</p>
                     <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{g.code}</p>
                   </td>
