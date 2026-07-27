@@ -58,7 +58,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const totalPages = pageSize ? Math.max(1, Math.ceil(totalPoaCount / pageSize)) : 1;
   const page = Math.min(requestedPage, totalPages);
 
-  const [recentRaw, pendingPoas] = await Promise.all([
+  const [recentRaw, pendingCount] = await Promise.all([
     prisma.poaForm.findMany({
       where: visibleFilter,
       include: {
@@ -75,12 +75,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       orderBy: { updatedAt: "desc" },
       ...(pageSize ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
     }),
-    prisma.poaForm.findMany({
-      where: pendingFilter,
-      include: { owner: true },
-      orderBy: { updatedAt: "asc" },
-      take: 5,
-    }),
+    prisma.poaForm.count({ where: pendingFilter }),
   ]);
 
   type RawItem = {
@@ -277,37 +272,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       </div>
 
-      {!isMR && pendingPoas.length > 0 && (
+      {!isMR && pendingCount > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Menunggu Tindakan Anda</CardTitle>
-            <Link href="/approvals" className="text-xs" style={{ color: "var(--color-blue)" }}>
-              Lihat semua →
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Menunggu Tindakan Anda</CardTitle>
+              <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                {pendingCount} POA menunggu persetujuan Anda
+              </p>
+            </div>
+            <Link href="/approvals">
+              <Button size="sm" variant="secondary">Lihat Persetujuan →</Button>
             </Link>
-          </CardHeader>
-          <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-            {(pendingPoas as (PoaFormType & { owner: UserType })[]).map((poa) => (
-              <li key={poa.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-                <div>
-                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-                    {poa.owner.name}
-                    <span className="ml-1 text-xs font-normal" style={{ color: "var(--color-text-muted)" }}>
-                      ({poa.owner.nip})
-                    </span>
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-                    Periode: {poa.period}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <StatusBadge status={poa.status} version={poa.version} />
-                  <Link href={`/poa/${poa.id}`}>
-                    <Button size="sm" variant="secondary">Review</Button>
-                  </Link>
-                </div>
-              </li>
-            ))}
-          </ul>
+          </div>
         </Card>
       )}
 

@@ -1990,14 +1990,18 @@ function AddPanel({
       // (2026-07-27 request: flag this in the doctor dropdown too, not just the
       // Histori PSSP panel after picking someone).
       const isRetensi = !!psspStatus?.isActive && currentQuarterMonths().includes(psspStatus.latestPrdAkhir);
+      // Retensi now its own solid/high-contrast badge (tag3) instead of a suffix
+      // baked into tag2's text — it used to blend into the pelunasan pill and
+      // was easy to miss (2026-07-27 request: separate it out, more contrast).
       const tag2 = psspStatus
-        ? (pct != null ? `Pernah PSSP · Pelunasan Terakhir ${Math.round(pct)}%${isRetensi ? " · Retensi" : ""}` : "Pernah PSSP")
+        ? (pct != null ? `Pernah PSSP · Pelunasan Terakhir ${Math.round(pct)}%` : "Pernah PSSP")
         : undefined;
-      const tag2Color: "green" | "yellow" | "red" | "orange" | undefined = isRetensi ? "orange"
-        : pct == null ? undefined
+      const tag2Color: "green" | "yellow" | "red" | undefined = pct == null ? undefined
         : pct >= 80 ? "green"
         : pct >= 40 ? "yellow"
         : "red";
+      const tag3 = isRetensi ? "Retensi" : undefined;
+      const tag3Color = "red" as const;
       // Distance (in months) from this doctor's most recent PSSP end-period to the
       // end of the quarter currently being worked on — smaller means more urgent to
       // act on (about to lapse this quarter, or just lapsed near it).
@@ -2014,7 +2018,7 @@ function AddPanel({
           c.isFokus ? "⭐ Rekomendasi PM" : null,
           psspPeriodLabel,
         ].filter(Boolean).join(" · "),
-        tag2, tag2Color, _pct: pct, _prdAkhirDist: prdAkhirDist,
+        tag2, tag2Color, tag3, tag3Color, _pct: pct, _prdAkhirDist: prdAkhirDist,
       };
       // Sorted by proximity of PSSP end-period to the current quarter's end first
       // (2026-07-27 request) — doctors whose contract is closest to lapsing this

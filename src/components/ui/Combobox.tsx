@@ -19,6 +19,11 @@ export interface ComboboxOption {
   /** Second, independent badge (e.g. PSSP history) — shown alongside `tag`, not instead of it. */
   tag2?: string;
   tag2Color?: "blue" | "yellow" | "red" | "green" | "orange";
+  /** Third, independent badge (e.g. "Retensi") — rendered solid/high-contrast rather
+   * than as a pastel pill, so it stands out from tag/tag2 instead of blending in
+   * (2026-07-27: previously baked into tag2's text, easy to miss). */
+  tag3?: string;
+  tag3Color?: "blue" | "yellow" | "red" | "green" | "orange";
 }
 
 export const TAG_COLORS = {
@@ -299,6 +304,18 @@ export function Combobox({
                                 }}
                               >
                                 {option.tag2}
+                              </span>
+                            )}
+                            {option.tag3 && (
+                              <span
+                                className="shrink-0 text-xs px-1.5 py-0.5 rounded font-bold"
+                                style={{
+                                  background: isHighlighted ? "#fff" : TAG_COLORS[option.tag3Color ?? "red"].fg,
+                                  color: isHighlighted ? TAG_COLORS[option.tag3Color ?? "red"].fg : "#fff",
+                                  boxShadow: isHighlighted ? "none" : "0 0 0 1px rgba(0,0,0,0.06)",
+                                }}
+                              >
+                                {option.tag3}
                               </span>
                             )}
                           </span>
