@@ -1884,12 +1884,17 @@ function PsspSidebar({
         {activeTab === "survey" ? (
           <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
         ) : activeTab === "kriteria" ? (
-          <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
-        ) : (
           <>
+            {/* Moved here from "Histori PSSP" 2026-07-27 — this "Belum Diajukan"
+                nudge list belongs with the other Produk Fokus PM content in this
+                tab, not the PSSP history tab. */}
             {spesialisasi && produkList && products && (
               <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
             )}
+            <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
+          </>
+        ) : (
+          <>
             <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
@@ -1991,11 +1996,17 @@ function AddPanel({
       // end of the quarter currently being worked on — smaller means more urgent to
       // act on (about to lapse this quarter, or just lapsed near it).
       const prdAkhirDist = psspStatus ? Math.abs(yyyymmIndex(psspStatus.latestPrdAkhir) - quarterEndIndex) : null;
+      // Periode PSSP terakhir shown regardless of Berjalan/Selesai (2026-07-27
+      // request) — same raw YYYYMM range convention as ContractCard above.
+      const psspPeriodLabel = psspStatus
+        ? `PSSP ${psspStatus.latestPrdAwal}–${psspStatus.latestPrdAkhir} (${psspStatus.isActive ? "Berjalan" : "Selesai"})`
+        : null;
       return {
         value: c.id, label: c.namaCustomer,
         sublabel: [
           spesLabel(c.spesialisasi),
           c.isFokus ? "⭐ Rekomendasi PM" : null,
+          psspPeriodLabel,
         ].filter(Boolean).join(" · "),
         tag2, tag2Color, _pct: pct, _prdAkhirDist: prdAkhirDist,
       };

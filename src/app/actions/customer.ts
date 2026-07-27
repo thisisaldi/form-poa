@@ -311,6 +311,7 @@ export interface PsspStatusByCustomer {
    * true but that contract has no est/lunas figures to compute a ratio from. */
   latestPelunasanPct: number | null;
   isActive: boolean; // true if that most-recent contract hasn't expired yet
+  latestPrdAwal: string; // YYYYMM — most recent contract's start period
   latestPrdAkhir: string; // YYYYMM — most recent contract's end period, used to sort/flag by proximity to quarter end
 }
 
@@ -331,7 +332,7 @@ export async function getPsspStatusByOutlet(kodePI: string): Promise<PsspStatusB
   const rows = await prisma.psspKontrak.findMany({
     where: { kdOutlet: kodePI },
     orderBy: [{ prdAkhir: "desc" }],
-    select: { kdCust: true, cUrut: true, prdAkhir: true, estBaris: true, totalLunas: true },
+    select: { kdCust: true, cUrut: true, prdAwal: true, prdAkhir: true, estBaris: true, totalLunas: true },
   });
 
   // Group by customer, then by contract (cUrut) within that customer.
@@ -354,6 +355,7 @@ export async function getPsspStatusByOutlet(kodePI: string): Promise<PsspStatusB
       everPssp: true,
       latestPelunasanPct: est > 0 ? (lunas / est) * 100 : null,
       isActive: custRows[0].prdAkhir >= currentPeriod,
+      latestPrdAwal: custRows[0].prdAwal,
       latestPrdAkhir: custRows[0].prdAkhir,
     });
   }
