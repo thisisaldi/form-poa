@@ -935,25 +935,36 @@ function ProdukEntryRow({
               </div>
             </div>
           </div>
-          <div className="flex items-center justify-between pt-1.5 border-t"
-            style={{ borderColor: "var(--color-border)" }}>
-            <div>
-              <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
-              {oldEstPerMonth != null && (
-                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                  PSSP lama {formatRp(Math.round(oldEstPerMonth))}/bln
-                </div>
+          <div className="pt-1.5 border-t" style={{ borderColor: "var(--color-border)" }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
+                {oldEstPerMonth != null && (
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                    PSSP lama {formatRp(Math.round(oldEstPerMonth))}/bln
+                  </div>
+                )}
+              </div>
+              {growthPct != null ? (
+                <span className="text-sm font-semibold"
+                  style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                  {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+                </span>
+              ) : (
+                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  Belum ada data PSSP
+                </span>
               )}
             </div>
-            {growthPct != null ? (
-              <span className="text-sm font-semibold"
-                style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
-              </span>
-            ) : (
-              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                Belum ada data PSSP
-              </span>
+            {/* Warning/Apresiasi Logic Growth Estimasi (2026-07-27 request) —
+                ≤0% flags a stagnant/declining plan as needing intensifikasi;
+                >0% is praised but still flagged to double-check the estimate. */}
+            {growthPct != null && (
+              <p className="text-xs mt-1" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+                {growthPct > 0
+                  ? "✓ Selamat sudah intensifikasi, pastikan estimasinya tepat"
+                  : "⚠ Kenapa malah lebih kecil dan belum intensifikasi"}
+              </p>
             )}
           </div>
           <div className="flex items-center justify-between pt-1.5 border-t"
@@ -2450,12 +2461,18 @@ function AddPanel({
                 {growthEstimasiTotalPct != null ? (
                   <>
                     <div className="text-xl font-bold"
-                      style={{ color: growthEstimasiTotalPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                       {growthEstimasiTotalPct >= 0 ? "+" : ""}{growthEstimasiTotalPct.toFixed(1)}%
                     </div>
                     <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                       PSSP lama {formatRp(Math.round(totalOldEstPerMonth))}/bln
                     </div>
+                    <p className="text-xs mt-1 max-w-[14rem]"
+                      style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+                      {growthEstimasiTotalPct > 0
+                        ? "✓ Selamat sudah intensifikasi, pastikan estimasinya tepat"
+                        : "⚠ Kenapa malah lebih kecil dan belum intensifikasi"}
+                    </p>
                   </>
                 ) : (
                   <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
@@ -2527,7 +2544,10 @@ function AddPanel({
                           {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
-                          style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
+                            ? "Selamat sudah intensifikasi, pastikan estimasinya tepat"
+                            : "Kenapa malah lebih kecil dan belum intensifikasi"}
+                          style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
@@ -3287,12 +3307,18 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 {growthEstimasiTotalPct != null ? (
                   <>
                     <div className="text-xl font-bold"
-                      style={{ color: growthEstimasiTotalPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                       {growthEstimasiTotalPct >= 0 ? "+" : ""}{growthEstimasiTotalPct.toFixed(1)}%
                     </div>
                     <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                       PSSP lama {formatRp(Math.round(totalOldEstPerMonth))}/bln
                     </div>
+                    <p className="text-xs mt-1 max-w-[14rem]"
+                      style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+                      {growthEstimasiTotalPct > 0
+                        ? "✓ Selamat sudah intensifikasi, pastikan estimasinya tepat"
+                        : "⚠ Kenapa malah lebih kecil dan belum intensifikasi"}
+                    </p>
                   </>
                 ) : (
                   <div className="text-sm mt-0.5" style={{ color: "var(--color-text-faint)" }}>
@@ -3364,7 +3390,10 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                           {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
-                          style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
+                            ? "Selamat sudah intensifikasi, pastikan estimasinya tepat"
+                            : "Kenapa malah lebih kecil dan belum intensifikasi"}
+                          style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
                         </td>
                         <td className="py-1 text-right tabular-nums"

@@ -554,13 +554,15 @@ export default async function SummaryPage({
       if (sortMode !== "gap" || !(tab === "outlet" || tab === "customer")) {
         return b.estimasi - a.estimasi;
       }
-      // "outlet": PSSP Aktif paling atas dulu (2026-07-27 update to the
-      // stakeholder's spec — was "has realisasi", now "has PSSP Aktif"), then
-      // GAP tertinggi among those. "customer" has no PSSP-aktif concept
-      // computed (activeRows above is only populated for "outlet"/"produk"),
-      // so it keeps the original realisasi-based criterion.
-      const aHas = tab === "outlet" ? a.estimasiAktif > 0 : a.realisasi > 0;
-      const bHas = tab === "outlet" ? b.estimasiAktif > 0 : b.realisasi > 0;
+      // Rows with a "Realisasi Sebelumnya" (> 0) go first, then GAP tertinggi
+      // among those (2026-07-27: reverted the outlet tab's brief "PSSP Aktif"
+      // criterion back to realisasi — an outlet whose PSSP contracts had all
+      // already ended, with none currently active, was being pushed to the
+      // bottom even though it did have prior realisasi; the "Realisasi
+      // Sebelumnya" column itself is what should drive this sort, consistently
+      // across both the outlet and customer tabs).
+      const aHas = a.realisasi > 0;
+      const bHas = b.realisasi > 0;
       if (aHas !== bHas) return aHas ? -1 : 1;
       return aHas ? b.gapVsRealisasi - a.gapVsRealisasi : b.estimasi - a.estimasi;
     });
