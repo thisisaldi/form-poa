@@ -9,6 +9,7 @@ import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
 import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getSales3BlnByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type Sales3BlnByProduct, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
+import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
@@ -36,6 +37,17 @@ const JENIS_PSSP_LABELS: Record<string, string> = {
   PSSP_PEREMAJAAN: "PSSP Peremajaan",
   PSSP_PERPANJANGAN: "PSSP Perpanjangan",
 };
+
+// "Quarter berjalan" — the calendar quarter containing today, e.g. Jul-Sep -> ["202607","202608","202609"].
+function currentQuarterMonths(): string[] {
+  const now = new Date();
+  const q = Math.floor(now.getMonth() / 3) + 1;
+  return quarterToMonths(`${now.getFullYear()}-Q${q}`);
+}
+
+function yyyymmIndex(yyyymm: string): number {
+  return parseInt(yyyymm.slice(0, 4), 10) * 12 + parseInt(yyyymm.slice(4), 10);
+}
 
 
 interface OutletOption { kodePI: string; namaOutlet: string; groupRS?: string | null }
@@ -274,25 +286,22 @@ function computeLabelCustomer(history: PsspKontrakSummary[]): string {
   }
   if (hasActive) {
     const pct = activeEst > 0 ? activeLunas / activeEst * 100 : 0;
-    return pct >= 80 ? "Akan Selesai, Pelunasan Bagus" : "Akan Selesai, Pelunasan Buruk";
+    return pct >= 80 ? "Akan Selesai, Pelunasan Bagus" : "Akan Selesai";
   }
   const pct = allEst > 0 ? allLunas / allEst * 100 : 0;
-  return pct >= 80 ? "Pernah PSSP, Pelunasan Bagus" : "Pernah PSSP, Pelunasan Buruk";
+  return pct >= 80 ? "Pernah PSSP, Pelunasan Bagus" : "Pernah PSSP";
 }
 
 function LabelCustomerBadge({ label }: { label: string }) {
   const isNew = label === "Dokter Baru";
   const isGood = label.includes("Bagus");
-  const isBad = label.includes("Buruk");
   const color = isNew
     ? "var(--color-blue)"
     : isGood ? "var(--color-success, #16a34a)"
-    : isBad ? "var(--color-red)"
     : "var(--color-text-muted)";
   const bg = isNew
     ? "var(--color-blue-light, #eff6ff)"
     : isGood ? "var(--color-success-bg, #dcfce7)"
-    : isBad ? "var(--color-red-light)"
     : "var(--color-bg-subtle)";
   return (
     <span className="text-xs font-medium px-2 py-0.5 rounded"
@@ -690,7 +699,7 @@ function ProdukEntryRow({
     : null;
   const growthPct = growthRatio != null ? (growthRatio - 1) * 100 : null;
 
-  // Additional Growth PSSP metric based on actual sales qty from the last 3 completed
+  // Additional Growth Pelunasan metric based on actual sales qty from the last 3 completed
   // months (separate from — not a replacement for — the PSSP-contract-based growth above).
   const qty3Bln = product ? (sales3Bln?.find((s) => s.itemKode === product.kodeProduk)?.qty3Bln ?? 0) : 0;
   const estValue3BlnPerMonth = qty3Bln > 0 && hna > 0 ? (qty3Bln / 3) * hna : null;
@@ -939,7 +948,7 @@ function ProdukEntryRow({
           <div className="flex items-center justify-between pt-1.5 border-t"
             style={{ borderColor: "var(--color-border)" }}>
             <div>
-              <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth PSSP (3 Bln Terakhir)</div>
+              <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Pelunasan (3 Bln Terakhir)</div>
               {estValue3BlnPerMonth != null && (
                 <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
                   Actual {formatRp(Math.round(estValue3BlnPerMonth))}/bln
@@ -1233,6 +1242,11 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
       : runningRate >= 70 ? "var(--color-warning, #f59e0b)"
       : "var(--color-red)";
 
+    // Retensi: contract still active but ends within the quarter currently being worked
+    // (e.g. building a Q3 POA and this PSSP's prdAkhir also falls in Q3) — flags it as
+    // needing renewal attention before the quarter closes.
+    const isRetensi = isActive && currentQuarterMonths().includes(first.prdAkhir);
+
     return (
       <div className="rounded-lg border px-3 py-2 space-y-2"
         style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
@@ -1243,6 +1257,12 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
               <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
                 {first.prdAwal} – {first.prdAkhir}
               </span>
+              {isRetensi && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                  style={{ color: "var(--color-warning, #f59e0b)", background: "var(--color-warning-bg, #fef3c7)", border: "1px solid var(--color-warning, #f59e0b)" }}>
+                  Retensi
+                </span>
+              )}
             </div>
             {first.nmOutlet && (
               <div className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>{first.nmOutlet}</div>
@@ -1536,12 +1556,16 @@ function KriteriaSectionList({ items }: {
 }
 
 function KriteriaProdukPanel({
+  kodeCustomer,
+  kodePI,
   spesialisasi,
   produkList,
   products,
   kriteriaList,
   psspHistory,
 }: {
+  kodeCustomer?: string;
+  kodePI?: string;
   spesialisasi?: string;
   /** Which products are already in this doctor's POA — shown as a ✓ (2026-07-24). */
   produkList?: ProdukEntry[];
@@ -1549,6 +1573,19 @@ function KriteriaProdukPanel({
   kriteriaList?: KriteriaByOutlet[];
   psspHistory?: PsspKontrakSummary[];
 }) {
+  // Same survey data as the standalone "Data Survey" tab (SurveyDataPanel) —
+  // duplicated here on purpose (2026-07-27 request) as the "Produk Survey"
+  // section of this renamed "Produk Rekomendasi" panel; the standalone tab
+  // stays too, so this data now appears in both places.
+  const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiRow[] | null>(null);
+  const [, startLoadSurvey] = useTransition();
+  useEffect(() => {
+    startLoadSurvey(async () => {
+      if (!kodeCustomer || !kodePI) { setSurveyRows([]); return; }
+      setSurveyRows(await getSurveyRekomendasiByOutlet(kodeCustomer, kodePI));
+    });
+  }, [kodeCustomer, kodePI]);
+
   if (!products || products.length === 0) {
     return (
       <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
@@ -1579,14 +1616,24 @@ function KriteriaProdukPanel({
     }
   }
 
+  // Order requested 2026-07-27: Pernah PSSP (sort pelunasan terbaik) -> Produk
+  // Fokus PM -> Produk Survey, then the two Listing Corporate sections kept
+  // after (not part of the requested 3, but not removed either).
   type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[] };
   const allSections: Section[] = [
-    { title: "Produk Fokus PM", color: "blue", items: fokusPM.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
     {
       title: "Pernah PSSP", color: "green",
       items: [...pernahPssp].sort((a, b) => b.pct - a.pct).map(({ p, pct }) => ({
         key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk),
         badge: `${pct}%`, badgeColor: pct >= 80 ? "green" : pct >= 40 ? "yellow" : "red",
+      })),
+    },
+    { title: "Produk Fokus PM", color: "blue", items: fokusPM.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
+    {
+      title: "Produk Survey", color: "orange",
+      items: (surveyRows ?? []).map((r) => ({
+        key: r.kodeProduk, label: r.namaProdukRekomendasi, added: addedKodeProduk.has(r.kodeProduk),
+        badge: r.potensiBulan != null ? `${r.potensiBulan}/bln` : undefined, badgeColor: "orange" as const,
       })),
     },
     { title: "Listing Corporate - Ada Sales", color: "orange", items: listingSales.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
@@ -1682,9 +1729,10 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
 }
 
 // ─── PsspSidebar ─────────────────────────────────────────────────────────────
-// Three independent fixed right-side panels — "Data Survey" (orange), "Kriteria
-// Produk" (green, 2026-07-24, full picture of the 4 criteria buckets previously
-// only shown inline in the picker dropdown), and "Histori PSSP" (blue). Only one
+// Three independent fixed right-side panels — "Data Survey" (orange), "Produk
+// Rekomendasi" (green, 2026-07-24, renamed from "Kriteria Produk" 2026-07-27 —
+// Pernah PSSP / Produk Fokus PM / Produk Survey sections, plus the 2 Listing
+// Corporate buckets kept after), and "Histori PSSP" (blue). Only one
 // is open at a time: collapsed, all three show as a stacked set of thin vertical
 // tabs; opening any fills the same 300px slot on the right and freezes on
 // scroll (position:fixed). While open, a small pill switcher for ALL THREE tabs
@@ -1725,7 +1773,7 @@ function SidebarTabSwitcher({ activeTab, onChange }: { activeTab: SidebarTab; on
         Data Survey
       </button>
       <button type="button" onClick={() => onChange("kriteria")} style={pillStyle(SIDEBAR_GREEN, activeTab === "kriteria")}>
-        Kriteria Produk
+        Produk Rekomendasi
       </button>
       <button type="button" onClick={() => onChange("pssp")} style={pillStyle(SIDEBAR_BLUE, activeTab === "pssp")}>
         Histori PSSP
@@ -1774,7 +1822,7 @@ function PsspSidebar({
           Data Survey
         </button>
         <button type="button" onClick={() => setActiveTab("kriteria")} style={sidebarEdgeTabStyle(SIDEBAR_GREEN)}>
-          Kriteria Produk
+          Produk Rekomendasi
         </button>
         <button type="button" onClick={() => setActiveTab("pssp")} style={sidebarEdgeTabStyle(SIDEBAR_BLUE)}>
           Histori PSSP
@@ -1820,7 +1868,7 @@ function PsspSidebar({
         {activeTab === "survey" ? (
           <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
         ) : activeTab === "kriteria" ? (
-          <KriteriaProdukPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
+          <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
         ) : (
           <>
             {spesialisasi && produkList && products && (
@@ -1909,7 +1957,9 @@ function AddPanel({
   // (2026-07-24 request) — same pelunasan color thresholds as the product
   // picker's "Pernah PSSP" badge (buildProductOptions above), but sourced
   // from this doctor's own MOST RECENT contract rather than a 3-month window.
-  const customerOptions = useMemo(() => customerList
+  const customerOptions = useMemo(() => {
+    const quarterEndIndex = yyyymmIndex(currentQuarterMonths()[2]);
+    return customerList
     .filter((c) => !spesialisasi || c.spesialisasi === spesialisasi)
     .map((c) => {
       const psspStatus = c.kodeCustomer ? psspStatusByCust.get(c.kodeCustomer) : undefined;
@@ -1921,18 +1971,31 @@ function AddPanel({
         : pct >= 80 ? "green"
         : pct >= 40 ? "yellow"
         : "red";
+      // Distance (in months) from this doctor's most recent PSSP end-period to the
+      // end of the quarter currently being worked on — smaller means more urgent to
+      // act on (about to lapse this quarter, or just lapsed near it).
+      const prdAkhirDist = psspStatus ? Math.abs(yyyymmIndex(psspStatus.latestPrdAkhir) - quarterEndIndex) : null;
       return {
         value: c.id, label: c.namaCustomer,
         sublabel: [
           spesLabel(c.spesialisasi),
           c.isFokus ? "⭐ Rekomendasi PM" : null,
         ].filter(Boolean).join(" · "),
-        tag2, tag2Color, _pct: pct,
+        tag2, tag2Color, _pct: pct, _prdAkhirDist: prdAkhirDist,
       };
-      // Sorted best-pelunasan-first (2026-07-24 request) — doctors who never
-      // had a PSSP (pct null) have nothing to rank, so they sink to the bottom
-      // rather than interleaving with real percentages.
-    }).sort((a, b) => (b._pct ?? -1) - (a._pct ?? -1)), [customerList, spesialisasi, psspStatusByCust]);
+      // Sorted by proximity of PSSP end-period to the current quarter's end first
+      // (2026-07-27 request) — doctors whose contract is closest to lapsing this
+      // quarter surface first so retention gets prioritized; best-pelunasan-first
+      // (2026-07-24) is kept as the tiebreaker. Doctors who never had a PSSP (both
+      // null) have nothing to rank, so they sink to the bottom.
+    }).sort((a, b) => {
+      if (a._prdAkhirDist == null && b._prdAkhirDist == null) return (b._pct ?? -1) - (a._pct ?? -1);
+      if (a._prdAkhirDist == null) return 1;
+      if (b._prdAkhirDist == null) return -1;
+      if (a._prdAkhirDist !== b._prdAkhirDist) return a._prdAkhirDist - b._prdAkhirDist;
+      return (b._pct ?? -1) - (a._pct ?? -1);
+    });
+  }, [customerList, spesialisasi, psspStatusByCust]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
 

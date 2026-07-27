@@ -7,7 +7,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove, canFastTrackApprove } from "@/lib/authz";
+import { canEdit, canApprove, canFastTrackApprove, canCancelApproved } from "@/lib/authz";
 import { sendPoaStatusEmail } from "@/lib/notifications";
 import { PoaStatus, AuditAction } from "@prisma/client";
 import type { PoaForm, User } from "@prisma/client";
@@ -283,6 +283,38 @@ export async function rejectPoa(
     { toStatus: PoaStatus.REVISI, nextHolderRole: null },
     poa.status,
     AuditAction.REJECT,
+    reason
+  );
+}
+
+/**
+ * NSM undoes their own already-completed approval — sends the POA back to
+ * REVISI (same target/consequences as a normal reject: owner must revise and
+ * resubmit, version bumps) rather than inventing a separate "undo" state.
+ * Deliberately its own function (not a reuse of rejectPoa) since the
+ * authorization rule is different: canApprove is holder-gated, but
+ * currentHolderId is already null once APPROVED_BY_NSM, so this checks
+ * canCancelApproved instead (NSM + status must genuinely be APPROVED_BY_NSM).
+ * Always requires a reason, same as rejectPoa, recorded on the audit log.
+ */
+export async function cancelApprovedByNsm(
+  poaId: string,
+  actingUserId: string,
+  reason: string
+): Promise<PoaForm> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!(await canCancelApproved(actingUser, poa))) {
+    throw new Error(`User ${actingUserId} is not authorized to cancel approval on POA ${poaId}`);
+  }
+
+  return applyTransition(
+    poaId,
+    actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    poa.status,
+    AuditAction.CANCEL,
     reason
   );
 }

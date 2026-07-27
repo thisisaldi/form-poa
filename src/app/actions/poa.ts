@@ -3,9 +3,9 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
-import { createPoaDraft, submitPoa, approvePoa, rejectPoa, fastTrackApprove } from "@/lib/poaWorkflow";
+import { createPoaDraft, submitPoa, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove, canCreatePoa, canFastTrackApprove } from "@/lib/authz";
+import { canEdit, canApprove, canCreatePoa, canFastTrackApprove, canCancelApproved } from "@/lib/authz";
 
 function requireSession() {
   return getCurrentUser().then((session) => {
@@ -118,6 +118,25 @@ export async function rejectPoaAction(poaId: string, formData: FormData): Promis
   if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan reject wajib diisi."));
 
   await rejectPoa(poaId, session.userId, reason);
+  redirect(`/poa/${poaId}`);
+}
+
+// NSM-only — undo their own already-completed approval, sending the POA back
+// to REVISI. See canCancelApproved/cancelApprovedByNsm for the authorization
+// rule and exact behavior.
+export async function cancelApprovedByNsmAction(poaId: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canCancelApproved(actor, poa))) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
+  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan pembatalan wajib diisi."));
+
+  await cancelApprovedByNsm(poaId, session.userId, reason);
   redirect(`/poa/${poaId}`);
 }
 

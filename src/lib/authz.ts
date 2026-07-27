@@ -267,6 +267,19 @@ export async function canFastTrackApprove(user: User, poa: PoaForm): Promise<boo
 }
 
 /**
+ * NSM-only: undo their own already-completed approval, sending the POA back
+ * to REVISI (see cancelApprovedByNsm in poaWorkflow.ts). Deliberately gated to
+ * APPROVED_BY_NSM only — unlike canFastTrackApprove (which covers the whole
+ * pending chain), this reverses a decision already made, not a pending one.
+ * Same subtree-ownership gate as canFastTrackApprove.
+ */
+export async function canCancelApproved(user: User, poa: PoaForm): Promise<boolean> {
+  if (user.role !== Role.NSM) return false;
+  if (poa.status !== PoaStatus.APPROVED_BY_NSM) return false;
+  return canView(user, poa);
+}
+
+/**
  * Can this user create a new POA?
  *
  * Normal case: an MR (leaf, no subordinates) who holds at least one outlet.

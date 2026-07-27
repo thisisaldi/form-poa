@@ -37,6 +37,7 @@ enum AuditAction {
   APPROVE
   REVISE
   REJECT
+  CANCEL
 }
 
 enum StatusStandarisasi {

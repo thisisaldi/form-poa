@@ -2,8 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove, canFastTrackApprove } from "@/lib/authz";
-import { approvePoaAction, rejectPoaAction, fastTrackApproveAction } from "@/app/actions/poa";
+import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved } from "@/lib/authz";
+import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -29,6 +29,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   APPROVE: "menyetujui",
   REVISE: "mengedit (kembali ke Revisi)",
   REJECT: "menolak",
+  CANCEL: "membatalkan approval (kembali ke Revisi)",
 };
 
 const AUDIT_OP_LABELS: Record<string, string> = {
@@ -80,9 +81,11 @@ export default async function PoaDetailPage({
   const userCanEdit = await canEdit(actor, poa);
   const userCanApprove = canApprove(actor, poa);
   const userCanFastTrack = await canFastTrackApprove(actor, poa);
+  const userCanCancelApproved = await canCancelApproved(actor, poa);
   const approveWithId = approvePoaAction.bind(null, id);
   const rejectWithId = rejectPoaAction.bind(null, id);
   const fastTrackWithId = fastTrackApproveAction.bind(null, id);
+  const cancelApprovedWithId = cancelApprovedByNsmAction.bind(null, id);
 
   const isMR = session.role === "MR";
   // Whoever owns this POA drives the submit/checklist UI — normally an MR, but
@@ -335,6 +338,28 @@ export default async function PoaDetailPage({
           style={{ background: "var(--color-green-light)", color: "var(--color-green)" }}>
           POA ini telah sepenuhnya disetujui oleh NSM.
         </div>
+      )}
+
+      {isFullyApproved && userCanCancelApproved && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Batalkan Approval</CardTitle>
+          </CardHeader>
+          <form action={cancelApprovedWithId} className="space-y-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Pembatalan</span>
+              <textarea
+                name="reason"
+                required
+                rows={2}
+                placeholder="Jelaskan alasan membatalkan approval ini — MR akan melihat catatan ini di Riwayat Aktivitas…"
+                className="input-field text-sm" />
+            </label>
+            <Button type="submit" variant="danger">
+              Batalkan Approval (kembali ke Revisi)
+            </Button>
+          </form>
+        </Card>
       )}
 
       {/* Audit log */}

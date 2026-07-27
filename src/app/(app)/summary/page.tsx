@@ -4,10 +4,19 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
+import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { MonitoringChecklist } from "@/components/poa/MonitoringChecklist";
 import type { MonitoringGroup, MonitoringTotals } from "@/components/poa/MonitoringChecklist";
 import { TerritoryTable } from "@/components/poa/TerritoryTable";
+
+// PSSP contract rows key products by name only (Procode ≠ Item Kode across
+// systems — see computeOldEstPerMonth in LineItemEditor.tsx for the same
+// convention), so matching an active PSSP row to a "produk" tab group must
+// normalize on namaProduk, never kodeProduk/kdProduk.
+function normName(s: string): string {
+  return s.toLowerCase().trim();
+}
 
 export const metadata = { title: "Summary · Form POA" };
 
@@ -43,6 +52,13 @@ interface TerritoryGroup {
   realisasi: number;
   gapVsRealisasi: number;
   sales: SalesDummy;
+  estimasiAktif: number;
+  userPsspAktif: number;
+  userPsspAktifEstimasi: number;
+  salesAktif: number;
+  listingFeeTotal: number;
+  avgPasienPerUser: number | null;
+  avgStPerPasien: number | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -126,6 +142,8 @@ export default async function SummaryPage({
         persenListingFee: { toString(): string } | number | null;
         persenEntertain: { toString(): string } | number | null;
         pengaliNilaiR: { toString(): string } | number | null;
+        jumlahPasienHari: number | null;
+        qtyProdukResep: number | null;
       }[]
     : [];
 
@@ -237,6 +255,71 @@ export default async function SummaryPage({
     return "—"; // "produk" tab — no single PIC concept for a product
   }
 
+  // ── Matriks Summary Per Outlet / Per Produk (2026-07-27) ──────────────────
+  // Fetched once regardless of which tab is active — both "outlet" and
+  // "produk" need active-PSSP + real sales data, and the fetch is cheap
+  // relative to the lineItems query above.
+  const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
+  const SALES_2026_FROM = "202601";
+
+  const [activePssp, listingFeeRaw, salesValueRaw, salesQtyRaw] = await Promise.all([
+    outletKodesForMR.length > 0 ? getActivePsspByOutlets(outletKodesForMR) : Promise.resolve([] as ActivePsspRow[]),
+    outletKodesForMR.length > 0
+      ? prisma.listingFeeKontrak.groupBy({ by: ["kdOutlet"], where: { kdOutlet: { in: outletKodesForMR } }, _sum: { value: true } })
+      : Promise.resolve([]),
+    outletKodesForMR.length > 0
+      ? prisma.outletSalesValueMonthly.groupBy({ by: ["kodePI"], where: { kodePI: { in: outletKodesForMR }, periode: { gte: SALES_2026_FROM } }, _sum: { valueSales: true } })
+      : Promise.resolve([]),
+    outletKodesForMR.length > 0
+      ? prisma.outletSalesMonthly.groupBy({ by: ["itemKode"], where: { kodePI: { in: outletKodesForMR }, periode: { gte: SALES_2026_FROM } }, _sum: { qty: true } })
+      : Promise.resolve([]),
+  ]) as [
+    ActivePsspRow[],
+    { kdOutlet: string | null; _sum: { value: { toString(): string } | null } }[],
+    { kodePI: string; _sum: { valueSales: { toString(): string } | null } }[],
+    { itemKode: string; _sum: { qty: { toString(): string } | null } }[],
+  ];
+
+  const listingFeeByOutlet = new Map(listingFeeRaw.filter((r) => r.kdOutlet).map((r) => [r.kdOutlet as string, toNum(r._sum.value)]));
+  const salesValueByOutlet = new Map(salesValueRaw.map((r) => [r.kodePI, toNum(r._sum.valueSales)]));
+  const qtyByItemKode = new Map(salesQtyRaw.map((r) => [r.itemKode, toNum(r._sum.qty)]));
+
+  // "Sales Aktif" per product is DERIVED (qty × HNA) rather than a real observed
+  // Rupiah figure like the outlet-level one above — OutletSalesMonthly is a
+  // quantity feed (same one targetCalculation.ts uses), there's no per-product
+  // Rupiah sales value model. itemKode matches Product.kodeProduk directly
+  // (unlike PSSP's kdProduk, which is a different code namespace entirely).
+  const productCodesForSales = [...qtyByItemKode.keys()];
+  const hnaProducts = productCodesForSales.length > 0
+    ? (await prisma.product.findMany({
+        where: { kodeProduk: { in: productCodesForSales } },
+        select: { kodeProduk: true, hna: true },
+      })) as { kodeProduk: string; hna: { toString(): string } }[]
+    : [];
+  const hnaByKodeProduk = new Map(hnaProducts.map((p) => [p.kodeProduk, toNum(p.hna)]));
+  const salesValueByProduk = new Map<string, number>();
+  for (const [itemKode, qty] of qtyByItemKode) {
+    salesValueByProduk.set(itemKode, qty * (hnaByKodeProduk.get(itemKode) ?? 0));
+  }
+
+  // Active PSSP rows grouped by outlet (kdOutlet matches kodePI directly) and
+  // by normalized product NAME (kdProduk ≠ kodeProduk, see normName above).
+  const activePsspByOutlet = new Map<string, ActivePsspRow[]>();
+  const activePsspByProdName = new Map<string, ActivePsspRow[]>();
+  for (const r of activePssp) {
+    if (r.kdOutlet) {
+      const list = activePsspByOutlet.get(r.kdOutlet) ?? [];
+      list.push(r);
+      activePsspByOutlet.set(r.kdOutlet, list);
+    }
+    if (r.nmProduk) {
+      const key = normName(r.nmProduk);
+      const list = activePsspByProdName.get(key) ?? [];
+      list.push(r);
+      activePsspByProdName.set(key, list);
+    }
+  }
+
   const groupMap = new Map<string, { key: TerritoryKey; items: typeof lineItems }>();
 
   if (tab === "mr") {
@@ -244,7 +327,6 @@ export default async function SummaryPage({
       groupMap.set(mr.nip, { key: { code: mr.nip, name: mr.name }, items: [] });
     }
   } else if (tab === "outlet") {
-    const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
     const mrOutletDetails = outletKodesForMR.length > 0
       ? (await prisma.outlet.findMany({
           where: { kodePI: { in: outletKodesForMR } },
@@ -284,6 +366,35 @@ export default async function SummaryPage({
       const realisasi = tab === "outlet" ? (realisasiByOutlet.get(key.code) ?? 0)
         : tab === "customer" ? (realisasiByCust.get(key.code) ?? 0)
         : 0;
+
+      // Matriks Summary Per Outlet / Per Produk (2026-07-27) — active PSSP rows
+      // matched by outlet code (outlet tab) or normalized product name (produk
+      // tab, see normName). Both tabs get estimasiAktif/userPsspAktif; the
+      // aktif+pengajuan UNION headcount and Listing Fee only apply per outlet.
+      const activeRows = tab === "outlet" ? (activePsspByOutlet.get(key.code) ?? [])
+        : tab === "produk" ? (activePsspByProdName.get(normName(key.name)) ?? [])
+        : [];
+      const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+      const activeCustKeys = new Set(activeRows.map((r) => r.kdCust));
+      const draftCustKeys = new Set(items.map((li) => li.kodeCust ?? `name:${li.namaCust}`));
+      const userPsspAktifEstimasi = tab === "outlet"
+        ? new Set([...activeCustKeys, ...draftCustKeys]).size
+        : activeCustKeys.size;
+
+      const salesAktif = tab === "outlet" ? (salesValueByOutlet.get(key.code) ?? 0)
+        : tab === "produk" ? (salesValueByProduk.get(key.code) ?? 0)
+        : 0;
+      const listingFeeTotal = tab === "outlet" ? (listingFeeByOutlet.get(key.code) ?? 0) : 0;
+
+      const pasienRows = items.filter((li) => li.jumlahPasienHari != null && li.jumlahPasienHari > 0);
+      const avgPasienPerUser = tab === "produk" && pasienRows.length > 0
+        ? pasienRows.reduce((s, li) => s + li.jumlahPasienHari!, 0) / pasienRows.length
+        : null;
+      const stRows = items.filter((li) => li.qtyProdukResep != null && li.jumlahPasienHari != null && li.jumlahPasienHari > 0);
+      const avgStPerPasien = tab === "produk" && stRows.length > 0
+        ? stRows.reduce((s, li) => s + li.qtyProdukResep! / li.jumlahPasienHari!, 0) / stRows.length
+        : null;
+
       return {
         code: key.code,
         name: key.name,
@@ -304,6 +415,13 @@ export default async function SummaryPage({
         realisasi,
         gapVsRealisasi: estimasi - realisasi,
         sales: dummySales(key.code, estimasi),
+        estimasiAktif,
+        userPsspAktif: activeCustKeys.size,
+        userPsspAktifEstimasi,
+        salesAktif,
+        listingFeeTotal,
+        avgPasienPerUser,
+        avgStPerPasien,
       };
     })
     // "outlet"/"customer": biggest gap between current estimasi and prior
@@ -349,6 +467,13 @@ export default async function SummaryPage({
     salesPlusEst: g.sales.salesPlusEst,
     growthPct: g.sales.growthPct,
     achievementPct: g.sales.achievementPct,
+    estimasiAktif: g.estimasiAktif,
+    userPsspAktif: g.userPsspAktif,
+    userPsspAktifEstimasi: g.userPsspAktifEstimasi,
+    salesAktif: g.salesAktif,
+    listingFeeTotal: g.listingFeeTotal,
+    avgPasienPerUser: g.avgPasienPerUser,
+    avgStPerPasien: g.avgStPerPasien,
   }));
 
   return (
@@ -406,7 +531,7 @@ export default async function SummaryPage({
 
       {/* Per-row breakdown for the active tab — Ringkasan above only shows the
           grand total, this is what actually differs between tabs. */}
-      <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} />
+      <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} variant={tab} />
     </div>
   );
 }

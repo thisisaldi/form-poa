@@ -33,6 +33,19 @@ export interface MonitoringGroup {
   salesPlusEst: number;
   growthPct: number;
   achievementPct: number;
+  // Matriks Summary Per Outlet / Per Produk (2026-07-27) — real data, not the
+  // dummy "Data Sales" block above. estimasiAktif/userPsspAktif are populated
+  // for BOTH the "outlet" and "produk" tabs; userPsspAktifEstimasi (the
+  // aktif+pengajuan UNION headcount) and listingFeeTotal only make sense per
+  // OUTLET so they're 0 on the "produk" tab. avgPasienPerUser/avgStPerPasien
+  // are per-PRODUCT averages so they're null outside the "produk" tab.
+  estimasiAktif: number;
+  userPsspAktif: number;
+  userPsspAktifEstimasi: number;
+  salesAktif: number;
+  listingFeeTotal: number;
+  avgPasienPerUser: number | null;
+  avgStPerPasien: number | null;
 }
 
 /** Global unique counts — computed from all lineItems server-side to avoid double-counting */
