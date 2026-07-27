@@ -686,16 +686,28 @@ export async function GET(req: NextRequest) {
   // assignedOutlets. Deliberately includes DRAFT/REVISI rows same as the rest
   // of this export (see "this team rekap includes every status" comment above).
 
-  const [listingFeeRaw, salesValueRaw] = (assignedOutlets.length > 0
+  const [listingFeeRows, salesValueRaw] = (assignedOutlets.length > 0
     ? await Promise.all([
-        prisma.listingFeeKontrak.groupBy({ by: ["kdOutlet"], where: { kdOutlet: { in: assignedOutlets } }, _sum: { value: true } }),
+        prisma.listingFeeKontrak.findMany({ where: { kdOutlet: { in: assignedOutlets } }, select: { kdOutlet: true, noreq: true, value: true } }),
         prisma.outletSalesValueMonthly.groupBy({ by: ["kodePI"], where: { kodePI: { in: assignedOutlets }, periode: { gte: "202601" } }, _sum: { valueSales: true } }),
       ])
     : [[], []]) as [
-      { kdOutlet: string | null; _sum: { value: { toString(): string } | null } }[],
+      { kdOutlet: string | null; noreq: string; value: { toString(): string } }[],
       { kodePI: string; _sum: { valueSales: { toString(): string } | null } }[],
     ];
-  const listingFeeByOutlet = new Map(listingFeeRaw.filter((r) => r.kdOutlet).map((r) => [r.kdOutlet as string, toNum(r._sum.value)]));
+  // ListingFeeKontrak.value is the CONTRACT's total, repeated on every one of
+  // its product rows (same shape as PsspKontrak.biaya) — dedupe by (outlet,
+  // noreq) before summing, or a multi-product contract multiply-counts its
+  // own value. See matching fix + bug note in src/app/(app)/summary/page.tsx.
+  const seenListingFeeContract = new Set<string>();
+  const listingFeeByOutlet = new Map<string, number>();
+  for (const r of listingFeeRows) {
+    if (!r.kdOutlet) continue;
+    const key = `${r.kdOutlet}|${r.noreq}`;
+    if (seenListingFeeContract.has(key)) continue;
+    seenListingFeeContract.add(key);
+    listingFeeByOutlet.set(r.kdOutlet, (listingFeeByOutlet.get(r.kdOutlet) ?? 0) + toNum(r.value));
+  }
   const salesValueByOutlet = new Map(salesValueRaw.map((r) => [r.kodePI, toNum(r._sum.valueSales)]));
 
   const activePsspByOutlet = new Map<string, typeof activePsspAll>();

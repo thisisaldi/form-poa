@@ -268,10 +268,10 @@ export default async function SummaryPage({
   const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
   const SALES_2026_FROM = "202601";
 
-  const [activePssp, listingFeeRaw, salesValueRaw, salesQtyRaw] = await Promise.all([
+  const [activePssp, listingFeeRows, salesValueRaw, salesQtyRaw] = await Promise.all([
     outletKodesForMR.length > 0 ? getActivePsspByOutlets(outletKodesForMR) : Promise.resolve([] as ActivePsspRow[]),
     outletKodesForMR.length > 0
-      ? prisma.listingFeeKontrak.groupBy({ by: ["kdOutlet"], where: { kdOutlet: { in: outletKodesForMR } }, _sum: { value: true } })
+      ? prisma.listingFeeKontrak.findMany({ where: { kdOutlet: { in: outletKodesForMR } }, select: { kdOutlet: true, noreq: true, value: true } })
       : Promise.resolve([]),
     outletKodesForMR.length > 0
       ? prisma.outletSalesValueMonthly.groupBy({ by: ["kodePI"], where: { kodePI: { in: outletKodesForMR }, periode: { gte: SALES_2026_FROM } }, _sum: { valueSales: true } })
@@ -281,12 +281,27 @@ export default async function SummaryPage({
       : Promise.resolve([]),
   ]) as [
     ActivePsspRow[],
-    { kdOutlet: string | null; _sum: { value: { toString(): string } | null } }[],
+    { kdOutlet: string | null; noreq: string; value: { toString(): string } }[],
     { kodePI: string; _sum: { valueSales: { toString(): string } | null } }[],
     { itemKode: string; _sum: { qty: { toString(): string } | null } }[],
   ];
 
-  const listingFeeByOutlet = new Map(listingFeeRaw.filter((r) => r.kdOutlet).map((r) => [r.kdOutlet as string, toNum(r._sum.value)]));
+  // ListingFeeKontrak.value is the CONTRACT's total, repeated on every one of
+  // its product rows (same "value duplicated per row" shape as PsspKontrak.biaya
+  // — see computeActivePsspStats in activePssp.ts) — must dedupe by (outlet,
+  // noreq) before summing, or a contract with N products would multiply-count
+  // its own value N times (found via a live bug report: one outlet's Listing
+  // Fee showed ~18x too high because its 22-product contract got summed 22
+  // times instead of once).
+  const seenListingFeeContract = new Set<string>();
+  const listingFeeByOutlet = new Map<string, number>();
+  for (const r of listingFeeRows) {
+    if (!r.kdOutlet) continue;
+    const key = `${r.kdOutlet}|${r.noreq}`;
+    if (seenListingFeeContract.has(key)) continue;
+    seenListingFeeContract.add(key);
+    listingFeeByOutlet.set(r.kdOutlet, (listingFeeByOutlet.get(r.kdOutlet) ?? 0) + toNum(r.value));
+  }
   const salesValueByOutlet = new Map(salesValueRaw.map((r) => [r.kodePI, toNum(r._sum.valueSales)]));
   const qtyByItemKode = new Map(salesQtyRaw.map((r) => [r.itemKode, toNum(r._sum.qty)]));
 
