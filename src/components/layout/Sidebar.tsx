@@ -42,11 +42,10 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ASM", "SM", "NSM", "ADMIN", "SFE"],
   },
   {
-    href: "/definisi",
-    label: "Definisi",
+    href: "/faq",
+    label: "FAQ",
     icon: <IconBook />,
-    // Same audience as Summary — Definisi documents its columns/formulas.
-    roles: ["ASM", "SM", "NSM", "ADMIN", "SFE"],
+    // No roles restriction — every role, including MR, can see this.
   },
   // PM Dashboard temporarily hidden for all roles — re-add roles to bring it back.
   // {
