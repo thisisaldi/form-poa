@@ -2001,7 +2001,7 @@ function AddPanel({
         : pct >= 40 ? "yellow"
         : "red";
       const tag3 = isRetensi ? "Retensi" : undefined;
-      const tag3Color = "red" as const;
+      const tag3Color = "orange" as const;
       // Distance (in months) from this doctor's most recent PSSP end-period to the
       // end of the quarter currently being worked on — smaller means more urgent to
       // act on (about to lapse this quarter, or just lapsed near it).

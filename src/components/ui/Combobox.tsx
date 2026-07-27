@@ -310,8 +310,8 @@ export function Combobox({
                               <span
                                 className="shrink-0 text-xs px-1.5 py-0.5 rounded font-bold"
                                 style={{
-                                  background: isHighlighted ? "#fff" : TAG_COLORS[option.tag3Color ?? "red"].fg,
-                                  color: isHighlighted ? TAG_COLORS[option.tag3Color ?? "red"].fg : "#fff",
+                                  background: isHighlighted ? "#fff" : TAG_COLORS[option.tag3Color ?? "orange"].fg,
+                                  color: isHighlighted ? TAG_COLORS[option.tag3Color ?? "orange"].fg : "#fff",
                                   boxShadow: isHighlighted ? "none" : "0 0 0 1px rgba(0,0,0,0.06)",
                                 }}
                               >
