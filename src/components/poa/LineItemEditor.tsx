@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
@@ -630,7 +630,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, diskonList, diskonHistoryList, usedKodeProduk, kodeCustomer, kodePI, onChange, onRemove, showRemove, showError,
+  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, usedKodeProduk, kodeCustomer, kodePI, onChange, onRemove, showRemove, showError,
 }: {
   entry: ProdukEntry;
   index: number;
@@ -639,6 +639,10 @@ function ProdukEntryRow({
   spesialisasi?: string;
   psspHistory?: PsspKontrakSummary[];
   kriteriaList?: KriteriaByOutlet[];
+  /** Normalized (lowercase/trim) product names that ever appeared in a PSSP
+   * contract at this outlet, any customer — see getPsspProductNamesByOutlet.
+   * Used to auto-mark "Sudah Standarisasi" even without a kriteria row. */
+  psspEverProductNames?: Set<string>;
   /** DiskonKontrak (DPL) rows at this outlet — used to default "% Diskon (DPL/DPF)" to real data. */
   diskonList?: DiskonByProduct[];
   /** Fallback discount history when no DPL contract covers this outlet+product+period. */
@@ -738,9 +742,14 @@ function ProdukEntryRow({
                 const prod = products.find((p) => p.kodeProduk === v);
                 const nr = prod?.nilaiRPersen ? parseFloat(prod.nilaiRPersen) : null;
                 const kriteria = kriteriaMap.get(v)?.kriteriaBaru;
-                const autoStandarisasi = kriteria
-                  ? (kriteria.startsWith("Produk Sudah Terstandarisasi") ? "SUDAH_STANDARISASI" : "BELUM_STANDARISASI")
-                  : entry.statusStandarisasi;
+                // Pernah PSSP di outlet ini = produknya emang udah ada di sana,
+                // terlepas dari apa kata kriteria import (2026-07-27 request).
+                const everPssp = prod ? (psspEverProductNames?.has(prod.namaProduk.toLowerCase().trim()) ?? false) : false;
+                const autoStandarisasi = everPssp || kriteria?.startsWith("Produk Sudah Terstandarisasi")
+                  ? "SUDAH_STANDARISASI"
+                  : kriteria
+                    ? "BELUM_STANDARISASI"
+                    : entry.statusStandarisasi;
                 const realDiskonPct = v ? resolveDiskonPctWithHistory(diskonList, diskonHistoryList, v, dokterFields.periodeAwal) : null;
                 onChange({
                   kodeProduk: v,
@@ -1961,6 +1970,7 @@ function AddPanel({
   const [labelCustomer, setLabelCustomer] = useState("");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
+  const [psspEverProductNames, setPsspEverProductNames] = useState<Set<string>>(new Set());
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
 
@@ -2114,15 +2124,17 @@ function AddPanel({
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setCustomerList([]); setKriteriaList([]); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
+    setCustomerList([]); setKriteriaList([]); setPsspEverProductNames(new Set()); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
     if (!val) return;
     startLoadSpec(async () => {
-      const [kriteria, diskonData, diskonHistoryData] = await Promise.all([
+      const [kriteria, psspProductNames, diskonData, diskonHistoryData] = await Promise.all([
         getKriteriaByOutlet(val),
+        getPsspProductNamesByOutlet(val),
         getDiskonByOutlet(val),
         getDiskonHistoryByOutlet(val),
       ]);
       setKriteriaList(kriteria);
+      setPsspEverProductNames(new Set(psspProductNames.map((n) => n.toLowerCase().trim())));
       setDiskonList(diskonData);
       setDiskonHistoryList(diskonHistoryData);
     });
@@ -2382,6 +2394,7 @@ function AddPanel({
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
                 kriteriaList={kriteriaList}
+                psspEverProductNames={psspEverProductNames}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
@@ -2772,6 +2785,7 @@ function AddProductPanel({
   const [labelCustomer, setLabelCustomer] = useState("");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
+  const [psspEverProductNames, setPsspEverProductNames] = useState<Set<string>>(new Set());
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -2781,6 +2795,7 @@ function AddProductPanel({
 
   useEffect(() => {
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
+    getPsspProductNamesByOutlet(kodePI).then((names) => setPsspEverProductNames(new Set(names.map((n) => n.toLowerCase().trim()))));
     getDiskonByOutlet(kodePI).then(setDiskonList);
     getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
@@ -2916,6 +2931,7 @@ function AddProductPanel({
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
                 kriteriaList={kriteriaList}
+                psspEverProductNames={psspEverProductNames}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
@@ -3031,6 +3047,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
   const [labelCustomer, setLabelCustomer] = useState(first.labelCustomer ?? "");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
+  const [psspEverProductNames, setPsspEverProductNames] = useState<Set<string>>(new Set());
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -3040,6 +3057,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
 
   useEffect(() => {
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
+    getPsspProductNamesByOutlet(kodePI).then((names) => setPsspEverProductNames(new Set(names.map((n) => n.toLowerCase().trim()))));
     getDiskonByOutlet(kodePI).then(setDiskonList);
     getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
@@ -3228,6 +3246,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                 spesialisasi={spesialisasi || undefined}
                 psspHistory={psspHistory ?? undefined}
                 kriteriaList={kriteriaList}
+                psspEverProductNames={psspEverProductNames}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}

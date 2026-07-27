@@ -540,6 +540,25 @@ export async function getKriteriaByOutlet(kodePI: string): Promise<KriteriaByOut
   return rows as KriteriaByOutlet[];
 }
 
+/**
+ * Distinct product names that have EVER shown up in a PSSP contract at this
+ * outlet — any customer, any period, expired or active. Used to auto-mark a
+ * product "Sudah Standarisasi" on the product picker even when it has no
+ * OutletProductKriteria row: if a product was already under PSSP at this
+ * outlet, it's necessarily already listed there, regardless of what the
+ * kriteria import happens to say (2026-07-27 request — kriteria-based
+ * auto-populate alone missed products PSSP already proves are established).
+ */
+export async function getPsspProductNamesByOutlet(kodePI: string): Promise<string[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.psspKontrak.findMany({
+    where: { kdOutlet: kodePI, nmProduk: { not: null } },
+    select: { nmProduk: true },
+    distinct: ["nmProduk"],
+  });
+  return rows.map((r: { nmProduk: string | null }) => r.nmProduk as string);
+}
+
 export interface KompetitorHistoryEntry {
   namaProduk: string;
   pct: number;

@@ -41,6 +41,13 @@ const NAV_ITEMS: NavItem[] = [
     // besides Dashboard it's allowed to see at all.
     roles: ["ASM", "SM", "NSM", "ADMIN", "SFE"],
   },
+  {
+    href: "/definisi",
+    label: "Definisi",
+    icon: <IconBook />,
+    // Same audience as Summary — Definisi documents its columns/formulas.
+    roles: ["ASM", "SM", "NSM", "ADMIN", "SFE"],
+  },
   // PM Dashboard temporarily hidden for all roles — re-add roles to bring it back.
   // {
   //   href: "/pm-dashboard",
@@ -261,6 +268,15 @@ function IconTable() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
       <path fillRule="evenodd" d="M5 4a3 3 0 00-3 3v6a3 3 0 003 3h10a3 3 0 003-3V7a3 3 0 00-3-3H5zm-1 9v-1h5v2H5a1 1 0 01-1-1zm7 1h4a1 1 0 001-1v-1h-5v2zm0-4h5V8h-5v2zM9 8H4v2h5V8z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function IconBook() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+      <path d="M9.25 3.5A2.75 2.75 0 006.5 2H3a1 1 0 00-1 1v12a1 1 0 001 1h4a2.75 2.75 0 012.25 1.17V3.5z" />
+      <path d="M10.75 3.5A2.75 2.75 0 0113.5 2H17a1 1 0 011 1v12a1 1 0 01-1 1h-4a2.75 2.75 0 00-2.25 1.17V3.5z" />
     </svg>
   );
 }
