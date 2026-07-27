@@ -565,6 +565,11 @@ function ProdukTab() {
       const result = editingKode ? await updateProductAction(fd) : await createProductAction(fd);
       if (result.ok) {
         setNotice(editingKode ? "Produk berhasil diupdate." : "Produk berhasil ditambahkan.");
+        // Re-run the search so "Cari / Kelola Produk" reflects what was just saved —
+        // otherwise re-opening Edit on the same product shows the PRE-save values
+        // again, since `results` was never refreshed (2026-07-27 bug report: saved
+        // konversiPembagi=100, re-opened Edit, form showed the old 99 back).
+        if (query.trim()) setResults(await searchProductsAction(query));
         cancelEdit();
       } else {
         setError(result.error ?? "Gagal menyimpan produk.");
