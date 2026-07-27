@@ -450,9 +450,20 @@ export default async function SummaryPage({
     // Tertinggi" as the user-selectable alternative (sortMode, #51 2026-07-27).
     // Other tabs have no realisasi/gap concept at all, so they always sort by
     // estimasi regardless of sortMode.
-    .sort((a, b) => (sortMode === "gap" && (tab === "outlet" || tab === "customer"))
-      ? b.gapVsRealisasi - a.gapVsRealisasi
-      : b.estimasi - a.estimasi);
+    .sort((a, b) => {
+      if (sortMode !== "gap" || !(tab === "outlet" || tab === "customer")) {
+        return b.estimasi - a.estimasi;
+      }
+      // Rows with NO realisasi data (realisasi === 0) have nothing real to
+      // compare against — gapVsRealisasi for them is just estimasi-0, which
+      // would otherwise rank them artificially high by raw subtraction alone.
+      // Rows that DO have realisasi come first, sorted by gap descending
+      // among themselves (2026-07-27 request); the rest fall back to estimasi.
+      const aHas = a.realisasi > 0;
+      const bHas = b.realisasi > 0;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return aHas ? b.gapVsRealisasi - a.gapVsRealisasi : b.estimasi - a.estimasi;
+    });
 
   // ── Tab labels ────────────────────────────────────────────────────────────
 
