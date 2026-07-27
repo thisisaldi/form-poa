@@ -24,7 +24,7 @@ export const metadata = { title: "Summary · Form POA" };
 
 type Tab = "outlet" | "customer" | "produk" | "mr";
 
-interface SalesDummy {
+interface SalesFigures {
   historis2025: number;
   salesYtd: number;
   salesPlusEst: number;
@@ -51,7 +51,7 @@ interface TerritoryGroup {
   budgetTotal: number;
   realisasi: number;
   gapVsRealisasi: number;
-  sales: SalesDummy;
+  sales: SalesFigures;
   estimasiAktif: number;
   userPsspAktif: number;
   userPsspAktifEstimasi: number;
@@ -59,6 +59,7 @@ interface TerritoryGroup {
   listingFeeTotal: number;
   avgPasienPerUser: number | null;
   avgStPerPasien: number | null;
+  pelunasanRunningRate: number | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -67,19 +68,25 @@ function toNum(v: { toString(): string } | number | string | null | undefined): 
   return parseFloat(String(v ?? 0)) || 0;
 }
 
-// Deterministic dummy sales — same territory code → same numbers
-function dummySales(code: string, estimasi: number): SalesDummy {
-  let h = 0;
-  for (let i = 0; i < code.length; i++) h = (Math.imul(31, h) + code.charCodeAt(i)) | 0;
-  h = Math.abs(h);
-  const base = Math.max(estimasi, 5_000_000);
-  const mult = 10 + (h % 10);
-  const historis2025 = base * mult;
-  const growthFactor = 0.88 + (h % 25) / 100;
-  const salesYtd = historis2025 * growthFactor * (7 / 12);
-  const growthPct = (growthFactor - 1) * 100;
-  const achievementPct = (salesYtd / (historis2025 * 7 / 12)) * 100;
-  return { historis2025, salesYtd, salesPlusEst: salesYtd + estimasi, growthPct, achievementPct };
+function toYYYYMM(y: number, m: number): string {
+  return `${y}${String(m).padStart(2, "0")}`;
+}
+
+// Same "how far along a contract's own period has run" fraction as
+// elapsedMonthsCount in LineItemEditor.tsx (ContractCard's Running Rate
+// badge) — duplicated here rather than imported since that file is a
+// client component. Returns 0 if the period is malformed.
+function elapsedFraction(prdAwal: string, prdAkhir: string): number {
+  const now = new Date();
+  const currentYYYYMM = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const sy = parseInt(prdAwal.slice(0, 4), 10), sm = parseInt(prdAwal.slice(4), 10);
+  const ey = parseInt(prdAkhir.slice(0, 4), 10), em = parseInt(prdAkhir.slice(4), 10);
+  const total = (ey - sy) * 12 + (em - sm) + 1;
+  if (total <= 0) return 0;
+  const cappedEnd = currentYYYYMM < prdAkhir ? currentYYYYMM : prdAkhir;
+  const cy = parseInt(cappedEnd.slice(0, 4), 10), cm = parseInt(cappedEnd.slice(4), 10);
+  const elapsed = Math.max(0, Math.min(total, (cy - sy) * 12 + (cm - sm) + 1));
+  return elapsed / total;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -268,7 +275,23 @@ export default async function SummaryPage({
   const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
   const SALES_2026_FROM = "202601";
 
-  const [activePssp, listingFeeRows, salesValueRaw, salesQtyRaw] = await Promise.all([
+  // "Data Sales" card in Ringkasan (2026-07-27 follow-up to the Matriks
+  // Summary work above) — same DIR10001B-sourced OutletSalesValueMonthly,
+  // just a wider period window (Jan last year → last completed month this
+  // year) so historis/YTD/growth can be computed the same way
+  // getMrSalesSummary (salesSummary.ts) already does for a single MR, just
+  // generalized to whichever outlets belong to the active group.
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const lastYear = currentYear - 1;
+  const lastCompletedMonth = now.getMonth(); // 0 = no completed month yet (January)
+  const lastYearFullFrom = toYYYYMM(lastYear, 1);
+  const lastYearFullTo = toYYYYMM(lastYear, 12);
+  const ytdFrom = toYYYYMM(currentYear, 1);
+  const ytdTo = lastCompletedMonth > 0 ? toYYYYMM(currentYear, lastCompletedMonth) : null;
+  const lastYearComparableTo = lastCompletedMonth > 0 ? toYYYYMM(lastYear, lastCompletedMonth) : null;
+
+  const [activePssp, listingFeeRows, salesValueRaw, salesQtyRaw, salesHistoryRaw] = await Promise.all([
     outletKodesForMR.length > 0 ? getActivePsspByOutlets(outletKodesForMR) : Promise.resolve([] as ActivePsspRow[]),
     outletKodesForMR.length > 0
       ? prisma.listingFeeKontrak.findMany({ where: { kdOutlet: { in: outletKodesForMR } }, select: { kdOutlet: true, noreq: true, value: true } })
@@ -279,12 +302,63 @@ export default async function SummaryPage({
     outletKodesForMR.length > 0
       ? prisma.outletSalesMonthly.groupBy({ by: ["itemKode"], where: { kodePI: { in: outletKodesForMR }, periode: { gte: SALES_2026_FROM } }, _sum: { qty: true } })
       : Promise.resolve([]),
+    outletKodesForMR.length > 0 && ytdTo
+      ? prisma.outletSalesValueMonthly.findMany({
+          where: { kodePI: { in: outletKodesForMR }, periode: { gte: lastYearFullFrom, lte: ytdTo } },
+          select: { kodePI: true, periode: true, valueSales: true },
+        })
+      : Promise.resolve([]),
   ]) as [
     ActivePsspRow[],
     { kdOutlet: string | null; noreq: string; value: { toString(): string } }[],
     { kodePI: string; _sum: { valueSales: { toString(): string } | null } }[],
     { itemKode: string; _sum: { qty: { toString(): string } | null } }[],
+    { kodePI: string; periode: string; valueSales: { toString(): string } }[],
   ];
+
+  interface SalesAgg { historisTahunLalu: number; ytd: number; comparable: number }
+  const salesAggByOutlet = new Map<string, SalesAgg>();
+  for (const row of salesHistoryRaw) {
+    const v = toNum(row.valueSales);
+    const agg = salesAggByOutlet.get(row.kodePI) ?? { historisTahunLalu: 0, ytd: 0, comparable: 0 };
+    if (row.periode >= lastYearFullFrom && row.periode <= lastYearFullTo) agg.historisTahunLalu += v;
+    if (ytdTo && row.periode >= ytdFrom && row.periode <= ytdTo) agg.ytd += v;
+    if (lastYearComparableTo && row.periode >= lastYearFullFrom && row.periode <= lastYearComparableTo) agg.comparable += v;
+    salesAggByOutlet.set(row.kodePI, agg);
+  }
+  const outletsByMr = new Map<string, string[]>();
+  for (const row of mrOutletRows) {
+    const list = outletsByMr.get(row.nipMR) ?? [];
+    list.push(row.kodePI);
+    outletsByMr.set(row.nipMR, list);
+  }
+
+  // DIR10001B is outlet-level only — no per-customer/per-product sales value
+  // exists there, so "customer"/"produk" tabs have nothing real to show here
+  // (produk's own "Sales Aktif" column elsewhere is a qty×HNA derivation, a
+  // different metric — see salesValueByProduk above — not this card's YoY view).
+  function realSalesAgg(code: string): SalesAgg {
+    if (tab === "outlet") return salesAggByOutlet.get(code) ?? { historisTahunLalu: 0, ytd: 0, comparable: 0 };
+    if (tab === "mr") {
+      const outlets = outletsByMr.get(code) ?? [];
+      return outlets.reduce((acc, o) => {
+        const a = salesAggByOutlet.get(o);
+        if (a) { acc.historisTahunLalu += a.historisTahunLalu; acc.ytd += a.ytd; acc.comparable += a.comparable; }
+        return acc;
+      }, { historisTahunLalu: 0, ytd: 0, comparable: 0 });
+    }
+    return { historisTahunLalu: 0, ytd: 0, comparable: 0 };
+  }
+
+  function computeRealSales(code: string, estimasi: number): SalesFigures {
+    const agg = realSalesAgg(code);
+    const salesPlusEst = agg.ytd + estimasi;
+    const growthPct = agg.comparable > 0 ? ((agg.ytd - agg.comparable) / agg.comparable) * 100 : 0;
+    const achievementPct = lastCompletedMonth > 0 && agg.historisTahunLalu > 0
+      ? (salesPlusEst / (agg.historisTahunLalu * lastCompletedMonth / 12)) * 100
+      : 0;
+    return { historis2025: agg.historisTahunLalu, salesYtd: agg.ytd, salesPlusEst, growthPct, achievementPct };
+  }
 
   // ListingFeeKontrak.value is the CONTRACT's total, repeated on every one of
   // its product rows (same "value duplicated per row" shape as PsspKontrak.biaya
@@ -396,6 +470,31 @@ export default async function SummaryPage({
         : tab === "produk" ? (activePsspByProdName.get(normName(key.name)) ?? [])
         : [];
       const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+
+      // Pelunasan (%) dari Estimasi, secara Running Rate (2026-07-27 follow-up)
+      // — outlet only. Same concept as ContractCard's per-contract Running Rate
+      // badge: "expected lunas by now" = estBaris × (elapsed/total periode
+      // kontrak), i.e. how much SHOULD already be paid given how far the
+      // contract's own period has run. Aggregated across every active contract
+      // at this outlet as actual÷expected (not an average of per-contract %),
+      // so one badly-lagging contract can't get diluted out by an on-time one.
+      let expectedLunas = 0, actualLunasForRR = 0;
+      if (tab === "outlet") {
+        const activeByContract = new Map<string, ActivePsspRow[]>();
+        for (const r of activeRows) {
+          const list = activeByContract.get(r.cUrut) ?? [];
+          list.push(r);
+          activeByContract.set(r.cUrut, list);
+        }
+        for (const rows of activeByContract.values()) {
+          const sumEst = rows.reduce((s, r) => s + r.estBaris, 0);
+          const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
+          expectedLunas += sumEst * elapsedFraction(rows[0].prdAwal, rows[0].prdAkhir);
+          actualLunasForRR += sumLunas;
+        }
+      }
+      const pelunasanRunningRate = expectedLunas > 0 ? (actualLunasForRR / expectedLunas) * 100 : null;
+
       const activeCustKeys = new Set(activeRows.map((r) => r.kdCust));
       const draftCustKeys = new Set(items.map((li) => li.kodeCust ?? `name:${li.namaCust}`));
       const userPsspAktifEstimasi = tab === "outlet"
@@ -435,7 +534,7 @@ export default async function SummaryPage({
         budgetTotal: psspTotal + discountTotal + entertainTotal,
         realisasi,
         gapVsRealisasi: estimasi - realisasi,
-        sales: dummySales(key.code, estimasi),
+        sales: computeRealSales(key.code, estimasi),
         estimasiAktif,
         userPsspAktif: activeCustKeys.size,
         userPsspAktifEstimasi,
@@ -443,6 +542,7 @@ export default async function SummaryPage({
         listingFeeTotal,
         avgPasienPerUser,
         avgStPerPasien,
+        pelunasanRunningRate,
       };
     })
     // "outlet"/"customer": GAP tertinggi (vs prior realisasi) is the default —
@@ -454,13 +554,13 @@ export default async function SummaryPage({
       if (sortMode !== "gap" || !(tab === "outlet" || tab === "customer")) {
         return b.estimasi - a.estimasi;
       }
-      // Rows with NO realisasi data (realisasi === 0) have nothing real to
-      // compare against — gapVsRealisasi for them is just estimasi-0, which
-      // would otherwise rank them artificially high by raw subtraction alone.
-      // Rows that DO have realisasi come first, sorted by gap descending
-      // among themselves (2026-07-27 request); the rest fall back to estimasi.
-      const aHas = a.realisasi > 0;
-      const bHas = b.realisasi > 0;
+      // "outlet": PSSP Aktif paling atas dulu (2026-07-27 update to the
+      // stakeholder's spec — was "has realisasi", now "has PSSP Aktif"), then
+      // GAP tertinggi among those. "customer" has no PSSP-aktif concept
+      // computed (activeRows above is only populated for "outlet"/"produk"),
+      // so it keeps the original realisasi-based criterion.
+      const aHas = tab === "outlet" ? a.estimasiAktif > 0 : a.realisasi > 0;
+      const bHas = tab === "outlet" ? b.estimasiAktif > 0 : b.realisasi > 0;
       if (aHas !== bHas) return aHas ? -1 : 1;
       return aHas ? b.gapVsRealisasi - a.gapVsRealisasi : b.estimasi - a.estimasi;
     });
@@ -508,6 +608,7 @@ export default async function SummaryPage({
     listingFeeTotal: g.listingFeeTotal,
     avgPasienPerUser: g.avgPasienPerUser,
     avgStPerPasien: g.avgStPerPasien,
+    pelunasanRunningRate: g.pelunasanRunningRate,
   }));
 
   return (
@@ -585,7 +686,7 @@ export default async function SummaryPage({
       )}
 
       {/* Stats */}
-      <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} />
+      <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"} />
 
       {/* Per-row breakdown for the active tab — Ringkasan above only shows the
           grand total, this is what actually differs between tabs. */}

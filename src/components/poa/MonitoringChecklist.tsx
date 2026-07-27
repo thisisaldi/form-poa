@@ -46,6 +46,9 @@ export interface MonitoringGroup {
   listingFeeTotal: number;
   avgPasienPerUser: number | null;
   avgStPerPasien: number | null;
+  /** "Pelunasan (%) dari Estimasi, secara Running Rate" (2026-07-27 follow-up)
+   * — outlet only, null elsewhere. See summary/page.tsx for the formula. */
+  pelunasanRunningRate: number | null;
 }
 
 /** Global unique counts — computed from all lineItems server-side to avoid double-counting */
@@ -83,9 +86,16 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export function MonitoringChecklist({
   groups,
   totals,
+  salesAvailable = true,
 }: {
   groups: MonitoringGroup[];
   totals?: MonitoringTotals;
+  /** DIR10001B (OutletSalesValueMonthly) is outlet-level only — there's no
+   * real per-customer/per-produk sales-value breakdown, so the "customer"
+   * and "produk" /summary tabs have nothing genuine to show in this card
+   * (2026-07-27: replaced the old dummySales() placeholder with real data
+   * for "outlet"/"mr", see computeRealSales in summary/page.tsx). */
+  salesAvailable?: boolean;
 }) {
   const [salesOpen, setSalesOpen] = useState(false);
 
@@ -249,36 +259,41 @@ export function MonitoringChecklist({
         )}
       </div>
 
-      {/* ── 6. Data Sales (collapsible, dummy) ── */}
+      {/* ── 6. Data Sales (collapsible, real — sourced from DIR10001B) ── */}
       <button
         type="button"
         onClick={() => setSalesOpen((v) => !v)}
         className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
         style={{ background: BG, border: `1px solid ${BORDER}` }}>
-        <span className="text-xs" style={{ color: MUTED }}>
-          Data Sales <span style={{ color: FAINT }}>★ data sementara</span>
-        </span>
+        <span className="text-xs" style={{ color: MUTED }}>Data Sales</span>
         <span className="text-xs" style={{ color: FAINT }}>{salesOpen ? "▲" : "▼"}</span>
       </button>
 
       {salesOpen && (
-        <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {[
-            { label: "Historis 2025",        value: formatRp(historis2025) },
-            { label: "Sales YTD 2026",       value: formatRp(salesYtd) },
-            { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
-            { label: "Growth YTD",           value: `${avgGrowth >= 0 ? "+" : ""}${avgGrowth.toFixed(1)}%`, danger: avgGrowth < 0 },
-            { label: "Achievement YTD+Est",  value: avgAchieve > 0 ? `${avgAchieve.toFixed(1)}%` : "—", danger: avgAchieve > 0 && avgAchieve < 100 },
-          ].map(({ label, value, danger }) => (
-            <div key={label} className="rounded-lg p-2.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-              <p className="text-xs mb-0.5" style={{ color: FAINT }}>{label}</p>
-              <p className="text-sm font-semibold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
-            </div>
-          ))}
-          <p className="col-span-full text-xs mt-1" style={{ color: FAINT }}>
-            ★ Data dummy — akan diganti data aktual.
+        salesAvailable ? (
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {[
+              { label: "Historis Tahun Lalu",  value: formatRp(historis2025) },
+              { label: "Sales YTD",            value: formatRp(salesYtd) },
+              { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
+              { label: "Growth YTD",           value: `${avgGrowth >= 0 ? "+" : ""}${avgGrowth.toFixed(1)}%`, danger: avgGrowth < 0 },
+              { label: "Achievement YTD+Est",  value: avgAchieve > 0 ? `${avgAchieve.toFixed(1)}%` : "—", danger: avgAchieve > 0 && avgAchieve < 100 },
+            ].map(({ label, value, danger }) => (
+              <div key={label} className="rounded-lg p-2.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+                <p className="text-xs mb-0.5" style={{ color: FAINT }}>{label}</p>
+                <p className="text-sm font-semibold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
+              </div>
+            ))}
+            <p className="col-span-full text-xs mt-1" style={{ color: FAINT }}>
+              Sumber: DIR10001B (nilai sales per outlet).
+            </p>
+          </div>
+        ) : (
+          <p className="mt-3 text-xs" style={{ color: FAINT }}>
+            Data Sales cuma tersedia per Outlet atau per Personil — DIR10001B sumbernya per outlet,
+            tidak ada breakdown per Customer/Produk.
           </p>
-        </div>
+        )
       )}
     </Card>
   );

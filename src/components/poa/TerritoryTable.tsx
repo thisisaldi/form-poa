@@ -84,6 +84,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                 <>
                   <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Estimasi Per User</th>
                   <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Listing Fee</th>
+                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Pelunasan (%) Running Rate</th>
                 </>
               )}
               {isProduk && (
@@ -175,6 +176,13 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                       </td>
                       <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
                         {g.listingFeeTotal > 0 ? formatRp(g.listingFeeTotal) : "—"}
+                      </td>
+                      <td className="py-2 px-3 text-right whitespace-nowrap"
+                        style={{ color: g.pelunasanRunningRate == null ? "var(--color-text-faint)"
+                          : g.pelunasanRunningRate >= 100 ? "var(--color-success, #16a34a)"
+                          : g.pelunasanRunningRate >= 70 ? "var(--color-warning, #f59e0b)"
+                          : "var(--color-red)" }}>
+                        {g.pelunasanRunningRate != null ? `${g.pelunasanRunningRate.toFixed(1)}%` : "—"}
                       </td>
                     </>
                   )}
