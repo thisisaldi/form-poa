@@ -161,7 +161,7 @@ function computeStats(items: PoaLineItem[]) {
 
 function psspPeriodeLabel(awal: string, akhir: string) {
   const fmt = (p: string) => `${p.slice(4, 6)}/${p.slice(2, 4)}`;
-  return `${fmt(awal)}–${fmt(akhir)}`;
+  return `${fmt(awal)}-${fmt(akhir)}`;
 }
 
 // One doctor's active-PSSP contracts, collapsed to a summary row — mirrors DoctorRow's
@@ -192,11 +192,11 @@ function ActivePsspDoctorRow({ doctorRows, quarterMonths }: { doctorRows: Active
         <div className="flex-1 min-w-0 space-y-0.5">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-              {censorName(first.nmCust ?? "—")}
+              {censorName(first.nmCust ?? "-")}
             </span>
           </div>
           <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
-            {first.nmOutlet ?? "—"}
+            {first.nmOutlet ?? "-"}
           </p>
         </div>
         <div className="text-right shrink-0">
@@ -240,12 +240,12 @@ function ActivePsspDoctorRow({ doctorRows, quarterMonths }: { doctorRows: Active
                   return (
                     <tr key={r.id} style={{ borderTop: "1px solid var(--color-border)" }}>
                       <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{r.cUrut}</td>
-                      <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>{r.nmProduk ?? "—"}</td>
+                      <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>{r.nmProduk ?? "-"}</td>
                       <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(r.biaya)}</td>
                       <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{psspPeriodeLabel(r.prdAwal, r.prdAkhir)}</td>
                       <td className="px-2.5 py-1.5 whitespace-nowrap"
                         style={{ color: rowLunasPct != null && rowLunasPct < 80 ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                        {rowLunasPct != null ? `${rowLunasPct.toFixed(0)}%` : "—"}
+                        {rowLunasPct != null ? `${rowLunasPct.toFixed(0)}%` : "-"}
                       </td>
                       <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: "var(--color-text)" }}>{formatRp(rowEstKuartal)}</td>
                     </tr>
@@ -384,9 +384,9 @@ export function StatsPanel({
       {/* ── 1. Estimasi vs Target ── */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
-          { label: "Estimasi POA",  value: estimasiDisplay > 0 ? formatRp(estimasiDisplay) : "—", span: false },
+          { label: "Estimasi POA",  value: estimasiDisplay > 0 ? formatRp(estimasiDisplay) : "-", span: false },
           { label: "Target Area ★", value: formatRp(targetArea), span: false },
-          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "—", span: true },
+          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "-", span: true },
         ].map(({ label, value, span }) => (
           <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`}
             style={{ background: BG, border: `1px solid ${BORDER}` }}>
@@ -425,7 +425,7 @@ export function StatsPanel({
               <div className="flex justify-between text-xs mb-1">
                 <span style={{ color: MUTED }}>{label}</span>
                 <span style={{ color: TEXT }}>
-                  {value > 0 ? fmt(value) : "—"}
+                  {value > 0 ? fmt(value) : "-"}
                   {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
                 </span>
               </div>
@@ -492,10 +492,10 @@ export function StatsPanel({
                     <tr key={r.label} style={r.bold ? { borderTop: `1px solid ${BORDER}` } : undefined}>
                       <td className={`px-3 py-1.5 ${r.bold ? "font-semibold" : ""}`} style={{ color: r.bold ? TEXT : MUTED }}>{r.label}</td>
                       <td className={`text-right px-3 py-1.5 ${r.bold ? "font-semibold" : ""}`} style={{ color: TEXT }}>
-                        {r.estimasi > 0 ? formatRp(r.estimasi) : "—"}
+                        {r.estimasi > 0 ? formatRp(r.estimasi) : "-"}
                       </td>
                       <td className={`text-right px-3 py-1.5 ${r.bold ? "font-semibold" : ""}`} style={{ color: TEXT }}>
-                        {r.nilai > 0 ? formatRpPssp(r.nilai) : "—"}
+                        {r.nilai > 0 ? formatRpPssp(r.nilai) : "-"}
                       </td>
                     </tr>
                   ))}
@@ -551,7 +551,7 @@ export function StatsPanel({
               <span style={{ color: MUTED }}>Sudah listing <span style={{ color: TEXT, fontWeight: 600 }}>{s.sudahStandar}</span></span>
               <span style={{ color: MUTED }}>Proses <span style={{ color: TEXT, fontWeight: 600 }}>{s.prosesStandar}</span></span>
               {s.gap > 0 && (
-                <span style={{ color: DANGER }}>Belum <span style={{ fontWeight: 600 }}>{s.gap}</span> — perlu ditindaklanjuti</span>
+                <span style={{ color: DANGER }}>Belum <span style={{ fontWeight: 600 }}>{s.gap}</span> - perlu ditindaklanjuti</span>
               )}
               {s.gap === 0 && <span style={{ color: MUTED }}>Semua sudah listing ✓</span>}
             </div>
@@ -580,7 +580,7 @@ export function StatsPanel({
             { label: `Sales YTD ${new Date().getFullYear()}`,           value: formatRp(salesFigures.salesYtd) },
             { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
             { label: "Growth YTD",          value: `${salesFigures.growthPct >= 0 ? "+" : ""}${salesFigures.growthPct.toFixed(1)}%`, danger: salesFigures.growthPct < 0 },
-            { label: "Achievement YTD+Est", value: achievePct > 0 ? `${achievePct.toFixed(1)}%` : "—", danger: achievePct > 0 && achievePct < 100 },
+            { label: "Achievement YTD+Est", value: achievePct > 0 ? `${achievePct.toFixed(1)}%` : "-", danger: achievePct > 0 && achievePct < 100 },
           ].map(({ label, value, danger }) => (
             <div key={label} className="rounded-lg p-2.5"
               style={{ background: BG, border: `1px solid ${BORDER}` }}>
@@ -590,7 +590,7 @@ export function StatsPanel({
           ))}
           {!salesIsReal && (
             <p className="col-span-full text-xs mt-1" style={{ color: FAINT }}>
-              ★ Data dummy — akan diganti data aktual.
+              ★ Data dummy - akan diganti data aktual.
             </p>
           )}
         </div>
@@ -734,17 +734,17 @@ function DoctorRow({
 
           {/* ── Stat grid — Estimasi / Nilai PSSP / Pengali Nilai R / Tercacah / Variasi ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2.5">
-            <StatTile label="Estimasi" value={rowEst > 0 ? formatRp(rowEst) : "—"}
+            <StatTile label="Estimasi" value={rowEst > 0 ? formatRp(rowEst) : "-"}
               sub={contribPct > 0 ? `${contribPct.toFixed(1)}% dari total` : undefined} emphasize />
-            <StatTile label="Nilai PSSP" value={rowNilaiPssp > 0 ? formatRpPssp(rowNilaiPssp) : "—"}
+            <StatTile label="Nilai PSSP" value={rowNilaiPssp > 0 ? formatRpPssp(rowNilaiPssp) : "-"}
               sub={nilaiRFinal != null ? `Nilai R Final ${nilaiRFinal.toFixed(2)}%` : undefined} emphasize />
-            <StatTile label="Pengali Nilai R" value={pengaliAvg != null ? `${pengaliAvg.toFixed(2)}x` : "—"} />
+            <StatTile label="Pengali Nilai R" value={pengaliAvg != null ? `${pengaliAvg.toFixed(2)}x` : "-"} />
             <StatTile label="Variasi Produk" value={`${variasiFokus}/${variasiTotal}`} sub="fokus/total" />
           </div>
           {(rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
             <div className="mt-1.5">
               <StatTile
-                label="Pengajuan Sebelumnya (Tercacah — Kuartal Ini)"
+                label="Pengajuan Sebelumnya (Tercacah - Kuartal Ini)"
                 value={formatRp(rowTercacah.estimasi)}
                 sub={rowTercacah.nilaiPssp > 0 ? `Nilai PSSP ${formatRpPssp(rowTercacah.nilaiPssp)}` : undefined}
               />
@@ -802,19 +802,19 @@ function DoctorRow({
                 return (
                   <tr key={it.id} style={{ borderTop: "1px solid var(--color-border)" }}>
                     <td className="px-2.5 py-2" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
-                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "—"}</td>
-                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "—"}</td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "-"}</td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "-"}</td>
                     <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
-                      {itemBase > 0 ? formatRp(itemBase) : "—"}
+                      {itemBase > 0 ? formatRp(itemBase) : "-"}
                     </td>
                     <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
-                      {itemNilaiPssp > 0 ? formatRpPssp(itemNilaiPssp) : "—"}
+                      {itemNilaiPssp > 0 ? formatRpPssp(itemNilaiPssp) : "-"}
                     </td>
                     <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
                       {itemPengali.toFixed(2)}x
                     </td>
                     <td className="px-2.5 py-2" style={{ color: "var(--color-text-muted)" }}>
-                      {it.statusStandarisasi ? STATUS_STANDARISASI_LABELS[it.statusStandarisasi] ?? it.statusStandarisasi : "—"}
+                      {it.statusStandarisasi ? STATUS_STANDARISASI_LABELS[it.statusStandarisasi] ?? it.statusStandarisasi : "-"}
                     </td>
                   </tr>
                 );
@@ -1022,12 +1022,12 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 ? `Semua ${allKeys.length} user akan diajukan.`
                 : checked.size === 0
                 ? "Pilih minimal 1 user untuk diajukan."
-                : `${checked.size} dari ${allKeys.length} user dipilih — ${allKeys.length - checked.size} user tidak dicentang akan dihapus dari POA.`}
+                : `${checked.size} dari ${allKeys.length} user dipilih - ${allKeys.length - checked.size} user tidak dicentang akan dihapus dari POA.`}
             </p>
             <label className="flex flex-col gap-1 mb-3">
               <span className="text-xs" style={{ color: notesMissing ? "var(--color-red)" : "var(--color-text-muted)" }}>
                 {notesRequired
-                  ? "Notes — jelaskan apa yang diubah dari revisi sebelumnya"
+                  ? "Notes - jelaskan apa yang diubah dari revisi sebelumnya"
                   : "Notes tambahan untuk perkuat argumen pengajuan (opsional)"}
                 {notesRequired && <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>}
               </span>

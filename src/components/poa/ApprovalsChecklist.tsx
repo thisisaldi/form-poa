@@ -49,7 +49,7 @@ function MrRow({ poa, checked, onToggle }: { poa: PendingPoaRow; checked: boolea
         <div className="text-right">
           <StatusBadge status={poa.status} version={poa.version} />
           <p className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
-            {doctorCount} user · {est > 0 ? formatRp(est) : "—"}
+            {doctorCount} user · {est > 0 ? formatRp(est) : "-"}
           </p>
         </div>
         <Link href={`/poa/${poa.id}`}>

@@ -343,7 +343,7 @@ export function Combobox({
               })()}
               {hiddenCount > 0 && (
                 <li className="px-3 py-2 text-xs" style={{ color: "var(--color-text-faint)" }}>
-                  +{hiddenCount} lainnya — ketik lebih spesifik untuk mempersempit
+                  +{hiddenCount} lainnya - ketik lebih spesifik untuk mempersempit
                 </li>
               )}
             </>

@@ -17,7 +17,7 @@ export default async function TargetProdukPage() {
         <h1>Target Produk Fokus per Kuartal</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
           Atur target quantity per produk fokus secara manual, bertingkat: NSM → Area (SM) → ASM → MR.
-          Set total NSM dulu, lalu alokasikan ke Area di bawahnya, lalu ke ASM, lalu ke MR — baru terapkan ke draft POA.
+          Set total NSM dulu, lalu alokasikan ke Area di bawahnya, lalu ke ASM, lalu ke MR - baru terapkan ke draft POA.
         </p>
       </div>
 
@@ -28,7 +28,7 @@ export default async function TargetProdukPage() {
       <div>
         <h2 className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Simulasi Algoritma (referensi lama)</h2>
         <p className="mt-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
-          Perhitungan otomatis dari ratio sales historis + pemerataan produktivitas — dipertahankan sebagai
+          Perhitungan otomatis dari ratio sales historis + pemerataan produktivitas - dipertahankan sebagai
           pembanding, tapi target di atas (alokasi manual) yang sekarang jadi acuan utama.
         </p>
       </div>

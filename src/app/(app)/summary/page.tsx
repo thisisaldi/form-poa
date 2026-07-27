@@ -235,7 +235,7 @@ export default async function SummaryPage({
   function getTerritoryKey(li: typeof lineItems[0]): TerritoryKey {
     if (tab === "outlet") {
       const o = li.kodePI ? outletMap.get(li.kodePI) : null;
-      return { code: li.kodePI ?? "—", name: o?.namaOutlet ?? "Tidak Diketahui" };
+      return { code: li.kodePI ?? "-", name: o?.namaOutlet ?? "Tidak Diketahui" };
     }
     if (tab === "produk") {
       return { code: li.kodeProduk, name: li.namaProduk };
@@ -243,7 +243,7 @@ export default async function SummaryPage({
     if (tab === "customer") {
       return { code: li.kodeCust ?? `no-code:${li.namaCust}`, name: li.namaCust };
     }
-    const ownerNip = poaOwnerMap.get(li.poaId) ?? "—";
+    const ownerNip = poaOwnerMap.get(li.poaId) ?? "-";
     const mr = mrUsers.find((u) => u.nip === ownerNip);
     return { code: ownerNip, name: mr?.name ?? ownerNip };
   }
@@ -271,9 +271,9 @@ export default async function SummaryPage({
     }
     if (tab === "outlet") {
       const names = mrNamesByOutlet.get(code);
-      return names && names.length > 0 ? names.join(" / ") : "—";
+      return names && names.length > 0 ? names.join(" / ") : "-";
     }
-    return "—"; // "produk" tab — no single PIC concept for a product
+    return "-"; // "produk" tab — no single PIC concept for a product
   }
 
   // ── Matriks Summary Per Outlet / Per Produk (2026-07-27) ──────────────────

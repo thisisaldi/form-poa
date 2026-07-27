@@ -146,7 +146,7 @@ export function PoaDetailTabs({
               <CardTitle>Target Produk Fokus (Kuartal Ini)</CardTitle>
             </CardHeader>
             <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
-              Target kuantitas &amp; nilai per produk fokus untuk territory SM dari MR ini, {poaPeriod} —
+              Target kuantitas &amp; nilai per produk fokus untuk territory SM dari MR ini, {poaPeriod} -
               dari mesin simulasi target yang sama dengan halaman Admin, dibandingkan dengan estimasi
               yang sudah direncanakan MR ini di draft POA.
             </p>
@@ -172,10 +172,10 @@ export function PoaDetailTabs({
                         {formatRp(p.quarterlyTargetValue)}
                       </td>
                       <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text-muted)" }}>
-                        {p.estimasiQty > 0 ? Math.round(p.estimasiQty).toLocaleString("id-ID") : "—"}
+                        {p.estimasiQty > 0 ? Math.round(p.estimasiQty).toLocaleString("id-ID") : "-"}
                       </td>
                       <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text-muted)" }}>
-                        {p.estimasiValue > 0 ? formatRp(p.estimasiValue) : "—"}
+                        {p.estimasiValue > 0 ? formatRp(p.estimasiValue) : "-"}
                       </td>
                     </tr>
                   ))}

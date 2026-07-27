@@ -37,7 +37,7 @@ export default async function AdminPage() {
       <div>
         <h1>Admin</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Tambah data master — user staff, outlet, user (dokter) dengan spesialisasi, dan produk.
+          Tambah data master - user staff, outlet, user (dokter) dengan spesialisasi, dan produk.
         </p>
         {orgStrukturMeta && (
           <p className="mt-1.5 text-xs" style={{ color: "var(--color-text-faint)" }}>

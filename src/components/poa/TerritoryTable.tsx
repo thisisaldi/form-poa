@@ -10,7 +10,7 @@ function formatRp(n: number) {
 type Variant = "outlet" | "customer" | "produk" | "mr";
 
 function fmtNum(n: number | null, digits = 1): string {
-  return n != null ? n.toFixed(digits) : "—";
+  return n != null ? n.toFixed(digits) : "-";
 }
 
 /**
@@ -146,7 +146,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     {isOutlet || isProduk ? (
                       <>
-                        <div>{estimasiAktifPengajuan > 0 ? formatRp(estimasiAktifPengajuan) : "—"}</div>
+                        <div>{estimasiAktifPengajuan > 0 ? formatRp(estimasiAktifPengajuan) : "-"}</div>
                         {(g.estimasiAktif > 0 || g.estimasi > 0) && (
                           <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
                             Aktif {formatRp(g.estimasiAktif)} · Pengajuan {formatRp(g.estimasi)}
@@ -154,17 +154,17 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                         )}
                       </>
                     ) : (
-                      g.estimasi > 0 ? formatRp(g.estimasi) : "—"
+                      g.estimasi > 0 ? formatRp(g.estimasi) : "-"
                     )}
                   </td>
                   {showRealisasi && (
                     <>
                       <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                        {g.realisasi > 0 ? formatRp(g.realisasi) : "—"}
+                        {g.realisasi > 0 ? formatRp(g.realisasi) : "-"}
                       </td>
                       <td className="py-2 px-3 text-right whitespace-nowrap"
                         style={{ color: g.gapVsRealisasi > 0 ? "var(--color-danger, #dc2626)" : "var(--color-text-muted)" }}>
-                        {g.gapVsRealisasi !== 0 ? formatRp(g.gapVsRealisasi) : "—"}
+                        {g.gapVsRealisasi !== 0 ? formatRp(g.gapVsRealisasi) : "-"}
                       </td>
                     </>
                   )}
@@ -180,7 +180,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.pengajuan}</td>
                   {(isOutlet || isProduk) && (
                     <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      <div>{biayaAktifPengajuan > 0 ? formatRp(biayaAktifPengajuan) : "—"}</div>
+                      <div>{biayaAktifPengajuan > 0 ? formatRp(biayaAktifPengajuan) : "-"}</div>
                       {(g.biayaAktif > 0 || g.budgetTotal > 0) && (
                         <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
                           Aktif {formatRp(g.biayaAktif)} · Pengajuan {formatRp(g.budgetTotal)}
@@ -191,45 +191,45 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     {isOutlet || isProduk ? (
                       <>
-                        <div>{costRatioTotal != null ? `${costRatioTotal.toFixed(1)}%` : "—"}</div>
+                        <div>{costRatioTotal != null ? `${costRatioTotal.toFixed(1)}%` : "-"}</div>
                         {(costRatioAktif != null || costRatioPengajuan != null) && (
                           <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                            Aktif {costRatioAktif != null ? `${costRatioAktif.toFixed(1)}%` : "—"}
+                            Aktif {costRatioAktif != null ? `${costRatioAktif.toFixed(1)}%` : "-"}
                             {" · "}
-                            Pengajuan {costRatioPengajuan != null ? `${costRatioPengajuan.toFixed(1)}%` : "—"}
+                            Pengajuan {costRatioPengajuan != null ? `${costRatioPengajuan.toFixed(1)}%` : "-"}
                           </div>
                         )}
                       </>
                     ) : (
-                      budgetPct != null ? `${budgetPct.toFixed(1)}%` : "—"
+                      budgetPct != null ? `${budgetPct.toFixed(1)}%` : "-"
                     )}
                   </td>
                   {(isOutlet || isProduk) && (
                     <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                      {g.salesAktif > 0 ? formatRp(g.salesAktif) : "—"}
+                      {g.salesAktif > 0 ? formatRp(g.salesAktif) : "-"}
                     </td>
                   )}
                   {isOutlet && (
                     <>
                       <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                        {estimasiPerUser != null ? formatRp(estimasiPerUser) : "—"}
+                        {estimasiPerUser != null ? formatRp(estimasiPerUser) : "-"}
                       </td>
                       <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                        {g.listingFeeTotal > 0 ? formatRp(g.listingFeeTotal) : "—"}
+                        {g.listingFeeTotal > 0 ? formatRp(g.listingFeeTotal) : "-"}
                       </td>
                       <td className="py-2 px-3 text-right whitespace-nowrap"
                         style={{ color: g.pelunasanRunningRate == null ? "var(--color-text-faint)"
                           : g.pelunasanRunningRate >= 100 ? "var(--color-success, #16a34a)"
                           : g.pelunasanRunningRate >= 70 ? "var(--color-warning, #f59e0b)"
                           : "var(--color-red)" }}>
-                        {g.pelunasanRunningRate != null ? `${g.pelunasanRunningRate.toFixed(1)}%` : "—"}
+                        {g.pelunasanRunningRate != null ? `${g.pelunasanRunningRate.toFixed(1)}%` : "-"}
                       </td>
                     </>
                   )}
                   {isProduk && (
                     <>
                       <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                        {salesPerUser != null ? formatRp(salesPerUser) : "—"}
+                        {salesPerUser != null ? formatRp(salesPerUser) : "-"}
                       </td>
                       <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
                         {fmtNum(g.avgPasienPerUser)}
@@ -241,7 +241,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                   )}
                   {!isOutlet && !isProduk && (
                     <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                      {listingDenom > 0 ? `${g.terstandarisasi}/${listingDenom}` : "—"}
+                      {listingDenom > 0 ? `${g.terstandarisasi}/${listingDenom}` : "-"}
                     </td>
                   )}
                 </tr>

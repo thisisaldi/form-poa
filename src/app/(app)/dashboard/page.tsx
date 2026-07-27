@@ -394,24 +394,24 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                     <td className="py-3" style={{ color: "var(--color-text)" }}>{poa.period}</td>
                     <td className="py-3"><StatusBadge status={poa.status} version={poa.version} /></td>
                     <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                      {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                     </td>
                     <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text)" }}>
-                      {poa._totalEst > 0 ? formatRp(poa._totalEst) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                      {poa._totalEst > 0 ? formatRp(poa._totalEst) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                     </td>
                     <td className="py-3 text-right text-xs font-medium">
                       {poa._ratioEstimasi != null ? (
                         <span style={{ color: poa._ratioEstimasi >= 100 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                           {poa._ratioEstimasi.toFixed(1)}%
                         </span>
-                      ) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                      ) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                     </td>
                     <td className="py-3 text-right text-xs font-medium">
                       {poa._pctBudget != null ? (
                         <span style={{ color: budgetOver ? "var(--color-red)" : "var(--color-text-muted)" }}>
                           {poa._pctBudget.toFixed(1)}%
                         </span>
-                      ) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                      ) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                     </td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-3">
@@ -441,7 +441,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <div className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-3"
             style={{ borderTop: "1px solid var(--color-border)" }}>
             <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              Menampilkan {pageSize ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, totalPoaCount)}` : `1–${totalPoaCount}`} dari {totalPoaCount} POA
+              Menampilkan {pageSize ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, totalPoaCount)}` : `1-${totalPoaCount}`} dari {totalPoaCount} POA
             </p>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-1 text-xs" style={{ color: "var(--color-text-faint)" }}>

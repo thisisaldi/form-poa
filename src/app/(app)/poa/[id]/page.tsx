@@ -231,13 +231,13 @@ export default async function PoaDetailPage({
               <div>
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Target</p>
                 <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                  {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                  {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                 </p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi</p>
                 <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                  {estimasiTotal > 0 ? formatRp(estimasiTotal) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                  {estimasiTotal > 0 ? formatRp(estimasiTotal) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                 </p>
               </div>
               <div>
@@ -245,21 +245,21 @@ export default async function PoaDetailPage({
                 <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
                   {estimasiFokusTotal > 0
                     ? <>{formatRp(estimasiFokusTotal)} <span style={{ color: "var(--color-text-faint)", fontWeight: 400 }}>({produkFokusCount})</span></>
-                    : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                    : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                 </p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Ratio %</p>
                 <p className="text-sm font-semibold"
                   style={{ color: ratioEst == null ? "var(--color-text-faint)" : ratioEst >= 100 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
-                  {ratioEst != null ? `${ratioEst.toFixed(1)}%` : "—"}
+                  {ratioEst != null ? `${ratioEst.toFixed(1)}%` : "-"}
                 </p>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>% Budget</p>
                 <p className="text-sm font-semibold"
                   style={{ color: budgetOver ? "var(--color-red)" : budgetWarn ? "var(--color-warning, #f59e0b)" : "var(--color-text-muted)" }}>
-                  {pctBudget != null ? `${pctBudget.toFixed(1)}%` : "—"}
+                  {pctBudget != null ? `${pctBudget.toFixed(1)}%` : "-"}
                 </p>
               </div>
             </div>
@@ -278,7 +278,7 @@ export default async function PoaDetailPage({
       {editLockRoleLabel && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #f59e0b)" }}>
-          POA ini terkunci untuk diedit — sudah ada tindakan (approve/edit) dari level {displayRole(editLockRoleLabel)} ke atas. Tunggu sampai direject atau dibatalkan approvalnya oleh atasan supaya bisa diedit lagi.
+          POA ini terkunci untuk diedit - sudah ada tindakan (approve/edit) dari level {displayRole(editLockRoleLabel)} ke atas. Tunggu sampai direject atau dibatalkan approvalnya oleh atasan supaya bisa diedit lagi.
         </div>
       )}
 
@@ -335,7 +335,7 @@ export default async function PoaDetailPage({
                   name="reason"
                   required
                   rows={2}
-                  placeholder="Jelaskan alasan reject POA ini — MR akan melihat catatan ini di Riwayat Aktivitas…"
+                  placeholder="Jelaskan alasan reject POA ini - MR akan melihat catatan ini di Riwayat Aktivitas…"
                   className="input-field text-sm" />
               </label>
               <Button type="submit" variant="danger">
@@ -365,7 +365,7 @@ export default async function PoaDetailPage({
                 name="reason"
                 required
                 rows={2}
-                placeholder="Jelaskan alasan membatalkan approval ini — MR akan melihat catatan ini di Riwayat Aktivitas…"
+                placeholder="Jelaskan alasan membatalkan approval ini - MR akan melihat catatan ini di Riwayat Aktivitas…"
                 className="input-field text-sm" />
             </label>
             <Button type="submit" variant="danger">

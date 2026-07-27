@@ -56,10 +56,10 @@ export default function NewPoaPage() {
                 className="input-field flex-1"
                 required
               >
-                <option value="Q1">Q1 (Jan – Mar)</option>
-                <option value="Q2">Q2 (Apr – Jun)</option>
-                <option value="Q3">Q3 (Jul – Sep)</option>
-                <option value="Q4">Q4 (Okt – Des)</option>
+                <option value="Q1">Q1 (Jan - Mar)</option>
+                <option value="Q2">Q2 (Apr - Jun)</option>
+                <option value="Q3">Q3 (Jul - Sep)</option>
+                <option value="Q4">Q4 (Okt - Des)</option>
               </select>
             </div>
             <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>

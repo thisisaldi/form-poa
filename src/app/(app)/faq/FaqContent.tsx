@@ -119,7 +119,7 @@ interface DefSection {
 const SECTIONS: DefSection[] = [
   {
     id: "ringkasan",
-    title: "Summary — Ringkasan (kartu atas)",
+    title: "Summary - Ringkasan (kartu atas)",
     note: "Selalu agregat dari seluruh baris di tab yang aktif (sudah kefilter periode kalau ada filter dipilih).",
     terms: [
       {
@@ -154,7 +154,7 @@ const SECTIONS: DefSection[] = [
         keywords: "anggaran budget pengali nilai r",
         body: (
           <>
-            <p>Total nilai PSSP dari seluruh baris — pakai <InlineCode>pengaliNilaiR</InlineCode> per-produk kalau ada override, default 1.</p>
+            <p>Total nilai PSSP dari seluruh baris - pakai <InlineCode>pengaliNilaiR</InlineCode> per-produk kalau ada override, default 1.</p>
             <Formula>Σ rencanaTotalBiaya × persenPsspDokter × pengaliNilaiR</Formula>
           </>
         ),
@@ -169,7 +169,7 @@ const SECTIONS: DefSection[] = [
         keywords: "growth ytd average rata-rata totals",
         body: (
           <>
-            <p>Growth-of-totals, bukan rata-rata persentase tiap grup — kalau dirata-rata, angkanya bisa melenceng
+            <p>Growth-of-totals, bukan rata-rata persentase tiap grup - kalau dirata-rata, angkanya bisa melenceng
               jauh dari angka Rupiah yang sama-sama ditampilkan di kartu ini kalau ukuran tiap grup beda jauh.</p>
             <Formula>{"(ΣSales YTD − ΣSales YTD tahun lalu) ÷ ΣSales YTD tahun lalu × 100%"}</Formula>
           </>
@@ -180,7 +180,7 @@ const SECTIONS: DefSection[] = [
         keywords: "achievement target prorata pace",
         body: (
           <>
-            <p>Sama alasannya dengan Growth YTD — dijumlah dulu antar grup, baru dibagi.</p>
+            <p>Sama alasannya dengan Growth YTD - dijumlah dulu antar grup, baru dibagi.</p>
             <Formula>{"Σ(Sales YTD+Est) ÷ Σ(Historis Tahun Lalu ÷ 12 × bulan berjalan) × 100%"}</Formula>
           </>
         ),
@@ -201,19 +201,19 @@ const SECTIONS: DefSection[] = [
         name: "Data Sales",
         tag: "Hanya tab Outlet & Personil",
         keywords: "dir10001b sumber data sembunyi customer produk",
-        body: <p>Sumbernya DIR10001B (<InlineCode>OutletSalesValueMonthly</InlineCode>), cuma level outlet — tidak
+        body: <p>Sumbernya DIR10001B (<InlineCode>OutletSalesValueMonthly</InlineCode>), cuma level outlet - tidak
           ada breakdown per Customer/Produk, jadi kartu ini disembunyikan di dua tab itu.</p>,
       },
     ],
   },
   {
     id: "outlet",
-    title: "Summary — Tab Per Outlet",
+    title: "Summary - Tab Per Outlet",
     terms: [
       {
         name: "User PSSP (Aktif+Estimasi)",
         keywords: "union customer unik aktif estimasi",
-        body: <p>Jumlah customer unik yang punya kontrak PSSP aktif ATAU sudah ada di pengajuan draft — digabung
+        body: <p>Jumlah customer unik yang punya kontrak PSSP aktif ATAU sudah ada di pengajuan draft - digabung
           jadi satu (union), customer yang ada di keduanya cuma dihitung sekali.</p>,
       },
       {
@@ -221,7 +221,7 @@ const SECTIONS: DefSection[] = [
         keywords: "gap merah realisasi sebelumnya",
         body: (
           <>
-            <p>Merah kalau positif — sinyal &ldquo;dulu realisasinya segini, kok sekarang estimasinya jauh lebih
+            <p>Merah kalau positif - sinyal &ldquo;dulu realisasinya segini, kok sekarang estimasinya jauh lebih
               tinggi&rdquo;, perlu dicek kewajarannya.</p>
             <Formula>Gap = Estimasi − Realisasi Sebelumnya</Formula>
           </>
@@ -230,7 +230,7 @@ const SECTIONS: DefSection[] = [
       {
         name: "Realisasi Sebelumnya",
         keywords: "totalLunas semua kontrak lifetime",
-        body: <Formula>Σ totalLunas — semua PsspKontrak milik outlet ini (aktif maupun sudah selesai)</Formula>,
+        body: <Formula>Σ totalLunas - semua PsspKontrak milik outlet ini (aktif maupun sudah selesai)</Formula>,
       },
       {
         name: "Cost Ratio",
@@ -249,10 +249,10 @@ const SECTIONS: DefSection[] = [
         keywords: "running rate warna hijau kuning merah fraksi waktu",
         body: (
           <>
-            <p>Bukan progres 0–100%, tapi progres relatif ke seberapa jauh periode kontraknya sudah berjalan.</p>
+            <p>Bukan progres 0-100%, tapi progres relatif ke seberapa jauh periode kontraknya sudah berjalan.</p>
             <Formula>Σ totalLunas AKTUAL ÷ Σ (estBaris × fraksi waktu kontrak berjalan) × 100%</Formula>
             <p>≥100% <span style={{ color: "var(--color-success, #16a34a)" }}>(hijau)</span> = sesuai/lebih cepat.
-              70–99% <span style={{ color: "var(--color-warning)" }}>(kuning)</span> = agak lambat.
+              70-99% <span style={{ color: "var(--color-warning)" }}>(kuning)</span> = agak lambat.
               &lt;70% <span style={{ color: "var(--color-red)" }}>(merah)</span> = tertinggal jauh.</p>
           </>
         ),
@@ -261,12 +261,12 @@ const SECTIONS: DefSection[] = [
   },
   {
     id: "customer",
-    title: "Summary — Tab Per Customer & Per Produk",
+    title: "Summary - Tab Per Customer & Per Produk",
     terms: [
       {
         name: "Estimasi (tab Customer)",
         keywords: "estimasi customer beda outlet",
-        body: <p>Cuma rencana biaya pengajuan customer ini — tidak digabung dengan nilai kontrak PSSP aktif seperti
+        body: <p>Cuma rencana biaya pengajuan customer ini - tidak digabung dengan nilai kontrak PSSP aktif seperti
           tab Outlet.</p>,
       },
       {
@@ -275,7 +275,7 @@ const SECTIONS: DefSection[] = [
         body: (
           <>
             <p>Beda populasi dari &ldquo;Listing Produk&rdquo; di kartu Ringkasan (itu dedup global lintas semua
-              baris) — ini cuma baris pengajuan customer ini sendiri.</p>
+              baris) - ini cuma baris pengajuan customer ini sendiri.</p>
             <Formula>Listing (per baris) = terstandarisasi ÷ pengajuan (baris customer ini saja)</Formula>
           </>
         ),
@@ -283,7 +283,7 @@ const SECTIONS: DefSection[] = [
       {
         name: "Estimasi Aktif+Pengajuan (tab Produk)",
         keywords: "produk kode nama kdproduk namespace",
-        body: <p>Kontrak PSSP aktifnya dicocokkan lewat <B>nama produk</B>, bukan kode — sistem PSSP pakai
+        body: <p>Kontrak PSSP aktifnya dicocokkan lewat <B>nama produk</B>, bukan kode - sistem PSSP pakai
           kode produk (<InlineCode>kdProduk</InlineCode>) yang beda namespace dari kode produk internal
           (<InlineCode>kodeProduk</InlineCode>).</p>,
       },
@@ -292,7 +292,7 @@ const SECTIONS: DefSection[] = [
         keywords: "sales aktif qty hna derivasi rupiah",
         body: (
           <>
-            <p>Beda sumber dari tab Outlet — bukan angka Rupiah riil, tapi turunan (kuantitas terjual × HNA), karena
+            <p>Beda sumber dari tab Outlet - bukan angka Rupiah riil, tapi turunan (kuantitas terjual × HNA), karena
               tidak ada sumber Rupiah asli per-produk.</p>
             <Formula>Sales Aktif (produk) = qty terjual × HNA</Formula>
           </>
@@ -312,18 +312,18 @@ const SECTIONS: DefSection[] = [
   },
   {
     id: "sorting",
-    title: "Summary — Urutan (Sorting)",
-    note: "Toggle “GAP Tertinggi / Estimasi Tertinggi” cuma muncul di tab Outlet & Customer — dua tab lain selalu urut Estimasi tertinggi.",
+    title: "Summary - Urutan (Sorting)",
+    note: "Toggle “GAP Tertinggi / Estimasi Tertinggi” cuma muncul di tab Outlet & Customer - dua tab lain selalu urut Estimasi tertinggi.",
     terms: [],
     extra: (
       <>
-        <p className="text-sm font-medium mt-2" style={{ color: "var(--color-text)" }}>GAP Tertinggi — tab Outlet</p>
+        <p className="text-sm font-medium mt-2" style={{ color: "var(--color-text)" }}>GAP Tertinggi - tab Outlet</p>
         <Ladder steps={[
           <>Outlet dengan <B>PSSP Aktif</B> (estimasiAktif &gt; 0) selalu di atas yang tidak punya.</>,
           <>Di antara sesama PSSP Aktif: urut <B>Gap tertinggi</B> ke rendah.</>,
           <>Sisanya: urut <B>Estimasi tertinggi</B> ke rendah.</>,
         ]} />
-        <p className="text-sm font-medium mt-4" style={{ color: "var(--color-text)" }}>GAP Tertinggi — tab Customer</p>
+        <p className="text-sm font-medium mt-4" style={{ color: "var(--color-text)" }}>GAP Tertinggi - tab Customer</p>
         <Ladder steps={[
           <>Customer dengan <B>Realisasi Sebelumnya &gt; 0</B> selalu di atas yang belum pernah ada realisasi.</>,
           <>Di antara yang ada realisasi: urut <B>Gap tertinggi</B> ke rendah.</>,
@@ -331,7 +331,7 @@ const SECTIONS: DefSection[] = [
         ]} />
         <Note>
           <p>Outlet pakai kriteria &ldquo;PSSP Aktif&rdquo; (kontrak yang masih berjalan), Customer pakai
-            &ldquo;Realisasi Sebelumnya&rdquo; (duit yang pernah lunas) — beda karena tab Outlet punya data kontrak
+            &ldquo;Realisasi Sebelumnya&rdquo; (duit yang pernah lunas) - beda karena tab Outlet punya data kontrak
             aktif yang tab Customer tidak punya. &ldquo;Estimasi Tertinggi&rdquo; sendiri sort polos, tanpa
             mempedulikan Gap/PSSP Aktif sama sekali.</p>
         </Note>
@@ -340,7 +340,7 @@ const SECTIONS: DefSection[] = [
   },
   {
     id: "dokter",
-    title: "Form Dokter — Rencana PSSP",
+    title: "Form Dokter - Rencana PSSP",
     note: "Istilah-istilah di kartu kalkulator per-produk dan panel Histori PSSP saat mengisi rencana per dokter.",
     terms: [
       {
@@ -349,11 +349,11 @@ const SECTIONS: DefSection[] = [
         body: (
           <>
             <p>Rencana estimasi bulan ini (baris yang lagi diisi) dibanding kontrak PSSP TERAKHIR untuk produk yang
-              sama (aktif ataupun sudah kedaluwarsa, dicocokkan lewat nama produk) — nilai kontrak itu diratakan per
+              sama (aktif ataupun sudah kedaluwarsa, dicocokkan lewat nama produk) - nilai kontrak itu diratakan per
               bulan dari total periodenya sendiri (bukan estimasi baru dibagi 3, dst). Kalau belum pernah ada PSSP
               untuk produk ini, tidak ada angka growth (&ldquo;Belum ada data PSSP&rdquo;).</p>
             <Formula>{"Growth Estimasi = (Estimasi baru/bln ÷ Estimasi PSSP lama/bln − 1) × 100%"}</Formula>
-            <p>Kartu &ldquo;Total Semua Produk&rdquo; menjumlah versi ini lintas semua produk yang diisi di form —
+            <p>Kartu &ldquo;Total Semua Produk&rdquo; menjumlah versi ini lintas semua produk yang diisi di form -
               tapi produk yang <B>belum pernah</B> ada PSSP-nya cuma menyumbang ke pembilang (estimasi barunya),
               tidak ke penyebut (PSSP lama), jadi kalau banyak produk baru di form yang sama, persentase total bisa
               kelihatan lebih tinggi dari kenyataan per-produknya.</p>
@@ -366,7 +366,7 @@ const SECTIONS: DefSection[] = [
         body: (
           <>
             <p>Meski labelnya bilang &ldquo;3 Bln Terakhir&rdquo;, rumusnya <B>sudah tidak</B> pakai jendela 3 bulan
-              tetap — baseline-nya kontrak PSSP terakhir untuk produk ini yang benar-benar ada pelunasannya, dibagi
+              tetap - baseline-nya kontrak PSSP terakhir untuk produk ini yang benar-benar ada pelunasannya, dibagi
               berapa bulan kontrak itu SUDAH berjalan (elapsed), bukan dibagi 3 rata. Kontrak yang baru jalan 1 bulan
               tidak akan didilusi seolah sudah 3 bulan.</p>
             <Formula>Growth Pelunasan = (Estimasi baru/bln ÷ (totalLunas kontrak terakhir ÷ bulan berjalan) − 1) × 100%</Formula>
@@ -380,12 +380,12 @@ const SECTIONS: DefSection[] = [
         body: (
           <>
             <p><B>Di badge Label Customer</B> (atas form, setelah pilih dokter): berarti dokter ini punya
-              MINIMAL SATU kontrak PSSP yang masih aktif sekarang, titik — tidak peduli kapan kontraknya berakhir.</p>
+              MINIMAL SATU kontrak PSSP yang masih aktif sekarang, titik - tidak peduli kapan kontraknya berakhir.</p>
             <p><B>Di badge oranye pada kartu kontrak</B> (panel Histori PSSP) dan tag di dropdown pilih dokter: arti
-              lebih sempit — kontrak itu aktif DAN berakhir (<InlineCode>prdAkhir</InlineCode>) di salah satu bulan
+              lebih sempit - kontrak itu aktif DAN berakhir (<InlineCode>prdAkhir</InlineCode>) di salah satu bulan
               quarter kalender yang sedang berjalan, jadi butuh perhatian perpanjangan sebelum quarter tutup.</p>
             <p>Dokter bisa kena label &ldquo;Retensi&rdquo; (badge atas) tanpa kontraknya kena badge oranye
-              &ldquo;Retensi&rdquo; di kartu kontrak — dua hal beda, sama-sama pakai kata &ldquo;Retensi&rdquo;.</p>
+              &ldquo;Retensi&rdquo; di kartu kontrak - dua hal beda, sama-sama pakai kata &ldquo;Retensi&rdquo;.</p>
           </>
         ),
       },
@@ -399,7 +399,7 @@ const SECTIONS: DefSection[] = [
               Persentase pelunasan di sampingnya (kalau ada &ldquo;, Pelunasan Bagus&rdquo;) dihitung dari SELURUH
               kontrak sepanjang waktu (lifetime), bukan cuma yang terakhir.</p>
             <p><B>Di tag produk pada dropdown pilih produk:</B> persentase pelunasannya cuma dari kontrak yang
-              aktif di 3 bulan terakhir untuk produk itu — rentang waktu yang jauh lebih pendek daripada versi
+              aktif di 3 bulan terakhir untuk produk itu - rentang waktu yang jauh lebih pendek daripada versi
               Label Customer.</p>
           </>
         ),
@@ -410,11 +410,11 @@ const SECTIONS: DefSection[] = [
         body: (
           <>
             <p>Bandingin progres pelunasan aktual kontrak dengan seberapa jauh periode kontraknya sendiri sudah
-              berjalan (bukan dari 0–100% polos) — cuma muncul untuk kontrak yang masih aktif.</p>
+              berjalan (bukan dari 0-100% polos) - cuma muncul untuk kontrak yang masih aktif.</p>
             <Formula>{"Running Rate = Pelunasan% ÷ (bulan berjalan ÷ total bulan kontrak × 100%) × 100%"}</Formula>
             <p>≥100% <span style={{ color: "var(--color-success, #16a34a)" }}>(hijau)</span> = sesuai/lebih cepat
-              dari target waktu. 70–99% <span style={{ color: "var(--color-warning)" }}>(kuning)</span> = agak
-              lambat. &lt;70% <span style={{ color: "var(--color-red)" }}>(merah)</span> = tertinggal jauh — sama
+              dari target waktu. 70-99% <span style={{ color: "var(--color-warning)" }}>(kuning)</span> = agak
+              lambat. &lt;70% <span style={{ color: "var(--color-red)" }}>(merah)</span> = tertinggal jauh - sama
               persis konsepnya dengan &ldquo;Pelunasan Running Rate&rdquo; di Summary tab Outlet, cuma dihitung per
               kontrak tunggal di sini, bukan agregat satu outlet.</p>
           </>
@@ -461,7 +461,7 @@ export function FaqContent() {
         <h1>FAQ</h1>
         <p className="mt-1 text-sm max-w-[68ch]" style={{ color: "var(--color-text-muted)" }}>
           Referensi istilah &amp; cara hitung yang GAK umum di halaman <Link href="/summary">Summary</Link> dan form
-          Rencana PSSP per dokter — istilah yang sudah jelas dari nama kolomnya sendiri sengaja tidak dimasukkan.
+          Rencana PSSP per dokter - istilah yang sudah jelas dari nama kolomnya sendiri sengaja tidak dimasukkan.
         </p>
       </div>
 

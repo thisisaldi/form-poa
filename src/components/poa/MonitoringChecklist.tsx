@@ -170,7 +170,7 @@ export function MonitoringChecklist({
           {estimasiAktifTotal > 0 ? "Estimasi Aktif+Pengajuan" : "Estimasi POA"}
         </p>
         <p className="text-2xl font-bold" style={{ color: TEXT }}>
-          {estimasiCombined > 0 ? formatRp(estimasiCombined) : "—"}
+          {estimasiCombined > 0 ? formatRp(estimasiCombined) : "-"}
         </p>
         {estimasiAktifTotal > 0 && (
           <p className="text-xs mt-0.5" style={{ color: FAINT }}>
@@ -210,7 +210,7 @@ export function MonitoringChecklist({
             <div className="flex justify-between text-xs mb-1">
               <span style={{ color: MUTED }}>{label}</span>
               <span style={{ color: TEXT }}>
-                {value > 0 ? formatRp(value) : "—"}
+                {value > 0 ? formatRp(value) : "-"}
                 {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
               </span>
             </div>
@@ -267,7 +267,7 @@ export function MonitoringChecklist({
               <span style={{ color: MUTED }}>Sudah listing <span style={{ color: TEXT, fontWeight: 600 }}>{terstandar}</span></span>
               <span style={{ color: MUTED }}>Proses <span style={{ color: TEXT, fontWeight: 600 }}>{proses}</span></span>
               {gap > 0 ? (
-                <span style={{ color: DANGER }}>Belum <span style={{ fontWeight: 600 }}>{gap}</span> — perlu ditindaklanjuti</span>
+                <span style={{ color: DANGER }}>Belum <span style={{ fontWeight: 600 }}>{gap}</span> - perlu ditindaklanjuti</span>
               ) : (
                 <span style={{ color: MUTED }}>Semua sudah listing ✓</span>
               )}
@@ -301,7 +301,7 @@ export function MonitoringChecklist({
               { label: "Sales YTD",            value: formatRp(salesYtd) },
               { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
               { label: "Growth YTD",           value: `${growthYtd >= 0 ? "+" : ""}${growthYtd.toFixed(1)}%`, danger: growthYtd < 0 },
-              { label: "Achievement YTD+Est",  value: achieveYtd > 0 ? `${achieveYtd.toFixed(1)}%` : "—", danger: achieveYtd > 0 && achieveYtd < 100 },
+              { label: "Achievement YTD+Est",  value: achieveYtd > 0 ? `${achieveYtd.toFixed(1)}%` : "-", danger: achieveYtd > 0 && achieveYtd < 100 },
             ].map(({ label, value, danger }) => (
               <div key={label} className="rounded-lg p-2.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
                 <p className="text-xs mb-0.5" style={{ color: FAINT }}>{label}</p>
@@ -314,7 +314,7 @@ export function MonitoringChecklist({
           </div>
         ) : (
           <p className="mt-3 text-xs" style={{ color: FAINT }}>
-            Data Sales cuma tersedia per Outlet atau per Personil — DIR10001B sumbernya per outlet,
+            Data Sales cuma tersedia per Outlet atau per Personil - DIR10001B sumbernya per outlet,
             tidak ada breakdown per Customer/Produk.
           </p>
         )

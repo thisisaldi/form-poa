@@ -141,7 +141,7 @@ export function TargetAllocationDrilldown() {
         <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Fokus</span>
           <select value={kodeProduk} onChange={(e) => handleProductOrQuarterChange(e.target.value)} className="input-field">
-            <option value="">— Pilih produk —</option>
+            <option value="">- Pilih produk -</option>
             {products.map((p) => <option key={p.kodeProduk} value={p.kodeProduk}>{p.namaProduk}</option>)}
           </select>
         </div>
@@ -170,7 +170,7 @@ export function TargetAllocationDrilldown() {
             {parentQty != null && (
               <> · Total {path[path.length - 1]?.name}: <strong>{formatQty(parentQty)}</strong>
                 {" · "}Teralokasi: <strong>{formatQty(totalAllocated)}</strong>
-                {" · "}Sisa: <strong style={{ color: sisa != null && sisa < 0 ? "var(--color-red)" : undefined }}>{sisa != null ? formatQty(sisa) : "—"}</strong>
+                {" · "}Sisa: <strong style={{ color: sisa != null && sisa < 0 ? "var(--color-red)" : undefined }}>{sisa != null ? formatQty(sisa) : "-"}</strong>
               </>
             )}
           </p>
@@ -228,7 +228,7 @@ export function TargetAllocationDrilldown() {
 
       <ConfirmDialog
         open={!!toDelete} tone="danger" title="Hapus alokasi?"
-        message={`Alokasi ${toDelete?.name} (${toDelete?.nip}) untuk produk ini di kuartal ${quarter} akan dihapus — beda dengan menyimpan qty 0, baris ini jadi "belum diset" lagi.`}
+        message={`Alokasi ${toDelete?.name} (${toDelete?.nip}) untuk produk ini di kuartal ${quarter} akan dihapus - beda dengan menyimpan qty 0, baris ini jadi "belum diset" lagi.`}
         confirmLabel="Hapus" confirmPending={deleting}
         onConfirm={confirmDelete} onCancel={() => setToDelete(null)} />
     </div>

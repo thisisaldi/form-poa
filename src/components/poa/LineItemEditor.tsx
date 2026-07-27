@@ -125,9 +125,9 @@ function emptyProdukEntry(): ProdukEntry {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatRp(val: string | number | { toString(): string } | null | undefined) {
-  if (val == null) return "—";
+  if (val == null) return "-";
   const n = parseFloat(val.toString());
-  if (isNaN(n)) return "—";
+  if (isNaN(n)) return "-";
   return "Rp " + Math.round(n).toLocaleString("id-ID");
 }
 
@@ -421,7 +421,7 @@ function periodeAwalFormatError(periodeAwal: string, poaPeriod: string): string 
   const quarter = parsePoaQuarterMonths(poaPeriod);
   if (quarter && (year !== quarter.year || !quarter.months.includes(month))) {
     const [m1, , m3] = quarter.months;
-    return `Harus di periode POA ${poaPeriod} (${MONTH_LABELS[m1 - 1]}–${MONTH_LABELS[m3 - 1]} ${quarter.year})`;
+    return `Harus di periode POA ${poaPeriod} (${MONTH_LABELS[m1 - 1]}-${MONTH_LABELS[m3 - 1]} ${quarter.year})`;
   }
   return null;
 }
@@ -873,8 +873,8 @@ function ProdukEntryRow({
               the fields below it. */}
           <div className="text-xs mt-1 leading-tight" style={{ color: "var(--color-text-faint)" }} title={product?.dosisKekuatanSediaan ?? undefined}>
             <div className="font-medium">Referensi PM</div>
-            <div>Resep per Pasien = {product?.qtyPerRxPasien != null && product?.lamaPemberianHari != null ? `${product.qtyPerRxPasien} ${product.satuanTerkecil} / ${product.lamaPemberianHari} hari` : "—"}</div>
-            <div>Dosis per hari = {product?.jumlahPemberianPerHari != null ? `${product.jumlahPemberianPerHari} / hari` : "—"}</div>
+            <div>Resep per Pasien = {product?.qtyPerRxPasien != null && product?.lamaPemberianHari != null ? `${product.qtyPerRxPasien} ${product.satuanTerkecil} / ${product.lamaPemberianHari} hari` : "-"}</div>
+            <div>Dosis per hari = {product?.jumlahPemberianPerHari != null ? `${product.jumlahPemberianPerHari} / hari` : "-"}</div>
           </div>
         </label>
         <label className="flex flex-col gap-1">
@@ -882,7 +882,7 @@ function ProdukEntryRow({
           <select value={entry.statusStandarisasi}
             onChange={(e) => onChange({ statusStandarisasi: e.target.value })}
             className="input-field text-xs">
-            <option value="">— Pilih —</option>
+            <option value="">- Pilih -</option>
             {Object.entries(STATUS_STANDARISASI_LABELS).map(([v, l]) => (
               <option key={v} value={v}>{l}</option>
             ))}
@@ -896,7 +896,7 @@ function ProdukEntryRow({
             <select value={entry.jenisPssp}
               onChange={(e) => onChange({ jenisPssp: e.target.value })}
               className="input-field text-xs">
-              <option value="">— Pilih —</option>
+              <option value="">- Pilih -</option>
               {Object.entries(JENIS_PSSP_LABELS).map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
               ))}
@@ -934,13 +934,13 @@ function ProdukEntryRow({
             <div>
               <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per UB / Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} UB` : "—"}
+                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} UB` : "-"}
               </div>
             </div>
             <div>
               <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per UB {lama} Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} UB` : "—"}
+                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} UB` : "-"}
               </div>
             </div>
           </div>
@@ -971,7 +971,7 @@ function ProdukEntryRow({
             {growthPct != null && (
               <p className="text-xs font-semibold mt-1" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                 {growthPct > 0
-                  ? "✓ Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                  ? "✓ Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
                   : "⚠ Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
               </p>
             )}
@@ -1169,7 +1169,7 @@ function PsspHospinetSnapshotCard({ snapshot }: { snapshot: PsspHospinetSnapshot
         </div>
       </div>
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-        Snapshot agregat (bukan per-kontrak/per-produk) — dari data Hospinet, belum granular seperti histori PSSP di atas.
+        Snapshot agregat (bukan per-kontrak/per-produk) - dari data Hospinet, belum granular seperti histori PSSP di atas.
       </p>
     </div>
   );
@@ -1286,7 +1286,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs font-mono font-semibold" style={{ color: "var(--color-text)" }}>{cUrut}</span>
               <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                {first.prdAwal} – {first.prdAkhir}
+                {first.prdAwal} - {first.prdAkhir}
               </span>
               {isRetensi && (
                 <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
@@ -1300,7 +1300,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
             )}
           </div>
           <span className="text-xs font-semibold shrink-0" style={{ color: pctColor }}>
-            {pct != null ? `${pct}%` : "—"}
+            {pct != null ? `${pct}%` : "-"}
           </span>
         </div>
         {isActive && runningRate != null && (
@@ -1376,7 +1376,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
         </div>
       )}
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-        {byContract.size} kontrak · snapshot {history[0]?.snapshotDate ?? "—"}
+        {byContract.size} kontrak · snapshot {history[0]?.snapshotDate ?? "-"}
       </p>
     </div>
   );
@@ -1418,7 +1418,7 @@ function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
         style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
         <div className="flex items-start justify-between gap-2">
           <span className="text-xs font-mono font-semibold" style={{ color: "var(--color-text)" }}>{r.noreq}</span>
-          <span className="text-xs shrink-0" style={{ color: "var(--color-text-faint)" }}>{r.prdAwal} – {r.prdAkhir}</span>
+          <span className="text-xs shrink-0" style={{ color: "var(--color-text-faint)" }}>{r.prdAwal} - {r.prdAkhir}</span>
         </div>
         <div className="text-xs truncate" style={{ color: "var(--color-text-muted)" }}>{r.nmProduk ?? r.kdProduk}</div>
         <div className="grid grid-cols-2 gap-1 text-xs">
@@ -1428,7 +1428,7 @@ function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
           </div>
           <div>
             <div style={{ color: "var(--color-text-faint)" }}>Target Sales</div>
-            <div style={{ color: "var(--color-text-muted)" }}>{r.targetSales != null ? formatRp(r.targetSales) : "—"}</div>
+            <div style={{ color: "var(--color-text-muted)" }}>{r.targetSales != null ? formatRp(r.targetSales) : "-"}</div>
           </div>
         </div>
       </div>
@@ -1454,7 +1454,7 @@ function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
         </div>
       )}
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-        {history.length} kontrak · snapshot {history[0]?.snapshotDate ?? "—"}
+        {history.length} kontrak · snapshot {history[0]?.snapshotDate ?? "-"}
       </p>
     </div>
   );
@@ -1979,6 +1979,14 @@ function AddPanel({
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [attempted, setAttempted] = useState(false);
 
+  // Draft autosave (2026-07-27 request: "kalau refresh, data yang sudah
+  // diisi masih ada") — keyed per POA so switching between POAs never mixes
+  // up drafts. Restored once on mount below, then kept in sync on every
+  // change; cleared once the products are actually saved or the panel is
+  // cancelled, so a stale draft doesn't reappear next time.
+  const draftKey = `poa-draft-add-${poaId}`;
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
   const outletOptions = useMemo(() => [...outlets]
     .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
     .map((o) => ({
@@ -2046,7 +2054,7 @@ function AddPanel({
       // Periode PSSP terakhir shown regardless of Berjalan/Selesai (2026-07-27
       // request) — same raw YYYYMM range convention as ContractCard above.
       const psspPeriodLabel = psspStatus
-        ? `PSSP ${psspStatus.latestPrdAwal}–${psspStatus.latestPrdAkhir} (${psspStatus.isActive ? "Berjalan" : "Selesai"})`
+        ? `PSSP ${psspStatus.latestPrdAwal}-${psspStatus.latestPrdAkhir} (${psspStatus.isActive ? "Berjalan" : "Selesai"})`
         : null;
       return {
         value: c.id, label: c.namaCustomer,
@@ -2122,9 +2130,11 @@ function AddPanel({
     return estTotal > 0 ? budgetWeighted / estTotal : null;
   }, [produkList, dokterFields, products]);
 
-  function handleOutletChange(val: string) {
-    setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setCustomerList([]); setKriteriaList([]); setPsspEverProductNames(new Set()); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
+  // Just the data-fetching side of picking an outlet — split out from
+  // handleOutletChange so restoring a saved draft (below) can re-trigger these
+  // fetches for the restored kodePI WITHOUT also wiping the restored
+  // spesialisasi/customerId the way an interactive outlet change should.
+  function fetchOutletData(val: string) {
     if (!val) return;
     startLoadSpec(async () => {
       const [kriteria, psspProductNames, diskonData, diskonHistoryData] = await Promise.all([
@@ -2140,6 +2150,12 @@ function AddPanel({
     });
     startLoadCust(async () => setCustomerList(await getCustomersByOutlet(val)));
     getPsspStatusByOutlet(val).then(setPsspStatusList);
+  }
+
+  function handleOutletChange(val: string) {
+    setKodePI(val); setSpesialisasi(""); setCustomerId("");
+    setCustomerList([]); setKriteriaList([]); setPsspEverProductNames(new Set()); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
+    fetchOutletData(val);
   }
 
   // Picking a user directly (search-by-name) is now the primary path — this
@@ -2207,6 +2223,56 @@ function AddPanel({
     setProdukList((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
   }
 
+  function clearDraft() {
+    try { localStorage.removeItem(draftKey); } catch { /* storage unavailable - nothing to clear anyway */ }
+  }
+
+  // Restore once on mount — re-triggers the same outlet-data fetch
+  // handleOutletChange would (kriteria/diskon/customerList/psspStatusList),
+  // but WITHOUT its reset-downstream-fields behavior, since here
+  // spesialisasi/customerId need to come back too, not get wiped.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (raw) {
+        const draft = JSON.parse(raw) as {
+          kodePI?: string; spesialisasi?: string; customerId?: string;
+          dokterFields?: DokterFields; produkList?: ProdukEntry[];
+        };
+        if (draft.kodePI) { setKodePI(draft.kodePI); fetchOutletData(draft.kodePI); }
+        if (draft.spesialisasi) setSpesialisasi(draft.spesialisasi);
+        if (draft.customerId) setCustomerId(draft.customerId);
+        if (draft.dokterFields) setDokterFields(draft.dokterFields);
+        if (draft.produkList && draft.produkList.length > 0) setProdukList(draft.produkList);
+        if (draft.kodePI || draft.produkList?.some((p) => p.kodeProduk)) {
+          onToast?.("Draft rencana POA yang belum disimpan berhasil dipulihkan.", "success");
+        }
+      }
+    } catch {
+      // Corrupt/unreadable draft — ignore and start fresh rather than crash the panel.
+    }
+    setDraftLoaded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the draft in sync with every change, debounced — skipped until the
+  // restore above has run once, so it can't race and overwrite a not-yet-
+  // loaded draft with the panel's still-blank initial state.
+  useEffect(() => {
+    if (!draftLoaded) return;
+    const hasContent = !!kodePI || !!customerId
+      || produkList.some((p) => p.kodeProduk || p.jumlahResepHari || p.qtyProdukResep);
+    const t = setTimeout(() => {
+      try {
+        if (!hasContent) { localStorage.removeItem(draftKey); return; }
+        localStorage.setItem(draftKey, JSON.stringify({ kodePI, spesialisasi, customerId, dokterFields, produkList }));
+      } catch {
+        // Storage full/unavailable — draft-saving is a convenience, not critical, so just skip.
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [draftLoaded, draftKey, kodePI, spesialisasi, customerId, dokterFields, produkList]);
+
   function buildFormData(entry: ProdukEntry): FormData {
     const fd = new FormData();
     const product = products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null;
@@ -2267,6 +2333,7 @@ function AddPanel({
           setProgress({ done: i + 1, total: validEntries.length });
         }
         setProgress(null);
+        clearDraft();
         onToast?.(`${validEntries.length} produk berhasil disimpan.`, "success");
         setTimeout(() => {
           if (onSuccess) onSuccess(); else window.location.reload();
@@ -2334,7 +2401,7 @@ function AddPanel({
               {attempted && !customerId && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
               {!spesialisasi && kodePI && !loadingCust && (
                 <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                  Belum tau spesialisasinya? Langsung cari nama user aja — spesialisasi keisi otomatis.
+                  Belum tau spesialisasinya? Langsung cari nama user aja - spesialisasi keisi otomatis.
                 </span>
               )}
               {kodePI && !loadingCust && onAddNewCustomer && (
@@ -2342,7 +2409,7 @@ function AddPanel({
                   className="text-xs text-left font-medium"
                   style={{ color: "var(--color-blue)" }}>
                   {customerOptions.length === 0
-                    ? "Belum ada user terdaftar di outlet ini — + Daftar User Baru"
+                    ? "Belum ada user terdaftar di outlet ini - + Daftar User Baru"
                     : "Gak ketemu usernya? + Daftar User Baru"}
                 </button>
               )}
@@ -2483,7 +2550,7 @@ function AddPanel({
                     <p className="text-xs font-semibold mt-1 max-w-[14rem]"
                       style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                       {growthEstimasiTotalPct > 0
-                        ? "✓ Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                        ? "✓ Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
                         : "⚠ Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                     </p>
                   </>
@@ -2548,24 +2615,24 @@ function AddPanel({
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {estimasiTotal > 0 ? formatRp(estimasiTotal) : "—"}
+                          {estimasiTotal > 0 ? formatRp(estimasiTotal) : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
+                          {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
                           title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
-                            ? "Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                            ? "Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
                             : "Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                           style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                          {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
+                          {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
                           style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                          {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "—"}
+                          {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "-"}
                         </td>
                       </tr>
                     );
@@ -2584,7 +2651,7 @@ function AddPanel({
               : `Simpan (${filledCount} produk)`}
           </Button>
           {onCancel && (
-            <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => { clearDraft(); onCancel(); }}>Batal</Button>
           )}
         </div>
       </form>
@@ -2750,7 +2817,7 @@ function AddDokterBaruPanel({
               onChange={(e) => setSpesialisasi(e.target.value)}
               className="input-field"
               style={attempted && !spesialisasi ? ERR_RING : undefined}>
-              <option value="">— Pilih —</option>
+              <option value="">- Pilih -</option>
               {spesOptions.map(({ value, label, sublabel }) => (
                 <option key={value} value={value}>{sublabel ? `${label} (${sublabel})` : label}</option>
               ))}
@@ -3335,7 +3402,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     <p className="text-xs font-semibold mt-1 max-w-[14rem]"
                       style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                       {growthEstimasiTotalPct > 0
-                        ? "✓ Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                        ? "✓ Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
                         : "⚠ Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                     </p>
                   </>
@@ -3400,24 +3467,24 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "—"}
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {estimasiTotal > 0 ? formatRp(estimasiTotal) : "—"}
+                          {estimasiTotal > 0 ? formatRp(estimasiTotal) : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "—"}
+                          {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
                           title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
-                            ? "Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                            ? "Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
                             : "Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                           style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                          {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
+                          {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
                           style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                          {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "—"}
+                          {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "-"}
                         </td>
                       </tr>
                     );
@@ -3510,7 +3577,7 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
       const outletKey = item.kodePI ?? item.namaOutlet;
       if (!byOutlet.has(outletKey)) byOutlet.set(outletKey, new Map());
       const byDokter = byOutlet.get(outletKey)!;
-      const custKey = item.namaCust ?? "—";
+      const custKey = item.namaCust ?? "-";
       if (!byDokter.has(custKey)) byDokter.set(custKey, []);
       byDokter.get(custKey)!.push(item);
     }

@@ -171,17 +171,17 @@ export default async function PmDashboardPage() {
                     <td className="py-2.5 px-2 text-xs font-medium text-right" style={{ color: "var(--color-text)" }}>
                       {formatRp(row.estimasiSales)}
                     </td>
-                    <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-faint)" }}>—</td>
-                    <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-faint)" }}>—</td>
+                    <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-faint)" }}>-</td>
+                    <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-faint)" }}>-</td>
                     <td className="py-2.5 px-2 text-xs text-center font-medium"
                       style={{ color: row.sudahStandarisasi > 0 ? "var(--color-success, #16a34a)" : "var(--color-text-faint)" }}>
-                      {row.sudahStandarisasi || "—"}
+                      {row.sudahStandarisasi || "-"}
                     </td>
                     <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
-                      {row.prosesStandarisasi || "—"}
+                      {row.prosesStandarisasi || "-"}
                     </td>
                     <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
-                      {row.belumStandarisasi || "—"}
+                      {row.belumStandarisasi || "-"}
                     </td>
                     <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
                       {row.jumlahSpesialisasi}
@@ -196,7 +196,7 @@ export default async function PmDashboardPage() {
           </div>
         )}
         <p className="mt-3 text-xs" style={{ color: "var(--color-text-faint)" }}>
-          * Target belum tersedia — akan diisi setelah data target area tersedia.
+          * Target belum tersedia - akan diisi setelah data target area tersedia.
         </p>
       </Card>
     </div>

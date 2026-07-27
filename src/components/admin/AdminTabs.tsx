@@ -156,7 +156,7 @@ function UserTab() {
     <div className="space-y-5">
       <Card>
         <p className="font-semibold text-sm mb-3" style={{ color: "var(--color-text)" }}>
-          {editingNip ? `Edit User — ${editingNip}` : "Tambah User"}
+          {editingNip ? `Edit User - ${editingNip}` : "Tambah User"}
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <p className="text-sm px-3 py-2 rounded-md" style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>}
@@ -168,7 +168,7 @@ function UserTab() {
                 placeholder="mis. P250431" className="input-field w-full" />
               {editingNip && form.nip.trim() !== editingNip && (
                 <span className="text-xs" style={{ color: "var(--color-warning, #f59e0b)" }}>
-                  ⚠ Ini ganti NIP login user ini dari {editingNip} — pastikan sudah benar.
+                  ⚠ Ini ganti NIP login user ini dari {editingNip} - pastikan sudah benar.
                 </span>
               )}
             </Field>
@@ -177,12 +177,12 @@ function UserTab() {
             </Field>
             <Field label="Role" required attempted={attempted} invalid={!form.role}>
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input-field w-full">
-                <option value="">— Pilih —</option>
+                <option value="">- Pilih -</option>
                 {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </Field>
             <Field label="Jabatan (tampilan)" attempted={attempted} invalid={false}>
-              <input type="text" value={form.jabatan} onChange={(e) => setForm({ ...form, jabatan: e.target.value })} placeholder="mis. SPV — kosongkan untuk pakai Role" className="input-field w-full" />
+              <input type="text" value={form.jabatan} onChange={(e) => setForm({ ...form, jabatan: e.target.value })} placeholder="mis. SPV - kosongkan untuk pakai Role" className="input-field w-full" />
               <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
                 Cuma ubah judul yang ditampilkan di web, permission tetap ikut Role.
               </span>
@@ -202,7 +202,7 @@ function UserTab() {
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" checked={form.isDummy} onChange={(e) => setForm({ ...form, isDummy: e.target.checked })} className="rounded" />
                   <span style={{ color: "var(--color-text-muted)" }}>
-                    Dummy <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>(NIP belum terverifikasi — tidak bisa login)</span>
+                    Dummy <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>(NIP belum terverifikasi - tidak bisa login)</span>
                   </span>
                 </label>
               </div>
@@ -306,7 +306,7 @@ function OutletTab() {
     <div className="space-y-5">
       <Card>
         <p className="font-semibold text-sm mb-3" style={{ color: "var(--color-text)" }}>
-          {editingKodePI ? `Edit Outlet — ${editingKodePI}` : "Tambah Outlet"}
+          {editingKodePI ? `Edit Outlet - ${editingKodePI}` : "Tambah Outlet"}
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <p className="text-sm px-3 py-2 rounded-md" style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>}
@@ -323,7 +323,7 @@ function OutletTab() {
             </Field>
             <Field label="Kategori Outlet" attempted={attempted} invalid={false}>
               <select value={form.kategori} onChange={(e) => setForm({ ...form, kategori: e.target.value })} className="input-field w-full">
-                <option value="">— Pilih —</option>
+                <option value="">- Pilih -</option>
                 {KATEGORI_OPTIONS.map((k) => <option key={k} value={k}>{k}</option>)}
               </select>
             </Field>
@@ -467,7 +467,7 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
             </Field>
             <Field label="Spesialisasi" required attempted={attempted} invalid={!form.spesialisasi}>
               <select value={form.spesialisasi} onChange={(e) => setForm({ ...form, spesialisasi: e.target.value })} className="input-field w-full">
-                <option value="">— Pilih —</option>
+                <option value="">- Pilih -</option>
                 {spesOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
               </select>
             </Field>
@@ -590,7 +590,7 @@ function ProdukTab() {
     <div className="space-y-5">
       <Card>
         <p className="font-semibold text-sm mb-3" style={{ color: "var(--color-text)" }}>
-          {editingKode ? `Edit Produk — ${editingKode}` : "Tambah Produk"}
+          {editingKode ? `Edit Produk - ${editingKode}` : "Tambah Produk"}
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <p className="text-sm px-3 py-2 rounded-md" style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>}
@@ -822,7 +822,7 @@ function PoaTab() {
       <Card>
         <p className="font-semibold text-sm mb-1" style={{ color: "var(--color-text)" }}>Semua POA (semua MR)</p>
         <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
-          Cari lintas semua MR — termasuk yang masih Draft/Revisi, bukan cuma yang sudah disubmit.
+          Cari lintas semua MR - termasuk yang masih Draft/Revisi, bukan cuma yang sudah disubmit.
           Kosongkan pencarian untuk lihat 30 POA terakhir diupdate.
         </p>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -837,7 +837,7 @@ function PoaTab() {
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runSearch(); } }}
             className="input-field sm:w-40" />
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-field sm:w-52">
-            <option value="">— Semua status —</option>
+            <option value="">- Semua status -</option>
             {POA_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           <Button type="button" size="sm" variant="secondary" onClick={runSearch} disabled={searching}>
@@ -855,7 +855,7 @@ function PoaTab() {
                   {r.ownerName} <span style={{ color: "var(--color-text-faint)" }}>({r.ownerNip})</span>
                 </p>
                 <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
-                  {r.period} · {r.itemCount} item · Estimasi {r.estimasiTotal > 0 ? formatRp(r.estimasiTotal) : "—"}
+                  {r.period} · {r.itemCount} item · Estimasi {r.estimasiTotal > 0 ? formatRp(r.estimasiTotal) : "-"}
                   {r.target != null && ` · Target ${formatRp(r.target)}`}
                 </p>
               </div>
