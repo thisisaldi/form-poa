@@ -1985,10 +1985,16 @@ function AddPanel({
     .map((c) => {
       const psspStatus = c.kodeCustomer ? psspStatusByCust.get(c.kodeCustomer) : undefined;
       const pct = psspStatus?.latestPelunasanPct ?? null;
+      // Same Retensi rule as the "Retensi" badge on ContractCard above: contract
+      // still active but ends within the quarter currently being worked on
+      // (2026-07-27 request: flag this in the doctor dropdown too, not just the
+      // Histori PSSP panel after picking someone).
+      const isRetensi = !!psspStatus?.isActive && currentQuarterMonths().includes(psspStatus.latestPrdAkhir);
       const tag2 = psspStatus
-        ? (pct != null ? `Pernah PSSP · Pelunasan Terakhir ${Math.round(pct)}%` : "Pernah PSSP")
+        ? (pct != null ? `Pernah PSSP · Pelunasan Terakhir ${Math.round(pct)}%${isRetensi ? " · Retensi" : ""}` : "Pernah PSSP")
         : undefined;
-      const tag2Color: "green" | "yellow" | "red" | undefined = pct == null ? undefined
+      const tag2Color: "green" | "yellow" | "red" | "orange" | undefined = isRetensi ? "orange"
+        : pct == null ? undefined
         : pct >= 80 ? "green"
         : pct >= 40 ? "yellow"
         : "red";

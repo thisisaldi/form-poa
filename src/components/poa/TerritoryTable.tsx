@@ -121,9 +121,18 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                     <td className="py-2 px-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{g.pic}</td>
                   )}
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                    {isOutlet || isProduk
-                      ? (estimasiAktifPengajuan > 0 ? formatRp(estimasiAktifPengajuan) : "—")
-                      : (g.estimasi > 0 ? formatRp(g.estimasi) : "—")}
+                    {isOutlet || isProduk ? (
+                      <>
+                        <div>{estimasiAktifPengajuan > 0 ? formatRp(estimasiAktifPengajuan) : "—"}</div>
+                        {(g.estimasiAktif > 0 || g.estimasi > 0) && (
+                          <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                            Aktif {formatRp(g.estimasiAktif)} · Pengajuan {formatRp(g.estimasi)}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      g.estimasi > 0 ? formatRp(g.estimasi) : "—"
+                    )}
                   </td>
                   {showRealisasi && (
                     <>
