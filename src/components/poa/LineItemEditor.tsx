@@ -297,7 +297,7 @@ function computeLabelCustomer(history: PsspKontrakSummary[]): string {
   }
   if (hasActive) {
     const pct = activeEst > 0 ? activeLunas / activeEst * 100 : 0;
-    return pct >= 80 ? "Akan Selesai, Pelunasan Bagus" : "Akan Selesai";
+    return pct >= 80 ? "Retensi, Pelunasan Bagus" : "Retensi";
   }
   const pct = allEst > 0 ? allLunas / allEst * 100 : 0;
   return pct >= 80 ? "Pernah PSSP, Pelunasan Bagus" : "Pernah PSSP";
