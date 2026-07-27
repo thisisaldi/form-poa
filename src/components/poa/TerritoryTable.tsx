@@ -110,7 +110,11 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
           <tbody>
             {groups.map((g) => {
               const budgetPct = g.estimasi > 0 ? (g.budgetTotal / g.estimasi) * 100 : null;
-              const listingDenom = g.terstandarisasi + g.prosesStandar + g.gap;
+              // listingDenom is the raw pengajuan count for this row (g.gap is
+              // already items.length - terstandarisasi, i.e. it already
+              // includes prosesStandar rows — adding prosesStandar on top of
+              // that double-counted them, inflating the shown denominator).
+              const listingDenom = g.pengajuan;
               const estimasiAktifPengajuan = g.estimasi + g.estimasiAktif;
               const userCount = isOutlet ? g.userPsspAktifEstimasi : isProduk ? g.userPsspAktif : g.customer;
               const estimasiPerUser = userCount > 0 ? estimasiAktifPengajuan / userCount : null;

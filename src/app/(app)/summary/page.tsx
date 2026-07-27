@@ -30,6 +30,13 @@ interface SalesFigures {
   salesPlusEst: number;
   growthPct: number;
   achievementPct: number;
+  // Raw components behind growthPct/achievementPct, exposed so Ringkasan can
+  // sum them across groups and derive a true growth-of-totals / total
+  // achievement instead of averaging each group's own percentage (2026-07-27
+  // rework: averaging % masks group-size differences — Simpson's-paradox-style
+  // drift from the summed historis2025/salesYtd/salesPlusEst shown alongside).
+  salesComparable: number;
+  achievementBase: number;
 }
 
 interface TerritoryGroup {
@@ -354,10 +361,19 @@ export default async function SummaryPage({
     const agg = realSalesAgg(code);
     const salesPlusEst = agg.ytd + estimasi;
     const growthPct = agg.comparable > 0 ? ((agg.ytd - agg.comparable) / agg.comparable) * 100 : 0;
-    const achievementPct = lastCompletedMonth > 0 && agg.historisTahunLalu > 0
-      ? (salesPlusEst / (agg.historisTahunLalu * lastCompletedMonth / 12)) * 100
+    const achievementBase = lastCompletedMonth > 0 && agg.historisTahunLalu > 0
+      ? agg.historisTahunLalu * lastCompletedMonth / 12
       : 0;
-    return { historis2025: agg.historisTahunLalu, salesYtd: agg.ytd, salesPlusEst, growthPct, achievementPct };
+    const achievementPct = achievementBase > 0 ? (salesPlusEst / achievementBase) * 100 : 0;
+    return {
+      historis2025: agg.historisTahunLalu,
+      salesYtd: agg.ytd,
+      salesPlusEst,
+      growthPct,
+      achievementPct,
+      salesComparable: agg.comparable,
+      achievementBase,
+    };
   }
 
   // ListingFeeKontrak.value is the CONTRACT's total, repeated on every one of
@@ -554,15 +570,14 @@ export default async function SummaryPage({
       if (sortMode !== "gap" || !(tab === "outlet" || tab === "customer")) {
         return b.estimasi - a.estimasi;
       }
-      // Rows with a "Realisasi Sebelumnya" (> 0) go first, then GAP tertinggi
-      // among those (2026-07-27: reverted the outlet tab's brief "PSSP Aktif"
-      // criterion back to realisasi — an outlet whose PSSP contracts had all
-      // already ended, with none currently active, was being pushed to the
-      // bottom even though it did have prior realisasi; the "Realisasi
-      // Sebelumnya" column itself is what should drive this sort, consistently
-      // across both the outlet and customer tabs).
-      const aHas = a.realisasi > 0;
-      const bHas = b.realisasi > 0;
+      // "outlet": PSSP Aktif paling atas dulu (official spec, item #2: "Urutkan
+      // outlet dengan PSSP Aktif paling atas, lalu urutkan berdasarkan GAP
+      // Tertinggi") — briefly reverted to realisasi-based on 2026-07-27, then
+      // reverted back per the spec re-confirmed same day. "customer" has no
+      // PSSP-aktif concept computed (activeRows above is only populated for
+      // "outlet"/"produk"), so it keeps the realisasi-based criterion.
+      const aHas = tab === "outlet" ? a.estimasiAktif > 0 : a.realisasi > 0;
+      const bHas = tab === "outlet" ? b.estimasiAktif > 0 : b.realisasi > 0;
       if (aHas !== bHas) return aHas ? -1 : 1;
       return aHas ? b.gapVsRealisasi - a.gapVsRealisasi : b.estimasi - a.estimasi;
     });
@@ -603,6 +618,8 @@ export default async function SummaryPage({
     salesPlusEst: g.sales.salesPlusEst,
     growthPct: g.sales.growthPct,
     achievementPct: g.sales.achievementPct,
+    salesComparable: g.sales.salesComparable,
+    achievementBase: g.sales.achievementBase,
     estimasiAktif: g.estimasiAktif,
     userPsspAktif: g.userPsspAktif,
     userPsspAktifEstimasi: g.userPsspAktifEstimasi,

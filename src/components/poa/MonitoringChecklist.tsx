@@ -33,6 +33,11 @@ export interface MonitoringGroup {
   salesPlusEst: number;
   growthPct: number;
   achievementPct: number;
+  /** Raw components behind growthPct/achievementPct — Ringkasan sums these
+   * across groups to derive a true growth-of-totals / total achievement
+   * instead of averaging each group's own %. See summary/page.tsx. */
+  salesComparable: number;
+  achievementBase: number;
   // Matriks Summary Per Outlet / Per Produk (2026-07-27) — real data, not the
   // dummy "Data Sales" block above. estimasiAktif/userPsspAktif are populated
   // for BOTH the "outlet" and "produk" tabs; userPsspAktifEstimasi (the
@@ -100,6 +105,8 @@ export function MonitoringChecklist({
   const [salesOpen, setSalesOpen] = useState(false);
 
   const estimasi      = groups.reduce((s, g) => s + g.estimasi, 0);
+  const estimasiAktifTotal = groups.reduce((s, g) => s + g.estimasiAktif, 0);
+  const estimasiCombined   = estimasi + estimasiAktifTotal;
   const pengajuan     = groups.reduce((s, g) => s + g.pengajuan, 0);
   const psspTotal     = groups.reduce((s, g) => s + g.psspTotal, 0);
   const discountTotal = groups.reduce((s, g) => s + g.discountTotal, 0);
@@ -108,8 +115,14 @@ export function MonitoringChecklist({
   const historis2025  = groups.reduce((s, g) => s + g.historis2025, 0);
   const salesYtd      = groups.reduce((s, g) => s + g.salesYtd, 0);
   const salesPlusEst  = groups.reduce((s, g) => s + g.salesPlusEst, 0);
-  const avgGrowth     = groups.length > 0 ? groups.reduce((s, g) => s + g.growthPct, 0) / groups.length : 0;
-  const avgAchieve    = groups.length > 0 ? groups.reduce((s, g) => s + g.achievementPct, 0) / groups.length : 0;
+  // Growth-of-totals / total-achievement, not an average of each group's own
+  // % (2026-07-27 rework: averaging % here diverged from the summed
+  // historis2025/salesYtd/salesPlusEst shown in the same card whenever group
+  // sizes differ — classic Simpson's-paradox drift).
+  const salesComparableTotal  = groups.reduce((s, g) => s + g.salesComparable, 0);
+  const achievementBaseTotal  = groups.reduce((s, g) => s + g.achievementBase, 0);
+  const growthYtd  = salesComparableTotal > 0 ? ((salesYtd - salesComparableTotal) / salesComparableTotal) * 100 : 0;
+  const achieveYtd = achievementBaseTotal > 0 ? (salesPlusEst / achievementBaseTotal) * 100 : 0;
 
   // Unique counts — use server-computed totals to avoid cross-group double-counting
   const customer         = totals?.customer         ?? groups.reduce((s, g) => s + g.customer, 0);
@@ -149,10 +162,17 @@ export function MonitoringChecklist({
 
       {/* ── 1. Estimasi ── */}
       <div className="rounded-lg p-3 mb-5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-        <p className="text-xs mb-0.5" style={{ color: MUTED }}>Estimasi POA</p>
-        <p className="text-2xl font-bold" style={{ color: TEXT }}>
-          {estimasi > 0 ? formatRp(estimasi) : "—"}
+        <p className="text-xs mb-0.5" style={{ color: MUTED }}>
+          {estimasiAktifTotal > 0 ? "Estimasi Aktif+Pengajuan" : "Estimasi POA"}
         </p>
+        <p className="text-2xl font-bold" style={{ color: TEXT }}>
+          {estimasiCombined > 0 ? formatRp(estimasiCombined) : "—"}
+        </p>
+        {estimasiAktifTotal > 0 && (
+          <p className="text-xs mt-0.5" style={{ color: FAINT }}>
+            Aktif {formatRp(estimasiAktifTotal)} · Pengajuan {formatRp(estimasi)}
+          </p>
+        )}
       </div>
 
       {/* ── 2. Variasi Produk ── */}
@@ -276,8 +296,8 @@ export function MonitoringChecklist({
               { label: "Historis Tahun Lalu",  value: formatRp(historis2025) },
               { label: "Sales YTD",            value: formatRp(salesYtd) },
               { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
-              { label: "Growth YTD",           value: `${avgGrowth >= 0 ? "+" : ""}${avgGrowth.toFixed(1)}%`, danger: avgGrowth < 0 },
-              { label: "Achievement YTD+Est",  value: avgAchieve > 0 ? `${avgAchieve.toFixed(1)}%` : "—", danger: avgAchieve > 0 && avgAchieve < 100 },
+              { label: "Growth YTD",           value: `${growthYtd >= 0 ? "+" : ""}${growthYtd.toFixed(1)}%`, danger: growthYtd < 0 },
+              { label: "Achievement YTD+Est",  value: achieveYtd > 0 ? `${achieveYtd.toFixed(1)}%` : "—", danger: achieveYtd > 0 && achieveYtd < 100 },
             ].map(({ label, value, danger }) => (
               <div key={label} className="rounded-lg p-2.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
                 <p className="text-xs mb-0.5" style={{ color: FAINT }}>{label}</p>

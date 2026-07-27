@@ -960,10 +960,10 @@ function ProdukEntryRow({
                 ≤0% flags a stagnant/declining plan as needing intensifikasi;
                 >0% is praised but still flagged to double-check the estimate. */}
             {growthPct != null && (
-              <p className="text-xs mt-1" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+              <p className="text-xs font-semibold mt-1" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                 {growthPct > 0
-                  ? "✓ Selamat sudah intensifikasi, pastikan estimasinya tepat"
-                  : "⚠ Kenapa malah lebih kecil dan belum intensifikasi"}
+                  ? "✓ Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                  : "⚠ Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
               </p>
             )}
           </div>
@@ -2467,11 +2467,11 @@ function AddPanel({
                     <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                       PSSP lama {formatRp(Math.round(totalOldEstPerMonth))}/bln
                     </div>
-                    <p className="text-xs mt-1 max-w-[14rem]"
+                    <p className="text-xs font-semibold mt-1 max-w-[14rem]"
                       style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                       {growthEstimasiTotalPct > 0
-                        ? "✓ Selamat sudah intensifikasi, pastikan estimasinya tepat"
-                        : "⚠ Kenapa malah lebih kecil dan belum intensifikasi"}
+                        ? "✓ Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                        : "⚠ Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                     </p>
                   </>
                 ) : (
@@ -2545,8 +2545,8 @@ function AddPanel({
                         </td>
                         <td className="py-1 text-right tabular-nums"
                           title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
-                            ? "Selamat sudah intensifikasi, pastikan estimasinya tepat"
-                            : "Kenapa malah lebih kecil dan belum intensifikasi"}
+                            ? "Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                            : "Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                           style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
                         </td>
@@ -3313,11 +3313,11 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                       PSSP lama {formatRp(Math.round(totalOldEstPerMonth))}/bln
                     </div>
-                    <p className="text-xs mt-1 max-w-[14rem]"
+                    <p className="text-xs font-semibold mt-1 max-w-[14rem]"
                       style={{ color: growthEstimasiTotalPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                       {growthEstimasiTotalPct > 0
-                        ? "✓ Selamat sudah intensifikasi, pastikan estimasinya tepat"
-                        : "⚠ Kenapa malah lebih kecil dan belum intensifikasi"}
+                        ? "✓ Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                        : "⚠ Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                     </p>
                   </>
                 ) : (
@@ -3391,8 +3391,8 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                         </td>
                         <td className="py-1 text-right tabular-nums"
                           title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
-                            ? "Selamat sudah intensifikasi, pastikan estimasinya tepat"
-                            : "Kenapa malah lebih kecil dan belum intensifikasi"}
+                            ? "Estimasi sudah menunjukkan intensifikasi — pastikan nilainya sudah tepat"
+                            : "Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
                           style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "—"}
                         </td>
