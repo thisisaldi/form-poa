@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { PoaForm, PoaLineItem, User } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +13,7 @@ import {
   computeDummyTarget, computeDummySales,
 } from "@/components/poa/DraftChecklist";
 import type { ActivePsspRow } from "@/app/actions/customer";
+import { bulkApprovePoaAction } from "@/app/actions/poa";
 
 export interface PendingPoaRow extends PoaForm {
   owner: User;
@@ -60,13 +62,36 @@ function MrRow({ poa, checked, onToggle }: { poa: PendingPoaRow; checked: boolea
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function ApprovalsChecklist({ pending, activePssp = [] }: {
+export function ApprovalsChecklist({ pending, activePssp = [], actorRole }: {
   pending: PendingPoaRow[];
   /** Still-active PSSP contracts for the doctors across all pending POAs, for the ringkasan. */
   activePssp?: ActivePsspRow[];
+  /** Bulk-approve is only offered to SM/NSM — see bulkApprovePoaAction. */
+  actorRole?: string;
 }) {
+  const router = useRouter();
   const allKeys = useMemo(() => pending.map((p) => p.id), [pending]);
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allKeys));
+  const [bulkApproving, setBulkApproving] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ approved: number; failed: { poaId: string; error: string }[] } | null>(null);
+
+  const canBulkApprove = actorRole === "SM" || actorRole === "NSM";
+
+  async function handleBulkApprove() {
+    if (checked.size === 0) return;
+    const confirmed = window.confirm(`Setujui ${checked.size} POA yang dipilih sekaligus?`);
+    if (!confirmed) return;
+
+    setBulkApproving(true);
+    setBulkResult(null);
+    try {
+      const result = await bulkApprovePoaAction([...checked]);
+      setBulkResult(result);
+      router.refresh();
+    } finally {
+      setBulkApproving(false);
+    }
+  }
 
   function toggle(id: string) {
     setChecked((prev) => {
@@ -130,22 +155,51 @@ export function ApprovalsChecklist({ pending, activePssp = [] }: {
         </div>
 
         <Card>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
             <div>
               <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Daftar MR</p>
               <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                Centang MR yang ingin dihitung statistiknya
+                {canBulkApprove
+                  ? "Centang MR yang ingin disetujui atau dihitung statistiknya"
+                  : "Centang MR yang ingin dihitung statistiknya"}
               </p>
             </div>
-            <button
-              type="button"
-              className="text-xs px-2.5 py-1 rounded-md font-medium"
-              style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
-              onClick={toggleAll}
-            >
-              {allChecked ? "Unselect All" : "Select All"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="text-xs px-2.5 py-1 rounded-md font-medium"
+                style={{ background: "var(--color-bg-subtle)", color: "var(--color-blue)", border: "1px solid var(--color-border)" }}
+                onClick={toggleAll}
+              >
+                {allChecked ? "Unselect All" : "Select All"}
+              </button>
+              {canBulkApprove && (
+                <Button
+                  size="sm"
+                  onClick={handleBulkApprove}
+                  disabled={checked.size === 0 || bulkApproving}
+                >
+                  {bulkApproving ? "Menyetujui..." : `Approve Terpilih (${checked.size})`}
+                </Button>
+              )}
+            </div>
           </div>
+
+          {bulkResult && (
+            <div
+              className="mb-3 text-xs px-3 py-2 rounded-md"
+              style={{
+                background: bulkResult.failed.length > 0 ? "var(--color-error-bg)" : "var(--color-green-light)",
+                color: bulkResult.failed.length > 0 ? "var(--color-error)" : "var(--color-green)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {bulkResult.approved} POA berhasil disetujui.
+              {bulkResult.failed.length > 0 && (
+                <> {bulkResult.failed.length} gagal: {bulkResult.failed.map((f) => f.error).join(", ")}</>
+              )}
+            </div>
+          )}
 
           <div className="space-y-0.5">
             {pending.map((poa) => (

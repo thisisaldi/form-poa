@@ -105,6 +105,39 @@ export async function fastTrackApproveAction(poaId: string, _formData: FormData)
   redirect(`/poa/${poaId}`);
 }
 
+// Bulk approval for SM/NSM — approves each selected POA the same way approvePoaAction
+// does, one at a time (each has its own next-holder resolution and audit row), and
+// reports back which ones failed instead of throwing on the first bad one so a single
+// stale/already-moved POA doesn't block approving the rest of the batch.
+export async function bulkApprovePoaAction(
+  poaIds: string[]
+): Promise<{ approved: number; failed: { poaId: string; error: string }[] }> {
+  const session = await requireSession();
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+
+  if (!(["SM", "NSM"] as string[]).includes(actor.role)) {
+    throw new Error("Bulk approval hanya tersedia untuk SM dan NSM.");
+  }
+
+  let approved = 0;
+  const failed: { poaId: string; error: string }[] = [];
+
+  for (const poaId of poaIds) {
+    try {
+      const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+      if (!poa) throw new Error("POA tidak ditemukan.");
+      if (!canApprove(actor, poa)) throw new Error("Tidak berwenang menyetujui POA ini.");
+      await approvePoa(poaId, session.userId);
+      approved++;
+    } catch (err) {
+      failed.push({ poaId, error: err instanceof Error ? err.message : "Gagal menyetujui." });
+    }
+  }
+
+  revalidatePath("/approvals");
+  return { approved, failed };
+}
+
 export async function rejectPoaAction(poaId: string, formData: FormData): Promise<void> {
   const session = await requireSession();
 

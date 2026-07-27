@@ -57,7 +57,7 @@ export default async function ApprovalsPage() {
           </div>
         </Card>
       ) : (
-        <ApprovalsChecklist pending={pending} activePssp={activePssp} />
+        <ApprovalsChecklist pending={pending} activePssp={activePssp} actorRole={actor.role} />
       )}
     </div>
   );
