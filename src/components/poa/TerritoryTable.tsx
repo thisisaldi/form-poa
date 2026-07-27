@@ -80,7 +80,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
               )}
               <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Pengajuan</th>
               {(isOutlet || isProduk) && (
-                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Budget</th>
+                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Biaya</th>
               )}
               <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                 {isOutlet || isProduk ? "Cost Ratio" : "% Budget"}
@@ -116,6 +116,15 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
               // that double-counted them, inflating the shown denominator).
               const listingDenom = g.pengajuan;
               const estimasiAktifPengajuan = g.estimasi + g.estimasiAktif;
+              // Biaya/Cost Ratio Aktif+Pengajuan (2026-07-27) — same shape as
+              // Estimasi's own Aktif+Pengajuan breakdown above: g.biayaAktif
+              // is PsspKontrak.biaya (a real per-contract cost figure) for
+              // still-active contracts, g.budgetTotal is the POA draft's own
+              // PSSP/discount/entertain % cost for Pengajuan rows.
+              const biayaAktifPengajuan = g.biayaAktif + g.budgetTotal;
+              const costRatioAktif = g.estimasiAktif > 0 ? (g.biayaAktif / g.estimasiAktif) * 100 : null;
+              const costRatioPengajuan = budgetPct;
+              const costRatioTotal = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : null;
               const userCount = isOutlet ? g.userPsspAktifEstimasi : isProduk ? g.userPsspAktif : g.customer;
               const estimasiPerUser = userCount > 0 ? estimasiAktifPengajuan / userCount : null;
               const salesPerUser = userCount > 0 ? g.salesAktif / userCount : null;
@@ -171,11 +180,29 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.pengajuan}</td>
                   {(isOutlet || isProduk) && (
                     <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      {g.budgetTotal > 0 ? formatRp(g.budgetTotal) : "—"}
+                      <div>{biayaAktifPengajuan > 0 ? formatRp(biayaAktifPengajuan) : "—"}</div>
+                      {(g.biayaAktif > 0 || g.budgetTotal > 0) && (
+                        <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                          Aktif {formatRp(g.biayaAktif)} · Pengajuan {formatRp(g.budgetTotal)}
+                        </div>
+                      )}
                     </td>
                   )}
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                    {budgetPct != null ? `${budgetPct.toFixed(1)}%` : "—"}
+                    {isOutlet || isProduk ? (
+                      <>
+                        <div>{costRatioTotal != null ? `${costRatioTotal.toFixed(1)}%` : "—"}</div>
+                        {(costRatioAktif != null || costRatioPengajuan != null) && (
+                          <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                            Aktif {costRatioAktif != null ? `${costRatioAktif.toFixed(1)}%` : "—"}
+                            {" · "}
+                            Pengajuan {costRatioPengajuan != null ? `${costRatioPengajuan.toFixed(1)}%` : "—"}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      budgetPct != null ? `${budgetPct.toFixed(1)}%` : "—"
+                    )}
                   </td>
                   {(isOutlet || isProduk) && (
                     <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>

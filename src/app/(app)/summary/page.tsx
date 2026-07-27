@@ -67,6 +67,7 @@ interface TerritoryGroup {
   avgPasienPerUser: number | null;
   avgStPerPasien: number | null;
   pelunasanRunningRate: number | null;
+  biayaAktif: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -487,6 +488,19 @@ export default async function SummaryPage({
         : [];
       const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
 
+      // Biaya Aktif (2026-07-27) — PsspKontrak.biaya is a flat per-CONTRACT
+      // total, repeated on every product row of that contract in the source
+      // sheet (same shape as the Listing Fee bug fixed above), so it must be
+      // deduped by cUrut before summing or a multi-product contract would
+      // multiply-count its own biaya once per product.
+      const seenContracts = new Set<string>();
+      let biayaAktif = 0;
+      for (const r of activeRows) {
+        if (seenContracts.has(r.cUrut)) continue;
+        seenContracts.add(r.cUrut);
+        biayaAktif += r.biaya;
+      }
+
       // Pelunasan (%) dari Estimasi, secara Running Rate (2026-07-27 follow-up)
       // — outlet only. Same concept as ContractCard's per-contract Running Rate
       // badge: "expected lunas by now" = estBaris × (elapsed/total periode
@@ -559,6 +573,7 @@ export default async function SummaryPage({
         avgPasienPerUser,
         avgStPerPasien,
         pelunasanRunningRate,
+        biayaAktif,
       };
     })
     // "outlet"/"customer": GAP tertinggi (vs prior realisasi) is the default —
@@ -627,6 +642,7 @@ export default async function SummaryPage({
     listingFeeTotal: g.listingFeeTotal,
     avgPasienPerUser: g.avgPasienPerUser,
     avgStPerPasien: g.avgStPerPasien,
+    biayaAktif: g.biayaAktif,
     pelunasanRunningRate: g.pelunasanRunningRate,
   }));
 

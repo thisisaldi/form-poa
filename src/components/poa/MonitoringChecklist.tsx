@@ -54,6 +54,10 @@ export interface MonitoringGroup {
   /** "Pelunasan (%) dari Estimasi, secara Running Rate" (2026-07-27 follow-up)
    * — outlet only, null elsewhere. See summary/page.tsx for the formula. */
   pelunasanRunningRate: number | null;
+  /** Sum of PsspKontrak.biaya (flat per-contract cost) across active contracts
+   * — the "Aktif" counterpart to budgetTotal's "Pengajuan" cost, both under
+   * the "Biaya" column on outlet/produk tabs (2026-07-27). */
+  biayaAktif: number;
 }
 
 /** Global unique counts — computed from all lineItems server-side to avoid double-counting */
