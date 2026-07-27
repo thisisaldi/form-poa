@@ -303,7 +303,7 @@ function computeLabelCustomer(history: PsspKontrakSummary[]): string {
   return pct >= 80 ? "Pernah PSSP, Pelunasan Bagus" : "Pernah PSSP";
 }
 
-function LabelCustomerBadge({ label }: { label: string }) {
+export function LabelCustomerBadge({ label }: { label: string }) {
   const isNew = label === "Dokter Baru";
   const isGood = label.includes("Bagus");
   const color = isNew

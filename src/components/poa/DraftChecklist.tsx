@@ -14,6 +14,7 @@ import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
+import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -600,6 +601,23 @@ export function StatsPanel({
 
 // ─── Doctor row ───────────────────────────────────────────────────────────────
 
+// Small labeled figure used inside the doctor row's stat grid — deliberately
+// larger type than the old inline text lines (2026-07-27: rows were too
+// cramped to read the emphasized figures at a glance).
+function StatTile({ label, value, sub, emphasize = false }: { label: string; value: string; sub?: string; emphasize?: boolean }) {
+  return (
+    <div className="rounded-md px-2.5 py-2 min-w-0"
+      style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+      <p className="text-[11px] leading-tight" style={{ color: "var(--color-text-faint)" }}>{label}</p>
+      <p className={`leading-tight truncate ${emphasize ? "text-sm font-bold" : "text-sm font-semibold"}`}
+        style={{ color: "var(--color-text)" }}>
+        {value}
+      </p>
+      {sub && <p className="text-[11px] leading-tight mt-0.5 truncate" style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
+    </div>
+  );
+}
+
 function DoctorRow({
   doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths,
 }: {
@@ -618,6 +636,27 @@ function DoctorRow({
     const t = computeBiayaTercacah(it, quarterMonths);
     return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
   }, { estimasi: 0, nilaiPssp: 0 });
+  // Nilai PSSP (full period, not apportioned to this quarter) — the doctor-level
+  // total behind the per-product "Nilai PSSP" figures in the detail table below.
+  const rowNilaiPssp = doctorItems.reduce((s, it) => {
+    const base = toNum(it.rencanaTotalBiaya);
+    const pengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
+    return s + base * toNum(it.persenPsspDokter) * pengali;
+  }, 0);
+  // Pengali Nilai R shown at doctor level is a weighted average across products —
+  // weighted by each product's own rencanaTotalBiaya, since a doctor's products
+  // can carry different pengali overrides.
+  const pengaliAvg = (() => {
+    let weighted = 0, total = 0;
+    for (const it of doctorItems) {
+      const base = toNum(it.rencanaTotalBiaya);
+      if (base <= 0) continue;
+      const pengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
+      weighted += base * pengali;
+      total += base;
+    }
+    return total > 0 ? weighted / total : null;
+  })();
   // Nilai R Final = persenPsspDokter (the product's Nilai R) × Pengali Nilai R in effect
   // for that line — weighted by each product's own rencanaTotalBiaya, since a doctor's
   // products can carry different Nilai R% and different pengali overrides.
@@ -632,6 +671,12 @@ function DoctorRow({
     }
     return total > 0 ? (weighted / total) * 100 : null;
   })();
+  // Jumlah Variasi (& Produk Fokus) — distinct products this doctor is planned
+  // for, split by whether the product belongs to a Fokus paket.
+  const variasiTotal = new Set(doctorItems.map((it) => it.kodeProduk)).size;
+  const variasiFokus = new Set(
+    doctorItems.filter((it) => getAllPakets(it.namaProduk).length > 0).map((it) => it.kodeProduk)
+  ).size;
   const isDokterBaru = !first.kodeCust;
   const contribPct = totalEstimasi > 0 ? (rowEst / totalEstimasi) * 100 : 0;
   const [isDeleting, startDelete] = useTransition();
@@ -647,73 +692,70 @@ function DoctorRow({
   }
 
   return (
-    <div className="py-3 px-2 rounded-lg" style={{ opacity: checked ? 1 : 0.5 }}>
-      <div className="flex items-center gap-3">
-        <label className={`flex items-center gap-3 flex-1 min-w-0 ${selectable ? "cursor-pointer" : ""}`}>
-          {selectable && (
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={onToggle}
-              className="h-4 w-4 shrink-0 rounded"
-              style={{ accentColor: "var(--color-blue)" }}
-            />
-          )}
-          <div className="flex-1 min-w-0 space-y-0.5">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                {censorName(first.namaCust)}
-              </span>
-              {isDokterBaru && (
-                <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
-                  style={{ background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }}>
-                  Baru
-                </span>
-              )}
-              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                {spesLabel(first.spesialisasi)}
-              </span>
-            </div>
-            <p className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>
-              {first.namaOutlet}
-            </p>
-            {checked && contribPct > 0 && (
-              <div className="h-1 rounded-full overflow-hidden mt-1" style={{ background: "var(--color-border)" }}>
-                <div className="h-full rounded-full" style={{ width: `${contribPct}%`, background: "var(--color-blue, #2563eb)", opacity: 0.5 }} />
-              </div>
-            )}
-          </div>
-        </label>
+    <div className="py-3 px-2.5 rounded-lg" style={{ opacity: checked ? 1 : 0.5, border: "1px solid var(--color-border)" }}>
+      <div className="flex items-start gap-3">
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={onToggle}
+            className="h-4 w-4 shrink-0 rounded mt-0.5"
+            style={{ accentColor: "var(--color-blue)" }}
+          />
+        )}
 
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="text-right">
-            <p className="text-xs font-medium" style={{ color: "var(--color-text)" }}>
-              {doctorItems.length} produk
-            </p>
-            {rowEst > 0 && (
-              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{formatRp(rowEst)}</p>
+        <div className="flex-1 min-w-0">
+          {/* ── Nama Dokter (+ Label) & Rumah Sakit ── emphasized: this is the
+              row's primary identity, so it gets full-width, larger type instead
+              of competing for space with the stat numbers. */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+              {censorName(first.namaCust)}
+            </span>
+            {isDokterBaru && (
+              <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
+                style={{ background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }}>
+                Baru
+              </span>
             )}
-            {contribPct > 0 && (
-              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{contribPct.toFixed(1)}%</p>
-            )}
-            {(rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
-              <p className="text-xs mt-0.5" style={{ color: "var(--color-blue)" }}>
-                Tercacah: {formatRp(rowTercacah.estimasi)}
-                {rowTercacah.nilaiPssp > 0 && <> · {formatRpPssp(rowTercacah.nilaiPssp)}</>}
-              </p>
-            )}
-            {nilaiRFinal != null && (
-              <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                Nilai R Final: {nilaiRFinal.toFixed(2)}%
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={() => setDetailOpen((v) => !v)}
-              className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-              Detail {detailOpen ? "▲" : "▼"}
-            </button>
+            {first.labelCustomer && <LabelCustomerBadge label={first.labelCustomer} />}
+            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              {spesLabel(first.spesialisasi)}
+            </span>
           </div>
+          <p className="text-sm font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+            {first.namaOutlet}
+          </p>
+          {checked && contribPct > 0 && (
+            <div className="h-1 rounded-full overflow-hidden mt-1.5 max-w-xs" style={{ background: "var(--color-border)" }}>
+              <div className="h-full rounded-full" style={{ width: `${contribPct}%`, background: "var(--color-blue, #2563eb)", opacity: 0.5 }} />
+            </div>
+          )}
+
+          {/* ── Stat grid — Estimasi / Nilai PSSP / Pengali Nilai R / Tercacah / Variasi ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2.5">
+            <StatTile label="Estimasi" value={rowEst > 0 ? formatRp(rowEst) : "—"}
+              sub={contribPct > 0 ? `${contribPct.toFixed(1)}% dari total` : undefined} emphasize />
+            <StatTile label="Nilai PSSP" value={rowNilaiPssp > 0 ? formatRpPssp(rowNilaiPssp) : "—"}
+              sub={nilaiRFinal != null ? `Nilai R Final ${nilaiRFinal.toFixed(2)}%` : undefined} emphasize />
+            <StatTile label="Pengali Nilai R" value={pengaliAvg != null ? `${pengaliAvg.toFixed(2)}x` : "—"} />
+            <StatTile label="Variasi Produk" value={`${variasiFokus}/${variasiTotal}`} sub="fokus/total" />
+          </div>
+          {(rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
+            <div className="mt-1.5">
+              <StatTile
+                label="Pengajuan Sebelumnya (Tercacah — Kuartal Ini)"
+                value={formatRp(rowTercacah.estimasi)}
+                sub={rowTercacah.nilaiPssp > 0 ? `Nilai PSSP ${formatRpPssp(rowTercacah.nilaiPssp)}` : undefined}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <p className="text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+            {doctorItems.length} produk
+          </p>
           {userCanEdit && poaId && (
             <div className="flex flex-col gap-1 items-end">
               <Link href={`/poa/${poaId}/doctor/${doctorItems[0].id}/edit`}
@@ -729,37 +771,49 @@ function DoctorRow({
               </button>
             </div>
           )}
+          <button
+            type="button"
+            onClick={() => setDetailOpen((v) => !v)}
+            className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+            Detail {detailOpen ? "▲" : "▼"}
+          </button>
         </div>
       </div>
 
       {detailOpen && (
-        <div className="mt-2 ml-7 rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
+        <div className="mt-2.5 rounded-lg border overflow-hidden overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
           <table className="w-full text-xs">
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)" }}>
-                <th className="text-left px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Produk</th>
-                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Resep/Hr</th>
-                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty</th>
-                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi</th>
-                <th className="text-right px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</th>
-                <th className="text-left px-2.5 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Status</th>
+                <th className="text-left px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Produk</th>
+                <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Resep/Hr</th>
+                <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty</th>
+                <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi</th>
+                <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Nilai PSSP</th>
+                <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</th>
+                <th className="text-left px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Status</th>
               </tr>
             </thead>
             <tbody>
               {doctorItems.map((it) => {
                 const itemPengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
+                const itemBase = toNum(it.rencanaTotalBiaya);
+                const itemNilaiPssp = itemBase * toNum(it.persenPsspDokter) * itemPengali;
                 return (
                   <tr key={it.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                    <td className="px-2.5 py-1.5" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
-                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "—"}</td>
-                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "—"}</td>
-                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text)" }}>
-                      {toNum(it.rencanaTotalBiaya) > 0 ? formatRp(toNum(it.rencanaTotalBiaya)) : "—"}
+                    <td className="px-2.5 py-2" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "—"}</td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "—"}</td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
+                      {itemBase > 0 ? formatRp(itemBase) : "—"}
                     </td>
-                    <td className="px-2.5 py-1.5 text-right" style={{ color: "var(--color-text)" }}>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
+                      {itemNilaiPssp > 0 ? formatRpPssp(itemNilaiPssp) : "—"}
+                    </td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
                       {itemPengali.toFixed(2)}x
                     </td>
-                    <td className="px-2.5 py-1.5" style={{ color: "var(--color-text-muted)" }}>
+                    <td className="px-2.5 py-2" style={{ color: "var(--color-text-muted)" }}>
                       {it.statusStandarisasi ? STATUS_STANDARISASI_LABELS[it.statusStandarisasi] ?? it.statusStandarisasi : "—"}
                     </td>
                   </tr>
@@ -940,7 +994,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
             </div>
           </div>
 
-          <div className="space-y-0.5">
+          <div className="space-y-2">
             {[...groups.entries()].map(([key, doctorItems]) => (
               <DoctorRow
                 key={key}
