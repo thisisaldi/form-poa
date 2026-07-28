@@ -10,11 +10,16 @@ import type { User } from "@prisma/client";
 
 export type VerifyResult =
   | { ok: true; user: User }
-  | { ok: false; error: "not_found" | "inactive" | "dummy" };
+  | { ok: false; error: "not_found" | "inactive" };
 
 /**
  * Verify a NIP against the users table (or mock client in USE_MOCK_DB mode).
  * This is the only identity-check gate — once replaced with OTP, only this function changes.
+ *
+ * Dummy/workshop accounts (isDummy=true, e.g. "NSM973066") are allowed to log
+ * in like any other account (2026-07-28 request) — isDummy's only remaining
+ * effect is granting national/all-outlet access (see getOutletsByUser,
+ * canCreatePoa), not restricting login.
  */
 export async function verifyNip(nip: string): Promise<VerifyResult> {
   const user: User | null = await prisma.user.findFirst({
@@ -22,9 +27,6 @@ export async function verifyNip(nip: string): Promise<VerifyResult> {
   });
   if (!user) return { ok: false, error: "not_found" };
   if (!user.isActive) return { ok: false, error: "inactive" };
-  // Placeholder/workshop accounts (no verified real NIP yet, e.g. "NSM973066")
-  // can't log into the live system — toggle User.isDummy off in Admin to lift this for one.
-  if (user.isDummy) return { ok: false, error: "dummy" };
   return { ok: true, user };
 }
 
