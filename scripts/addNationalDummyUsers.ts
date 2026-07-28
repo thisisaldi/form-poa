@@ -18,6 +18,7 @@ const PEOPLE: { nip: string; name: string }[] = [
   { nip: "P090282", name: "Fita Ariyati" },
   { nip: "P240410", name: "dr Citra Anggreini" },
   { nip: "P250169", name: "Nila Metta" },
+  { nip: "P200134", name: "BRIAN LEMBONG" },
 ];
 
 const ROLE_PREFIXES: { prefix: string; role: Role }[] = [
