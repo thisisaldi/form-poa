@@ -370,6 +370,15 @@ function computeLabelCustomer(history: PsspKontrakSummary[]): string {
   return pct >= 80 ? "Pernah PSSP, Pelunasan Bagus" : "Pernah PSSP";
 }
 
+// This customer's total distinct PSSP contract count — same convention as
+// PsspStatusByCustomer.psspKe (customer.ts) and the sidebar's per-contract
+// "PSSP ke-N" badge (PsspHistoryPanel below), so the number means the same
+// thing everywhere it's shown (2026-07-28 request: surface it on the
+// customer info card too, not just the sidebar/doctor-picker dropdown).
+function computePsspKe(history: PsspKontrakSummary[]): number {
+  return new Set(history.map((r) => r.cUrut)).size;
+}
+
 export function LabelCustomerBadge({ label }: { label: string }) {
   const isNew = label === "Dokter Baru";
   const isGood = label.includes("Bagus");
@@ -3251,6 +3260,12 @@ function AddProductPanel({
             <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
               {namaCust} · {spesLabel(spesialisasi)} · {namaOutlet}
             </span>
+            {psspHistory && psspHistory.length > 0 && (
+              <span className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                style={{ color: "var(--color-blue)", background: "var(--color-blue-light, #eff6ff)" }}>
+                PSSP ke-{computePsspKe(psspHistory)}
+              </span>
+            )}
             {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
           </div>
         </div>
@@ -3570,6 +3585,12 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
             {namaCust} · {spesLabel(spesialisasi)} · {namaOutlet}
           </span>
+          {psspHistory && psspHistory.length > 0 && (
+            <span className="text-xs font-semibold px-1.5 py-0.5 rounded"
+              style={{ color: "var(--color-blue)", background: "var(--color-blue-light, #eff6ff)" }}>
+              PSSP ke-{computePsspKe(psspHistory)}
+            </span>
+          )}
           {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
         </div>
       </div>
