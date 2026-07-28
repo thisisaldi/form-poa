@@ -2205,6 +2205,13 @@ function AddPanel({
   // cancelled, so a stale draft doesn't reappear next time.
   const draftKey = `poa-draft-add-${poaId}`;
   const [draftLoaded, setDraftLoaded] = useState(false);
+  // Guards against the debounced autosave effect below re-writing the draft
+  // AFTER a successful save clears it — a pending 400ms debounce timer from
+  // the user's last keystroke could still fire during the post-save 1200ms
+  // toast/redirect delay, resurrecting the just-saved (and now redundant)
+  // draft, which then showed a confusing "draft restored" toast on the next
+  // load even though the save had already succeeded (2026-07-28 bug report).
+  const savedRef = useRef(false);
 
   const outletOptions = useMemo(() => [...outlets]
     .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
@@ -2446,6 +2453,9 @@ function AddPanel({
   }
 
   function clearDraft() {
+    // Once cleared, never let the debounced autosave effect below write it
+    // back — see savedRef doc comment above.
+    savedRef.current = true;
     try { localStorage.removeItem(draftKey); } catch { /* storage unavailable - nothing to clear anyway */ }
   }
 
@@ -2485,6 +2495,7 @@ function AddPanel({
     const hasContent = !!kodePI || !!customerId
       || produkList.some((p) => p.kodeProduk || p.jumlahResepHari || p.qtyProdukResep);
     const t = setTimeout(() => {
+      if (savedRef.current) return;
       try {
         if (!hasContent) { localStorage.removeItem(draftKey); return; }
         localStorage.setItem(draftKey, JSON.stringify({ kodePI, spesialisasi, customerId, dokterFields, produkList }));
