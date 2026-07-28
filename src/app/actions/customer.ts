@@ -697,7 +697,7 @@ export async function getDiskonByOutlet(kodePI: string): Promise<DiskonByProduct
 
 export interface DiskonHistoryByProduct {
   kodeProduk: string;
-  avgDiskonPct: number; // weighted-average historical % Total Diskon, not period-scoped
+  maxDiskonPct: number; // highest single-invoice historical % Total Diskon, not period-scoped
 }
 
 /**
@@ -709,10 +709,10 @@ export async function getDiskonHistoryByOutlet(kodePI: string): Promise<DiskonHi
   if (!kodePI) return [];
   const rows = await prisma.diskonHistory.findMany({
     where: { kodePI },
-    select: { kodeProduk: true, avgDiskonPct: true },
+    select: { kodeProduk: true, maxDiskonPct: true },
   });
-  return rows.map((r: { kodeProduk: string; avgDiskonPct: { toString(): string } }) => ({
+  return rows.map((r: { kodeProduk: string; maxDiskonPct: { toString(): string } }) => ({
     kodeProduk: r.kodeProduk,
-    avgDiskonPct: parseFloat(r.avgDiskonPct.toString()),
+    maxDiskonPct: parseFloat(r.maxDiskonPct.toString()),
   }));
 }

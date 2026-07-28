@@ -1,6 +1,10 @@
 /**
- * Import DPL (Diskon Penjualan Langsung) contracts from excel/DPL MEI 2026.xlsx
- * into the DiskonKontrak table.
+ * Import DPL (Diskon Penjualan Langsung) contracts from
+ * internal/DPL MEI 2026.xlsx into the DiskonKontrak table — the PRIMARY
+ * source for "% Diskon (DPL/DPF)" (see resolveDiskonPct in
+ * LineItemEditor.tsx). scripts/importDiskonHistory.ts populates the
+ * FALLBACK source (DiskonHistory), only ever consulted when no row here
+ * covers the outlet+product+period.
  *
  * Reads sheet "DPL" (one row per NOMOR contract × PRODUK). "NEW ON_PI" is the
  * effective/active on-invoice discount % — the column PoaLineItem.avgDiskon is

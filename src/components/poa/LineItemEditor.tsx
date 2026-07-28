@@ -155,16 +155,15 @@ function resolvePengaliNilaiR(entryValue: string): number {
 }
 
 /**
- * Real "% Diskon (DPL/DPF)" default for a product, from the DiskonKontrak(s)
- * at this outlet covering periodeAwal. If more than one contract matches (a
+ * The DiskonKontrak (DPL) row backing "% Diskon (DPL/DPF)"'s real default for
+ * a product, at this outlet covering periodeAwal — PRIMARY source, imported
+ * via scripts/importDpl.ts from "internal/DPL <bulan tahun>.xlsx" (e.g.
+ * "internal/DPL MEI 2026.xlsx"). If more than one contract matches (a
  * duplicate for the same outlet+product+period), the one with the largest
  * newOnPi wins. Returns null when there's no contracted discount on file —
- * callers should default to 0 in that case.
- */
-/**
- * The DiskonKontrak (DPL) row that resolveDiskonPct's % is drawn from — same
- * matching/tie-break rule, exposed separately so callers can also show its
- * active period (prdAwal/prdAkhir), not just the resolved percentage.
+ * callers should fall back to DiskonHistory (see resolveDiskonPctWithHistory)
+ * or default to 0. Exposed separately from resolveDiskonPct so callers can
+ * also show its active period (prdAwal/prdAkhir), not just the resolved %.
  */
 function resolveDiskonContract(diskonList: DiskonByProduct[] | undefined, kodeProduk: string, periodeAwal: string): DiskonByProduct | null {
   if (!diskonList || !kodeProduk || !periodeAwal) return null;
@@ -180,10 +179,13 @@ function resolveDiskonPct(diskonList: DiskonByProduct[] | undefined, kodeProduk:
 }
 
 /**
- * Same as resolveDiskonPct, but falls back to DiskonHistory (weighted-average
- * historical % Total Diskon, not period-scoped — see importDiskonHistory.ts)
- * when no DPL contract covers this outlet+product+period. DPL always wins
- * when present; history is only ever used as a last resort.
+ * Same as resolveDiskonPct, but falls back to DiskonHistory (FALLBACK source,
+ * the highest single-invoice historical % Total Diskon, not period-scoped —
+ * imported via scripts/importDiskonHistory.ts from
+ * "internal/08062026 Data Diskon All Product Jan-Apr'26.xlsx") when no DPL
+ * contract covers this outlet+product+period. DPL ("internal/DPL MEI
+ * 2026.xlsx" et al.) always wins when present; history is only ever used as
+ * a last resort.
  */
 function resolveDiskonPctWithHistory(
   diskonList: DiskonByProduct[] | undefined,
@@ -194,7 +196,7 @@ function resolveDiskonPctWithHistory(
   const fromDpl = resolveDiskonPct(diskonList, kodeProduk, periodeAwal);
   if (fromDpl != null) return fromDpl;
   const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
-  return fromHistory?.avgDiskonPct ?? null;
+  return fromHistory?.maxDiskonPct ?? null;
 }
 
 /**
@@ -212,7 +214,7 @@ function resolveDiskonPeriodLabel(
   const contract = resolveDiskonContract(diskonList, kodeProduk, periodeAwal);
   if (contract) return `Periode DPL/DPF: ${contract.prdAwal}-${contract.prdAkhir}`;
   const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
-  if (fromHistory) return "Rata-rata historis (tidak terikat periode kontrak)";
+  if (fromHistory) return "Maks. historis (tidak terikat periode kontrak)";
   return null;
 }
 

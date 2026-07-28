@@ -572,9 +572,14 @@ model OrgStrukturMeta {
 }
 
 // ─── DPL (Diskon Penjualan Langsung) Contract Data ────────────────────────────
-// One row per (NOMOR contract × PRODUK). Imported from "DPL <bulan tahun>.xlsx"
-// snapshots (sheet "DPL"). newOnPi is the effective/active on-invoice discount %
-// used to auto-fill PoaLineItem.avgDiskon for contracts whose period is running.
+// PRIMARY source for "% Diskon (DPL/DPF)" (see resolveDiskonPct in
+// LineItemEditor.tsx) — one row per (NOMOR contract × PRODUK). Imported via
+// scripts/importDpl.ts from "internal/DPL <bulan tahun>.xlsx" snapshots
+// (sheet "DPL", e.g. "internal/DPL MEI 2026.xlsx"). newOnPi is the
+// effective/active on-invoice discount % used to auto-fill
+// PoaLineItem.avgDiskon for contracts whose period is running. DiskonHistory
+// below is only ever consulted as a FALLBACK when no row here covers the
+// outlet+product+period.
 
 model DiskonKontrak {
   id         String   @id @default(uuid())
@@ -612,15 +617,19 @@ model DiskonKontrak {
   @@index([prdAwal, prdAkhir])
 }
 
-// Fallback discount source when no DiskonKontrak (DPL) covers an outlet+product —
-// a weighted-average "% Total Diskon" per outlet+product derived from actual past
-// invoices (see scripts/importDiskonHistory.ts). Not period-scoped like
-// DiskonKontrak — this is a flat historical average across the whole source file.
+// FALLBACK discount source, used ONLY when no DiskonKontrak (DPL) row above
+// covers an outlet+product+period — the HIGHEST single-invoice "% Total
+// Diskon" seen per outlet+product across past invoices. Imported via
+// scripts/importDiskonHistory.ts from
+// "internal/08062026 Data Diskon All Product Jan-Apr'26.xlsx" (sheet "Raw
+// Data"); changed 2026-07-28 from a weighted average to max on business
+// owner request. Not period-scoped like DiskonKontrak — this is a flat
+// historical max across the whole source file.
 model DiskonHistory {
   id           String   @id @default(uuid())
   kodePI       String
   kodeProduk   String
-  avgDiskonPct Decimal  @db.Decimal(10, 4) // e.g. 7.75 for 7.75%, weighted by Gross Subtotal
+  maxDiskonPct Decimal  @db.Decimal(10, 4) // e.g. 7.75 for 7.75%, highest single invoice's % Total Diskon
   sourcePeriod String              // e.g. "202601-202604" — the invoice period range this covers
   syncedAt     DateTime
 

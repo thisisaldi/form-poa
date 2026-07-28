@@ -13,9 +13,11 @@
  * via the streaming reader, so this recomputes both directly from the literal
  * "Gross Subtotal" / "Net Subtotal" columns instead of reading the formula cells.
  *
- * Aggregates to one weighted-average % per (KodePI, Item Kode) pair:
- *   avgDiskonPct = sum(Gross - Net) / sum(Gross) * 100
- * across every invoice line for that outlet+product in the file.
+ * Aggregates to the HIGHEST single-invoice % per (KodePI, Item Kode) pair
+ * (2026-07-28: changed from a weighted average to max on business owner
+ * request — "jangan dari rata-ratanya tapi ambil yang max nya aja"):
+ *   maxDiskonPct = max over every invoice line for that outlet+product of
+ *                  (Gross - Net) / Gross * 100
  *
  * Run: npx tsx scripts/importDiskonHistory.ts [path-to-excel]
  * Default: internal/08062026 Data Diskon All Product Jan-Apr'26.xlsx
@@ -49,7 +51,7 @@ async function main() {
     entries: "emit", sharedStrings: "cache", styles: "ignore", worksheets: "emit",
   });
 
-  const agg = new Map<string, { gross: number; net: number }>(); // key: kodePI|kodeProduk
+  const agg = new Map<string, { maxPct: number }>(); // key: kodePI|kodeProduk
   let periodeMin: number | null = null, periodeMax: number | null = null;
   let rowsRead = 0, rowsSkipped = 0;
 
@@ -75,11 +77,10 @@ async function main() {
         periodeMax = periodeMax == null ? periode : Math.max(periodeMax, periode);
       }
 
+      const pct = ((gross - net) / gross) * 100;
       const key = `${kodePI}|${itemKode}`;
-      const entry = agg.get(key) ?? { gross: 0, net: 0 };
-      entry.gross += gross;
-      entry.net += net;
-      agg.set(key, entry);
+      const entry = agg.get(key);
+      if (!entry || pct > entry.maxPct) agg.set(key, { maxPct: pct });
 
       rowsRead++;
       if (rowsRead % 100000 === 0) console.log(`   ...${rowsRead} rows aggregated so far`);
@@ -96,11 +97,9 @@ async function main() {
   await prisma.diskonHistory.deleteMany({});
 
   const data = [...agg.entries()]
-    .filter(([, v]) => v.gross > 0)
     .map(([key, v]) => {
       const [kodePI, kodeProduk] = key.split("|");
-      const avgDiskonPct = ((v.gross - v.net) / v.gross) * 100;
-      return { kodePI, kodeProduk, avgDiskonPct: new Prisma.Decimal(avgDiskonPct), sourcePeriod, syncedAt: now };
+      return { kodePI, kodeProduk, maxDiskonPct: new Prisma.Decimal(v.maxPct), sourcePeriod, syncedAt: now };
     });
 
   const CHUNK = 1000;
