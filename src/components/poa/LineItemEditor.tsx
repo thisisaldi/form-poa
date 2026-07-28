@@ -2107,13 +2107,19 @@ function PsspSidebar({
           <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
         ) : activeTab === "kriteria" ? (
           <>
-            {/* Moved here from "Histori PSSP" 2026-07-27 — this "Belum Diajukan"
-                nudge list belongs with the other Produk Fokus PM content in this
-                tab, not the PSSP history tab. */}
+            {/* KriteriaProdukPanel first (2026-07-28: was rendering after the
+                "Belum Diajukan" nudge below, which put a second "Produk Fokus
+                PM"-titled block ABOVE "Pernah PSSP" and read as a duplicated,
+                out-of-order section) — its own section order is Pernah PSSP,
+                then Produk Fokus PM, then Produk Survey, then Listing. */}
+            <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
+            {/* "Belum Diajukan" nudge — a different, narrower list (only focus
+                products NOT YET added to this doctor) than KriteriaProdukPanel's
+                own "Produk Fokus PM" section above, so it's kept last instead of
+                first to avoid reading as the same section twice. */}
             {spesialisasi && produkList && products && (
               <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
             )}
-            <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
           </>
         ) : (
           <>
