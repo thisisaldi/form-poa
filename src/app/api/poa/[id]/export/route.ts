@@ -13,7 +13,7 @@ import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
 import { computePeriodeAkhir } from "@/lib/poaUtils";
 import { getAllPakets } from "@/lib/paketProduk";
-import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getSurveyRekomendasiByOutlet, type PsspKontrakSummary } from "@/app/actions/customer";
+import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
@@ -63,6 +63,31 @@ function computeOldEstPerMonth(history: PsspKontrakSummary[], namaProduk: string
 
 function doctorKey(item: { kodePI: string | null; namaCust: string }): string {
   return `${item.kodePI ?? ""}|${item.namaCust}`;
+}
+
+// "Periode Diskon" — mirrors resolveDiskonContract/resolveDiskonPeriodLabel in
+// LineItemEditor.tsx (the "% Diskon (DPL/DPF)" field's period hint). DPL
+// (DiskonKontrak) always wins when a contract covers this outlet+product+
+// period; DiskonHistory (max historical %, not period-scoped) is only ever
+// a fallback note when no DPL contract does. Was previously left as a
+// hardcoded "-" here, never actually resolved (2026-07-28 bug report: "kok
+// yang ada DPL nya tidak ke populate?").
+function resolveDiskonPeriodLabel(
+  diskonList: DiskonByProduct[] | undefined,
+  diskonHistoryList: DiskonHistoryByProduct[] | undefined,
+  kodeProduk: string,
+  periodeAwal: string
+): string {
+  const candidates = (diskonList ?? []).filter((d) =>
+    d.kodeProduk === kodeProduk && d.prdAwal <= periodeAwal && d.prdAkhir >= periodeAwal
+  );
+  if (candidates.length > 0) {
+    const best = candidates.reduce((a, b) => (b.newOnPi > a.newOnPi ? b : a));
+    return `DPL periode ${best.prdAwal}-${best.prdAkhir}`;
+  }
+  const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
+  if (fromHistory) return "Historis (tidak terikat periode kontrak)";
+  return "-";
 }
 
 export async function GET(
@@ -177,6 +202,15 @@ export async function GET(
     if (surveyByOutletMap.has(key)) continue;
     const rows = await getSurveyRekomendasiByOutlet(it.kodeCust, it.kodePI);
     surveyByOutletMap.set(key, new Set(rows.map((r) => r.kodeProduk)));
+  }
+  // DPL/DPF contract + history data per outlet — for the "Periode Diskon" column.
+  const diskonByOutletMap = new Map<string, DiskonByProduct[]>();
+  const diskonHistoryByOutletMap = new Map<string, DiskonHistoryByProduct[]>();
+  for (const kodePI of new Set(
+    pengisianItems.map((it: PoaLineItem) => it.kodePI).filter((k): k is string => !!k)
+  )) {
+    diskonByOutletMap.set(kodePI, await getDiskonByOutlet(kodePI));
+    diskonHistoryByOutletMap.set(kodePI, await getDiskonHistoryByOutlet(kodePI));
   }
 
   // ─── Approval history (for the Pengisian "Approval SM/NSM" columns + Audit Log sheet) ──
@@ -458,6 +492,10 @@ export async function GET(
       ? parseFloat(item.nilaiR.toString())
       : product?.nilaiRPersen != null ? parseFloat(product.nilaiRPersen.toString()) : null;
 
+    const periodeDiskon = item.kodePI
+      ? resolveDiskonPeriodLabel(diskonByOutletMap.get(item.kodePI), diskonHistoryByOutletMap.get(item.kodePI), item.kodeProduk, item.periodeAwal)
+      : "-";
+
     const persenPsspUser = toNumP(item.persenPsspDokter);
     const persenDiskon = toNumP(item.persenDiskon);
     const persenDp = toNumP(item.persenDp);
@@ -509,7 +547,7 @@ export async function GET(
       rencanaKunjungan: item.rencanaVisitMinggu,
       persenPsspUser,
       persenDiskon,
-      periodeDiskon: "-",
+      periodeDiskon,
       persenDp,
       persenListingFee,
       persenEntertain,
