@@ -212,9 +212,9 @@ function resolveDiskonPeriodLabel(
   periodeAwal: string
 ): string | null {
   const contract = resolveDiskonContract(diskonList, kodeProduk, periodeAwal);
-  if (contract) return `Periode DPL/DPF: ${contract.prdAwal}-${contract.prdAkhir}`;
+  if (contract) return `DPL periode ${contract.prdAwal}-${contract.prdAkhir}`;
   const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
-  if (fromHistory) return "Maks. historis (tidak terikat periode kontrak)";
+  if (fromHistory) return "Historis (tidak terikat periode kontrak)";
   return null;
 }
 
