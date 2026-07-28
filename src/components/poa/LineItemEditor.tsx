@@ -566,7 +566,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
         <SectionLabel>Rencana PSSP</SectionLabel>
         <div className="flex flex-wrap items-start gap-3">
           <div className="flex flex-col gap-1 shrink-0" style={{ width: 200 }} {...(periodeHasErr ? { "data-field-err": "true" } : {})}>
-            <span className="text-xs" style={{ color: periodeHasErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
+            <span className="text-xs whitespace-nowrap" style={{ color: periodeHasErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
               Periode Awal<Req />
             </span>
             <select
@@ -585,7 +585,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
             )}
           </div>
           <label className="flex flex-col gap-1 shrink-0" style={{ width: 220 }} {...(lamaPeriodeError ? { "data-field-err": "true" } : {})}>
-            <span className="text-xs" style={{ color: lamaPeriodeError ? "var(--color-red)" : "var(--color-text-muted)" }}>Lama Periode<Req /></span>
+            <span className="text-xs whitespace-nowrap" style={{ color: lamaPeriodeError ? "var(--color-red)" : "var(--color-text-muted)" }}>Lama Periode<Req /></span>
             <div style={lamaPeriodeError ? ERR_RING : undefined}>
               <UnitInput
                 value={fields.lamaPeriode ? String(fields.lamaPeriode) : ""}
@@ -597,7 +597,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
           </label>
           {periodeOk && fields.lamaPeriode > 0 && (
             <div className="flex flex-col gap-1 shrink-0" style={{ width: 110 }}>
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>s/d</span>
+              <span className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>s/d</span>
               <div className="input-field flex items-center whitespace-nowrap"
                 style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)", cursor: "default" }}>
                 {formatPeriode(computePeriodeAkhir(fields.periodeAwal, fields.lamaPeriode))}
@@ -605,7 +605,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
             </div>
           )}
           <label className="flex flex-col gap-1 shrink-0" style={{ width: 130 }} {...(jenisPsSpError ? { "data-field-err": "true" } : {})}>
-            <span className="text-xs" style={{ color: jenisPsSpError ? "var(--color-red)" : "var(--color-text-muted)" }}>PS / SP<Req /></span>
+            <span className="text-xs whitespace-nowrap" style={{ color: jenisPsSpError ? "var(--color-red)" : "var(--color-text-muted)" }}>PS / SP<Req /></span>
             <div style={jenisPsSpError ? ERR_RING : undefined}>
               <select
                 value={fields.jenisPsSp}
@@ -620,7 +620,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
             {jenisPsSpError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
           <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }}>
-            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jenis PSSP<Opt /></span>
+            <span className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Jenis PSSP</span>
             <select
               value={fields.bentukPssp}
               onChange={(e) => onChange({ bentukPssp: e.target.value })}
@@ -634,7 +634,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
           </label>
           {showCustomerLevelFields && (
             <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }}>
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pihak PSSP</span>
+              <span className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Pihak PSSP</span>
               <select
                 value={fields.pihakPssp}
                 onChange={(e) => onChange({ pihakPssp: e.target.value })}
