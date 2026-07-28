@@ -245,11 +245,14 @@ function qtyToUB(qtyST: number, product: Product): number {
   return qtyST / konversi;
 }
 
-// The real satuan jual name (e.g. "BOX", "STRIP") when the product is known —
-// "SJ" is only a fallback label for when no product is picked yet (2026-07-28
-// request: use the actual unit name wherever it's available).
+// The real satuan jual name (e.g. "BOX", "STRIP") when the product has one on
+// file — "SJ" is the fallback both when no product is picked yet AND when
+// Product.satuan is just an import placeholder ("-"/"—"/"–", no real unit
+// synced), which is most products (2026-07-28 follow-up: falling back only on
+// a missing/empty string let "—" through as if it were a real unit name).
 function satuanLabel(product: Product | null | undefined): string {
-  return product?.satuan || "SJ";
+  const s = product?.satuan?.trim();
+  return s && !/^[-—–]$/.test(s) ? s : "SJ";
 }
 
 // Returns the per-month estimate from the most recent PSSP contract for a product —
@@ -906,8 +909,8 @@ function ProdukEntryRow({
           {produkErr && <span className="text-xs mt-0.5" style={{ color: "var(--color-red)" }}>Pilih produk</span>}
           {product && (
             <div className="flex gap-3 text-xs mt-1 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
-              <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(product.hna)}</strong> ({product.satuan})</span>
-              <span>HNA ST: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(hna)}</strong> ({product.satuanTerkecil ?? product.satuan})
+              <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(product.hna)}</strong> ({satuanLabel(product)})</span>
+              <span>HNA ST: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(hna)}</strong> ({product.satuanTerkecil ?? satuanLabel(product)})
                 <span style={{ opacity: 0.7 }}> = {formatRp(product.hna)} / {product.konversiPembagi ?? "1"}</span>
               </span>
               <span>{product.namaGroupBrand}</span>
