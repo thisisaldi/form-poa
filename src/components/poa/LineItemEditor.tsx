@@ -38,6 +38,14 @@ const JENIS_PSSP_LABELS: Record<string, string> = {
   PSSP_PERPANJANGAN: "PSSP Perpanjangan",
 };
 
+// Doctor-level "Jenis PSSP" shown next to PS/SP (2026-07-28 request) — not to
+// be confused with JENIS_PSSP_LABELS above (per-product, currently hidden).
+const BENTUK_PSSP_LABELS: Record<string, string> = {
+  CASH: "Cash",
+  BARANG: "Barang",
+  JASA: "Jasa",
+};
+
 // "Quarter berjalan" — the calendar quarter containing today, e.g. Jul-Sep -> ["202607","202608","202609"].
 function currentQuarterMonths(): string[] {
   const now = new Date();
@@ -75,6 +83,8 @@ interface DokterFields {
   hariKerjaBulan: string;
   rencanaVisitMinggu: string;
   jenisPsSp: string;  // "PS" | "SP" | "" (unselected — optional)
+  // "Jenis PSSP" shown next to PS/SP (2026-07-28 request) — "CASH" | "BARANG" | "JASA" | "".
+  bentukPssp: string;
   // Customer-level, not per-product anymore (2026-07-28 request) — one
   // multiplier shared by every product this doctor has, "" = default 1x. See
   // resolvePengaliNilaiR.
@@ -90,6 +100,7 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
     hariKerjaBulan: "",
     rencanaVisitMinggu: "4",
     jenisPsSp: "",
+    bentukPssp: "",
     pengaliNilaiR: "",
     pihakPssp: "USER",
   };
@@ -607,6 +618,19 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
               </select>
             </div>
             {jenisPsSpError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+          </label>
+          <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }}>
+            <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Jenis PSSP<Opt /></span>
+            <select
+              value={fields.bentukPssp}
+              onChange={(e) => onChange({ bentukPssp: e.target.value })}
+              className="input-field w-full"
+              style={{ color: fields.bentukPssp ? "var(--color-text)" : "var(--color-text-faint)" }}>
+              <option value="">Pilih</option>
+              {Object.entries(BENTUK_PSSP_LABELS).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
           </label>
           {showCustomerLevelFields && (
             <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }}>
@@ -2488,6 +2512,7 @@ function AddPanel({
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("pihakPssp", dokterFields.pihakPssp);
     fd.set("jenisPsSp", dokterFields.jenisPsSp);
+    fd.set("bentukPssp", dokterFields.bentukPssp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
@@ -3139,6 +3164,7 @@ function AddProductPanel({
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("pihakPssp", dokterFields.pihakPssp);
     fd.set("jenisPsSp", dokterFields.jenisPsSp);
+    fd.set("bentukPssp", dokterFields.bentukPssp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
@@ -3345,6 +3371,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     hariKerjaBulan: first.hariKerjaBulan?.toString() ?? "",
     rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
     jenisPsSp: first.jenisPsSp ?? "",
+    bentukPssp: first.bentukPssp ?? "",
     pengaliNilaiR: first.pengaliNilaiR?.toString() ?? "",
     pihakPssp: first.pihakPssp ?? "USER",
   });
@@ -3446,6 +3473,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
     fd.set("pihakPssp", dokterFields.pihakPssp);
     fd.set("jenisPsSp", dokterFields.jenisPsSp);
+    fd.set("bentukPssp", dokterFields.bentukPssp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);

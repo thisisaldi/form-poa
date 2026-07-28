@@ -75,6 +75,15 @@ enum PsSp {
   SP
 }
 
+// Doctor-level "Jenis PSSP" choice shown next to PS/SP (2026-07-28 request) —
+// what FORM the PSSP arrangement takes, not to be confused with JenisPssp
+// above (PSSP/Retensi/Peremajaan/Perpanjangan, currently hidden in the UI).
+enum BentukPssp {
+  CASH
+  BARANG
+  JASA
+}
+
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
@@ -282,6 +291,9 @@ model PoaLineItem {
   // rows, same pattern as hariKerjaBulan/rencanaVisitMinggu below) — see
   // PsSp doc comment above.
   jenisPsSp             PsSp?
+  // Doctor-level, same duplication pattern as jenisPsSp above — see
+  // BentukPssp doc comment.
+  bentukPssp            BentukPssp?
 
   // tentative fields (C20-C23) — nullable
   hariKerjaBulan   Int?
