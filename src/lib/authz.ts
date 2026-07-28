@@ -237,8 +237,13 @@ async function getEditLockLevel(poaId: string, ownerId: string): Promise<number>
 /**
  * Can this user edit this specific POA right now?
  *
- * MR: their own POA, any status/time — editing a POA that already left DRAFT
- *     bounces it back to REVISI via flagRevisionOnEdit and requires resubmission.
+ * MR: their own POA, any status/time — editing it while still waiting on its
+ *     first review (submitted, nobody above has approved yet this cycle) just
+ *     saves in place, no bounce. Only once someone above has already approved
+ *     does an edit bounce it back to REVISI via flagRevisionOnEdit and require
+ *     resubmission — though in practice the Lock Edit Logic gate below already
+ *     blocks the MR from reaching that point (see hasApprovalThisCycle in
+ *     poaWorkflow.ts).
  * ASM/SM/NSM: any POA visible to them (already submitted + in their subtree),
  *     any time — not only while it's specifically their turn to review. The
  *     edit button is meant to always be there. Editing doesn't skip anyone:

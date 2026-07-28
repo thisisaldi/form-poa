@@ -13,6 +13,7 @@ import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
 import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { displayRole } from "@/lib/role";
 import { getMrSalesSummary } from "@/lib/salesSummary";
+import { hasApprovalThisCycle } from "@/lib/poaWorkflow";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -101,6 +102,12 @@ export default async function PoaDetailPage({
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
   const isRevisi = poa.status === "REVISI";
+  // Editing only actually bounces the POA back to Revisi once someone above
+  // the owner has already approved this review cycle — while it's still
+  // waiting on its first review (e.g. SUBMITTED_TO_ASM, nobody's approved
+  // yet), the owner can keep editing in place (2026-07-27, see
+  // flagRevisionOnEdit in poaWorkflow.ts for the matching server-side rule).
+  const willTriggerRevisi = isOwner && !isDraft && !isRevisi && (await hasApprovalThisCycle(poa.id));
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
   const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -292,7 +299,7 @@ export default async function PoaDetailPage({
         showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
         userCanEdit={userCanEdit}
         isDraft={isDraft}
-        willTriggerRevisi={isOwner}
+        willTriggerRevisi={willTriggerRevisi}
         selectable={isOwner}
         activePssp={activePssp}
         focusProductTargets={focusProductTargets}

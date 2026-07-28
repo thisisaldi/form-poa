@@ -838,7 +838,10 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   showSubmit?: boolean;
   userCanEdit?: boolean;
   isDraft?: boolean;
-  /** True when the current viewer is the owning MR — their edit bounces status back to Revisi. */
+  /** True only when the owning MR's edit will actually bounce status back to
+   * Revisi — i.e. someone above has already approved this review cycle. While
+   * still waiting on the first review (submitted, nobody's approved yet),
+   * this is false and editing just saves in place. */
   willTriggerRevisi?: boolean;
   /** False for approvers viewing the checklist read-only — no checkboxes, all items count toward the summary. */
   selectable?: boolean;

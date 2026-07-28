@@ -320,25 +320,57 @@ export async function cancelApprovedByNsm(
 }
 
 /**
+ * Whether anyone above the owner has already approved this POA in its
+ * current review cycle — walks the audit log newest-first and stops at the
+ * last DRAFT/REVISI entry (a cycle reset point), same scan shape as
+ * authz.ts's getEditLockLevel. Used by flagRevisionOnEdit below to tell
+ * "submitted, still waiting on the first review" (nobody has approved yet —
+ * free to keep editing in place) apart from "already approved at some level"
+ * (an edit now must go through the Revisi/resubmit flow).
+ */
+export async function hasApprovalThisCycle(poaId: string): Promise<boolean> {
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { poaId },
+    orderBy: { createdAt: "desc" },
+    select: { action: true, toStatus: true },
+  });
+  for (const log of logs) {
+    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
+    if (log.action === AuditAction.APPROVE) return true;
+  }
+  return false;
+}
+
+/**
  * Called whenever a line item is added/edited/deleted. Whoever edits an
  * already-submitted POA still needs their own atasan's approval afterward —
  * exactly the same principle as a normal approve, just re-triggered by a change:
  *
- *   - The owning MR edits → needs ASM approval again from scratch, so status
- *     bounces all the way back to REVISI (holder cleared) and must be
- *     resubmitted (REVISI → SUBMITTED_TO_ASM).
+ *   - The owning MR edits BEFORE anyone above has approved this cycle (still
+ *     sitting with the first reviewer, e.g. SUBMITTED_TO_ASM with no APPROVE
+ *     yet) → status/holder are left untouched, no version bump, no resubmit
+ *     needed — the MR can freely fix things while it's waiting on that first
+ *     review (2026-07-27: "kalau sudah ajukan tapi belum diapprove, masih
+ *     bisa edit").
+ *   - The owning MR edits AFTER someone above has already approved this cycle
+ *     → needs approval again from scratch, so status bounces all the way back
+ *     to REVISI (holder cleared) and must be resubmitted (REVISI →
+ *     SUBMITTED_TO_ASM). In practice canEdit's Lock Edit Logic already blocks
+ *     the owner from reaching this once locked — they need it rejected /
+ *     cancelled by whoever holds it before they can edit again — but the
+ *     bounce still applies here as the source of truth if that ever changes.
  *   - An ASM edits while it's in their queue → still needs SM approval next,
  *     same as if they'd approved without editing. Status/holder are left
  *     untouched — they just save the change and click Approve & Teruskan as
  *     usual, which forwards it to SM.
  *   - Same for SM (→ needs NSM) and NSM (→ nothing above them).
  *
- * So only the owning MR's edit is a "real" revision reset here; an approver's
- * edit is a no-op on status, since the ordinary approve step already routes it
- * to their atasan. Status-wise it's a no-op either way while already DRAFT or
- * REVISI — but every edit, status-changing or not, still gets its own
- * PoaAuditLog(UPDATE) entry so Riwayat Aktivitas always shows who edited what
- * and when, not just the status transitions.
+ * So only the owning MR's edit after an approval is a "real" revision reset
+ * here; an approver's edit is a no-op on status, since the ordinary approve
+ * step already routes it to their atasan. Status-wise it's a no-op either way
+ * while already DRAFT or REVISI — but every edit, status-changing or not,
+ * still gets its own PoaAuditLog(UPDATE) entry so Riwayat Aktivitas always
+ * shows who edited what and when, not just the status transitions.
  *
  * `detail` carries which customer/product the edit touched (and what kind of
  * edit — add/update/delete a line item), so Riwayat Aktivitas can show that
@@ -353,7 +385,11 @@ export async function flagRevisionOnEdit(
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
   const snapshotExtra = detail ? { ...detail } : undefined;
 
-  if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) {
+  const stillPendingFirstApproval =
+    poa.status !== PoaStatus.DRAFT && poa.status !== PoaStatus.REVISI &&
+    !(await hasApprovalThisCycle(poaId));
+
+  if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI || stillPendingFirstApproval) {
     await prisma.poaAuditLog.create({
       data: {
         poaId,
