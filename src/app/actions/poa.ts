@@ -3,9 +3,9 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
-import { createPoaDraft, submitPoa, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm } from "@/lib/poaWorkflow";
+import { createPoaDraft, submitPoa, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm, requestEdit, grantEditRequest, declineEditRequest } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove, canCreatePoa, canFastTrackApprove, canCancelApproved } from "@/lib/authz";
+import { canEdit, canApprove, canCreatePoa, canFastTrackApprove, canCancelApproved, canRequestEdit, canRespondEditRequest } from "@/lib/authz";
 
 function requireSession() {
   return getCurrentUser().then((session) => {
@@ -170,6 +170,55 @@ export async function cancelApprovedByNsmAction(poaId: string, formData: FormDat
   if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan pembatalan wajib diisi."));
 
   await cancelApprovedByNsm(poaId, session.userId, reason);
+  redirect(`/poa/${poaId}`);
+}
+
+// Owner asks the last approver to unlock editing — see canRequestEdit/requestEdit.
+export async function requestEditAction(poaId: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canRequestEdit(actor, poa))) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() || undefined;
+  await requestEdit(poaId, session.userId, reason);
+  redirect(`/poa/${poaId}`);
+}
+
+// Last approver grants the owner's pending edit request — see
+// canRespondEditRequest/grantEditRequest.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function grantEditRequestAction(poaId: string, _formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canRespondEditRequest(actor, poa))) redirect(`/poa/${poaId}`);
+
+  await grantEditRequest(poaId, session.userId);
+  redirect(`/poa/${poaId}`);
+}
+
+// Last approver declines the owner's pending edit request — see
+// canRespondEditRequest/declineEditRequest.
+export async function declineEditRequestAction(poaId: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canRespondEditRequest(actor, poa))) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
+  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan menolak permintaan edit wajib diisi."));
+
+  await declineEditRequest(poaId, session.userId, reason);
   redirect(`/poa/${poaId}`);
 }
 

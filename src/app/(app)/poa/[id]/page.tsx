@@ -2,8 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel } from "@/lib/authz";
-import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction } from "@/app/actions/poa";
+import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, hasApprovalThisCycle, canRequestEdit, canRespondEditRequest, getLastApprover } from "@/lib/authz";
+import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction, requestEditAction, grantEditRequestAction, declineEditRequestAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -13,7 +13,6 @@ import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
 import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { displayRole } from "@/lib/role";
 import { getMrSalesSummary } from "@/lib/salesSummary";
-import { hasApprovalThisCycle } from "@/lib/poaWorkflow";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -31,6 +30,9 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   REVISE: "mengedit (kembali ke Revisi)",
   REJECT: "menolak",
   CANCEL: "membatalkan approval (kembali ke Revisi)",
+  REQUEST_EDIT: "mengajukan permintaan edit",
+  GRANT_EDIT: "menyetujui permintaan edit (kembali ke Revisi)",
+  DECLINE_EDIT: "menolak permintaan edit",
 };
 
 const AUDIT_OP_LABELS: Record<string, string> = {
@@ -108,6 +110,26 @@ export default async function PoaDetailPage({
   // yet), the owner can keep editing in place (2026-07-27, see
   // flagRevisionOnEdit in poaWorkflow.ts for the matching server-side rule).
   const willTriggerRevisi = isOwner && !isDraft && !isRevisi && (await hasApprovalThisCycle(poa.id));
+
+  // Edit request (2026-07-28): once locked out (someone above has already
+  // approved this cycle), the owner can ask that last approver — whoever
+  // approved most recently, e.g. the SM if it's already past them and
+  // sitting with NSM — to unlock editing, instead of just waiting for a
+  // spontaneous Reject/Cancel. The most recent audit log entry being
+  // REQUEST_EDIT is the "pending" signal (no separate stored flag).
+  const userCanRequestEdit = isOwner && !userCanEdit && (await canRequestEdit(actor, poa));
+  const lastAuditLog = poa.auditLogs[poa.auditLogs.length - 1];
+  const pendingEditRequest = lastAuditLog?.action === "REQUEST_EDIT";
+  // Needed both to label the "Ajukan Edit ke X" button before a request
+  // exists, and to show who a pending request is waiting on afterward.
+  const lastApprover = (userCanRequestEdit || pendingEditRequest) ? await getLastApprover(poa.id) : null;
+  const lastApproverUser = lastApprover
+    ? await prisma.user.findUnique({ where: { nip: lastApprover.actorId } })
+    : null;
+  const userCanRespondEditRequest = pendingEditRequest && (await canRespondEditRequest(actor, poa));
+  const requestEditWithId = requestEditAction.bind(null, id);
+  const grantEditRequestWithId = grantEditRequestAction.bind(null, id);
+  const declineEditRequestWithId = declineEditRequestAction.bind(null, id);
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
   const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -283,10 +305,74 @@ export default async function PoaDetailPage({
       </div>
 
       {editLockRoleLabel && (
-        <div className="rounded-md px-4 py-3 text-sm font-medium"
+        <div className="rounded-md px-4 py-3 text-sm font-medium space-y-3"
           style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #f59e0b)" }}>
-          POA ini terkunci untuk diedit - sudah ada tindakan (approve/edit) dari level {displayRole(editLockRoleLabel)} ke atas. Tunggu sampai direject atau dibatalkan approvalnya oleh atasan supaya bisa diedit lagi.
+          <p>
+            POA ini terkunci untuk diedit - sudah ada tindakan (approve/edit) dari level {displayRole(editLockRoleLabel)} ke atas.
+            {" "}
+            {pendingEditRequest
+              ? "Menunggu persetujuan permintaan edit di bawah ini."
+              : "Tunggu sampai direject/dibatalkan, atau ajukan permintaan edit di bawah ini."}
+          </p>
+          {pendingEditRequest && isOwner && (
+            <p className="font-normal">
+              Menunggu persetujuan {lastApproverUser ? `${lastApproverUser.name} (${displayRole(lastApprover?.role ?? "")})` : "atasan"} untuk membuka kembali akses edit.
+            </p>
+          )}
+          {userCanRequestEdit && !pendingEditRequest && (
+            <form action={requestEditWithId} className="space-y-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-normal">
+                  Alasan permintaan edit (opsional) — akan dikirim ke {lastApprover ? displayRole(lastApprover.role) : "atasan"} yang terakhir approve
+                </span>
+                <textarea
+                  name="reason"
+                  rows={2}
+                  placeholder="mis. ada koreksi jumlah/estimasi yang perlu diperbaiki…"
+                  className="input-field text-sm" />
+              </label>
+              <Button type="submit" size="sm" variant="secondary">
+                Ajukan Edit{lastApprover ? ` ke ${displayRole(lastApprover.role)}` : ""}
+              </Button>
+            </form>
+          )}
         </div>
+      )}
+
+      {/* Permintaan edit dari owner — hanya muncul untuk approver terakhir yang dituju */}
+      {userCanRespondEditRequest && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Permintaan Edit</CardTitle>
+          </CardHeader>
+          <p className="text-sm mb-3" style={{ color: "var(--color-text-muted)" }}>
+            {poa.owner.name} meminta izin untuk mengedit kembali POA ini yang sudah Anda setujui.
+            {lastAuditLog?.snapshot && typeof lastAuditLog.snapshot === "object" && "notes" in lastAuditLog.snapshot && lastAuditLog.snapshot.notes
+              ? ` Alasan: "${lastAuditLog.snapshot.notes}"`
+              : ""}
+          </p>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <form action={grantEditRequestWithId}>
+              <Button type="submit" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+                Setujui Permintaan Edit (kembali ke Revisi)
+              </Button>
+            </form>
+          </div>
+          <form action={declineEditRequestWithId} className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Menolak</span>
+              <textarea
+                name="reason"
+                required
+                rows={2}
+                placeholder="Jelaskan alasan menolak permintaan edit ini…"
+                className="input-field text-sm" />
+            </label>
+            <Button type="submit" variant="danger">
+              Tolak Permintaan Edit
+            </Button>
+          </form>
+        </Card>
       )}
 
       {/* Drafting / Produk Fokus / History PSSP Aktif tabs */}

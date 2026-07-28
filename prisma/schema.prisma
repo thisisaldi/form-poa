@@ -38,6 +38,9 @@ enum AuditAction {
   REVISE
   REJECT
   CANCEL
+  REQUEST_EDIT
+  GRANT_EDIT
+  DECLINE_EDIT
 }
 
 enum StatusStandarisasi {

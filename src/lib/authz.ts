@@ -235,6 +235,34 @@ async function getEditLockLevel(poaId: string, ownerId: string): Promise<number>
 }
 
 /**
+ * Who was the most recent approver in this POA's current review cycle — the
+ * highest level reached so far (approvals only ever move upward, so "most
+ * recent APPROVE log" and "highest level" are the same entry). Null if nobody
+ * has approved yet this cycle (fresh cycle or still waiting on the first
+ * review). Same scan shape/cycle-reset rule as getEditLockLevel above.
+ *
+ * Used to resolve who a locked-out owner's "Ajukan Edit" request should go
+ * to — see requestEdit/grantEditRequest/declineEditRequest in poaWorkflow.ts.
+ */
+export async function getLastApprover(poaId: string): Promise<{ actorId: string; role: string } | null> {
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { poaId },
+    orderBy: { createdAt: "desc" },
+    select: { action: true, toStatus: true, actorId: true, actor: { select: { role: true } } },
+  });
+  for (const log of logs) {
+    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
+    if (log.action === AuditAction.APPROVE) return { actorId: log.actorId, role: log.actor.role };
+  }
+  return null;
+}
+
+/** True once anyone above the owner has approved this POA in its current review cycle. */
+export async function hasApprovalThisCycle(poaId: string): Promise<boolean> {
+  return (await getLastApprover(poaId)) !== null;
+}
+
+/**
  * Can this user edit this specific POA right now?
  *
  * MR: their own POA, any status/time — editing it while still waiting on its
@@ -242,8 +270,10 @@ async function getEditLockLevel(poaId: string, ownerId: string): Promise<number>
  *     saves in place, no bounce. Only once someone above has already approved
  *     does an edit bounce it back to REVISI via flagRevisionOnEdit and require
  *     resubmission — though in practice the Lock Edit Logic gate below already
- *     blocks the MR from reaching that point (see hasApprovalThisCycle in
- *     poaWorkflow.ts).
+ *     blocks the MR from reaching that point (see hasApprovalThisCycle above).
+ *     Once locked, the owner can proactively ask the last approver to unlock
+ *     it — see canRequestEdit/requestEdit — instead of just waiting for a
+ *     spontaneous Reject/Cancel.
  * ASM/SM/NSM: any POA visible to them (already submitted + in their subtree),
  *     any time — not only while it's specifically their turn to review. The
  *     edit button is meant to always be there. Editing doesn't skip anyone:
@@ -338,6 +368,35 @@ export async function canCancelApproved(user: User, poa: PoaForm): Promise<boole
   if (user.role !== Role.NSM) return false;
   if (poa.status !== PoaStatus.APPROVED_BY_NSM) return false;
   return canView(user, poa);
+}
+
+/**
+ * Can this user ask the last approver to unlock editing? Only the owner, and
+ * only once locked out by an actual approval (someone above has approved
+ * this cycle — while still waiting on the first review canEdit already lets
+ * them straight through, no request needed). The extra hasApprovalThisCycle
+ * check matters because getEditLockLevel can also lock on a non-owner's bare
+ * UPDATE (an ASM editing before they've approved) — that has no "last
+ * approver" to route a request to, so no request button in that case; the
+ * owner just waits for that reviewer's own Approve/Reject. See requestEdit
+ * in poaWorkflow.ts.
+ */
+export async function canRequestEdit(user: User, poa: PoaForm): Promise<boolean> {
+  if (poa.ownerId !== user.nip) return false;
+  if (await canEdit(user, poa)) return false;
+  return hasApprovalThisCycle(poa.id);
+}
+
+/**
+ * Can this user grant/decline a pending edit request? Only the specific
+ * person who approved most recently this cycle (the one an "Ajukan Edit"
+ * request is addressed to) — not just anyone at that role level, and not the
+ * current holder (who may be a level higher and hasn't reviewed yet). See
+ * grantEditRequest/declineEditRequest in poaWorkflow.ts.
+ */
+export async function canRespondEditRequest(user: User, poa: PoaForm): Promise<boolean> {
+  const lastApprover = await getLastApprover(poa.id);
+  return lastApprover?.actorId === user.nip;
 }
 
 /**

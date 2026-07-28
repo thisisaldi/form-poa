@@ -7,8 +7,8 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove, canFastTrackApprove, canCancelApproved } from "@/lib/authz";
-import { sendPoaStatusEmail } from "@/lib/notifications";
+import { canEdit, canApprove, canFastTrackApprove, canCancelApproved, getLastApprover, hasApprovalThisCycle } from "@/lib/authz";
+import { sendPoaStatusEmail, sendEditRequestEmail } from "@/lib/notifications";
 import { PoaStatus, AuditAction } from "@prisma/client";
 import type { PoaForm, User } from "@prisma/client";
 
@@ -320,25 +320,97 @@ export async function cancelApprovedByNsm(
 }
 
 /**
- * Whether anyone above the owner has already approved this POA in its
- * current review cycle — walks the audit log newest-first and stops at the
- * last DRAFT/REVISI entry (a cycle reset point), same scan shape as
- * authz.ts's getEditLockLevel. Used by flagRevisionOnEdit below to tell
- * "submitted, still waiting on the first review" (nobody has approved yet —
- * free to keep editing in place) apart from "already approved at some level"
- * (an edit now must go through the Revisi/resubmit flow).
+ * Owner asks the last approver (whoever approved most recently this cycle —
+ * the highest level reached so far) to unlock editing. Doesn't touch
+ * status/holder by itself — just logs the request so it shows as pending
+ * (the most recent audit entry being REQUEST_EDIT is the pending signal,
+ * no separate stored flag) and emails the last approver
+ * (2026-07-28: "ajukan edit ke [level terakhir approve]").
  */
-export async function hasApprovalThisCycle(poaId: string): Promise<boolean> {
-  const logs = await prisma.poaAuditLog.findMany({
-    where: { poaId },
-    orderBy: { createdAt: "desc" },
-    select: { action: true, toStatus: true },
-  });
-  for (const log of logs) {
-    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
-    if (log.action === AuditAction.APPROVE) return true;
+export async function requestEdit(
+  poaId: string,
+  actingUserId: string,
+  reason?: string
+): Promise<void> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
+  if (poa.ownerId !== actingUserId) {
+    throw new Error(`User ${actingUserId} does not own POA ${poaId}`);
   }
-  return false;
+  const lastApprover = await getLastApprover(poaId);
+  if (!lastApprover) {
+    throw new Error(`POA ${poaId} has no approval this cycle to request an edit against`);
+  }
+
+  await prisma.poaAuditLog.create({
+    data: {
+      poaId,
+      actorId: actingUserId,
+      action: AuditAction.REQUEST_EDIT,
+      fromStatus: poa.status,
+      toStatus: poa.status,
+      snapshot: reason ? { notes: reason } : {},
+    },
+  });
+
+  sendEditRequestEmail(poa, lastApprover.actorId).catch((err) =>
+    console.error("[notifications] sendEditRequestEmail failed:", err)
+  );
+}
+
+/**
+ * Last approver grants the owner's pending edit request — functionally the
+ * same as cancelling their own approval (bounces to REVISI, holder cleared,
+ * version bumps, must be resubmitted from scratch), just triggered by the
+ * owner's request instead of the approver acting unprompted. Any of
+ * ASM/SM/NSM can be the last approver here, unlike cancelApprovedByNsm above
+ * which is specifically the NSM-only "undo full approval" path.
+ */
+export async function grantEditRequest(
+  poaId: string,
+  actingUserId: string
+): Promise<PoaForm> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } }) as PoaForm;
+  const lastApprover = await getLastApprover(poaId);
+  if (!lastApprover || lastApprover.actorId !== actingUserId) {
+    throw new Error(`User ${actingUserId} is not authorized to grant an edit request on POA ${poaId}`);
+  }
+
+  return applyTransition(
+    poaId,
+    actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    poa.status,
+    AuditAction.GRANT_EDIT,
+    "Menyetujui permintaan edit dari pemilik POA"
+  );
+}
+
+/**
+ * Last approver declines the owner's pending edit request — status/holder
+ * stay untouched, just logs the decline (becomes the newest audit entry, so
+ * the request stops showing as pending) with the given reason.
+ */
+export async function declineEditRequest(
+  poaId: string,
+  actingUserId: string,
+  reason: string
+): Promise<void> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
+  const lastApprover = await getLastApprover(poaId);
+  if (!lastApprover || lastApprover.actorId !== actingUserId) {
+    throw new Error(`User ${actingUserId} is not authorized to decline an edit request on POA ${poaId}`);
+  }
+
+  await prisma.poaAuditLog.create({
+    data: {
+      poaId,
+      actorId: actingUserId,
+      action: AuditAction.DECLINE_EDIT,
+      fromStatus: poa.status,
+      toStatus: poa.status,
+      snapshot: { notes: reason },
+    },
+  });
 }
 
 /**

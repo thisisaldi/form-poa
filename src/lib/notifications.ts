@@ -78,3 +78,21 @@ export async function sendPoaStatusEmail(
     }
   }
 }
+
+/**
+ * Notify the last approver that the POA owner is asking to unlock editing —
+ * fire-and-forget from poaWorkflow.ts's requestEdit, errors logged not thrown.
+ */
+export async function sendEditRequestEmail(poa: PoaForm, lastApproverId: string): Promise<void> {
+  const [owner, lastApprover] = await Promise.all([
+    prisma.user.findUnique({ where: { nip: poa.ownerId } }),
+    prisma.user.findUnique({ where: { nip: lastApproverId } }),
+  ]);
+  if (!lastApprover?.email) return;
+
+  await sendEmail({
+    to: lastApprover.email,
+    subject: `Permintaan edit: POA ${poa.period} dari ${owner?.name ?? poa.ownerId}`,
+    html: `<p>Hi ${lastApprover.name},</p><p>${owner?.name ?? poa.ownerId} meminta izin untuk mengedit POA periode <strong>${poa.period}</strong> yang sudah Anda setujui. Buka POA ini untuk menyetujui atau menolak permintaan tersebut.</p>`,
+  });
+}
