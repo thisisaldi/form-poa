@@ -75,6 +75,10 @@ interface DokterFields {
   hariKerjaBulan: string;
   rencanaVisitMinggu: string;
   jenisPsSp: string;  // "PS" | "SP" | "" (unselected — optional)
+  // Customer-level, not per-product anymore (2026-07-28 request) — one
+  // multiplier shared by every product this doctor has, "" = default 1x. See
+  // resolvePengaliNilaiR.
+  pengaliNilaiR: string;
 }
 
 function emptyDokterFields(periodeAwal = ""): DokterFields {
@@ -83,6 +87,7 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
     hariKerjaBulan: "",
     rencanaVisitMinggu: "4",
     jenisPsSp: "",
+    pengaliNilaiR: "",
   };
 }
 
@@ -103,7 +108,6 @@ interface ProdukEntry {
   persenListingFee: string;
   persenEntertain: string;
   hariKerjaBulan: string;  // per-product override of the doctor-level default; "" = inherit
-  pengaliNilaiR: string;   // per-product override of the doctor-level default; "" = inherit
   pihakPssp: string;       // "USER" | "KPDM" — relabels "% PSSP User" below, doesn't change the formula
   // kriteriaProduk & rasioEstimasiGrowth: auto (not user input)
 }
@@ -117,7 +121,6 @@ function emptyProdukEntry(): ProdukEntry {
     persenPsspDokter: "", persenPsspKpdm: "0",
     persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "1",
     hariKerjaBulan: "",
-    pengaliNilaiR: "",
     pihakPssp: "USER",
   };
 }
@@ -204,8 +207,9 @@ function computeQtyTotal(entry: ProdukEntry, dokter: DokterFields): number {
   return Math.round(resep * qty * hari * lama);
 }
 
-// Qty is entered/computed in ST (satuan terkecil); UB ("Unit Bungkus") is the qty
-// expressed in SJ (satuan jual) instead — divide by konversiPembagi (ST per SJ).
+// Qty is entered/computed in ST (satuan terkecil); this converts it to SJ
+// (satuan jual) — divide by konversiPembagi (ST per SJ). Function/variable
+// names below still say "UB" internally; only the UI-facing label is SJ.
 function qtyToUB(qtyST: number, product: Product): number {
   const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
   return qtyST / konversi;
@@ -426,7 +430,7 @@ function periodeAwalFormatError(periodeAwal: string, poaPeriod: string): string 
   return null;
 }
 
-function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError }: {
+function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, showPengaliNilaiR = true }: {
   fields: DokterFields;
   onChange: (patch: Partial<DokterFields>) => void;
   poaPeriod: string;
@@ -434,6 +438,11 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
   hariKerjaBulanError?: boolean;
   lamaPeriodeRequiredError?: boolean;
   jenisPsSpError?: boolean;
+  /** False in "Tambah Produk" (adding one more product to an existing doctor)
+   * — the multiplier is shared across the whole doctor and silently inherited
+   * there, so it's not surfaced at all; it can only be changed via "Edit
+   * Rencana POA" (EditDoctorPanel), which edits every product at once. */
+  showPengaliNilaiR?: boolean;
 }) {
   const lamaPeriodeTooLong = fields.lamaPeriode > 12;
   const lamaPeriodeError = lamaPeriodeTooLong || !!lamaPeriodeRequiredError;
@@ -545,6 +554,17 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
             </div>
             {jenisPsSpError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
+          {showPengaliNilaiR && (
+            <label className="flex flex-col gap-1 shrink-0" style={{ width: 140 }}>
+              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
+              <UnitInput
+                value={fields.pengaliNilaiR}
+                onChange={(v) => onChange({ pengaliNilaiR: v })}
+                unit="x"
+                placeholder="1"
+                step={0.1} />
+            </label>
+          )}
         </div>
       </div>
     </div>
@@ -693,7 +713,7 @@ function ProdukEntryRow({
   const hna    = product ? hargaST(product) : 0;  // price per ST
   const lama   = dokterFields.lamaPeriode || 1;
   const nilaiRPersen = product?.nilaiRPersen ? parseFloat(product.nilaiRPersen) : null;
-  const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
+  const pengaliNilaiR = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
   const canCalc = resep > 0 && qty > 0 && hari > 0 && hna > 0;
   const perBulan = canCalc ? Math.round(resep * qty * hari * hna) : null;
   const totalEst = perBulan != null ? perBulan * lama : null;
@@ -932,15 +952,15 @@ function ProdukEntryRow({
           </div>
           <div className="flex gap-6 flex-wrap">
             <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per UB / Bln</div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per SJ / Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} UB` : "-"}
+                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} SJ` : "-"}
               </div>
             </div>
             <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per UB {lama} Bln</div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per SJ {lama} Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} UB` : "-"}
+                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} SJ` : "-"}
               </div>
             </div>
           </div>
@@ -1000,7 +1020,7 @@ function ProdukEntryRow({
         </div>
       )}
 
-      {/* Nilai PSSP card + Pengali Nilai R — grouped in the same column so the multiplier sits directly under the calculator */}
+      {/* Nilai PSSP card — Pengali Nilai R itself now lives in DokterFieldsSection (customer-level) */}
       <div className="flex flex-col gap-3">
       {nilaiPSSPBulan != null && (
         <div className="rounded-lg border px-3 py-2.5 space-y-2"
@@ -1028,16 +1048,6 @@ function ProdukEntryRow({
           </div>
         </div>
       )}
-
-      <label className="flex flex-col gap-1" style={{ maxWidth: 160 }}>
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
-        <UnitInput
-          value={entry.pengaliNilaiR}
-          onChange={(v) => onChange({ pengaliNilaiR: v })}
-          unit="x"
-          placeholder="1"
-          step={0.1} />
-      </label>
       </div>
       </div>
 
@@ -2109,7 +2119,7 @@ function AddPanel({
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR);
+    const pengali = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -2120,7 +2130,7 @@ function AddPanel({
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
+      const pengaliNilaiR = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -2298,7 +2308,7 @@ function AddPanel({
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("pengaliNilaiR", entry.pengaliNilaiR);
+    fd.set("pengaliNilaiR", dokterFields.pengaliNilaiR);
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
@@ -2593,7 +2603,7 @@ function AddPanel({
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
                     const nilaiPSSP = nilaiRPersen != null
-                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(entry.pengaliNilaiR))
+                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(dokterFields.pengaliNilaiR))
                       : null;
                     // Per-product Growth Estimasi/Pelunasan — same formulas as the
                     // per-product calculator card above (ProdukEntryRow), just
@@ -2615,7 +2625,7 @@ function AddPanel({
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "-"}
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} SJ` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
                           {estimasiTotal > 0 ? formatRp(estimasiTotal) : "-"}
@@ -2840,14 +2850,21 @@ function AddDokterBaruPanel({
 // ─── AddProductPanel (tambah produk ke dokter existing) ───────────────────────
 
 function AddProductPanel({
-  poaId, poaPeriod, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, onCancel,
+  poaId, poaPeriod, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, existingPengaliNilaiR, onCancel,
 }: {
   poaId: string; poaPeriod: string; products: Product[];
   kodePI: string; namaOutlet: string;
   kodeCust: string | null; namaCust: string; spesialisasi: string;
-  defaultPeriode: string; onCancel: () => void;
+  defaultPeriode: string;
+  /** This doctor's existing (shared) Pengali Nilai R — the new product must
+   * join it, not diverge on its own. */
+  existingPengaliNilaiR: string;
+  onCancel: () => void;
 }) {
-  const [dokterFields, setDokterFields] = useState<DokterFields>(emptyDokterFields(defaultPeriode));
+  const [dokterFields, setDokterFields] = useState<DokterFields>({
+    ...emptyDokterFields(defaultPeriode),
+    pengaliNilaiR: existingPengaliNilaiR,
+  });
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
   const [labelCustomer, setLabelCustomer] = useState("");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
@@ -2903,6 +2920,7 @@ function AddProductPanel({
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
+    fd.set("pengaliNilaiR", dokterFields.pengaliNilaiR);
     const totalBiayaAP = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiayaAP));
     const perBulanAP = dokterFields.lamaPeriode > 0 ? totalBiayaAP / dokterFields.lamaPeriode : 0;
@@ -2978,6 +2996,7 @@ function AddProductPanel({
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
+          showPengaliNilaiR={false}
         />
 
         <div>
@@ -3064,7 +3083,6 @@ function produkEntryFromItem(
 ): EditableProdukEntry {
   const p = products.find((pr) => pr.kodeProduk === item.kodeProduk);
   const itemHari = item.hariKerjaBulan?.toString() ?? "";
-  const itemPengali = item.pengaliNilaiR?.toString() ?? "";
   return {
     uid: item.id,
     existingId: item.id,
@@ -3082,10 +3100,8 @@ function produkEntryFromItem(
     persenDp: item.persenDp ? (parseFloat(item.persenDp.toString()) * 100).toFixed(2) : "",
     persenListingFee: item.persenListingFee ? (parseFloat(item.persenListingFee.toString()) * 100).toFixed(2) : "",
     persenEntertain: item.persenEntertain ? (parseFloat(item.persenEntertain.toString()) * 100).toFixed(2) : "",
-    // Only surface Hari Praktek as an explicit override when it differs from the doctor's
-    // default — Pengali Nilai R has no doctor-level default anymore, so it's always its own value.
+    // Only surface Hari Praktek as an explicit override when it differs from the doctor's default.
     hariKerjaBulan: itemHari && itemHari !== doctorDefaultHariKerja ? itemHari : "",
-    pengaliNilaiR: itemPengali,
     pihakPssp: item.pihakPssp ?? "USER",
   };
 }
@@ -3107,6 +3123,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     hariKerjaBulan: first.hariKerjaBulan?.toString() ?? "",
     rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
     jenisPsSp: first.jenisPsSp ?? "",
+    pengaliNilaiR: first.pengaliNilaiR?.toString() ?? "",
   });
   const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
     () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? ""))
@@ -3157,7 +3174,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     if (!p) return sum;
     const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
     if (nilaiR == null) return sum;
-    const pengali = resolvePengaliNilaiR(e.pengaliNilaiR);
+    const pengali = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
     return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
   }, 0), [produkList, dokterFields, products]);
 
@@ -3168,7 +3185,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
       const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
       const base = computeEstimasi(entry, dokterFields, p);
       if (base <= 0) continue;
-      const pengaliNilaiR = resolvePengaliNilaiR(entry.pengaliNilaiR);
+      const pengaliNilaiR = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
       const pct = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR
         + [entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
           .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
@@ -3210,7 +3227,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("persenDp", entry.persenDp);
     fd.set("persenListingFee", entry.persenListingFee);
     fd.set("persenEntertain", entry.persenEntertain);
-    fd.set("pengaliNilaiR", entry.pengaliNilaiR);
+    fd.set("pengaliNilaiR", dokterFields.pengaliNilaiR);
     const totalBiaya = computeEstimasi(entry, dokterFields, product);
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
@@ -3445,7 +3462,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
                     const nilaiPSSP = nilaiRPersen != null
-                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(entry.pengaliNilaiR))
+                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(dokterFields.pengaliNilaiR))
                       : null;
                     // Per-product Growth Estimasi/Pelunasan — same formulas as the
                     // per-product calculator card above (ProdukEntryRow), just
@@ -3467,7 +3484,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} UB` : "-"}
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} SJ` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
                           {estimasiTotal > 0 ? formatRp(estimasiTotal) : "-"}
@@ -3746,6 +3763,7 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
                           namaCust={addingProductFor.namaCust}
                           spesialisasi={addingProductFor.spesialisasi}
                           defaultPeriode={addingProductFor.defaultPeriode}
+                          existingPengaliNilaiR={custItems[0]?.pengaliNilaiR?.toString() ?? ""}
                           onCancel={() => setAddingProductFor(null)}
                         />
                       )}
