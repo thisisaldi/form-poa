@@ -9,6 +9,8 @@
  *   4. PSSP Aktif        — every still-running PSSP contract + Hospinet snapshot
  *   5. Summary Per Outlet — same metrics as the /summary "Per Outlet" tab (#47),
  *                           scoped to this export's team (2026-07-27, #55)
+ *   6. Summary by Produk  — same metrics as the /summary "Per Produk" tab,
+ *                           scoped to this export's team (2026-07-28, #6)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -108,7 +110,7 @@ export async function GET(req: NextRequest) {
         kodeProduk: string; namaProduk: string; periodeAwal: string; lamaPeriode: number;
         statusStandarisasi: string | null; rencanaTotalBiaya: { toString(): string };
         rencanaVisitMinggu: number; hariKerjaBulan: number | null;
-        jumlahResepHari: number | null; qtyProdukResep: number | null;
+        jumlahResepHari: number | null; qtyProdukResep: number | null; jumlahPasienHari: number | null;
         persenPsspDokter: { toString(): string } | null;
         persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
         persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
@@ -800,6 +802,138 @@ export async function GET(req: NextRequest) {
   shadeAlt(ws5, 1);
 
   if (outletSummaryRows.length === 0) ws5.addRow(["(Belum ada data pengajuan)"]);
+
+  // ── Sheet 6: Summary by Produk ────────────────────────────────────────────────
+  // Same metrics as the /summary "Per Produk" tab (src/app/(app)/summary/page.tsx),
+  // scoped to this export's team (2026-07-28, #6). PsspKontrak keys products by
+  // NAME only (Procode ≠ Item Kode across systems), so active-PSSP matching here
+  // must normalize on namaProduk same as the web tab's normName/activePsspByProdName.
+
+  function normName(s: string): string {
+    return s.toLowerCase().trim();
+  }
+
+  const activePsspByProdName = new Map<string, typeof activePsspAll>();
+  for (const r of activePsspAll) {
+    if (!r.nmProduk) continue;
+    const key = normName(r.nmProduk);
+    const list = activePsspByProdName.get(key) ?? [];
+    list.push(r);
+    activePsspByProdName.set(key, list);
+  }
+
+  // "Sales Aktif" per product is DERIVED (qty × HNA), same as the web tab —
+  // OutletSalesMonthly is a quantity feed, there's no per-product Rupiah sales
+  // value model. itemKode matches Product.kodeProduk directly.
+  const salesQtyRaw = (assignedOutlets.length > 0
+    ? await prisma.outletSalesMonthly.groupBy({ by: ["itemKode"], where: { kodePI: { in: assignedOutlets }, periode: { gte: "202601" } }, _sum: { qty: true } })
+    : []) as { itemKode: string; _sum: { qty: { toString(): string } | null } }[];
+  const qtyByItemKode = new Map(salesQtyRaw.map((r) => [r.itemKode, toNum(r._sum.qty)]));
+  const produkCodesForSales = [...qtyByItemKode.keys()];
+  const hnaProducts = (produkCodesForSales.length > 0
+    ? await prisma.product.findMany({ where: { kodeProduk: { in: produkCodesForSales } }, select: { kodeProduk: true, hna: true } })
+    : []) as { kodeProduk: string; hna: { toString(): string } }[];
+  const hnaByKodeProduk = new Map(hnaProducts.map((p) => [p.kodeProduk, toNum(p.hna)]));
+  const salesValueByProduk = new Map<string, number>();
+  for (const [itemKode, qty] of qtyByItemKode) {
+    salesValueByProduk.set(itemKode, qty * (hnaByKodeProduk.get(itemKode) ?? 0));
+  }
+
+  const produkGroups = new Map<string, { namaProduk: string; items: typeof lineItems }>();
+  for (const li of lineItems) {
+    if (!produkGroups.has(li.kodeProduk)) produkGroups.set(li.kodeProduk, { namaProduk: li.namaProduk, items: [] });
+    produkGroups.get(li.kodeProduk)!.items.push(li);
+  }
+
+  interface ProdukSummaryRow {
+    kodeProduk: string; namaProduk: string;
+    estimasi: number; estimasiAktif: number; userAktifPssp: number;
+    budgetTotal: number; biayaAktif: number; salesAktif: number;
+    avgPasienPerUser: number | null; avgStPerPasien: number | null;
+  }
+  const produkSummaryRows: ProdukSummaryRow[] = [...produkGroups.entries()].map(([kodeProduk, { namaProduk, items }]) => {
+    let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
+    for (const li of items) {
+      const base = toNum(li.rencanaTotalBiaya);
+      const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+      const psspPct = toNum(li.persenPsspDokter) * pengaliNilaiR;
+      const discPct = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
+      const entPct = toNum(li.persenEntertain);
+      estimasi += base;
+      psspTotal += base * psspPct;
+      discountTotal += base * discPct;
+      entertainTotal += base * entPct;
+    }
+    const activeRows = activePsspByProdName.get(normName(namaProduk)) ?? [];
+    const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+    // PsspKontrak.biaya is a flat per-CONTRACT total repeated on every product
+    // row of that contract — dedupe by cUrut before summing (same fix as
+    // Biaya Aktif in src/app/(app)/summary/page.tsx).
+    const seenContracts = new Set<string>();
+    let biayaAktif = 0;
+    for (const r of activeRows) {
+      if (seenContracts.has(r.cUrut)) continue;
+      seenContracts.add(r.cUrut);
+      biayaAktif += r.biaya;
+    }
+    const pasienRows = items.filter((li) => li.jumlahPasienHari != null && li.jumlahPasienHari > 0);
+    const avgPasienPerUser = pasienRows.length > 0
+      ? pasienRows.reduce((s, li) => s + li.jumlahPasienHari!, 0) / pasienRows.length
+      : null;
+    const stRows = items.filter((li) => li.qtyProdukResep != null && li.jumlahPasienHari != null && li.jumlahPasienHari > 0);
+    const avgStPerPasien = stRows.length > 0
+      ? stRows.reduce((s, li) => s + li.qtyProdukResep! / li.jumlahPasienHari!, 0) / stRows.length
+      : null;
+    return {
+      kodeProduk, namaProduk,
+      estimasi, estimasiAktif,
+      userAktifPssp: new Set(activeRows.map((r) => r.kdCust)).size,
+      budgetTotal: psspTotal + discountTotal + entertainTotal,
+      biayaAktif,
+      salesAktif: salesValueByProduk.get(kodeProduk) ?? 0,
+      avgPasienPerUser, avgStPerPasien,
+    };
+  }).sort((a, b) => (b.estimasi + b.estimasiAktif) - (a.estimasi + a.estimasiAktif));
+
+  const ws6 = wb.addWorksheet("Summary by Produk");
+  ws6.columns = [
+    { header: "Kode Produk",              key: "kodeProduk",          width: 14 },
+    { header: "Nama Produk",               key: "namaProduk",          width: 32 },
+    { header: "Estimasi Aktif+Pengajuan",  key: "estimasiAktifPengajuan", width: 22 },
+    { header: "User Aktif PSSP",           key: "userAktifPssp",       width: 14 },
+    { header: "Biaya Aktif+Pengajuan",     key: "biayaAktifPengajuan", width: 20 },
+    { header: "Cost Ratio",                key: "costRatio",           width: 12 },
+    { header: "Sales Aktif (2026)",        key: "salesAktif",          width: 18 },
+    { header: "Sales Per User",            key: "salesPerUser",        width: 16 },
+    { header: "AVG Pasien/User",           key: "avgPasienPerUser",    width: 16 },
+    { header: "AVG ST/Pasien",             key: "avgStPerPasien",      width: 14 },
+  ];
+  styleHeader(ws6);
+
+  for (const r of produkSummaryRows) {
+    const estimasiAktifPengajuan = r.estimasi + r.estimasiAktif;
+    const biayaAktifPengajuan = r.biayaAktif + r.budgetTotal;
+    const costRatio = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : 0;
+    ws6.addRow({
+      kodeProduk: r.kodeProduk, namaProduk: r.namaProduk,
+      estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
+      userAktifPssp: r.userAktifPssp,
+      biayaAktifPengajuan: Math.round(biayaAktifPengajuan),
+      costRatio: parseFloat(costRatio.toFixed(1)),
+      salesAktif: Math.round(r.salesAktif),
+      salesPerUser: r.userAktifPssp > 0 ? Math.round(r.salesAktif / r.userAktifPssp) : 0,
+      avgPasienPerUser: r.avgPasienPerUser != null ? parseFloat(r.avgPasienPerUser.toFixed(1)) : "",
+      avgStPerPasien: r.avgStPerPasien != null ? parseFloat(r.avgStPerPasien.toFixed(1)) : "",
+    });
+  }
+
+  ["estimasiAktifPengajuan", "biayaAktifPengajuan", "salesAktif", "salesPerUser"].forEach((key) => {
+    ws6.getColumn(key).numFmt = '#,##0';
+  });
+  ws6.getColumn("costRatio").numFmt = '0.0"%"';
+  shadeAlt(ws6, 1);
+
+  if (produkSummaryRows.length === 0) ws6.addRow(["(Belum ada data pengajuan)"]);
 
   // ── Response ─────────────────────────────────────────────────────────────────
 

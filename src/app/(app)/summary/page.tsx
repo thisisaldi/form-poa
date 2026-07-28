@@ -68,6 +68,14 @@ interface TerritoryGroup {
   avgStPerPasien: number | null;
   pelunasanRunningRate: number | null;
   biayaAktif: number;
+  // Growth vs Quarter Sebelumnya (2026-07-28) — estimasi for the quarter
+  // currently being viewed (periodFilter, or the latest quarter with any
+  // submission if viewing "Semua") vs the quarter right before it, computed
+  // independently of whatever period range the main `estimasi` figure above
+  // is aggregated over. Applies uniformly across all 4 tabs.
+  estimasiQuarterIni: number;
+  estimasiQuarterSebelumnya: number;
+  growthVsQuarterSebelumnyaPct: number | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -95,6 +103,15 @@ function elapsedFraction(prdAwal: string, prdAkhir: string): number {
   const cy = parseInt(cappedEnd.slice(0, 4), 10), cm = parseInt(cappedEnd.slice(4), 10);
   const elapsed = Math.max(0, Math.min(total, (cy - sy) * 12 + (cm - sm) + 1));
   return elapsed / total;
+}
+
+// Growth vs Quarter Sebelumnya (2026-07-28) — PoaForm.period is "YYYY-QN";
+// this steps back exactly one quarter (wrapping Q1 to the prior year's Q4).
+function previousQuarterPeriod(period: string): string | null {
+  const m = period.match(/^(\d{4})-Q([1-4])$/);
+  if (!m) return null;
+  const year = parseInt(m[1], 10), q = parseInt(m[2], 10);
+  return q === 1 ? `${year - 1}-Q4` : `${year}-Q${q - 1}`;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -146,6 +163,55 @@ export default async function SummaryPage({
 
   const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
   const poaIds = poas.map((p) => p.id);
+
+  // Growth vs Quarter Sebelumnya (2026-07-28) — "quarter ini" is whichever
+  // period the page is currently scoped to (periodFilter), or the latest
+  // quarter with any submission at all when viewing "Semua" (pooled across
+  // periods, where `estimasi` elsewhere has no single quarter to anchor to).
+  // Fetched independently of poaWhere/lineItems above so the comparison
+  // still works even when periodFilter narrows the main query to a single
+  // quarter (previous quarter's data wouldn't otherwise be fetched at all).
+  const quarterIni = periodFilter ?? (allPeriods.length > 0 ? allPeriods[allPeriods.length - 1] : null);
+  const quarterSebelumnya = quarterIni ? previousQuarterPeriod(quarterIni) : null;
+  const qoqPeriods = [quarterIni, quarterSebelumnya].filter((p): p is string => !!p);
+
+  const qoqPoas = qoqPeriods.length > 0 && mrNips.length > 0
+    ? (await prisma.poaForm.findMany({
+        where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT }, period: { in: qoqPeriods } },
+        select: { id: true, ownerId: true, period: true },
+      })) as { id: string; ownerId: string; period: string }[]
+    : [];
+  const qoqPoaPeriodMap = new Map(qoqPoas.map((p) => [p.id, p.period]));
+  const qoqPoaOwnerMap = new Map(qoqPoas.map((p) => [p.id, p.ownerId]));
+  const qoqPoaIds = qoqPoas.map((p) => p.id);
+
+  const qoqLineItems = qoqPoaIds.length > 0
+    ? (await prisma.poaLineItem.findMany({
+        where: { poaId: { in: qoqPoaIds } },
+        select: { poaId: true, kodePI: true, kodeCust: true, namaCust: true, kodeProduk: true, rencanaTotalBiaya: true },
+      })) as { poaId: string; kodePI: string | null; kodeCust: string | null; namaCust: string; kodeProduk: string; rencanaTotalBiaya: { toString(): string } | number }[]
+    : [];
+
+  // Same "code" identity as getTerritoryKey below, minus the display name —
+  // this only needs to match up against the main groups by code.
+  function qoqCode(li: typeof qoqLineItems[0]): string {
+    if (tab === "outlet") return li.kodePI ?? "-";
+    if (tab === "produk") return li.kodeProduk;
+    if (tab === "customer") return li.kodeCust ?? `no-code:${li.namaCust}`;
+    return qoqPoaOwnerMap.get(li.poaId) ?? "-";
+  }
+
+  const qoqEstimasiByCode = new Map<string, { ini: number; sebelumnya: number }>();
+  for (const li of qoqLineItems) {
+    const period = qoqPoaPeriodMap.get(li.poaId);
+    if (!period) continue;
+    const code = qoqCode(li);
+    const agg = qoqEstimasiByCode.get(code) ?? { ini: 0, sebelumnya: 0 };
+    const val = toNum(li.rencanaTotalBiaya);
+    if (period === quarterIni) agg.ini += val;
+    else if (period === quarterSebelumnya) agg.sebelumnya += val;
+    qoqEstimasiByCode.set(code, agg);
+  }
 
   const lineItems = poaIds.length > 0
     ? (await prisma.poaLineItem.findMany({ where: { poaId: { in: poaIds } } })) as {
@@ -545,6 +611,13 @@ export default async function SummaryPage({
         ? stRows.reduce((s, li) => s + li.qtyProdukResep! / li.jumlahPasienHari!, 0) / stRows.length
         : null;
 
+      const qoq = qoqEstimasiByCode.get(key.code);
+      const estimasiQuarterIni = qoq?.ini ?? 0;
+      const estimasiQuarterSebelumnya = qoq?.sebelumnya ?? 0;
+      const growthVsQuarterSebelumnyaPct = estimasiQuarterSebelumnya > 0
+        ? ((estimasiQuarterIni - estimasiQuarterSebelumnya) / estimasiQuarterSebelumnya) * 100
+        : null;
+
       return {
         code: key.code,
         name: key.name,
@@ -574,6 +647,9 @@ export default async function SummaryPage({
         avgStPerPasien,
         pelunasanRunningRate,
         biayaAktif,
+        estimasiQuarterIni,
+        estimasiQuarterSebelumnya,
+        growthVsQuarterSebelumnyaPct,
       };
     })
     // "outlet"/"customer": GAP tertinggi (vs prior realisasi) is the default —
@@ -644,6 +720,9 @@ export default async function SummaryPage({
     avgStPerPasien: g.avgStPerPasien,
     biayaAktif: g.biayaAktif,
     pelunasanRunningRate: g.pelunasanRunningRate,
+    estimasiQuarterIni: g.estimasiQuarterIni,
+    estimasiQuarterSebelumnya: g.estimasiQuarterSebelumnya,
+    growthVsQuarterSebelumnyaPct: g.growthVsQuarterSebelumnyaPct,
   }));
 
   return (
@@ -725,7 +804,8 @@ export default async function SummaryPage({
 
       {/* Per-row breakdown for the active tab — Ringkasan above only shows the
           grand total, this is what actually differs between tabs. */}
-      <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} variant={tab} />
+      <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} variant={tab}
+        quarterIni={quarterIni} quarterSebelumnya={quarterSebelumnya} />
     </div>
   );
 }

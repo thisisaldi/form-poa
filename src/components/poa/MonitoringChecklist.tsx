@@ -58,6 +58,13 @@ export interface MonitoringGroup {
    * — the "Aktif" counterpart to budgetTotal's "Pengajuan" cost, both under
    * the "Biaya" column on outlet/produk tabs (2026-07-27). */
   biayaAktif: number;
+  /** Growth vs Quarter Sebelumnya (2026-07-28) — estimasi for the quarter
+   * currently in view vs the quarter right before it, same across all 4
+   * tabs. null when the previous quarter had nothing submitted to compare
+   * against. See summary/page.tsx for how "quarter ini" is picked. */
+  estimasiQuarterIni: number;
+  estimasiQuarterSebelumnya: number;
+  growthVsQuarterSebelumnyaPct: number | null;
 }
 
 /** Global unique counts — computed from all lineItems server-side to avoid double-counting */

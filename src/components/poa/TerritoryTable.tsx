@@ -25,7 +25,12 @@ function fmtNum(n: number | null, digits = 1): string {
  * Sales Per User are derived here (not stored) since they're a simple ratio of
  * two fields already on the group.
  */
-export function TerritoryTable({ groups, codeLabel, showRealisasi = false, variant = "mr" }: { groups: MonitoringGroup[]; codeLabel: string; showRealisasi?: boolean; variant?: Variant }) {
+export function TerritoryTable({ groups, codeLabel, showRealisasi = false, variant = "mr", quarterIni, quarterSebelumnya }: {
+  groups: MonitoringGroup[]; codeLabel: string; showRealisasi?: boolean; variant?: Variant;
+  /** The two quarters compared by the "Growth vs Quarter Sebelumnya" column — shown in its header/tooltip so the comparison baseline isn't a black box. */
+  quarterIni?: string | null;
+  quarterSebelumnya?: string | null;
+}) {
   if (groups.length === 0) {
     return (
       <Card>
@@ -62,6 +67,10 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
               )}
               <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                 {isOutlet || isProduk ? "Estimasi Aktif+Pengajuan" : "Estimasi"}
+              </th>
+              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}
+                title={quarterIni && quarterSebelumnya ? `${quarterIni} vs ${quarterSebelumnya}` : undefined}>
+                Growth vs Quarter Sebelumnya
               </th>
               {showRealisasi && (
                 <>
@@ -156,6 +165,16 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                     ) : (
                       g.estimasi > 0 ? formatRp(g.estimasi) : "-"
                     )}
+                  </td>
+                  <td className="py-2 px-3 text-right whitespace-nowrap"
+                    title={quarterIni && quarterSebelumnya
+                      ? `${quarterIni} ${formatRp(g.estimasiQuarterIni)} vs ${quarterSebelumnya} ${formatRp(g.estimasiQuarterSebelumnya)}`
+                      : undefined}
+                    style={{ color: g.growthVsQuarterSebelumnyaPct == null ? "var(--color-text-faint)"
+                      : g.growthVsQuarterSebelumnyaPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                    {g.growthVsQuarterSebelumnyaPct != null
+                      ? `${g.growthVsQuarterSebelumnyaPct >= 0 ? "+" : ""}${g.growthVsQuarterSebelumnyaPct.toFixed(1)}%`
+                      : "-"}
                   </td>
                   {showRealisasi && (
                     <>
