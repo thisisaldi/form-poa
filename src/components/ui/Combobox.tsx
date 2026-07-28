@@ -262,7 +262,7 @@ export function Combobox({
                         }}
                       >
                         {option.accent && !isHighlighted && (
-                          <span className="text-xs shrink-0" style={{ color: "var(--color-blue)" }}>★</span>
+                          <span className="shrink-0" style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span>
                         )}
                         <span className="flex-1 min-w-0">
                           <span className="flex items-center gap-1.5 min-w-0">

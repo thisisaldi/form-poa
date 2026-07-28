@@ -313,6 +313,10 @@ export interface PsspStatusByCustomer {
   isActive: boolean; // true if that most-recent contract hasn't expired yet
   latestPrdAwal: string; // YYYYMM — most recent contract's start period
   latestPrdAkhir: string; // YYYYMM — most recent contract's end period, used to sort/flag by proximity to quarter end
+  /** This customer's total distinct PSSP contract count — i.e. the most
+   * recent contract's ordinal ("PSSP ke-N"), surfaced in the doctor picker
+   * badge (2026-07-28 request) alongside the sidebar's per-contract label. */
+  psspKe: number;
 }
 
 /**
@@ -357,6 +361,7 @@ export async function getPsspStatusByOutlet(kodePI: string): Promise<PsspStatusB
       isActive: custRows[0].prdAkhir >= currentPeriod,
       latestPrdAwal: custRows[0].prdAwal,
       latestPrdAkhir: custRows[0].prdAkhir,
+      psspKe: new Set(custRows.map((r: { cUrut: string }) => r.cUrut)).size,
     });
   }
   return result;

@@ -79,6 +79,9 @@ interface DokterFields {
   // multiplier shared by every product this doctor has, "" = default 1x. See
   // resolvePengaliNilaiR.
   pengaliNilaiR: string;
+  // Also customer-level (2026-07-28 request) — "USER" | "KPDM", relabels
+  // "% PSSP User/KPDM" below, doesn't change the formula.
+  pihakPssp: string;
 }
 
 function emptyDokterFields(periodeAwal = ""): DokterFields {
@@ -88,6 +91,7 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
     rencanaVisitMinggu: "4",
     jenisPsSp: "",
     pengaliNilaiR: "",
+    pihakPssp: "USER",
   };
 }
 
@@ -108,7 +112,6 @@ interface ProdukEntry {
   persenListingFee: string;
   persenEntertain: string;
   hariKerjaBulan: string;  // per-product override of the doctor-level default; "" = inherit
-  pihakPssp: string;       // "USER" | "KPDM" — relabels "% PSSP User" below, doesn't change the formula
   // kriteriaProduk & rasioEstimasiGrowth: auto (not user input)
 }
 
@@ -121,7 +124,6 @@ function emptyProdukEntry(): ProdukEntry {
     persenPsspDokter: "", persenPsspKpdm: "0",
     persenDiskon: "0", persenDp: "0", persenListingFee: "0", persenEntertain: "1",
     hariKerjaBulan: "",
-    pihakPssp: "USER",
   };
 }
 
@@ -159,13 +161,22 @@ function resolvePengaliNilaiR(entryValue: string): number {
  * newOnPi wins. Returns null when there's no contracted discount on file —
  * callers should default to 0 in that case.
  */
-function resolveDiskonPct(diskonList: DiskonByProduct[] | undefined, kodeProduk: string, periodeAwal: string): number | null {
+/**
+ * The DiskonKontrak (DPL) row that resolveDiskonPct's % is drawn from — same
+ * matching/tie-break rule, exposed separately so callers can also show its
+ * active period (prdAwal/prdAkhir), not just the resolved percentage.
+ */
+function resolveDiskonContract(diskonList: DiskonByProduct[] | undefined, kodeProduk: string, periodeAwal: string): DiskonByProduct | null {
   if (!diskonList || !kodeProduk || !periodeAwal) return null;
   const candidates = diskonList.filter((d) =>
     d.kodeProduk === kodeProduk && d.prdAwal <= periodeAwal && d.prdAkhir >= periodeAwal
   );
   if (candidates.length === 0) return null;
-  return Math.max(...candidates.map((d) => d.newOnPi));
+  return candidates.reduce((best, d) => (d.newOnPi > best.newOnPi ? d : best));
+}
+
+function resolveDiskonPct(diskonList: DiskonByProduct[] | undefined, kodeProduk: string, periodeAwal: string): number | null {
+  return resolveDiskonContract(diskonList, kodeProduk, periodeAwal)?.newOnPi ?? null;
 }
 
 /**
@@ -184,6 +195,25 @@ function resolveDiskonPctWithHistory(
   if (fromDpl != null) return fromDpl;
   const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
   return fromHistory?.avgDiskonPct ?? null;
+}
+
+/**
+ * Display label for the DPL/DPF period backing the "% Diskon (DPL/DPF)"
+ * field's current value (2026-07-28 request: surface the contract period,
+ * not just the resolved %). Returns null when there's nothing on file for
+ * this product+period at all — the field is then just a plain manual entry.
+ */
+function resolveDiskonPeriodLabel(
+  diskonList: DiskonByProduct[] | undefined,
+  diskonHistoryList: DiskonHistoryByProduct[] | undefined,
+  kodeProduk: string,
+  periodeAwal: string
+): string | null {
+  const contract = resolveDiskonContract(diskonList, kodeProduk, periodeAwal);
+  if (contract) return `Periode DPL/DPF: ${contract.prdAwal}-${contract.prdAkhir}`;
+  const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
+  if (fromHistory) return "Rata-rata historis (tidak terikat periode kontrak)";
+  return null;
 }
 
 function computeEstimasi(entry: ProdukEntry, dokter: DokterFields, product: Product | null): number {
@@ -215,6 +245,13 @@ function qtyToUB(qtyST: number, product: Product): number {
   return qtyST / konversi;
 }
 
+// The real satuan jual name (e.g. "BOX", "STRIP") when the product is known —
+// "SJ" is only a fallback label for when no product is picked yet (2026-07-28
+// request: use the actual unit name wherever it's available).
+function satuanLabel(product: Product | null | undefined): string {
+  return product?.satuan || "SJ";
+}
+
 // Returns the per-month estimate from the most recent PSSP contract for a product —
 // EXPIRED OR STILL ACTIVE. Matches by product name only (Procode ≠ Item Kode across
 // systems). estBaris is the full-period total, divided by months to get per-month
@@ -224,7 +261,15 @@ function qtyToUB(qtyST: number, product: Product): number {
 // meant "Growth Estimasi" silently disappeared whenever the doctor's most recent PSSP
 // for that product was still running — reported as "ada estimasinya di PSSP
 // sebelumnya" with no growth shown. Also used by the total-level growth card.)
-function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
+interface PeriodComparison {
+  perBulan: number;
+  /** The PSSP contract period this figure was derived from — surfaced next to
+   * Growth Estimasi/Pelunasan so the comparison baseline isn't a black box
+   * (2026-07-28 request). */
+  period: string;
+}
+
+function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: string): PeriodComparison | null {
   const norm = namaProduk.toLowerCase().trim();
   const rows = history
     .filter((r) => r.nmProduk?.toLowerCase().trim() === norm && (r.estBaris ?? 0) > 0)
@@ -234,7 +279,8 @@ function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: str
   const sy = parseInt(latest.prdAwal.slice(0, 4)), sm = parseInt(latest.prdAwal.slice(4));
   const ey = parseInt(latest.prdAkhir.slice(0, 4)), em = parseInt(latest.prdAkhir.slice(4));
   const months = (ey - sy) * 12 + (em - sm) + 1;
-  return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
+  if (months <= 0 || latest.estBaris <= 0) return null;
+  return { perBulan: latest.estBaris / months, period: `${latest.prdAwal}-${latest.prdAkhir}` };
 }
 
 // Rows for a product (matched by name — Procode ≠ Item Kode across systems) that were
@@ -270,7 +316,7 @@ function computePelunasan3Bln(history: PsspKontrakSummary[], namaProduk: string)
 // correction: "12jt dibagi berapa bulan sudah berjalan [...] atau selama bulannya
 // sudah berjalan kalau kurang dari 3 bulan" — a contract only 1 month in was wrongly
 // diluted by dividing its totalLunas by a flat 3 regardless of how long it'd run.)
-function computePelunasanAktualPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
+function computePelunasanAktualPerMonth(history: PsspKontrakSummary[], namaProduk: string): PeriodComparison | null {
   const norm = namaProduk.toLowerCase().trim();
   const rows = history
     .filter((r) => r.nmProduk?.toLowerCase().trim() === norm && (r.totalLunas ?? 0) > 0)
@@ -278,7 +324,8 @@ function computePelunasanAktualPerMonth(history: PsspKontrakSummary[], namaProdu
   if (rows.length === 0) return null;
   const latest = rows[0];
   const { elapsed } = elapsedMonthsCount(latest.prdAwal, latest.prdAkhir);
-  return elapsed > 0 ? latest.totalLunas / elapsed : null;
+  if (elapsed <= 0) return null;
+  return { perBulan: latest.totalLunas / elapsed, period: `${latest.prdAwal}-${latest.prdAkhir}` };
 }
 
 function computeLabelCustomer(history: PsspKontrakSummary[]): string {
@@ -430,7 +477,7 @@ function periodeAwalFormatError(periodeAwal: string, poaPeriod: string): string 
   return null;
 }
 
-function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, showPengaliNilaiR = true }: {
+function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, showCustomerLevelFields = true }: {
   fields: DokterFields;
   onChange: (patch: Partial<DokterFields>) => void;
   poaPeriod: string;
@@ -439,10 +486,12 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
   lamaPeriodeRequiredError?: boolean;
   jenisPsSpError?: boolean;
   /** False in "Tambah Produk" (adding one more product to an existing doctor)
-   * — the multiplier is shared across the whole doctor and silently inherited
+   * — Pihak PSSP is shared across the whole doctor and silently inherited
    * there, so it's not surfaced at all; it can only be changed via "Edit
-   * Rencana POA" (EditDoctorPanel), which edits every product at once. */
-  showPengaliNilaiR?: boolean;
+   * Rencana POA" (EditDoctorPanel), which edits every product at once.
+   * Pengali Nilai R is also doctor-level but lives in the "Total Semua
+   * Produk" section instead (2026-07-28 request), not here. */
+  showCustomerLevelFields?: boolean;
 }) {
   const lamaPeriodeTooLong = fields.lamaPeriode > 12;
   const lamaPeriodeError = lamaPeriodeTooLong || !!lamaPeriodeRequiredError;
@@ -554,15 +603,16 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
             </div>
             {jenisPsSpError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
-          {showPengaliNilaiR && (
-            <label className="flex flex-col gap-1 shrink-0" style={{ width: 140 }}>
-              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
-              <UnitInput
-                value={fields.pengaliNilaiR}
-                onChange={(v) => onChange({ pengaliNilaiR: v })}
-                unit="x"
-                placeholder="1"
-                step={0.1} />
+          {showCustomerLevelFields && (
+            <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }}>
+              <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pihak PSSP</span>
+              <select
+                value={fields.pihakPssp}
+                onChange={(e) => onChange({ pihakPssp: e.target.value })}
+                className="input-field text-xs">
+                <option value="USER">User</option>
+                <option value="KPDM">KPDM</option>
+              </select>
             </label>
           )}
         </div>
@@ -574,12 +624,18 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
 // ─── buildProductOptions ────────────────────────────────────────────────────
 // Shared product-picker options builder — tiers by spesialisasi match, tags paket fokus.
 
-function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, { kriteriaBaru: string; kategori: string }>, psspHistory?: PsspKontrakSummary[]): ComboboxOption[] {
+function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, { kriteriaBaru: string; kategori: string }>, psspHistory?: PsspKontrakSummary[], surveyRows?: SurveyRekomendasiRow[]): ComboboxOption[] {
   const tierSorted = spesialisasi
     ? sortProductsBySpesialisasi(products, spesialisasi)
     : products;
   const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
   const TIER_LABEL = ["Produk Fokus Sesuai Spesialisasi", "Produk Fokus Lainnya", "Produk Lainnya"];
+
+  // Same "Produk Survey" grouping as the sidebar's Kriteria Produk panel
+  // (KriteriaProdukPanel) — products recommended by SurveyRekomendasi for this
+  // doctor+outlet, requested to appear right after the focus groups here too.
+  const surveyPotensiByKode = new Map<string, number | null>();
+  for (const r of surveyRows ?? []) surveyPotensiByKode.set(r.kodeProduk, r.potensiBulan);
 
   // New top sort priority: products with PSSP history first, then the existing
   // tier order within each of those two buckets.
@@ -594,6 +650,13 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     const aHasPssp = pelunasanByProduk.has(a.kodeProduk) ? 0 : 1;
     const bHasPssp = pelunasanByProduk.has(b.kodeProduk) ? 0 : 1;
     if (aHasPssp !== bHasPssp) return aHasPssp - bHasPssp;
+    if (aHasPssp === 1) {
+      // Among non-PSSP items, keep focus products first (tier order already
+      // does that), then survey-recommended non-focus products, then the rest.
+      const aSub = getProductTier(a.namaProduk, matchedPakets) !== 2 ? 0 : surveyPotensiByKode.has(a.kodeProduk) ? 1 : 2;
+      const bSub = getProductTier(b.namaProduk, matchedPakets) !== 2 ? 0 : surveyPotensiByKode.has(b.kodeProduk) ? 1 : 2;
+      if (aSub !== bSub) return aSub - bSub;
+    }
     return 0; // keep tier order (tierSorted is already stable-sorted by tier)
   });
 
@@ -601,6 +664,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     const allPakets = getAllPakets(p.namaProduk);
     const relevantPaket = allPakets.find((pk) => matchedPakets.includes(pk)) ?? allPakets[0] ?? null;
     const tier = getProductTier(p.namaProduk, matchedPakets);
+    const isSurveyOnly = tier === 2 && surveyPotensiByKode.has(p.kodeProduk);
     const kriteriaRow = kriteriaMap?.get(p.kodeProduk);
     const kriteria = kriteriaRow?.kriteriaBaru;
     // `kategori` ("Low Hanging Fruit" / "Blue Ocean" / "Red Ocean") is never shown
@@ -626,16 +690,23 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
     // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).
     const pelunasan3Bln = pelunasanByProduk.get(p.kodeProduk) ?? null;
-    const tag2 = pelunasan3Bln != null ? `Pernah PSSP · Pelunasan 3 Bln ${pelunasan3Bln}%` : undefined;
-    const tag2Color: "green" | "yellow" | "red" | undefined = pelunasan3Bln == null ? undefined
-      : pelunasan3Bln >= 80 ? "green"
-      : pelunasan3Bln >= 40 ? "yellow"
-      : "red";
+    const potensiSurvey = isSurveyOnly ? surveyPotensiByKode.get(p.kodeProduk) ?? null : null;
+    const tag2 = pelunasan3Bln != null
+      ? `Pernah PSSP · Pelunasan 3 Bln ${pelunasan3Bln}%`
+      : potensiSurvey != null ? `Potensi Survey ${potensiSurvey}/bln` : undefined;
+    const tag2Color: "green" | "yellow" | "red" | "orange" | undefined = pelunasan3Bln != null
+      ? (pelunasan3Bln >= 80 ? "green" : pelunasan3Bln >= 40 ? "yellow" : "red")
+      : potensiSurvey != null ? "orange"
+      : undefined;
     return {
       value: p.kodeProduk,
       label: p.namaProduk,
       sublabel: [`${p.kodeProduk} · ${paketLabel}`, p.zatAktif].filter(Boolean).join(" · "),
-      group: pelunasan3Bln != null ? "Pernah di PSSP" : (spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya"),
+      group: pelunasan3Bln != null
+        ? "Pernah di PSSP"
+        : isSurveyOnly
+        ? "Produk Survey"
+        : (spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya"),
       accent: tier === 0,
       tag,
       tagColor,
@@ -699,11 +770,24 @@ function ProdukEntryRow({
   // informational, not part of ProdukEntry since it's never submitted.
   const [potensiBulan, setPotensiBulan] = useState<number | null>(null);
 
+  // Full outlet survey list — same getSurveyRekomendasiByOutlet data as the
+  // "Produk Survey" section of KriteriaProdukPanel (sidebar), fetched here too
+  // so the product picker dropdown can show the same "Produk Survey" group
+  // right after "Produk Fokus" (2026-07-28 request).
+  const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiRow[]>([]);
+  const [, startLoadSurveyRows] = useTransition();
+  useEffect(() => {
+    startLoadSurveyRows(async () => {
+      if (!kodeCustomer || !kodePI) { setSurveyRows([]); return; }
+      setSurveyRows(await getSurveyRekomendasiByOutlet(kodeCustomer, kodePI));
+    });
+  }, [kodeCustomer, kodePI]);
+
   const productOptions = useMemo(() => {
-    const opts = buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory);
+    const opts = buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory, surveyRows);
     if (!usedKodeProduk || usedKodeProduk.size === 0) return opts;
     return opts.filter((o) => o.value === entry.kodeProduk || !usedKodeProduk.has(o.value));
-  }, [products, spesialisasi, kriteriaMap, usedKodeProduk, entry.kodeProduk, psspHistory]);
+  }, [products, spesialisasi, kriteriaMap, usedKodeProduk, entry.kodeProduk, psspHistory, surveyRows]);
 
   const product = useMemo(() => products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null, [products, entry.kodeProduk]);
 
@@ -724,9 +808,10 @@ function ProdukEntryRow({
   const nilaiPSSPBulan = perBulan != null && nilaiRPersen != null ? Math.round(perBulan * nilaiRPersen * pengaliNilaiR) : null;
   const nilaiPSSPTotal = nilaiPSSPBulan != null ? nilaiPSSPBulan * lama : null;
 
-  const oldEstPerMonth = (psspHistory && psspHistory.length > 0 && product)
+  const oldEst = (psspHistory && psspHistory.length > 0 && product)
     ? computeLatestEstPerMonth(psspHistory, product.namaProduk)
     : null;
+  const oldEstPerMonth = oldEst?.perBulan ?? null;
   const growthRatio = (perBulan != null && oldEstPerMonth != null && oldEstPerMonth > 0)
     ? perBulan / oldEstPerMonth
     : null;
@@ -735,9 +820,10 @@ function ProdukEntryRow({
   // Growth Pelunasan: perBulan vs actual PSSP settlement (pelunasan) realized over the
   // last 3 months for this product — a real-money check separate from (not a
   // replacement for) the PSSP-contract-ESTIMATE-based growth above.
-  const pelunasanAktual3BlnPerMonth = (psspHistory && psspHistory.length > 0 && product)
+  const pelunasanAktual3Bln = (psspHistory && psspHistory.length > 0 && product)
     ? computePelunasanAktualPerMonth(psspHistory, product.namaProduk)
     : null;
+  const pelunasanAktual3BlnPerMonth = pelunasanAktual3Bln?.perBulan ?? null;
   const growthPct3Bln = (perBulan != null && pelunasanAktual3BlnPerMonth != null && pelunasanAktual3BlnPerMonth > 0)
     ? ((perBulan / pelunasanAktual3BlnPerMonth) - 1) * 100
     : null;
@@ -952,15 +1038,15 @@ function ProdukEntryRow({
           </div>
           <div className="flex gap-6 flex-wrap">
             <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per SJ / Bln</div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per {satuanLabel(product)} / Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} SJ` : "-"}
+                {qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} ${satuanLabel(product)}` : "-"}
               </div>
             </div>
             <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per SJ {lama} Bln</div>
+              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Qty per {satuanLabel(product)} {lama} Bln</div>
               <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} SJ` : "-"}
+                {qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} ${satuanLabel(product)}` : "-"}
               </div>
             </div>
           </div>
@@ -968,9 +1054,9 @@ function ProdukEntryRow({
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
-                {oldEstPerMonth != null && (
+                {oldEst != null && (
                   <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                    PSSP lama {formatRp(Math.round(oldEstPerMonth))}/bln
+                    PSSP lama {formatRp(Math.round(oldEst.perBulan))}/bln (periode {oldEst.period})
                   </div>
                 )}
               </div>
@@ -992,29 +1078,41 @@ function ProdukEntryRow({
               <p className="text-xs font-semibold mt-1" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
                 {growthPct > 0
                   ? "✓ Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
-                  : "⚠ Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
+                  : "⚠ Intensifikasi kurang — estimasi belum naik dibanding PSSP sebelumnya"}
               </p>
             )}
           </div>
-          <div className="flex items-center justify-between pt-1.5 border-t"
-            style={{ borderColor: "var(--color-border)" }}>
-            <div>
-              <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Pelunasan (3 Bln Terakhir)</div>
-              {pelunasanAktual3BlnPerMonth != null && (
-                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                  Pelunasan aktual {formatRp(Math.round(pelunasanAktual3BlnPerMonth))}/bln
-                </div>
+          <div className="pt-1.5 border-t" style={{ borderColor: "var(--color-border)" }}>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Pelunasan (3 Bln Terakhir)</div>
+                {pelunasanAktual3Bln != null && (
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                    Pelunasan aktual {formatRp(Math.round(pelunasanAktual3Bln.perBulan))}/bln (periode {pelunasanAktual3Bln.period})
+                  </div>
+                )}
+              </div>
+              {growthPct3Bln != null ? (
+                <span className="text-sm font-semibold"
+                  style={{ color: growthPct3Bln > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                  {growthPct3Bln >= 0 ? "+" : ""}{growthPct3Bln.toFixed(1)}%
+                </span>
+              ) : (
+                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  Belum ada pelunasan PSSP 3 bln terakhir
+                </span>
               )}
             </div>
-            {growthPct3Bln != null ? (
-              <span className="text-sm font-semibold"
-                style={{ color: growthPct3Bln >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                {growthPct3Bln >= 0 ? "+" : ""}{growthPct3Bln.toFixed(1)}%
-              </span>
-            ) : (
-              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                Belum ada pelunasan PSSP 3 bln terakhir
-              </span>
+            {/* Same intensifikasi warning as Growth Estimasi above — previously
+                missing here entirely, and the color threshold was `>= 0` so an
+                exact 0% growth showed as green/"good" instead of flagging it
+                (2026-07-28 request). */}
+            {growthPct3Bln != null && (
+              <p className="text-xs font-semibold mt-1" style={{ color: growthPct3Bln > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+                {growthPct3Bln > 0
+                  ? "✓ Pelunasan sudah menunjukkan intensifikasi"
+                  : "⚠ Intensifikasi kurang — pelunasan belum naik dibanding periode sebelumnya"}
+              </p>
             )}
           </div>
         </div>
@@ -1052,7 +1150,13 @@ function ProdukEntryRow({
       </div>
 
       {/* Budget % per produk */}
-      <BudgetFieldsRow entry={entry} onChange={onChange} pengaliNilaiR={pengaliNilaiR} />
+      <BudgetFieldsRow
+        entry={entry}
+        onChange={onChange}
+        pengaliNilaiR={pengaliNilaiR}
+        pihakPssp={dokterFields.pihakPssp}
+        diskonPeriodeLabel={product ? resolveDiskonPeriodLabel(diskonList, diskonHistoryList, product.kodeProduk, dokterFields.periodeAwal) : null}
+      />
     </div>
   );
 }
@@ -1063,10 +1167,18 @@ function BudgetFieldsRow({
   entry,
   onChange,
   pengaliNilaiR,
+  pihakPssp,
+  diskonPeriodeLabel,
 }: {
   entry: ProdukEntry;
   onChange: (patch: Partial<ProdukEntry>) => void;
   pengaliNilaiR: number;
+  /** Customer-level now, not per-product — only relabels the field below. */
+  pihakPssp: string;
+  /** DPL/DPF contract period backing "% Diskon (DPL/DPF)"'s current value, or
+   * a "historis" note when no DPL contract covers this product+period — null
+   * when there's nothing on file at all (2026-07-28 request). */
+  diskonPeriodeLabel?: string | null;
 }) {
   const totalPct =
     (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiR +
@@ -1093,24 +1205,26 @@ function BudgetFieldsRow({
     <div className="space-y-2">
       <div className="grid grid-cols-3 gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pihak PSSP</span>
-          <select
-            value={entry.pihakPssp}
-            onChange={(e) => onChange({ pihakPssp: e.target.value })}
-            className="input-field text-xs">
-            <option value="USER">User</option>
-            <option value="KPDM">KPDM</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-            % PSSP {entry.pihakPssp === "KPDM" ? "KPDM" : "User"} (Nilai R)
+            % PSSP {pihakPssp === "KPDM" ? "KPDM" : "User"} (Nilai R)
           </span>
           <div style={{ opacity: 0.6, cursor: "not-allowed" }}>
             <UnitInput value={entry.persenPsspDokter} onChange={() => {}} unit="%" />
           </div>
         </label>
-        {numInput("% Diskon (DPL/DPF)", "persenDiskon")}
+        <label className="flex flex-col gap-1">
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>% Diskon (DPL/DPF)</span>
+          <UnitInput
+            value={entry.persenDiskon}
+            onChange={(v) => onChange({ persenDiskon: v })}
+            unit="%"
+            placeholder="0" />
+          {diskonPeriodeLabel && (
+            <span className="text-[10px] leading-tight" style={{ color: "var(--color-text-faint)" }}>
+              {diskonPeriodeLabel}
+            </span>
+          )}
+        </label>
         {numInput("% DP", "persenDp")}
         {numInput("% Listing Fee", "persenListingFee")}
         {numInput("% Entertain", "persenEntertain")}
@@ -1241,6 +1355,23 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
   const history = filtered.length > 0 ? filtered : allHistory;
   const isFiltered = filtered.length > 0 && filtered.length < allHistory.length;
 
+  // "PSSP ke-N" (2026-07-28 request) — this doctor's contracts numbered by
+  // chronological order (oldest = ke-1), computed from the FULL history
+  // (allHistory, not narrowed to the currently-selected outlet) so the
+  // number reflects the doctor's true lifetime sequence regardless of which
+  // outlet the MR happens to be planning for right now.
+  const allByContract = new Map<string, PsspKontrakSummary[]>();
+  for (const row of allHistory) {
+    const bucket = allByContract.get(row.cUrut) ?? [];
+    bucket.push(row);
+    allByContract.set(row.cUrut, bucket);
+  }
+  const psspKeByContract = new Map(
+    [...allByContract.entries()]
+      .sort((a, b) => a[1][0].prdAwal.localeCompare(b[1][0].prdAwal))
+      .map(([cUrut], i) => [cUrut, i + 1])
+  );
+
   // Group by cUrut
   const byContract = new Map<string, PsspKontrakSummary[]>();
   for (const row of history) {
@@ -1260,7 +1391,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
     (prdAkhir >= currentPeriod ? activeContracts : expiredContracts).push(entry);
   }
 
-  function ContractCard({ cUrut, rows, isActive }: { cUrut: string; rows: PsspKontrakSummary[]; isActive: boolean }) {
+  function ContractCard({ cUrut, rows, isActive, psspKe }: { cUrut: string; rows: PsspKontrakSummary[]; isActive: boolean; psspKe?: number }) {
     const first = rows[0];
     const biaya    = first.biaya;
     const sumEst   = rows.reduce((s, r) => s + r.estBaris, 0);
@@ -1294,6 +1425,12 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
+              {psspKe != null && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                  style={{ color: "var(--color-blue)", background: "var(--color-blue-light, #eff6ff)" }}>
+                  PSSP ke-{psspKe}
+                </span>
+              )}
               <span className="text-xs font-mono font-semibold" style={{ color: "var(--color-text)" }}>{cUrut}</span>
               <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
                 {first.prdAwal} - {first.prdAkhir}
@@ -1374,7 +1511,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
           <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-blue)" }}>
             Aktif ({activeContracts.length})
           </p>
-          {activeContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} isActive />)}
+          {activeContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} isActive psspKe={psspKeByContract.get(cUrut)} />)}
         </div>
       )}
       {expiredContracts.length > 0 && (
@@ -1382,7 +1519,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
           <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
             Selesai ({expiredContracts.length})
           </p>
-          {expiredContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} isActive={false} />)}
+          {expiredContracts.map(([cUrut, rows]) => <ContractCard key={cUrut} cUrut={cUrut} rows={rows} isActive={false} psspKe={psspKeByContract.get(cUrut)} />)}
         </div>
       )}
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
@@ -1583,7 +1720,7 @@ function KriteriaSectionList({ items }: {
               </span>
             )}
             {it.isFokus && (
-              <span title="Produk Fokus PM" style={{ color: "var(--color-blue)", flexShrink: 0 }}>
+              <span title="Produk Fokus PM" style={{ color: "var(--color-blue)", flexShrink: 0, fontSize: 15, fontWeight: 700 }}>
                 ★
               </span>
             )}
@@ -1661,22 +1798,55 @@ function KriteriaProdukPanel({
   const kriteriaMap = new Map<string, string>();
   for (const k of kriteriaList ?? []) kriteriaMap.set(k.kodeProduk, k.kriteriaBaru);
 
-  const fokusPM: Product[] = [];
-  const pernahPssp: { p: Product; pct: number }[] = [];
-  const listingSales: Product[] = [];
-  const listingNoSales: Product[] = [];
+  // Two distinct kodeProduk SKUs (e.g. different pack sizes) can share the
+  // same namaProduk — Product.namaProduk has no unique constraint. Left
+  // undeduped, that made every name-keyed section below (starting with
+  // "Produk Fokus PM") show what looked like the same product listed twice
+  // (2026-07-28 bug report). Dedupe by normalized name, keeping the first
+  // occurrence — `products` is already tier/name-sorted by the caller.
+  const seenNames = new Set<string>();
+  function dedupeByNamaProduk(list: Product[]): Product[] {
+    return list.filter((p) => {
+      const norm = p.namaProduk.toLowerCase().trim();
+      if (seenNames.has(norm)) return false;
+      seenNames.add(norm);
+      return true;
+    });
+  }
+
+  const fokusPMRaw: Product[] = [];
+  const pernahPsspRaw: { p: Product; pct: number }[] = [];
+  const listingSalesRaw: Product[] = [];
+  const listingNoSalesRaw: Product[] = [];
 
   for (const p of products) {
-    if (matchedPakets.length > 0 && getProductTier(p.namaProduk, matchedPakets) === 0) fokusPM.push(p);
+    if (matchedPakets.length > 0 && getProductTier(p.namaProduk, matchedPakets) === 0) fokusPMRaw.push(p);
 
     const pct = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
-    if (pct != null) pernahPssp.push({ p, pct });
+    if (pct != null) pernahPsspRaw.push({ p, pct });
 
     const kriteria = kriteriaMap.get(p.kodeProduk);
     if (kriteria?.startsWith("Produk Sudah Terstandarisasi")) {
-      (kriteria.includes("Tidak Ada Sales") ? listingNoSales : listingSales).push(p);
+      (kriteria.includes("Tidak Ada Sales") ? listingNoSalesRaw : listingSalesRaw).push(p);
     }
   }
+
+  // Dedupe in the same priority order sections render (Pernah PSSP first, so
+  // a name that qualifies for both "Pernah PSSP" and "Produk Fokus PM" keeps
+  // its higher-priority slot and doesn't also duplicate into the next section).
+  const pernahPsspSeen = new Set<string>();
+  const pernahPssp = pernahPsspRaw
+    .sort((a, b) => b.pct - a.pct)
+    .filter(({ p }) => {
+      const norm = p.namaProduk.toLowerCase().trim();
+      if (pernahPsspSeen.has(norm)) return false;
+      pernahPsspSeen.add(norm);
+      seenNames.add(norm);
+      return true;
+    });
+  const fokusPM = dedupeByNamaProduk(fokusPMRaw);
+  const listingSales = dedupeByNamaProduk(listingSalesRaw);
+  const listingNoSales = dedupeByNamaProduk(listingNoSalesRaw);
 
   // Order requested 2026-07-27: Pernah PSSP (sort pelunasan terbaik) -> Produk
   // Fokus PM -> Produk Survey, then the two Listing Corporate sections kept
@@ -1685,7 +1855,7 @@ function KriteriaProdukPanel({
   const allSections: Section[] = [
     {
       title: "Pernah PSSP", color: "green",
-      items: [...pernahPssp].sort((a, b) => b.pct - a.pct).map(({ p, pct }) => ({
+      items: pernahPssp.map(({ p, pct }) => ({
         key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk),
         badge: `${pct}%`, badgeColor: pct >= 80 ? "green" : pct >= 40 ? "yellow" : "red",
       })),
@@ -2063,8 +2233,11 @@ function AddPanel({
       const prdAkhirDist = psspStatus ? Math.abs(yyyymmIndex(psspStatus.latestPrdAkhir) - quarterEndIndex) : null;
       // Periode PSSP terakhir shown regardless of Berjalan/Selesai (2026-07-27
       // request) — same raw YYYYMM range convention as ContractCard above.
+      // "ke-N" prefix (2026-07-28 request) mirrors the sidebar's per-contract
+      // "PSSP ke-N" badge, so this doctor's contract sequence is visible
+      // before even opening the sidebar.
       const psspPeriodLabel = psspStatus
-        ? `PSSP ${psspStatus.latestPrdAwal}-${psspStatus.latestPrdAkhir} (${psspStatus.isActive ? "Berjalan" : "Selesai"})`
+        ? `PSSP ke-${psspStatus.psspKe} ${psspStatus.latestPrdAwal}-${psspStatus.latestPrdAkhir} (${psspStatus.isActive ? "Berjalan" : "Selesai"})`
         : null;
       return {
         value: c.id, label: c.namaCustomer,
@@ -2302,7 +2475,7 @@ function AddPanel({
     fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
-    fd.set("pihakPssp", entry.pihakPssp);
+    fd.set("pihakPssp", dokterFields.pihakPssp);
     fd.set("jenisPsSp", dokterFields.jenisPsSp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
@@ -2313,7 +2486,7 @@ function AddPanel({
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
     const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeLatestEstPerMonth(psspHistory, product.namaProduk) : null;
-    const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
+    const rasio = perBulan > 0 && oldEst && oldEst.perBulan > 0 ? perBulan / oldEst.perBulan : null;
     fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
   }
@@ -2457,7 +2630,7 @@ function AddPanel({
           <div className="flex items-center justify-between gap-2 mb-2">
             <SectionLabel>Produk yang Dipromosikan</SectionLabel>
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              <span style={{ color: "var(--color-blue)" }}>★</span> = Produk Fokus
+              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Fokus
             </span>
           </div>
           <div className="space-y-2">
@@ -2505,16 +2678,32 @@ function AddPanel({
             if (!p) continue;
             const old = computeLatestEstPerMonth(psspHistory, p.namaProduk);
             if (old == null) continue;
-            totalOldEstPerMonth += old; hasOldEst = true;
+            totalOldEstPerMonth += old.perBulan; hasOldEst = true;
           }
           const growthEstimasiTotalPct = hasOldEst && totalOldEstPerMonth > 0
             ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
           return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              Total Semua Produk
-            </p>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Total Semua Produk
+              </p>
+              {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
+                  fields at the top of the form) — customer-level, shared across
+                  every product for this doctor. */}
+              <label className="flex items-center gap-2">
+                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
+                <div style={{ width: 110 }}>
+                  <UnitInput
+                    value={dokterFields.pengaliNilaiR}
+                    onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
+                    unit="x"
+                    placeholder="1"
+                    step={0.1} />
+                </div>
+              </label>
+            </div>
             <div className="flex gap-6 flex-wrap items-start">
               <div>
                 <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Estimasi Sales</div>
@@ -2577,10 +2766,11 @@ function AddPanel({
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "26%" }} />
-                  <col style={{ width: "11%" }} />
-                  <col style={{ width: "14%" }} />
-                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "10%" }} />
                   <col style={{ width: "17.5%" }} />
                   <col style={{ width: "17.5%" }} />
                 </colgroup>
@@ -2590,6 +2780,7 @@ function AddPanel({
                     <th className="text-right font-medium pb-1">Qty</th>
                     <th className="text-right font-medium pb-1">Estimasi</th>
                     <th className="text-right font-medium pb-1">Nilai PSSP</th>
+                    <th className="text-right font-medium pb-1">% Budget</th>
                     <th className="text-right font-medium pb-1">Growth Estimasi</th>
                     <th className="text-right font-medium pb-1">Growth Pelunasan</th>
                   </tr>
@@ -2602,9 +2793,16 @@ function AddPanel({
                     const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
+                    const pengaliNilaiRProduk = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
                     const nilaiPSSP = nilaiRPersen != null
-                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(dokterFields.pengaliNilaiR))
+                      ? Math.round(estimasiTotal * nilaiRPersen * pengaliNilaiRProduk)
                       : null;
+                    // % Budget per produk (2026-07-28 request) — same formula as
+                    // totalPctBudget's per-entry weight above, just shown per row
+                    // instead of only as one blended total.
+                    const pctBudgetProduk = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiRProduk
+                      + [entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+                        .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
                     // Per-product Growth Estimasi/Pelunasan — same formulas as the
                     // per-product calculator card above (ProdukEntryRow), just
                     // re-derived here since this table works off the whole
@@ -2612,20 +2810,20 @@ function AddPanel({
                     const perBulanProduk = lama > 0 ? estimasiTotal / lama : 0;
                     const oldEstProduk = (psspHistory && psspHistory.length > 0)
                       ? computeLatestEstPerMonth(psspHistory, p.namaProduk) : null;
-                    const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk > 0)
-                      ? (perBulanProduk / oldEstProduk - 1) * 100 : null;
+                    const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk.perBulan > 0)
+                      ? (perBulanProduk / oldEstProduk.perBulan - 1) * 100 : null;
                     const pelunasanProduk = (psspHistory && psspHistory.length > 0)
                       ? computePelunasanAktualPerMonth(psspHistory, p.namaProduk) : null;
-                    const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk > 0)
-                      ? (perBulanProduk / pelunasanProduk - 1) * 100 : null;
+                    const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk.perBulan > 0)
+                      ? (perBulanProduk / pelunasanProduk.perBulan - 1) * 100 : null;
                     return (
                       <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
-                          {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
+                          {isFokus && <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★ </span>}
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} SJ` : "-"}
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} ${satuanLabel(p)}` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
                           {estimasiTotal > 0 ? formatRp(estimasiTotal) : "-"}
@@ -2634,14 +2832,25 @@ function AddPanel({
                           {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
-                          title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
-                            ? "Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
-                            : "Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
+                          style={{ color: pctBudgetProduk > 42.5 ? "var(--color-red)" : "var(--color-text-faint)" }}>
+                          {pctBudgetProduk > 0 ? `${pctBudgetProduk.toFixed(1)}%` : "-"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums"
+                          title={growthEstimasiPct == null ? undefined : oldEstProduk
+                            ? `vs PSSP periode ${oldEstProduk.period}${growthEstimasiPct > 0
+                              ? " — sudah menunjukkan intensifikasi, pastikan nilainya sudah tepat"
+                              : " — intensifikasi kurang, belum naik dibanding periode ini"}`
+                            : undefined}
                           style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
-                          style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          title={growthPelunasanPct == null ? undefined : pelunasanProduk
+                            ? `vs PSSP periode ${pelunasanProduk.period}${growthPelunasanPct > 0
+                              ? " — sudah menunjukkan intensifikasi"
+                              : " — intensifikasi kurang, belum naik dibanding periode ini"}`
+                            : undefined}
+                          style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "-"}
                         </td>
                       </tr>
@@ -2850,7 +3059,7 @@ function AddDokterBaruPanel({
 // ─── AddProductPanel (tambah produk ke dokter existing) ───────────────────────
 
 function AddProductPanel({
-  poaId, poaPeriod, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, existingPengaliNilaiR, onCancel,
+  poaId, poaPeriod, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, existingPengaliNilaiR, existingPihakPssp, onCancel,
 }: {
   poaId: string; poaPeriod: string; products: Product[];
   kodePI: string; namaOutlet: string;
@@ -2859,11 +3068,14 @@ function AddProductPanel({
   /** This doctor's existing (shared) Pengali Nilai R — the new product must
    * join it, not diverge on its own. */
   existingPengaliNilaiR: string;
+  /** Same idea as existingPengaliNilaiR — this doctor's existing Pihak PSSP. */
+  existingPihakPssp: string;
   onCancel: () => void;
 }) {
   const [dokterFields, setDokterFields] = useState<DokterFields>({
     ...emptyDokterFields(defaultPeriode),
     pengaliNilaiR: existingPengaliNilaiR,
+    pihakPssp: existingPihakPssp,
   });
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
   const [labelCustomer, setLabelCustomer] = useState("");
@@ -2914,7 +3126,7 @@ function AddProductPanel({
     fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
-    fd.set("pihakPssp", entry.pihakPssp);
+    fd.set("pihakPssp", dokterFields.pihakPssp);
     fd.set("jenisPsSp", dokterFields.jenisPsSp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
@@ -2925,7 +3137,7 @@ function AddProductPanel({
     fd.set("rencanaTotalBiaya", String(totalBiayaAP));
     const perBulanAP = dokterFields.lamaPeriode > 0 ? totalBiayaAP / dokterFields.lamaPeriode : 0;
     const oldEstAP = (product && psspHistory && psspHistory.length > 0) ? computeLatestEstPerMonth(psspHistory, product.namaProduk) : null;
-    const rasioAP = perBulanAP > 0 && oldEstAP && oldEstAP > 0 ? perBulanAP / oldEstAP : null;
+    const rasioAP = perBulanAP > 0 && oldEstAP && oldEstAP.perBulan > 0 ? perBulanAP / oldEstAP.perBulan : null;
     fd.set("rasioEstimasiGrowth", rasioAP != null ? rasioAP.toFixed(4) : "");
     return fd;
   }
@@ -2996,14 +3208,14 @@ function AddProductPanel({
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
-          showPengaliNilaiR={false}
+          showCustomerLevelFields={false}
         />
 
         <div>
           <div className="flex items-center justify-between gap-2 mb-2">
             <SectionLabel>Produk yang Dipromosikan</SectionLabel>
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              <span style={{ color: "var(--color-blue)" }}>★</span> = Produk Fokus
+              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Fokus
             </span>
           </div>
           <div className="space-y-2">
@@ -3102,7 +3314,6 @@ function produkEntryFromItem(
     persenEntertain: item.persenEntertain ? (parseFloat(item.persenEntertain.toString()) * 100).toFixed(2) : "",
     // Only surface Hari Praktek as an explicit override when it differs from the doctor's default.
     hariKerjaBulan: itemHari && itemHari !== doctorDefaultHariKerja ? itemHari : "",
-    pihakPssp: item.pihakPssp ?? "USER",
   };
 }
 
@@ -3124,6 +3335,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
     jenisPsSp: first.jenisPsSp ?? "",
     pengaliNilaiR: first.pengaliNilaiR?.toString() ?? "",
+    pihakPssp: first.pihakPssp ?? "USER",
   });
   const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
     () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? ""))
@@ -3221,7 +3433,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("jenisPssp", entry.jenisPssp);
     fd.set("persenPsspDokter", entry.persenPsspDokter);
     fd.set("persenPsspKpdm", entry.persenPsspKpdm);
-    fd.set("pihakPssp", entry.pihakPssp);
+    fd.set("pihakPssp", dokterFields.pihakPssp);
     fd.set("jenisPsSp", dokterFields.jenisPsSp);
     fd.set("persenDiskon", entry.persenDiskon);
     fd.set("persenDp", entry.persenDp);
@@ -3232,7 +3444,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     fd.set("rencanaTotalBiaya", String(totalBiaya));
     const perBulan = dokterFields.lamaPeriode > 0 ? totalBiaya / dokterFields.lamaPeriode : 0;
     const oldEst = (product && psspHistory && psspHistory.length > 0) ? computeLatestEstPerMonth(psspHistory, product.namaProduk) : null;
-    const rasio = perBulan > 0 && oldEst && oldEst > 0 ? perBulan / oldEst : null;
+    const rasio = perBulan > 0 && oldEst && oldEst.perBulan > 0 ? perBulan / oldEst.perBulan : null;
     fd.set("rasioEstimasiGrowth", rasio != null ? rasio.toFixed(4) : "");
     return fd;
   }
@@ -3316,7 +3528,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           <div className="flex items-center justify-between gap-2 mb-2">
             <SectionLabel>Produk yang Dipromosikan</SectionLabel>
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              <span style={{ color: "var(--color-blue)" }}>★</span> = Produk Fokus
+              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Fokus
             </span>
           </div>
           <div className="space-y-2">
@@ -3364,16 +3576,32 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
             if (!p) continue;
             const old = computeLatestEstPerMonth(psspHistory, p.namaProduk);
             if (old == null) continue;
-            totalOldEstPerMonth += old; hasOldEst = true;
+            totalOldEstPerMonth += old.perBulan; hasOldEst = true;
           }
           const growthEstimasiTotalPct = hasOldEst && totalOldEstPerMonth > 0
             ? (newPerMonth / totalOldEstPerMonth - 1) * 100 : null;
           return (
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              Total Semua Produk
-            </p>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Total Semua Produk
+              </p>
+              {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
+                  fields at the top of the form) — customer-level, shared across
+                  every product for this doctor. */}
+              <label className="flex items-center gap-2">
+                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
+                <div style={{ width: 110 }}>
+                  <UnitInput
+                    value={dokterFields.pengaliNilaiR}
+                    onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
+                    unit="x"
+                    placeholder="1"
+                    step={0.1} />
+                </div>
+              </label>
+            </div>
             <div className="flex gap-6 flex-wrap items-start">
               <div>
                 <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Estimasi Sales</div>
@@ -3436,10 +3664,11 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "26%" }} />
-                  <col style={{ width: "11%" }} />
-                  <col style={{ width: "14%" }} />
-                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "9%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "10%" }} />
                   <col style={{ width: "17.5%" }} />
                   <col style={{ width: "17.5%" }} />
                 </colgroup>
@@ -3449,6 +3678,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     <th className="text-right font-medium pb-1">Qty</th>
                     <th className="text-right font-medium pb-1">Estimasi</th>
                     <th className="text-right font-medium pb-1">Nilai PSSP</th>
+                    <th className="text-right font-medium pb-1">% Budget</th>
                     <th className="text-right font-medium pb-1">Growth Estimasi</th>
                     <th className="text-right font-medium pb-1">Growth Pelunasan</th>
                   </tr>
@@ -3461,9 +3691,16 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
+                    const pengaliNilaiRProduk = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
                     const nilaiPSSP = nilaiRPersen != null
-                      ? Math.round(estimasiTotal * nilaiRPersen * resolvePengaliNilaiR(dokterFields.pengaliNilaiR))
+                      ? Math.round(estimasiTotal * nilaiRPersen * pengaliNilaiRProduk)
                       : null;
+                    // % Budget per produk (2026-07-28 request) — same formula as
+                    // totalPctBudget's per-entry weight above, just shown per row
+                    // instead of only as one blended total.
+                    const pctBudgetProduk = (parseFloat(entry.persenPsspDokter) || 0) * pengaliNilaiRProduk
+                      + [entry.persenDiskon, entry.persenDp, entry.persenListingFee, entry.persenEntertain]
+                        .reduce((sum, v) => sum + (parseFloat(v) || 0), 0);
                     // Per-product Growth Estimasi/Pelunasan — same formulas as the
                     // per-product calculator card above (ProdukEntryRow), just
                     // re-derived here since this table works off the whole
@@ -3471,20 +3708,20 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                     const perBulanProduk = lama > 0 ? estimasiTotal / lama : 0;
                     const oldEstProduk = (psspHistory && psspHistory.length > 0)
                       ? computeLatestEstPerMonth(psspHistory, p.namaProduk) : null;
-                    const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk > 0)
-                      ? (perBulanProduk / oldEstProduk - 1) * 100 : null;
+                    const growthEstimasiPct = (perBulanProduk > 0 && oldEstProduk != null && oldEstProduk.perBulan > 0)
+                      ? (perBulanProduk / oldEstProduk.perBulan - 1) * 100 : null;
                     const pelunasanProduk = (psspHistory && psspHistory.length > 0)
                       ? computePelunasanAktualPerMonth(psspHistory, p.namaProduk) : null;
-                    const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk > 0)
-                      ? (perBulanProduk / pelunasanProduk - 1) * 100 : null;
+                    const growthPelunasanPct = (perBulanProduk > 0 && pelunasanProduk != null && pelunasanProduk.perBulan > 0)
+                      ? (perBulanProduk / pelunasanProduk.perBulan - 1) * 100 : null;
                     return (
                       <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
-                          {isFokus && <span style={{ color: "var(--color-blue)" }}>★ </span>}
+                          {isFokus && <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★ </span>}
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
-                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} SJ` : "-"}
+                          {qtyTotalUB > 0 ? `${qtyTotalUB.toLocaleString("id-ID")} ${satuanLabel(p)}` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
                           {estimasiTotal > 0 ? formatRp(estimasiTotal) : "-"}
@@ -3493,14 +3730,25 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
                           {nilaiPSSP != null && nilaiPSSP > 0 ? formatRp(nilaiPSSP) : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
-                          title={growthEstimasiPct == null ? undefined : growthEstimasiPct > 0
-                            ? "Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
-                            : "Estimasi belum menunjukkan intensifikasi dibanding PSSP sebelumnya"}
+                          style={{ color: pctBudgetProduk > 42.5 ? "var(--color-red)" : "var(--color-text-faint)" }}>
+                          {pctBudgetProduk > 0 ? `${pctBudgetProduk.toFixed(1)}%` : "-"}
+                        </td>
+                        <td className="py-1 text-right tabular-nums"
+                          title={growthEstimasiPct == null ? undefined : oldEstProduk
+                            ? `vs PSSP periode ${oldEstProduk.period}${growthEstimasiPct > 0
+                              ? " — sudah menunjukkan intensifikasi, pastikan nilainya sudah tepat"
+                              : " — intensifikasi kurang, belum naik dibanding periode ini"}`
+                            : undefined}
                           style={{ color: growthEstimasiPct == null ? "var(--color-text-faint)" : growthEstimasiPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthEstimasiPct != null ? `${growthEstimasiPct >= 0 ? "+" : ""}${growthEstimasiPct.toFixed(1)}%` : "-"}
                         </td>
                         <td className="py-1 text-right tabular-nums"
-                          style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                          title={growthPelunasanPct == null ? undefined : pelunasanProduk
+                            ? `vs PSSP periode ${pelunasanProduk.period}${growthPelunasanPct > 0
+                              ? " — sudah menunjukkan intensifikasi"
+                              : " — intensifikasi kurang, belum naik dibanding periode ini"}`
+                            : undefined}
+                          style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "-"}
                         </td>
                       </tr>
@@ -3764,6 +4012,7 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
                           spesialisasi={addingProductFor.spesialisasi}
                           defaultPeriode={addingProductFor.defaultPeriode}
                           existingPengaliNilaiR={custItems[0]?.pengaliNilaiR?.toString() ?? ""}
+                          existingPihakPssp={custItems[0]?.pihakPssp ?? "USER"}
                           onCancel={() => setAddingProductFor(null)}
                         />
                       )}

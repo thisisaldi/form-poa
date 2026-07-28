@@ -13,7 +13,7 @@ import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
 import { computePeriodeAkhir } from "@/lib/poaUtils";
 import { getAllPakets } from "@/lib/paketProduk";
-import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, type PsspKontrakSummary } from "@/app/actions/customer";
+import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getSurveyRekomendasiByOutlet, type PsspKontrakSummary } from "@/app/actions/customer";
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
@@ -166,6 +166,17 @@ export async function GET(
     pengisianItems.map((it: PoaLineItem) => it.kodeCust).filter((k): k is string => !!k)
   )) {
     psspHistoryMap.set(kodeCust, await getPsspHistory(kodeCust));
+  }
+  // Survey recommendations per (kodeCust, kodePI) — for the "Status Produk
+  // Rekomendasi" column's "Produk Survey" bucket, same source as the
+  // "Produk Survey" section of the sidebar's Kriteria Produk panel.
+  const surveyByOutletMap = new Map<string, Set<string>>();
+  for (const it of pengisianItems) {
+    if (!it.kodeCust || !it.kodePI) continue;
+    const key = `${it.kodeCust}|${it.kodePI}`;
+    if (surveyByOutletMap.has(key)) continue;
+    const rows = await getSurveyRekomendasiByOutlet(it.kodeCust, it.kodePI);
+    surveyByOutletMap.set(key, new Set(rows.map((r) => r.kodeProduk)));
   }
 
   // ─── Approval history (for the Pengisian "Approval SM/NSM" columns + Audit Log sheet) ──
@@ -351,6 +362,9 @@ export async function GET(
     { header: "Warning/ Tagging", key: "warning", width: 16 },
     { header: "Approval SM", key: "approvalSm", width: 22 },
     { header: "Approval NSM", key: "approvalNsm", width: 22 },
+    { header: "Status User", key: "statusUser", width: 12 },
+    { header: "Historis PSSP", key: "historisPssp", width: 16 },
+    { header: "Status Produk Rekomendasi", key: "statusProdukRekomendasi", width: 26 },
   ];
   formSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   formSheet.getRow(1).fill = {
@@ -414,6 +428,29 @@ export async function GET(
     const hospinetPct = hospinetByDoctor.get(`${item.kodePI ?? ""}|${item.namaCust.trim().toUpperCase()}`)?.rr ?? null;
     const pelunasanPct = history.length > 0 ? computePelunasanPct(history) : hospinetPct;
     const estimasiSebelumnya = computeOldEstPerMonth(history, item.namaProduk);
+
+    // Status User: Retensi/Baru — "Baru" only when this customer has never had
+    // any PSSP contract on record; everyone else counts as Retensi.
+    const statusUser = history.length === 0 ? "Baru" : "Retensi";
+    // Historis PSSP: total distinct contracts on record for this customer so
+    // far (same "PSSP ke-N" counting convention as PsspStatusByCustomer.psspKe
+    // in src/app/actions/customer.ts).
+    const historisPssp = history.length === 0
+      ? "Belum Pernah PSSP"
+      : `PSSP ke-${new Set(history.map((r) => r.cUrut)).size}`;
+    // Status Produk Rekomendasi — same priority order as the sidebar's Kriteria
+    // Produk panel (Pernah PSSP -> Produk Fokus PM -> Produk Survey -> Lainnya).
+    const namaProdukNorm = item.namaProduk.toLowerCase().trim();
+    const surveyKodeProduk = item.kodeCust && item.kodePI
+      ? surveyByOutletMap.get(`${item.kodeCust}|${item.kodePI}`)
+      : undefined;
+    const statusProdukRekomendasi = history.some((r) => r.nmProduk?.toLowerCase().trim() === namaProdukNorm)
+      ? "Pernah PSSP"
+      : getAllPakets(item.namaProduk).length > 0
+      ? "Produk Fokus Rekomendasi PM"
+      : surveyKodeProduk?.has(item.kodeProduk)
+      ? "Produk Survey"
+      : "Lainnya";
 
     const hna = product ? parseFloat(product.hna.toString()) : 0;
     const jumlahSJ = hna > 0 ? v.estimasiPeriode / hna : null;
@@ -480,6 +517,9 @@ export async function GET(
       warning: totalPersenBudget > 0.425 ? "OVER BUDGET" : totalPersenBudget > 0 ? "SAFE" : "-",
       approvalSm,
       approvalNsm,
+      statusUser,
+      historisPssp,
+      statusProdukRekomendasi,
     });
 
     for (const key2 of ["pelunasanSebelumnya", "nilaiR", "persenPsspUser", "persenDiskon", "persenDp", "persenListingFee", "persenEntertain", "totalPersenBudget"]) {
