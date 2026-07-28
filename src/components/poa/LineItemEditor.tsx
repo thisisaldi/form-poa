@@ -493,7 +493,7 @@ function periodeAwalFormatError(periodeAwal: string, poaPeriod: string): string 
   return null;
 }
 
-function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, showCustomerLevelFields = true }: {
+function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, bentukPsspError, showCustomerLevelFields = true }: {
   fields: DokterFields;
   onChange: (patch: Partial<DokterFields>) => void;
   poaPeriod: string;
@@ -501,6 +501,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
   hariKerjaBulanError?: boolean;
   lamaPeriodeRequiredError?: boolean;
   jenisPsSpError?: boolean;
+  bentukPsspError?: boolean;
   /** False in "Tambah Produk" (adding one more product to an existing doctor)
    * — Pihak PSSP is shared across the whole doctor and silently inherited
    * there, so it's not surfaced at all; it can only be changed via "Edit
@@ -619,18 +620,21 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
             </div>
             {jenisPsSpError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
-          <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }}>
-            <span className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Jenis PSSP</span>
-            <select
-              value={fields.bentukPssp}
-              onChange={(e) => onChange({ bentukPssp: e.target.value })}
-              className="input-field w-full"
-              style={{ color: fields.bentukPssp ? "var(--color-text)" : "var(--color-text-faint)" }}>
-              <option value="">Pilih</option>
-              {Object.entries(BENTUK_PSSP_LABELS).map(([v, l]) => (
-                <option key={v} value={v}>{l}</option>
-              ))}
-            </select>
+          <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }} {...(bentukPsspError ? { "data-field-err": "true" } : {})}>
+            <span className="text-xs whitespace-nowrap" style={{ color: bentukPsspError ? "var(--color-red)" : "var(--color-text-muted)" }}>Jenis PSSP<Req /></span>
+            <div style={bentukPsspError ? ERR_RING : undefined}>
+              <select
+                value={fields.bentukPssp}
+                onChange={(e) => onChange({ bentukPssp: e.target.value })}
+                className="input-field w-full"
+                style={{ color: fields.bentukPssp ? "var(--color-text)" : "var(--color-text-faint)" }}>
+                <option value="">Pilih</option>
+                {Object.entries(BENTUK_PSSP_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+            {bentukPsspError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
           {showCustomerLevelFields && (
             <label className="flex flex-col gap-1 shrink-0" style={{ width: 120 }}>
@@ -2532,7 +2536,7 @@ function AddPanel({
     const hasErrors = !kodePI || !spesialisasi || !customerId || !dokterFields.periodeAwal
       || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12
-      || !dokterFields.jenisPsSp
+      || !dokterFields.jenisPsSp || !dokterFields.bentukPssp
       || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep || !p.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
@@ -2643,6 +2647,16 @@ function AddPanel({
                 )}
                 <span><span style={{ color: "var(--color-text-faint)" }}>Spesialisasi:</span> {spesLabel(selectedCustomer.spesialisasi)}</span>
                 <span><span style={{ color: "var(--color-text-faint)" }}>Kategori:</span> {selectedCustomer.spesialisasi.toLowerCase().includes("spesialis") ? "Dokter Spesialis" : "Dokter Umum"}</span>
+                {(() => {
+                  const psspStatus = selectedCustomer.kodeCustomer ? psspStatusByCust.get(selectedCustomer.kodeCustomer) : undefined;
+                  if (!psspStatus) return null;
+                  return (
+                    <span>
+                      <span style={{ color: "var(--color-text-faint)" }}>PSSP:</span>{" "}
+                      PSSP ke-{psspStatus.psspKe} · {psspStatus.latestPrdAwal}-{psspStatus.latestPrdAkhir} ({psspStatus.isActive ? "Berjalan" : "Selesai"})
+                    </span>
+                  );
+                })()}
                 {selectedCustomer.isFokus && <span style={{ color: "var(--color-blue)" }}>⭐ Rekomendasi PM</span>}
                 {labelCustomer && <LabelCustomerBadge label={labelCustomer} />}
               </div>
@@ -2659,6 +2673,7 @@ function AddPanel({
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
+          bentukPsspError={attempted && !dokterFields.bentukPssp}
         />
 
         {/* Products */}
@@ -3184,7 +3199,7 @@ function AddProductPanel({
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
-      || !dokterFields.jenisPsSp
+      || !dokterFields.jenisPsSp || !dokterFields.bentukPssp
       || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep || !e.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
@@ -3245,6 +3260,7 @@ function AddProductPanel({
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
+          bentukPsspError={attempted && !dokterFields.bentukPssp}
           showCustomerLevelFields={false}
         />
 
@@ -3493,7 +3509,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
-      || !dokterFields.jenisPsSp
+      || !dokterFields.jenisPsSp || !dokterFields.bentukPssp
       || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep || !e.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
@@ -3561,6 +3577,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
+          bentukPsspError={attempted && !dokterFields.bentukPssp}
         />
 
         <div>
