@@ -12,6 +12,7 @@ import { displayRole } from "@/lib/role";
 import Link from "next/link";
 import {
   createUserAction, updateUserAction, renameUserNipAction, deleteUserAction, searchUsersAction, type UserRow,
+  createDummyChainAction,
   createOutletAction, updateOutletAction, deleteOutletAction, searchOutletsAction, type OutletRow,
   createProductAction, updateProductAction, deleteProductAction, searchProductsAction, type ProductRow,
   updateCustomerAction, deleteCustomerAction, searchCustomersAction, type CustomerRow,
@@ -73,6 +74,73 @@ function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => 
       <button type="button" onClick={onEdit} className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>Edit</button>
       <button type="button" onClick={onDelete} className="text-xs font-medium" style={{ color: "var(--color-red)" }}>Hapus</button>
     </div>
+  );
+}
+
+// ─── Buat Akun Dummy (MR/ASM/SM/NSM chain) ──────────────────────────────────
+// Admin-UI version of scripts/generateDummyAccounts.ts / addNationalDummyUsers.ts
+// (2026-07-28 request) — one reference NIP's digit suffix generates a
+// self-contained MR/ASM/SM/NSM chain, isDummy=true (national/all-outlet
+// access). "Bisa login" sets isActive, the only thing that actually gates
+// login now (see verifyNip in src/lib/auth.ts).
+
+function DummyChainCard() {
+  const [refNip, setRefNip] = useState("");
+  const [name, setName] = useState("");
+  const [loginable, setLoginable] = useState(true);
+  const [attempted, setAttempted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!refNip.trim() || !name.trim()) { setAttempted(true); return; }
+    setError(null); setNotice(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("refNip", refNip.trim());
+      fd.set("name", name.trim());
+      fd.set("loginable", loginable ? "true" : "false");
+      const result = await createDummyChainAction(fd);
+      if (result.ok) {
+        setNotice(`Berhasil dibuat/diupdate: ${result.nips?.join(", ")}`);
+        setRefNip(""); setName(""); setAttempted(false);
+      } else {
+        setError(result.error ?? "Gagal membuat akun dummy.");
+      }
+    });
+  }
+
+  return (
+    <Card>
+      <p className="font-semibold text-sm mb-1" style={{ color: "var(--color-text)" }}>Buat Akun Dummy (MR/ASM/SM/NSM)</p>
+      <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
+        Masukkan NIP acuan (angka di belakangnya dipakai sebagai suffix) dan nama — otomatis dibuat 4 akun berjenjang
+        MR/ASM/SM/NSM+angka tersebut, semuanya isDummy (bisa akses semua outlet secara nasional).
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {error && <p className="text-sm px-3 py-2 rounded-md" style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>}
+        {notice && <p className="text-sm px-3 py-2 rounded-md" style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}>{notice}</p>}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="NIP Acuan" required attempted={attempted} invalid={!refNip.trim()}>
+            <input type="text" value={refNip} onChange={(e) => setRefNip(e.target.value)}
+              placeholder="mis. P090282" className="input-field w-full" />
+          </Field>
+          <Field label="Nama" required attempted={attempted} invalid={!name.trim()}>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+              placeholder="Nama lengkap" className="input-field w-full" />
+          </Field>
+        </div>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={loginable} onChange={(e) => setLoginable(e.target.checked)} className="rounded" />
+          <span style={{ color: "var(--color-text-muted)" }}>Bisa login</span>
+        </label>
+        <Button type="submit" size="sm" disabled={isPending}>
+          {isPending ? "Membuat…" : "Buat 4 Akun"}
+        </Button>
+      </form>
+    </Card>
   );
 }
 
@@ -202,7 +270,7 @@ function UserTab() {
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" checked={form.isDummy} onChange={(e) => setForm({ ...form, isDummy: e.target.checked })} className="rounded" />
                   <span style={{ color: "var(--color-text-muted)" }}>
-                    Dummy <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>(NIP belum terverifikasi - tidak bisa login)</span>
+                    Dummy <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>(bisa akses semua outlet — login diatur lewat &quot;Aktif&quot;)</span>
                   </span>
                 </label>
               </div>
@@ -217,6 +285,8 @@ function UserTab() {
         </form>
       </Card>
 
+      <DummyChainCard />
+
       <Card>
         <p className="font-semibold text-sm mb-3" style={{ color: "var(--color-text)" }}>Cari / Kelola User</p>
         <SearchBox query={query} onQueryChange={setQuery} onSearch={runSearch} searching={searching} placeholder="Cari NIP atau nama…" />
@@ -226,7 +296,7 @@ function UserTab() {
             <div key={r.nip} className="flex items-center justify-between gap-2 py-2 text-sm">
               <div className="min-w-0">
                 <p className="truncate" style={{ color: "var(--color-text)" }}>{r.name} <span style={{ color: "var(--color-text-faint)" }}>({r.nip})</span></p>
-                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{displayRole(r.role, r.jabatan)}{!r.isActive && " · nonaktif"}{r.isDummy && " · dummy (tidak bisa login)"}</p>
+                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{displayRole(r.role, r.jabatan)}{!r.isActive && " · nonaktif (tidak bisa login)"}{r.isDummy && " · dummy"}</p>
               </div>
               <RowActions onEdit={() => startEdit(r)} onDelete={() => setToDelete(r)} />
             </div>

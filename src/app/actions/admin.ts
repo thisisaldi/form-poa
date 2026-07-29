@@ -164,6 +164,67 @@ export async function deleteUserAction(nip: string): Promise<AdminActionResult> 
   }
 }
 
+export interface DummyChainResult extends AdminActionResult {
+  /** The 4 NIPs created/updated, in NSM→MR order, when ok. */
+  nips?: string[];
+}
+
+/**
+ * Creates a self-contained MR → ASM → SM → NSM dummy account chain from one
+ * reference NIP — same convention as scripts/generateDummyAccounts.ts /
+ * addNationalDummyUsers.ts (prefix + the reference NIP's digit suffix), now
+ * exposed as an admin UI action instead of a one-off script (2026-07-28
+ * request). isDummy=true on all 4 (grants national/all-outlet access — see
+ * getOutletsByUser/canCreatePoa); `loginable` sets isActive, which is what
+ * actually gates login (see verifyNip in src/lib/auth.ts) — isDummy itself
+ * no longer blocks login.
+ */
+export async function createDummyChainAction(formData: FormData): Promise<DummyChainResult> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return authCheck;
+
+  const refNip = str(formData, "refNip");
+  const name = str(formData, "name");
+  const loginable = formData.get("loginable") === "true";
+
+  if (!refNip || !name) return { ok: false, error: "NIP acuan dan nama wajib diisi." };
+
+  const digits = refNip.replace(/^[A-Za-z]+/, "");
+  if (!/^\d{4,}$/.test(digits)) {
+    return { ok: false, error: "NIP acuan harus diakhiri minimal 4 digit angka (mis. P090282)." };
+  }
+
+  const ROLE_PREFIXES: { prefix: string; role: Role }[] = [
+    { prefix: "NSM", role: Role.NSM },
+    { prefix: "SM", role: Role.SM },
+    { prefix: "ASM", role: Role.ASM },
+    { prefix: "MR", role: Role.MR },
+  ];
+
+  const nips = ROLE_PREFIXES.map(({ prefix }) => `${prefix}${digits}`);
+  const conflicts = await prisma.user.findMany({
+    where: { nip: { in: nips } },
+    select: { nip: true, name: true, isDummy: true },
+  });
+  const realConflict = conflicts.find((c: { nip: string; name: string; isDummy: boolean }) => !c.isDummy);
+  if (realConflict) {
+    return { ok: false, error: `${realConflict.nip} sudah dipakai oleh akun asli (${realConflict.name}) — pilih NIP acuan lain.` };
+  }
+
+  let prevNip: string | null = null;
+  for (const { prefix, role } of ROLE_PREFIXES) {
+    const nip = `${prefix}${digits}`;
+    await prisma.user.upsert({
+      where: { nip },
+      create: { nip, name, role, nipAtasan: prevNip, isActive: loginable, isDummy: true },
+      update: { name, role, nipAtasan: prevNip, isActive: loginable, isDummy: true },
+    });
+    prevNip = nip;
+  }
+
+  return { ok: true, nips };
+}
+
 /** Add a new outlet. */
 export async function createOutletAction(formData: FormData): Promise<AdminActionResult> {
   const authCheck = await requireAdmin();
