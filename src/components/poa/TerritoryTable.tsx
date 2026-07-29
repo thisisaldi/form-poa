@@ -2,9 +2,9 @@ import type { MonitoringGroup } from "@/components/poa/MonitoringChecklist";
 import { Card } from "@/components/ui/Card";
 
 function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `Rp ${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return "Rp " + Math.round(n).toLocaleString("id-ID");
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return Math.round(n).toLocaleString("id-ID");
 }
 
 type Variant = "outlet" | "customer" | "produk" | "mr";

@@ -19,15 +19,15 @@ import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `Rp ${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000) return `Rp ${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return Math.round(n).toLocaleString("id-ID");
 }
 
-// Nilai PSSP displays in "Rb" (e.g. 3.000.000 → "Rp 3 Rb").
+// Nilai PSSP displays in "Rb" (e.g. 3.000.000 → "3 Rb").
 export function formatRpPssp(n: number) {
-  if (n >= 1_000_000) return `Rp ${Math.round(n / 1_000_000).toLocaleString("id-ID")} Rb`;
-  return `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+  if (n >= 1_000_000) return `${Math.round(n / 1_000_000).toLocaleString("id-ID")} Rb`;
+  return Math.round(n).toLocaleString("id-ID");
 }
 
 // Masks a doctor's name for the draft view: keeps every other character, replaces the rest with X.
