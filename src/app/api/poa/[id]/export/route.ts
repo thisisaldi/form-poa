@@ -22,6 +22,14 @@ const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   TIDAK_TAHU: "Tidak Tahu",
 };
 
+// "Jenis PSSP" export label — see BentukPssp enum (schema.prisma) / the
+// "Jenis PSSP" dropdown next to PS/SP in LineItemEditor.tsx.
+const BENTUK_PSSP_LABELS: Record<string, string> = {
+  CASH: "Cash",
+  BARANG: "Barang",
+  JASA: "Jasa",
+};
+
 // Fraction of the most recent PSSP contract (active if any, else most recent expired) that has been paid off.
 // Mirrors the pct used by computeLabelCustomer() in LineItemEditor.tsx.
 function computePelunasanPct(history: PsspKontrakSummary[]): number | null {
@@ -398,7 +406,8 @@ export async function GET(
     { header: "Approval NSM", key: "approvalNsm", width: 22 },
     { header: "Status User", key: "statusUser", width: 12 },
     { header: "Historis PSSP", key: "historisPssp", width: 16 },
-    { header: "Status Produk Rekomendasi", key: "statusProdukRekomendasi", width: 26 },
+    { header: "Jenis PSSP", key: "jenisPsspBentuk", width: 12 },
+    { header: "Keterangan Produk", key: "statusProdukRekomendasi", width: 26 },
   ];
   formSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   formSheet.getRow(1).fill = {
@@ -472,8 +481,11 @@ export async function GET(
     const historisPssp = history.length === 0
       ? "Belum Pernah PSSP"
       : `PSSP ke-${new Set(history.map((r) => r.cUrut)).size}`;
-    // Status Produk Rekomendasi — same priority order as the sidebar's Kriteria
-    // Produk panel (Pernah PSSP -> Produk Fokus PM -> Produk Survey -> Lainnya).
+    // Keterangan Produk — same priority order as the sidebar's Kriteria
+    // Produk panel (Pernah PSSP -> Produk Fokus PM -> Produk Survey ->
+    // Corporate Listing -> Lainnya). "Corporate Listing" mirrors the
+    // KriteriaProdukPanel's own "Listing Corporate - Ada/Tidak Ada Sales"
+    // sections — same kriteriaProduk prefix check.
     const namaProdukNorm = item.namaProduk.toLowerCase().trim();
     const surveyKodeProduk = item.kodeCust && item.kodePI
       ? surveyByOutletMap.get(`${item.kodeCust}|${item.kodePI}`)
@@ -481,10 +493,13 @@ export async function GET(
     const statusProdukRekomendasi = history.some((r) => r.nmProduk?.toLowerCase().trim() === namaProdukNorm)
       ? "Pernah PSSP"
       : getAllPakets(item.namaProduk).length > 0
-      ? "Produk Fokus Rekomendasi PM"
+      ? "PM"
       : surveyKodeProduk?.has(item.kodeProduk)
       ? "Produk Survey"
+      : item.kriteriaProduk?.startsWith("Produk Sudah Terstandarisasi")
+      ? "Corporate Listing"
       : "Lainnya";
+    const jenisPsspBentuk = item.bentukPssp ? BENTUK_PSSP_LABELS[item.bentukPssp] ?? item.bentukPssp : "-";
 
     const hna = product ? parseFloat(product.hna.toString()) : 0;
     const jumlahSJ = hna > 0 ? v.estimasiPeriode / hna : null;
@@ -557,6 +572,7 @@ export async function GET(
       approvalNsm,
       statusUser,
       historisPssp,
+      jenisPsspBentuk,
       statusProdukRekomendasi,
     });
 
