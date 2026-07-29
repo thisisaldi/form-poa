@@ -2570,10 +2570,14 @@ function AddPanel({
     setError(null);
     setProgress({ done: 0, total: validEntries.length });
     startTransition(async () => {
+      // Local counter (not React state — needs to be readable synchronously
+      // in the catch block below, unlike setProgress's async state update).
+      let savedCount = 0;
       try {
         for (let i = 0; i < validEntries.length; i++) {
           await addLineItemAction(poaId, buildFormData(validEntries[i]));
-          setProgress({ done: i + 1, total: validEntries.length });
+          savedCount++;
+          setProgress({ done: savedCount, total: validEntries.length });
         }
         setProgress(null);
         clearDraft();
@@ -2582,10 +2586,24 @@ function AddPanel({
           if (onSuccess) onSuccess(); else window.location.reload();
         }, 1200);
       } catch (err) {
+        // A product partway through the loop can fail (e.g. hits "produk
+        // sudah ada untuk dokter ini") AFTER earlier ones in the same
+        // submission already saved successfully. Since clearDraft() above
+        // only runs once the WHOLE loop finishes, the stale draft — still
+        // listing every product, including the ones already in the DB —
+        // was left behind and then wrongly "restored" on the next load,
+        // reading as a successful save that silently reverted (2026-07-28
+        // bug report, e.g. kode customer F1028209). Clear it here too
+        // whenever at least one product got through, so a partial failure
+        // doesn't leave a misleading full-list draft around.
+        if (savedCount > 0) clearDraft();
         // redirect() inside the server action (validation failures, auth checks) works by
         // throwing — must re-throw so Next.js's own router handles it, not shown as an error.
         if (isRedirectError(err)) throw err;
-        setError(err instanceof Error ? err.message : "Gagal menyimpan.");
+        setError(
+          (savedCount > 0 ? `${savedCount} dari ${validEntries.length} produk berhasil disimpan sebelum error. ` : "") +
+          (err instanceof Error ? err.message : "Gagal menyimpan.")
+        );
         setProgress(null);
       }
     });
