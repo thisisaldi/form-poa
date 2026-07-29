@@ -17,6 +17,11 @@ enum Role {
   GM
   ADMIN
   SFE
+  // Same read-only company-wide oversight as GM (every POA + full Summary,
+  // no edit/approve/create rights) — kept as a distinct role rather than
+  // reusing GM so it isn't conflated with the real General Manager title
+  // (2026-07-29 request).
+  VIEWER
 }
 
 enum PoaStatus {

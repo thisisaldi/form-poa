@@ -89,7 +89,7 @@ export async function getSubordinateMRNips(user: User): Promise<string[]> {
   // summary-only (no per-POA drill-down, see canView/getVisiblePoaFilter
   // default case), but /summary itself needs the full company-wide MR list
   // to aggregate over (2026-07-24: new SFE role, "hanya monitor summarynya").
-  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE) {
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) {
     // isDummy excluded — workshop/test accounts (see generateDummyAccounts.ts,
     // the Admin "Buat Akun Dummy" form) can and do create real-looking POAs
     // (some even SUBMITTED_TO_ASM/REVISI, not just DRAFT) to walk the whole
@@ -159,8 +159,10 @@ export async function getVisiblePoaFilter(
     }
 
     case Role.GM:
-      // GM: read-only oversight across every territory — same visibility as ADMIN,
-      // but canEdit/canApprove below deliberately don't grant GM any write access.
+    case Role.VIEWER:
+      // GM/VIEWER: read-only oversight across every territory — same
+      // visibility as ADMIN, but canEdit/canApprove below deliberately
+      // don't grant either any write access.
       return {};
 
     case Role.ADMIN:
@@ -184,7 +186,7 @@ export async function getVisiblePoaFilter(
  */
 export async function canView(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
-  if (user.role === Role.GM) return true; // read-only oversight, sees every POA at any status
+  if (user.role === Role.GM || user.role === Role.VIEWER) return true; // read-only oversight, sees every POA at any status
 
   // The owner always sees their own POA, any status — normally an MR, but an
   // ASM/SM/NSM can own one too when their team is vacant (see canCreatePoa).

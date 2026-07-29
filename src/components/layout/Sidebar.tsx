@@ -38,8 +38,11 @@ const NAV_ITEMS: NavItem[] = [
     label: "Summary",
     icon: <IconChart />,
     // SFE is a monitoring-only role (2026-07-24) — Summary is the only page
-    // besides Dashboard it's allowed to see at all.
-    roles: ["ASM", "SM", "NSM", "ADMIN", "SFE"],
+    // besides Dashboard it's allowed to see at all. GM was missing here
+    // despite authz.ts granting it full company-wide Summary access since
+    // the role existed — reachable by direct URL but never shown in nav
+    // (2026-07-29 fix, caught while adding VIEWER alongside it).
+    roles: ["ASM", "SM", "NSM", "ADMIN", "SFE", "GM", "VIEWER"],
   },
   {
     href: "/faq",
