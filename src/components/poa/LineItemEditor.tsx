@@ -2482,7 +2482,13 @@ function AddPanel({
         };
         if (draft.kodePI) { setKodePI(draft.kodePI); fetchOutletData(draft.kodePI); }
         if (draft.spesialisasi) setSpesialisasi(draft.spesialisasi);
-        if (draft.customerId) setCustomerId(draft.customerId);
+        // A "nexus:"-prefixed customerId is a live Nexus-API result never
+        // materialized into a real Customer row (see handleCustomerChange) —
+        // restoring it as-is submits an id the server can't find, silently
+        // failing every product in the batch with "Customer tidak
+        // ditemukan." (2026-07-29 bug report). Drop it instead — safer to
+        // make the MR re-pick the customer than resubmit a dead reference.
+        if (draft.customerId && !draft.customerId.startsWith("nexus:")) setCustomerId(draft.customerId);
         if (draft.dokterFields) setDokterFields(draft.dokterFields);
         if (draft.produkList && draft.produkList.length > 0) setProdukList(draft.produkList);
         if (draft.kodePI || draft.produkList?.some((p) => p.kodeProduk)) {
@@ -2507,7 +2513,12 @@ function AddPanel({
       if (savedRef.current) return;
       try {
         if (!hasContent) { localStorage.removeItem(draftKey); return; }
-        localStorage.setItem(draftKey, JSON.stringify({ kodePI, spesialisasi, customerId, dokterFields, produkList }));
+        // Never persist a "nexus:"-prefixed customerId — it's a transient
+        // live-search result mid-materialization (handleCustomerChange),
+        // not a stable id that's still valid on restore. See restore-effect
+        // comment above for the failure this caused.
+        const safeCustomerId = customerId.startsWith("nexus:") ? "" : customerId;
+        localStorage.setItem(draftKey, JSON.stringify({ kodePI, spesialisasi, customerId: safeCustomerId, dokterFields, produkList }));
       } catch {
         // Storage full/unavailable — draft-saving is a convenience, not critical, so just skip.
       }
@@ -2553,13 +2564,23 @@ function AddPanel({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const hasErrors = !kodePI || !spesialisasi || !customerId || !dokterFields.periodeAwal
+    // A "nexus:"-prefixed customerId means handleCustomerChange's
+    // materialize-into-a-real-Customer-row call hasn't resolved yet (or
+    // failed) — submitting it as-is fails server-side with "Customer tidak
+    // ditemukan." for every product in the batch (2026-07-29 bug report).
+    // Block the submit instead so the MR waits/re-picks rather than losing
+    // the whole entry to a silent-looking failure.
+    const customerNotReady = customerId.startsWith("nexus:");
+    const hasErrors = !kodePI || !spesialisasi || !customerId || customerNotReady || !dokterFields.periodeAwal
       || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12
       || !dokterFields.jenisPsSp || !dokterFields.bentukPssp
       || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep || !p.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
+      if (customerNotReady) {
+        onToast?.("User masih diproses, tunggu sebentar lalu coba Simpan lagi.", "error");
+      }
       setTimeout(() => {
         const el = document.querySelector("[data-field-err]");
         (el as HTMLElement)?.scrollIntoView({ behavior: "smooth", block: "center" });
