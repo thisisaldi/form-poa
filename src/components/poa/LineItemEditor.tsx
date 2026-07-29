@@ -2401,58 +2401,64 @@ function AddPanel({
   // it to be picked first just to unlock the customer search.
   //
   // A "nexus:"-prefixed id is a live Nexus-API result with no local Customer
-  // row yet (see getCustomersByOutlet) — materialize it into a real row via
-  // createCustomerAction first, since addLineItemAction needs a real
-  // Customer.id, then swap the synthetic id for the real one everywhere
-  // (customerList so it doesn't re-materialize if picked again, and the
-  // selection itself).
+  // row yet (see getCustomersByOutlet) — needs materializing into a real row
+  // via createCustomerAction before addLineItemAction can use it. Cached
+  // here (not just read off customerList) because customerList's own entry
+  // gets its id swapped in place once resolved, so a second lookup by the
+  // original nexus id would otherwise come up empty.
+  const nexusPickCache = useRef(new Map<string, { namaCustomer: string; spesialisasi: string; kodeCustomer: string | null }>());
+
+  // Resolves a "nexus:" placeholder to a real Customer.id — reused both
+  // right after picking (so it's usually already resolved by the time the
+  // MR finishes filling the rest of the form) and again at submit time as a
+  // fallback (2026-07-29 request: "biar langsung bisa simpan saja tanpa
+  // harus ada menunggu" — Simpan itself now absorbs this wait via its own
+  // "Menyimpan…" pending state instead of a separate blocking step). Never
+  // throws — any failure just returns null, callers decide how to react.
+  async function resolveNexusCustomer(nexusId: string): Promise<string | null> {
+    const found = nexusPickCache.current.get(nexusId);
+    if (!found) return null;
+    try {
+      const fd = new FormData();
+      fd.set("namaCustomer", found.namaCustomer);
+      fd.set("spesialisasi", found.spesialisasi);
+      fd.set("kodePI", kodePI);
+      fd.set("kodeCustomer", found.kodeCustomer ?? "");
+      const result = await createCustomerAction(fd);
+      if (result.ok && result.customerId) {
+        const realId = result.customerId;
+        setCustomerList((prev) => prev.map((c) => (c.id === nexusId ? { ...c, id: realId } : c)));
+        return realId;
+      }
+      // Most likely: it was materialized locally a moment ago (race) or
+      // already existed under a name/spesialisasi combo our dedup missed —
+      // either way, re-fetch and match by name+spesialisasi to recover the
+      // real id instead of leaving a synthetic, unusable one selected.
+      const refreshed = await getCustomersByOutlet(kodePI);
+      const real = refreshed.find((c) => !c.id.startsWith("nexus:")
+        && c.namaCustomer === found.namaCustomer && c.spesialisasi === found.spesialisasi);
+      setCustomerList(refreshed);
+      return real?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async function handleCustomerChange(val: string) {
     const found = customerList.find((c) => c.id === val);
     if (!found) { setCustomerId(val); return; }
 
     if (val.startsWith("nexus:")) {
+      nexusPickCache.current.set(val, { namaCustomer: found.namaCustomer, spesialisasi: found.spesialisasi, kodeCustomer: found.kodeCustomer });
       setCustomerId(val);
       setSpesialisasi(found.spesialisasi);
-      // Wrapped in try/catch — createCustomerAction/getCustomersByOutlet
-      // throwing (e.g. an unhandled DB constraint error) used to leave
-      // customerId stuck on this synthetic "nexus:" placeholder forever,
-      // since none of the setCustomerId() calls below it would ever run
-      // (2026-07-29 bug report: submit kept blocking on "User masih
-      // diproses" with no way to recover — waiting/retrying did nothing
-      // because nothing was actually still in progress). Any failure now
-      // always clears back to "" so the MR can at least see an error and
-      // re-pick, instead of a permanently stuck selection.
-      try {
-        const fd = new FormData();
-        fd.set("namaCustomer", found.namaCustomer);
-        fd.set("spesialisasi", found.spesialisasi);
-        fd.set("kodePI", kodePI);
-        fd.set("kodeCustomer", found.kodeCustomer ?? "");
-        const result = await createCustomerAction(fd);
-        if (result.ok && result.customerId) {
-          const realId = result.customerId;
-          setCustomerList((prev) => prev.map((c) => (c.id === val ? { ...c, id: realId } : c)));
-          setCustomerId(realId);
-        } else {
-          // Most likely: it was materialized locally a moment ago (race) or
-          // already existed under a name/spesialisasi combo our dedup missed —
-          // either way, re-fetch and match by name+spesialisasi to recover the
-          // real id instead of leaving a synthetic, unusable one selected.
-          const refreshed = await getCustomersByOutlet(kodePI);
-          const real = refreshed.find((c) => !c.id.startsWith("nexus:")
-            && c.namaCustomer === found.namaCustomer && c.spesialisasi === found.spesialisasi);
-          setCustomerList(refreshed);
-          if (real) {
-            setCustomerId(real.id);
-          } else {
-            setCustomerId("");
-            setError(result.error ?? "Gagal menyimpan data user dari Nexus.");
-          }
-        }
-      } catch (err) {
-        setCustomerId("");
-        setError(err instanceof Error ? err.message : "Gagal menyimpan data user dari Nexus.");
-      }
+      // Best-effort background resolve — NOT awaited by Submit; if it's
+      // still mid-flight (or was never triggered, e.g. a restored draft)
+      // when the MR clicks Simpan, handleSubmit resolves it again itself.
+      const realId = await resolveNexusCustomer(val);
+      // Only apply if the selection hasn't moved on to something else while
+      // this was resolving (e.g. the MR picked a different doctor meanwhile).
+      setCustomerId((cur) => (cur === val ? (realId ?? cur) : cur));
       return;
     }
 
@@ -2540,10 +2546,10 @@ function AddPanel({
     return () => clearTimeout(t);
   }, [draftLoaded, draftKey, kodePI, spesialisasi, customerId, dokterFields, produkList]);
 
-  function buildFormData(entry: ProdukEntry): FormData {
+  function buildFormData(entry: ProdukEntry, customerIdOverride?: string): FormData {
     const fd = new FormData();
     const product = products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null;
-    fd.set("customerId", customerId);
+    fd.set("customerId", customerIdOverride ?? customerId);
     fd.set("kodePI", kodePI);
     fd.set("kodeProduk", entry.kodeProduk);
     fd.set("periodeAwal", dokterFields.periodeAwal);
@@ -2578,23 +2584,13 @@ function AddPanel({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // A "nexus:"-prefixed customerId means handleCustomerChange's
-    // materialize-into-a-real-Customer-row call hasn't resolved yet (or
-    // failed) — submitting it as-is fails server-side with "Customer tidak
-    // ditemukan." for every product in the batch (2026-07-29 bug report).
-    // Block the submit instead so the MR waits/re-picks rather than losing
-    // the whole entry to a silent-looking failure.
-    const customerNotReady = customerId.startsWith("nexus:");
-    const hasErrors = !kodePI || !spesialisasi || !customerId || customerNotReady || !dokterFields.periodeAwal
+    const hasErrors = !kodePI || !spesialisasi || !customerId || !dokterFields.periodeAwal
       || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12
       || !dokterFields.jenisPsSp || !dokterFields.bentukPssp
       || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep || !p.produkKompetitor);
     if (hasErrors) {
       setAttempted(true);
-      if (customerNotReady) {
-        onToast?.("User masih diproses, tunggu sebentar lalu coba Simpan lagi.", "error");
-      }
       setTimeout(() => {
         const el = document.querySelector("[data-field-err]");
         (el as HTMLElement)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2609,8 +2605,28 @@ function AddPanel({
       // in the catch block below, unlike setProgress's async state update).
       let savedCount = 0;
       try {
+        // A "nexus:"-prefixed customerId means the background materialize
+        // from handleCustomerChange hasn't finished (or was never
+        // triggered, e.g. a restored draft) — resolve it here as part of
+        // Simpan's own "Menyimpan…" pending state instead of a separate
+        // blocking step before the MR is even allowed to click Simpan
+        // (2026-07-29 request: "biar langsung bisa simpan saja tanpa harus
+        // ada menunggu"). Passed explicitly into buildFormData below since
+        // setCustomerId here wouldn't be visible yet inside this same
+        // closure (state updates aren't synchronous).
+        let resolvedCustomerId = customerId;
+        if (resolvedCustomerId.startsWith("nexus:")) {
+          const realId = await resolveNexusCustomer(resolvedCustomerId);
+          if (!realId) {
+            setError("Gagal memproses data user ini. Coba pilih ulang usernya lalu Simpan lagi.");
+            setProgress(null);
+            return;
+          }
+          resolvedCustomerId = realId;
+          setCustomerId(realId);
+        }
         for (let i = 0; i < validEntries.length; i++) {
-          await addLineItemAction(poaId, buildFormData(validEntries[i]));
+          await addLineItemAction(poaId, buildFormData(validEntries[i], resolvedCustomerId));
           savedCount++;
           setProgress({ done: savedCount, total: validEntries.length });
         }
