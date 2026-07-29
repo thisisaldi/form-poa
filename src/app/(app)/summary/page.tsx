@@ -68,8 +68,8 @@ interface TerritoryGroup {
   avgStPerPasien: number | null;
   pelunasanRunningRate: number | null;
   biayaAktif: number;
-  // Growth vs Quarter Sebelumnya (2026-07-28) — estimasi for the quarter
-  // currently being viewed (periodFilter, or the latest quarter with any
+  // Growth vs Quarter Sebelumnya (2026-07-28) — estimasi for the latest
+  // quarter in the currently-viewed range (or the latest quarter with any
   // submission if viewing "Semua") vs the quarter right before it, computed
   // independently of whatever period range the main `estimasi` figure above
   // is aggregated over. Applies uniformly across all 4 tabs.
@@ -127,13 +127,21 @@ export default async function SummaryPage({
 
   const params = await searchParams;
   const tab: Tab = (params.tab as Tab) ?? "mr";
-  const periodFilter = params.period ?? null;
+  // Rentang Periode (2026-07-28) — replaces the old single `period` pill
+  // selector with an inclusive from/to range over the same "YYYY-QN" period
+  // strings; string comparison sorts them chronologically correctly since
+  // the format is fixed-width. Either end can be left open (only periodFrom
+  // = "from X onward", only periodTo = "up to Y", neither = "Semua").
+  const periodFrom = params.periodFrom ?? null;
+  const periodTo = params.periodTo ?? null;
+  const hasPeriodFilter = !!periodFrom || !!periodTo;
   // Fitur Sorting pada Summary (2026-07-27) — GAP tertinggi (vs realisasi
   // sebelumnya) is the default, matching the existing outlet/customer sort;
   // "estimasi" is the only alternative offered, since that's what produk/mr
   // already used as their (non-configurable) sort before this feature.
   const sortMode: "gap" | "estimasi" = params.sort === "estimasi" ? "estimasi" : "gap";
   const sortQuery = sortMode === "estimasi" ? "&sort=estimasi" : "";
+  const periodQuery = `${periodFrom ? `&periodFrom=${periodFrom}` : ""}${periodTo ? `&periodTo=${periodTo}` : ""}`;
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
@@ -154,7 +162,14 @@ export default async function SummaryPage({
 
   const NON_DRAFT = ["APPROVED_BY_ASM", "APPROVED_BY_SM", "APPROVED_BY_NSM"];
   const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips }, status: { in: NON_DRAFT } };
-  if (periodFilter) poaWhere.period = periodFilter;
+  // String gte/lte on "YYYY-QN" is safe — fixed-width format, lexicographic
+  // order matches chronological order.
+  if (hasPeriodFilter) {
+    poaWhere.period = {
+      ...(periodFrom ? { gte: periodFrom } : {}),
+      ...(periodTo ? { lte: periodTo } : {}),
+    };
+  }
 
   const [poas, allPoasForPeriods] = await Promise.all([
     mrNips.length > 0 ? prisma.poaForm.findMany({ where: poaWhere }) as Promise<{ id: string; ownerId: string; period: string }[]> : Promise.resolve([]),
@@ -162,16 +177,21 @@ export default async function SummaryPage({
   ]);
 
   const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
+  const periodsInRange = allPeriods.filter((p) =>
+    (!periodFrom || p >= periodFrom) && (!periodTo || p <= periodTo)
+  );
   const poaIds = poas.map((p) => p.id);
 
-  // Growth vs Quarter Sebelumnya (2026-07-28) — "quarter ini" is whichever
-  // period the page is currently scoped to (periodFilter), or the latest
-  // quarter with any submission at all when viewing "Semua" (pooled across
+  // Growth vs Quarter Sebelumnya (2026-07-28) — "quarter ini" is the latest
+  // period within the selected range, or the latest quarter with any
+  // submission at all when viewing "Semua"/an empty range (pooled across
   // periods, where `estimasi` elsewhere has no single quarter to anchor to).
   // Fetched independently of poaWhere/lineItems above so the comparison
-  // still works even when periodFilter narrows the main query to a single
-  // quarter (previous quarter's data wouldn't otherwise be fetched at all).
-  const quarterIni = periodFilter ?? (allPeriods.length > 0 ? allPeriods[allPeriods.length - 1] : null);
+  // still works even when the range narrows the main query to fewer quarters
+  // (previous quarter's data wouldn't otherwise be fetched at all).
+  const quarterIni = periodsInRange.length > 0
+    ? periodsInRange[periodsInRange.length - 1]
+    : (allPeriods.length > 0 ? allPeriods[allPeriods.length - 1] : null);
   const quarterSebelumnya = quarterIni ? previousQuarterPeriod(quarterIni) : null;
   const qoqPeriods = [quarterIni, quarterSebelumnya].filter((p): p is string => !!p);
 
@@ -736,26 +756,36 @@ export default async function SummaryPage({
           </p>
         </div>
 
-        {/* Period filter */}
+        {/* Rentang Periode (2026-07-28) — inclusive from/to range over
+            allPeriods, replacing the old single-quarter pill selector. Plain
+            GET form (no JS needed) — tab/sort carried as hidden inputs so
+            submitting doesn't lose them. */}
         {allPeriods.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            <Link href={`/summary?tab=${tab}${sortQuery}`}
+          <form method="get" className="flex flex-wrap items-center gap-1.5">
+            <input type="hidden" name="tab" value={tab} />
+            {sortMode === "estimasi" && <input type="hidden" name="sort" value="estimasi" />}
+            <select name="periodFrom" defaultValue={periodFrom ?? ""} className="input-field text-xs" style={{ width: "auto" }}>
+              <option value="">Dari (awal)</option>
+              {allPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>–</span>
+            <select name="periodTo" defaultValue={periodTo ?? ""} className="input-field text-xs" style={{ width: "auto" }}>
+              <option value="">Sampai (akhir)</option>
+              {allPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <button type="submit"
               className="rounded px-2.5 py-1 text-xs font-medium border"
-              style={!periodFilter
-                ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
-                : { color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
-              Semua
-            </Link>
-            {allPeriods.map((p) => (
-              <Link key={p} href={`/summary?tab=${tab}&period=${p}${sortQuery}`}
+              style={{ background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }}>
+              Terapkan
+            </button>
+            {hasPeriodFilter && (
+              <Link href={`/summary?tab=${tab}${sortQuery}`}
                 className="rounded px-2.5 py-1 text-xs font-medium border"
-                style={periodFilter === p
-                  ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
-                  : { color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
-                {p}
+                style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                Semua
               </Link>
-            ))}
-          </div>
+            )}
+          </form>
         )}
       </div>
 
@@ -764,7 +794,7 @@ export default async function SummaryPage({
         <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
           {TABS.map((t) => (
             <Link key={t.key}
-              href={`/summary?tab=${t.key}${periodFilter ? `&period=${periodFilter}` : ""}${sortQuery}`}
+              href={`/summary?tab=${t.key}${periodQuery}${sortQuery}`}
               className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
               style={tab === t.key
                 ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
@@ -782,14 +812,14 @@ export default async function SummaryPage({
       {(tab === "outlet" || tab === "customer") && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Urutkan:</span>
-          <Link href={`/summary?tab=${tab}${periodFilter ? `&period=${periodFilter}` : ""}`}
+          <Link href={`/summary?tab=${tab}${periodQuery}`}
             className="rounded px-2.5 py-1 text-xs font-medium border"
             style={sortMode === "gap"
               ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
               : { color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
             GAP Tertinggi
           </Link>
-          <Link href={`/summary?tab=${tab}${periodFilter ? `&period=${periodFilter}` : ""}&sort=estimasi`}
+          <Link href={`/summary?tab=${tab}${periodQuery}&sort=estimasi`}
             className="rounded px-2.5 py-1 text-xs font-medium border"
             style={sortMode === "estimasi"
               ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
