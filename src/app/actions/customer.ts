@@ -35,19 +35,44 @@ export async function createCustomerAction(formData: FormData): Promise<NewCusto
   });
   if (existing) return { ok: false, error: "Dokter dengan nama dan spesialisasi ini sudah terdaftar di outlet tersebut." };
 
+  // A live Nexus search result can carry a kodeCustomer that already
+  // belongs to a Customer row here under slightly different name/
+  // spesialisasi text (sync drift, punctuation, etc.) — the check above
+  // only catches an exact name+spesialisasi+outlet match, so this can slip
+  // past it straight into Customer.kodeCustomer's unique constraint.
+  // Resolve it by reusing the existing row (linking this outlet to it if
+  // needed) instead of letting that constraint throw an unhandled error
+  // that left the caller's customerId stuck on the synthetic "nexus:" id
+  // forever (2026-07-29 bug report).
+  if (kodeCustomer) {
+    const byKode = await prisma.customer.findUnique({
+      where: { kodeCustomer },
+      include: { outlets: { where: { kodePI } } },
+    });
+    if (byKode) {
+      if (byKode.outlets.length === 0) {
+        await prisma.customerOutlet.create({ data: { customerId: byKode.id, kodePI, isFokus: false } });
+      }
+      return { ok: true, customerId: byKode.id };
+    }
+  }
+
   // isFokus ("Rekomendasi PM") is exclusively driven by the official RS GROUP
   // curation spreadsheet (scripts/syncCustomers.ts Pass 2) — never settable
   // from here, or anyone could self-declare their own doctor a PM recommendation.
-  const customer = await prisma.customer.create({
-    data: {
-      namaCustomer,
-      spesialisasi,
-      kodeCustomer,
-      outlets: { create: { kodePI, isFokus: false } },
-    },
-  });
-
-  return { ok: true, customerId: customer.id };
+  try {
+    const customer = await prisma.customer.create({
+      data: {
+        namaCustomer,
+        spesialisasi,
+        kodeCustomer,
+        outlets: { create: { kodePI, isFokus: false } },
+      },
+    });
+    return { ok: true, customerId: customer.id };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Gagal mendaftarkan user." };
+  }
 }
 
 export interface CustomerOption {

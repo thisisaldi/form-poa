@@ -2413,31 +2413,45 @@ function AddPanel({
     if (val.startsWith("nexus:")) {
       setCustomerId(val);
       setSpesialisasi(found.spesialisasi);
-      const fd = new FormData();
-      fd.set("namaCustomer", found.namaCustomer);
-      fd.set("spesialisasi", found.spesialisasi);
-      fd.set("kodePI", kodePI);
-      fd.set("kodeCustomer", found.kodeCustomer ?? "");
-      const result = await createCustomerAction(fd);
-      if (result.ok && result.customerId) {
-        const realId = result.customerId;
-        setCustomerList((prev) => prev.map((c) => (c.id === val ? { ...c, id: realId } : c)));
-        setCustomerId(realId);
-      } else {
-        // Most likely: it was materialized locally a moment ago (race) or
-        // already existed under a name/spesialisasi combo our dedup missed —
-        // either way, re-fetch and match by name+spesialisasi to recover the
-        // real id instead of leaving a synthetic, unusable one selected.
-        const refreshed = await getCustomersByOutlet(kodePI);
-        const real = refreshed.find((c) => !c.id.startsWith("nexus:")
-          && c.namaCustomer === found.namaCustomer && c.spesialisasi === found.spesialisasi);
-        setCustomerList(refreshed);
-        if (real) {
-          setCustomerId(real.id);
+      // Wrapped in try/catch — createCustomerAction/getCustomersByOutlet
+      // throwing (e.g. an unhandled DB constraint error) used to leave
+      // customerId stuck on this synthetic "nexus:" placeholder forever,
+      // since none of the setCustomerId() calls below it would ever run
+      // (2026-07-29 bug report: submit kept blocking on "User masih
+      // diproses" with no way to recover — waiting/retrying did nothing
+      // because nothing was actually still in progress). Any failure now
+      // always clears back to "" so the MR can at least see an error and
+      // re-pick, instead of a permanently stuck selection.
+      try {
+        const fd = new FormData();
+        fd.set("namaCustomer", found.namaCustomer);
+        fd.set("spesialisasi", found.spesialisasi);
+        fd.set("kodePI", kodePI);
+        fd.set("kodeCustomer", found.kodeCustomer ?? "");
+        const result = await createCustomerAction(fd);
+        if (result.ok && result.customerId) {
+          const realId = result.customerId;
+          setCustomerList((prev) => prev.map((c) => (c.id === val ? { ...c, id: realId } : c)));
+          setCustomerId(realId);
         } else {
-          setCustomerId("");
-          setError(result.error ?? "Gagal menyimpan data user dari Nexus.");
+          // Most likely: it was materialized locally a moment ago (race) or
+          // already existed under a name/spesialisasi combo our dedup missed —
+          // either way, re-fetch and match by name+spesialisasi to recover the
+          // real id instead of leaving a synthetic, unusable one selected.
+          const refreshed = await getCustomersByOutlet(kodePI);
+          const real = refreshed.find((c) => !c.id.startsWith("nexus:")
+            && c.namaCustomer === found.namaCustomer && c.spesialisasi === found.spesialisasi);
+          setCustomerList(refreshed);
+          if (real) {
+            setCustomerId(real.id);
+          } else {
+            setCustomerId("");
+            setError(result.error ?? "Gagal menyimpan data user dari Nexus.");
+          }
         }
+      } catch (err) {
+        setCustomerId("");
+        setError(err instanceof Error ? err.message : "Gagal menyimpan data user dari Nexus.");
       }
       return;
     }
