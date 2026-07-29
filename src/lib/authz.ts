@@ -90,7 +90,15 @@ export async function getSubordinateMRNips(user: User): Promise<string[]> {
   // default case), but /summary itself needs the full company-wide MR list
   // to aggregate over (2026-07-24: new SFE role, "hanya monitor summarynya").
   if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE) {
-    const mrs = await prisma.user.findMany({ where: { role: Role.MR, isActive: true }, select: { nip: true } });
+    // isDummy excluded — workshop/test accounts (see generateDummyAccounts.ts,
+    // the Admin "Buat Akun Dummy" form) can and do create real-looking POAs
+    // (some even SUBMITTED_TO_ASM/REVISI, not just DRAFT) to walk the whole
+    // approval flow solo. Without this filter those POAs silently inflate
+    // company-wide Summary/dashboard aggregates for ADMIN/GM/SFE (2026-07-29
+    // — confirmed 63 dummy-owned POAs already in the live DB). Regular
+    // ASM/SM/NSM are unaffected either way since dummy chains' nipAtasan
+    // never links into the real hierarchy they walk instead.
+    const mrs = await prisma.user.findMany({ where: { role: Role.MR, isActive: true, isDummy: false }, select: { nip: true } });
     return mrs.map((m: { nip: string }) => m.nip);
   }
   const depthByRole: Record<string, number> = { [Role.ASM]: 1, [Role.SM]: 2, [Role.NSM]: 3 };
