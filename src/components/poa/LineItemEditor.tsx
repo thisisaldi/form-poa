@@ -3910,10 +3910,20 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   }
 
-  // Show notice from URL (e.g. after duplicate-period redirect from createPoaAction)
+  // Show notice/error from URL (e.g. after a redirect from createPoaAction or
+  // addLineItemAction's own validation redirects — "Field wajib belum
+  // lengkap.", "{produk} sudah ada untuk dokter ini.", etc.). The `error`
+  // case was previously never read at all: addLineItemAction's server-side
+  // validation failures redirected here with `?error=...` but nothing
+  // displayed it, so a genuinely failed save looked like nothing happened
+  // except the AddPanel remounting and restoring its (correctly still-
+  // unsaved) draft — read as "click Simpan, get a confusing 'draft
+  // restored' message instead of any explanation" (2026-07-29 bug report).
   useEffect(() => {
     const notice = searchParams.get("notice");
     if (notice) showToast(notice, "info");
+    const error = searchParams.get("error");
+    if (error) showToast(error, "error");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSuccess = useCallback(() => {
