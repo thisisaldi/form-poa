@@ -58,12 +58,13 @@ export interface MonitoringGroup {
    * — the "Aktif" counterpart to budgetTotal's "Pengajuan" cost, both under
    * the "Biaya" column on outlet/produk tabs (2026-07-27). */
   biayaAktif: number;
-  /** Growth vs Quarter Sebelumnya (2026-07-28) — estimasi for the quarter
-   * currently in view vs the quarter right before it, same across all 4
-   * tabs. null when the previous quarter had nothing submitted to compare
-   * against. See summary/page.tsx for how "quarter ini" is picked. */
+  /** Growth vs Quarter Sebelumnya (2026-07-28, redefined 2026-07-30) — THIS
+   * quarter's Estimasi (submitted POA plan) vs LAST quarter's REALISASI
+   * (PSSP pelunasan actually recorded in those months), same across all 4
+   * tabs. null when last quarter had no realisasi to compare against, or
+   * nothing has been submitted yet this quarter. See summary/page.tsx. */
   estimasiQuarterIni: number;
-  estimasiQuarterSebelumnya: number;
+  realisasiQuarterSebelumnya: number;
   growthVsQuarterSebelumnyaPct: number | null;
 }
 
@@ -77,21 +78,104 @@ export interface MonitoringTotals {
   totalUniqueProducts: number;
 }
 
-// ─── UI primitives ────────────────────────────────────────────────────────────
+// ─── Design tokens (this card's palette — validated categorical/status set) ───
 
-function Bar({ pct, color }: { pct: number; color: string }) {
+const TEXT    = "var(--color-text)";
+const MUTED   = "var(--color-text-muted)";
+const FAINT   = "var(--color-text-faint)";
+const BORDER  = "var(--color-border)";
+const SURFACE = "var(--color-surface)";
+const BG      = "var(--color-bg-subtle)";
+const BLUE    = "var(--color-blue)";
+const GREEN   = "var(--color-green)";
+const WARNING = "var(--color-warning)";
+const DANGER  = "var(--color-red)";
+
+// ─── UI primitives — dashboard-style building blocks ──────────────────────────
+// (2026-07-30 rework: "section visualisasi... dirework agar lebih terlihat
+// seperti dashboard visualisasi data, dengan metrics yang sama cuma beda
+// tampilan aja" — same figures as the old plain-stat/thin-progress-bar layout,
+// restyled as a hero figure + KPI tiles + meters + part-to-whole stacked bars.)
+
+/** Figure contract: label + big value + optional signed delta/sub-caption. */
+function StatTile({ label, value, sub, tone = "neutral", hero = false }: {
+  label: string; value: string; sub?: string; tone?: "neutral" | "good" | "bad"; hero?: boolean;
+}) {
+  const valueColor = tone === "good" ? GREEN : tone === "bad" ? DANGER : TEXT;
   return (
-    <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
-      <div className="h-full rounded-full transition-all duration-300"
-        style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
+    <div className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+      <p className="text-xs mb-1" style={{ color: MUTED }}>{label}</p>
+      <p className={hero ? "text-4xl font-bold" : "text-xl font-bold"} style={{ color: valueColor }}>{value}</p>
+      {sub && <p className="text-xs mt-1" style={{ color: tone !== "neutral" ? valueColor : FAINT }}>{sub}</p>}
+    </div>
+  );
+}
+
+/** A ratio against a fixed target — track is a lighter step of the same ramp, fill carries severity. */
+function Meter({ label, value, target, unitLabel }: { label: string; value: number; target: number; unitLabel: string }) {
+  const ratio = target > 0 ? value / target : 0;
+  const pct = Math.min(100, ratio * 100);
+  const met = value >= target;
+  const color = met ? GREEN : ratio >= 0.7 ? WARNING : DANGER;
+  return (
+    <div className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+      <div className="flex items-baseline justify-between mb-2">
+        <p className="text-xs" style={{ color: MUTED }}>{label}</p>
+        <p className="text-sm font-bold" style={{ color: met ? GREEN : TEXT }}>
+          {value}<span className="text-xs font-normal" style={{ color: FAINT }}>/{target}</span>
+        </p>
+      </div>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--color-blue-light)" }}>
+        <div className="h-full rounded-full transition-all duration-300" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <p className="text-xs mt-1.5" style={{ color: met ? GREEN : FAINT }}>
+        {met ? "terpenuhi ✓" : `kurang ${target - value} ${unitLabel}`}
+      </p>
+    </div>
+  );
+}
+
+interface Segment { label: string; value: number; color: string }
+
+/** Part-to-whole: thin stacked bar (rounded outer ends, 2px surface gaps between
+ * segments) with a direct-labeled legend underneath — every value stays visible,
+ * not hidden behind hover-only. */
+function StackedBar({ segments, totalLabel }: { segments: Segment[]; totalLabel?: string }) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  const nonZero = segments.filter((s) => s.value > 0);
+
+  return (
+    <div>
+      {total > 0 ? (
+        <div className="flex h-5 gap-[2px] rounded-full overflow-hidden" style={{ background: SURFACE }}>
+          {nonZero.map((seg) => (
+            <div key={seg.label} title={`${seg.label}: ${formatRp(seg.value)} (${((seg.value / total) * 100).toFixed(1)}%)`}
+              style={{ width: `${(seg.value / total) * 100}%`, background: seg.color }} />
+          ))}
+        </div>
+      ) : (
+        <div className="h-5 rounded-full" style={{ background: BORDER }} />
+      )}
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs">
+        {segments.map((seg) => (
+          <span key={seg.label} className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ background: seg.color }} />
+            <span style={{ color: MUTED }}>{seg.label}</span>
+            <span style={{ color: TEXT, fontWeight: 600 }}>{formatRp(seg.value)}</span>
+            {total > 0 && seg.value > 0 && <span style={{ color: FAINT }}>({((seg.value / total) * 100).toFixed(1)}%)</span>}
+          </span>
+        ))}
+        {totalLabel && (
+          <span className="ml-auto font-semibold" style={{ color: TEXT }}>{totalLabel}</span>
+        )}
+      </div>
     </div>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-widest mb-3 pt-1"
-      style={{ color: "var(--color-text-faint)", borderTop: "1px solid var(--color-border)" }}>
+    <p className="text-xs font-semibold uppercase tracking-widest mb-3 pt-4" style={{ color: FAINT, borderTop: `1px solid ${BORDER}` }}>
       {children}
     </p>
   );
@@ -144,17 +228,6 @@ export function MonitoringChecklist({
   const listingDenom     = totals?.totalUniqueProducts ?? pengajuan;
   const gap              = listingDenom - terstandar;
 
-  const TEXT    = "var(--color-text)";
-  const MUTED   = "var(--color-text-muted)";
-  const FAINT   = "var(--color-text-faint)";
-  const BORDER  = "var(--color-border)";
-  const BG      = "var(--color-bg-subtle)";
-  const PRIMARY = "var(--color-blue, #2563eb)";
-  const DANGER  = "var(--color-danger, #dc2626)";
-
-  const psspPctEst   = estimasi > 0 ? (psspTotal / estimasi) * 100 : 0;
-  const discPctEst   = estimasi > 0 ? (discountTotal / estimasi) * 100 : 0;
-  const entPctEst    = estimasi > 0 ? (entertainTotal / estimasi) * 100 : 0;
   const budgetPctEst = estimasi > 0 ? (budgetTotal / estimasi) * 100 : 0;
 
   if (groups.length === 0) {
@@ -171,161 +244,93 @@ export function MonitoringChecklist({
     <Card>
       <p className="font-semibold text-base mb-5" style={{ color: TEXT }}>Ringkasan</p>
 
-      {/* ── 1. Estimasi ── */}
-      <div className="rounded-lg p-3 mb-5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-        <p className="text-xs mb-0.5" style={{ color: MUTED }}>
+      {/* ── Hero figure — the one number this dashboard leads with ── */}
+      <div className="rounded-lg p-4 mb-5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+        <p className="text-xs mb-1" style={{ color: MUTED }}>
           {estimasiAktifTotal > 0 ? "Estimasi Aktif+Pengajuan" : "Estimasi POA"}
         </p>
-        <p className="text-2xl font-bold" style={{ color: TEXT }}>
+        <p className="text-4xl font-bold" style={{ color: TEXT }}>
           {estimasiCombined > 0 ? formatRp(estimasiCombined) : "-"}
         </p>
         {estimasiAktifTotal > 0 && (
-          <p className="text-xs mt-0.5" style={{ color: FAINT }}>
+          <p className="text-xs mt-1.5" style={{ color: FAINT }}>
             Aktif {formatRp(estimasiAktifTotal)} · Pengajuan {formatRp(estimasi)}
           </p>
         )}
       </div>
 
-      {/* ── 2. Variasi Produk ── */}
-      <SectionTitle>Variasi Produk</SectionTitle>
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-          <p className="text-xs mb-0.5" style={{ color: MUTED }}>Produk Fokus</p>
-          <p className="text-xl font-bold" style={{ color: variasiProdukFok < 22 ? DANGER : TEXT }}>
-            {variasiProdukFok}<span className="text-sm font-normal" style={{ color: FAINT }}>/22</span>
-          </p>
-          <p className="text-xs mt-0.5" style={{ color: variasiProdukFok < 22 ? DANGER : FAINT }}>
-            {variasiProdukFok >= 22 ? "terpenuhi ✓" : `kurang ${22 - variasiProdukFok}`}
-          </p>
-        </div>
-        <div className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-          <p className="text-xs mb-0.5" style={{ color: MUTED }}>Produk PSSP</p>
-          <p className="text-xl font-bold" style={{ color: TEXT }}>{produkPssp}</p>
-          <p className="text-xs mt-0.5" style={{ color: FAINT }}>variasi ada PSSP</p>
-        </div>
+      {/* ── KPI tiles — Variasi Produk + Cakupan, same figures as before ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Meter label="Produk Fokus" value={variasiProdukFok} target={22} unitLabel="variasi" />
+        <StatTile label="Produk PSSP" value={String(produkPssp)} sub="variasi ada PSSP" />
+        <Meter label="Customer per MR" value={customer} target={30} unitLabel="customer" />
+        <StatTile label="Total Pengajuan" value={String(pengajuan)} sub="produk × customer" />
       </div>
 
-      {/* ── 3. Anggaran ── */}
+      {/* ── Anggaran — part-to-whole stacked bar instead of 3 separate thin bars ── */}
       <SectionTitle>Anggaran</SectionTitle>
-      <div className="space-y-2.5 mb-5">
-        {[
-          { label: "PSSP",                 value: psspTotal,      pct: psspPctEst },
-          { label: "Discount + DPL + DPF", value: discountTotal,  pct: discPctEst },
-          { label: "Entertain",            value: entertainTotal, pct: entPctEst },
-        ].map(({ label, value, pct }) => (
-          <div key={label}>
-            <div className="flex justify-between text-xs mb-1">
-              <span style={{ color: MUTED }}>{label}</span>
-              <span style={{ color: TEXT }}>
-                {value > 0 ? formatRp(value) : "-"}
-                {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
-              </span>
-            </div>
-            <Bar pct={pct * 5} color={PRIMARY} />
-          </div>
-        ))}
-        <div className="flex justify-between pt-2 text-sm font-semibold"
-          style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
-          <span>Total Budget</span>
-          <span>
-            {formatRp(budgetTotal)}
-            {budgetPctEst > 0 && (
-              <span className="ml-1.5 text-xs font-normal" style={{ color: FAINT }}>
-                ({budgetPctEst.toFixed(1)}% dari estimasi)
-              </span>
-            )}
-          </span>
-        </div>
-      </div>
+      <StackedBar
+        totalLabel={`Total ${formatRp(budgetTotal)}${budgetPctEst > 0 ? ` (${budgetPctEst.toFixed(1)}% dari estimasi)` : ""}`}
+        segments={[
+          { label: "PSSP", value: psspTotal, color: BLUE },
+          { label: "Discount + DPL + DPF", value: discountTotal, color: WARNING },
+          { label: "Entertain", value: entertainTotal, color: GREEN },
+        ]}
+      />
 
-      {/* ── 4. Cakupan ── */}
-      <SectionTitle>Cakupan</SectionTitle>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
-        {[
-          {
-            label: "Customer per MR",
-            value: customer,
-            sub: customer >= 30 ? "min. 30 ✓" : `min. 30 (kurang ${30 - customer})`,
-            danger: false,
-          },
-          { label: "Produk PSSP / MR", value: produkPssp, sub: "variasi × PSSP", danger: false },
-          { label: "Total Pengajuan",  value: pengajuan,  sub: "produk × customer", danger: false },
-        ].map(({ label, value, sub, danger }) => (
-          <div key={label} className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-            <p className="text-xs mb-0.5" style={{ color: MUTED }}>{label}</p>
-            <p className="text-xl font-bold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
-            {sub && <p className="text-xs mt-0.5" style={{ color: danger ? DANGER : FAINT }}>{sub}</p>}
-          </div>
-        ))}
-      </div>
-
-      {/* ── 5. Listing Produk ── */}
+      {/* ── Listing Produk — status stacked bar ── */}
       <SectionTitle>Listing Produk</SectionTitle>
-      <div className="mb-5 space-y-2">
-        {listingDenom > 0 ? (
-          <>
-            <div className="h-2 rounded-full overflow-hidden flex" style={{ background: BORDER }}>
-              <div className="h-full transition-all duration-300"
-                style={{ width: `${(terstandar / listingDenom) * 100}%`, background: PRIMARY }} />
-              <div className="h-full transition-all duration-300"
-                style={{ width: `${(proses / listingDenom) * 100}%`, background: MUTED, opacity: 0.4 }} />
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
-              <span style={{ color: MUTED }}>Sudah listing <span style={{ color: TEXT, fontWeight: 600 }}>{terstandar}</span></span>
-              <span style={{ color: MUTED }}>Proses <span style={{ color: TEXT, fontWeight: 600 }}>{proses}</span></span>
-              {gap > 0 ? (
-                <span style={{ color: DANGER }}>Belum <span style={{ fontWeight: 600 }}>{gap}</span> - perlu ditindaklanjuti</span>
-              ) : (
-                <span style={{ color: MUTED }}>Semua sudah listing ✓</span>
-              )}
-            </div>
-            {totals && (
-              <p className="text-xs" style={{ color: FAINT }}>
-                Dihitung berdasarkan {listingDenom} variasi produk unik.
+      {listingDenom > 0 ? (
+        <>
+          <StackedBar
+            segments={[
+              { label: "Sudah listing", value: terstandar, color: GREEN },
+              { label: "Proses", value: proses, color: WARNING },
+              { label: "Belum", value: Math.max(0, gap), color: DANGER },
+            ]}
+          />
+          <p className="text-xs mt-2" style={{ color: gap > 0 ? DANGER : MUTED }}>
+            {gap > 0 ? `${gap} produk belum listing — perlu ditindaklanjuti.` : "Semua sudah listing ✓"}
+            {totals && <span style={{ color: FAINT }}> · dihitung dari {listingDenom} variasi produk unik.</span>}
+          </p>
+        </>
+      ) : (
+        <p className="text-xs" style={{ color: FAINT }}>Tidak ada data.</p>
+      )}
+
+      {/* ── Data Sales (collapsible, real — sourced from DIR10001B) ── */}
+      <div className="mt-5">
+        <button
+          type="button"
+          onClick={() => setSalesOpen((v) => !v)}
+          className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
+          style={{ background: BG, border: `1px solid ${BORDER}` }}>
+          <span className="text-xs font-medium" style={{ color: MUTED }}>Data Sales</span>
+          <span className="text-xs" style={{ color: FAINT }}>{salesOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {salesOpen && (
+          salesAvailable ? (
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <StatTile label="Historis Tahun Lalu" value={formatRp(historis2025)} />
+              <StatTile label="Sales YTD" value={formatRp(salesYtd)} />
+              <StatTile label="Sales YTD + Estimasi" value={formatRp(salesPlusEst)} />
+              <StatTile label="Growth YTD" value={`${growthYtd >= 0 ? "+" : ""}${growthYtd.toFixed(1)}%`}
+                tone={growthYtd >= 0 ? "good" : "bad"} />
+              <StatTile label="Achievement YTD+Est" value={achieveYtd > 0 ? `${achieveYtd.toFixed(1)}%` : "-"}
+                tone={achieveYtd === 0 ? "neutral" : achieveYtd >= 100 ? "good" : "bad"} />
+              <p className="col-span-full text-xs" style={{ color: FAINT }}>
+                Sumber: DIR10001B (nilai sales per outlet).
               </p>
-            )}
-          </>
-        ) : (
-          <p className="text-xs" style={{ color: FAINT }}>Tidak ada data.</p>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs" style={{ color: FAINT }}>
+              Data Sales cuma tersedia per Outlet atau per Personil - DIR10001B sumbernya per outlet,
+              tidak ada breakdown per Customer/Produk.
+            </p>
+          )
         )}
       </div>
-
-      {/* ── 6. Data Sales (collapsible, real — sourced from DIR10001B) ── */}
-      <button
-        type="button"
-        onClick={() => setSalesOpen((v) => !v)}
-        className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
-        style={{ background: BG, border: `1px solid ${BORDER}` }}>
-        <span className="text-xs" style={{ color: MUTED }}>Data Sales</span>
-        <span className="text-xs" style={{ color: FAINT }}>{salesOpen ? "▲" : "▼"}</span>
-      </button>
-
-      {salesOpen && (
-        salesAvailable ? (
-          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {[
-              { label: "Historis Tahun Lalu",  value: formatRp(historis2025) },
-              { label: "Sales YTD",            value: formatRp(salesYtd) },
-              { label: "Sales YTD + Estimasi", value: formatRp(salesPlusEst) },
-              { label: "Growth YTD",           value: `${growthYtd >= 0 ? "+" : ""}${growthYtd.toFixed(1)}%`, danger: growthYtd < 0 },
-              { label: "Achievement YTD+Est",  value: achieveYtd > 0 ? `${achieveYtd.toFixed(1)}%` : "-", danger: achieveYtd > 0 && achieveYtd < 100 },
-            ].map(({ label, value, danger }) => (
-              <div key={label} className="rounded-lg p-2.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-                <p className="text-xs mb-0.5" style={{ color: FAINT }}>{label}</p>
-                <p className="text-sm font-semibold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
-              </div>
-            ))}
-            <p className="col-span-full text-xs mt-1" style={{ color: FAINT }}>
-              Sumber: DIR10001B (nilai sales per outlet).
-            </p>
-          </div>
-        ) : (
-          <p className="mt-3 text-xs" style={{ color: FAINT }}>
-            Data Sales cuma tersedia per Outlet atau per Personil - DIR10001B sumbernya per outlet,
-            tidak ada breakdown per Customer/Produk.
-          </p>
-        )
-      )}
     </Card>
   );
 }

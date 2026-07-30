@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
-import { currentQuarter } from "@/lib/quarterUtils";
+import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { MonitoringChecklist } from "@/components/poa/MonitoringChecklist";
@@ -70,13 +70,14 @@ interface TerritoryGroup {
   avgStPerPasien: number | null;
   pelunasanRunningRate: number | null;
   biayaAktif: number;
-  // Growth vs Quarter Sebelumnya (2026-07-28) — estimasi for the latest
-  // quarter in the currently-viewed range (or the latest quarter with any
-  // submission if viewing "Semua") vs the quarter right before it, computed
-  // independently of whatever period range the main `estimasi` figure above
-  // is aggregated over. Applies uniformly across all 4 tabs.
+  // Growth vs Quarter Sebelumnya (2026-07-28, redefined 2026-07-30) — THIS
+  // quarter's Estimasi (submitted POA plan) vs LAST quarter's REALISASI
+  // (PSSP pelunasan actually recorded in those specific months), not last
+  // quarter's own plan — comparing plan-to-plan told you nothing about
+  // whether either plan was realistic; plan-vs-actual does. Applies
+  // uniformly across all 4 tabs.
   estimasiQuarterIni: number;
-  estimasiQuarterSebelumnya: number;
+  realisasiQuarterSebelumnya: number;
   growthVsQuarterSebelumnyaPct: number | null;
 }
 
@@ -182,46 +183,44 @@ export default async function SummaryPage({
   const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
   const poaIds = poas.map((p) => p.id);
 
-  // Growth vs Quarter Sebelumnya (2026-07-28, fixed 2026-07-30) — "quarter
-  // ini" is always the REAL calendar quarter containing today, never just
-  // "whichever period happens to have the most recent submission". The old
-  // "latest period with any data" logic broke as soon as a single early POA
-  // landed in the NEXT quarter before most MRs had caught up: it anchored
-  // quarterIni to that near-empty future quarter and compared it against the
-  // prior quarter's full data, showing a false -100% company-wide for every
-  // MR who simply hadn't submitted yet (2026-07-30 bug report: "growth vs
-  // quarter sebelumnya di summary per personil itu -100% semua" — root cause
-  // was exactly this: 1 stray Q4 POA vs 182 real Q3 POAs while today is still
-  // in Q3). Fetched independently of poaWhere/lineItems above so the
-  // comparison still works even when the range narrows the main query to
-  // fewer quarters (previous quarter's data wouldn't otherwise be fetched).
+  // Growth vs Quarter Sebelumnya (2026-07-28, redefined 2026-07-30) —
+  // "quarter ini" is always the REAL calendar quarter containing today,
+  // never just "whichever period happens to have the most recent
+  // submission" (2026-07-30 bug: a single early-submitted POA in the NEXT
+  // quarter used to hijack the anchor and compare a near-empty future
+  // quarter against a full prior one, reading as a false -100% company-wide
+  // for every MR who simply hadn't submitted yet). Fetched independently of
+  // poaWhere/lineItems above so the comparison still works even when the
+  // range narrows the main query to fewer quarters.
   const quarterIni = currentQuarter();
   const quarterSebelumnya = previousQuarterPeriod(quarterIni);
-  const qoqPeriods = [quarterIni, quarterSebelumnya].filter((p): p is string => !!p);
 
-  const qoqPoas = qoqPeriods.length > 0 && mrNips.length > 0
+  const qoqPoas = mrNips.length > 0
     ? (await prisma.poaForm.findMany({
-        where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT }, period: { in: qoqPeriods } },
-        select: { id: true, ownerId: true, period: true },
-      })) as { id: string; ownerId: string; period: string }[]
+        where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT }, period: quarterIni },
+        select: { id: true, ownerId: true },
+      })) as { id: string; ownerId: string }[]
     : [];
-  const qoqPoaPeriodMap = new Map(qoqPoas.map((p) => [p.id, p.period]));
   const qoqPoaOwnerMap = new Map(qoqPoas.map((p) => [p.id, p.ownerId]));
   const qoqPoaIds = qoqPoas.map((p) => p.id);
 
   const qoqLineItems = qoqPoaIds.length > 0
     ? (await prisma.poaLineItem.findMany({
         where: { poaId: { in: qoqPoaIds } },
-        select: { poaId: true, kodePI: true, kodeCust: true, namaCust: true, kodeProduk: true, rencanaTotalBiaya: true },
-      })) as { poaId: string; kodePI: string | null; kodeCust: string | null; namaCust: string; kodeProduk: string; rencanaTotalBiaya: { toString(): string } | number }[]
+        select: { poaId: true, kodePI: true, kodeCust: true, kodeProduk: true, rencanaTotalBiaya: true },
+      })) as { poaId: string; kodePI: string | null; kodeCust: string | null; kodeProduk: string; rencanaTotalBiaya: { toString(): string } | number }[]
     : [];
 
   // Same "code" identity as getTerritoryKey below, minus the display name —
-  // this only needs to match up against the main groups by code.
-  function qoqCode(li: typeof qoqLineItems[0]): string {
+  // this only needs to match up against the main groups by code. Customer
+  // rows with no kodeCust are skipped entirely here (2026-07-30: "no-code"
+  // customers aren't displayed as their own row at all anymore — see the
+  // main lineItems grouping loop below — so there's nothing for this map to
+  // match against for them).
+  function qoqCode(li: typeof qoqLineItems[0]): string | null {
     if (tab === "outlet") return li.kodePI ?? "-";
     if (tab === "produk") return li.kodeProduk;
-    if (tab === "customer") return li.kodeCust ?? `no-code:${li.namaCust}`;
+    if (tab === "customer") return li.kodeCust;
     return qoqPoaOwnerMap.get(li.poaId) ?? "-";
   }
 
@@ -230,17 +229,15 @@ export default async function SummaryPage({
   // code with no Q-ini submission at all (hasn't gotten around to it yet)
   // reads identically to "estimasi genuinely collapsed to zero", both showing
   // a -100% growth. Only the latter should ever say -100%; the former should
-  // show "belum ada data" (2026-07-30, part of the same fix as quarterIni above).
-  const qoqEstimasiByCode = new Map<string, { ini: number; sebelumnya: number; hasIni: boolean }>();
+  // show "belum ada data" (2026-07-30).
+  const qoqIniByCode = new Map<string, { ini: number; hasIni: boolean }>();
   for (const li of qoqLineItems) {
-    const period = qoqPoaPeriodMap.get(li.poaId);
-    if (!period) continue;
     const code = qoqCode(li);
-    const agg = qoqEstimasiByCode.get(code) ?? { ini: 0, sebelumnya: 0, hasIni: false };
-    const val = toNum(li.rencanaTotalBiaya);
-    if (period === quarterIni) { agg.ini += val; agg.hasIni = true; }
-    else if (period === quarterSebelumnya) agg.sebelumnya += val;
-    qoqEstimasiByCode.set(code, agg);
+    if (!code) continue;
+    const agg = qoqIniByCode.get(code) ?? { ini: 0, hasIni: false };
+    agg.ini += toNum(li.rencanaTotalBiaya);
+    agg.hasIni = true;
+    qoqIniByCode.set(code, agg);
   }
 
   const lineItems = poaIds.length > 0
@@ -292,6 +289,50 @@ export default async function SummaryPage({
   const realisasiByOutlet = new Map(realisasiByOutletRaw.filter((r) => r.kdOutlet).map((r) => [r.kdOutlet as string, toNum(r._sum.totalLunas)]));
   const realisasiByCust = new Map(realisasiByCustRaw.map((r) => [r.kdCust, toNum(r._sum.totalLunas)]));
 
+  // Realisasi Quarter Sebelumnya (2026-07-30, redefines the growth baseline
+  // — user: "growth vs quarter sebelumnya itu estimasi vs realisasi nya").
+  // "Realisasi" = PSSP pelunasan actually recorded within quarterSebelumnya's
+  // 3 specific months (PsspKontrak.lunasByPeriod, keyed "YYYYMM" -> amount),
+  // NOT the all-time cumulative totalLunas the "Realisasi Sebelumnya" column
+  // above uses (that one intentionally spans every contract ever; this one
+  // must stay scoped to exactly one quarter or it wouldn't measure
+  // quarter-over-quarter growth at all). lunasByPeriod is a ROW-level figure
+  // (one PsspKontrak row = one cUrut+kdProduk combination's own monthly
+  // payments) — unlike `biaya`/ListingFeeKontrak.value, it is NOT duplicated
+  // per product row within a contract, so no cUrut-dedup is needed before
+  // summing (same assumption realisasiByOutlet/ByCust above already make
+  // about totalLunas, uncommented but consistent).
+  const quarterSebelumnyaMonths = quarterSebelumnya ? quarterToMonths(quarterSebelumnya) : [];
+  const realisasiPsspWhere: Record<string, unknown>[] = [];
+  if (outletCodes.length > 0) realisasiPsspWhere.push({ kdOutlet: { in: outletCodes } });
+  if (custCodes.length > 0) realisasiPsspWhere.push({ kdCust: { in: custCodes } });
+  const realisasiPsspRows = quarterSebelumnyaMonths.length > 0 && realisasiPsspWhere.length > 0
+    ? (await prisma.psspKontrak.findMany({
+        where: { OR: realisasiPsspWhere },
+        select: { kdOutlet: true, kdCust: true, nmProduk: true, lunasByPeriod: true },
+      })) as { kdOutlet: string | null; kdCust: string; nmProduk: string | null; lunasByPeriod: unknown }[]
+    : [];
+
+  function sumLunasForMonths(lunasByPeriod: unknown, months: string[]): number {
+    if (!lunasByPeriod || typeof lunasByPeriod !== "object") return 0;
+    const obj = lunasByPeriod as Record<string, number | string | null | undefined>;
+    return months.reduce((s, m) => s + toNum(obj[m]), 0);
+  }
+
+  const realisasiSebelumnyaByOutlet = new Map<string, number>();
+  const realisasiSebelumnyaByCust = new Map<string, number>();
+  const realisasiSebelumnyaByProdName = new Map<string, number>();
+  for (const r of realisasiPsspRows) {
+    const v = sumLunasForMonths(r.lunasByPeriod, quarterSebelumnyaMonths);
+    if (v === 0) continue;
+    if (r.kdOutlet) realisasiSebelumnyaByOutlet.set(r.kdOutlet, (realisasiSebelumnyaByOutlet.get(r.kdOutlet) ?? 0) + v);
+    if (r.kdCust) realisasiSebelumnyaByCust.set(r.kdCust, (realisasiSebelumnyaByCust.get(r.kdCust) ?? 0) + v);
+    if (r.nmProduk) {
+      const key = normName(r.nmProduk);
+      realisasiSebelumnyaByProdName.set(key, (realisasiSebelumnyaByProdName.get(key) ?? 0) + v);
+    }
+  }
+
   // Build poa→owner map
   const poaOwnerMap = new Map(poas.map((p) => [p.id, p.ownerId]));
 
@@ -313,8 +354,17 @@ export default async function SummaryPage({
   );
   const allProductSet = new Set(lineItems.map((li) => li.kodeProduk));
 
+  // Dedupe by kodeCust when available, falling back to namaCust only for
+  // rows with no code at all — deduping by name alone (the old behaviour)
+  // risked over/under-counting whenever the same customer had a code on
+  // some line items and not others (2026-07-30, part of validating "customer
+  // per MR" counts are correct).
+  function custIdentity(li: { kodeCust: string | null; namaCust: string }): string {
+    return li.kodeCust ?? li.namaCust;
+  }
+
   const globalTotals: MonitoringTotals = {
-    customer: new Set(lineItems.map((li) => li.namaCust)).size,
+    customer: new Set(lineItems.map(custIdentity)).size,
     variasiProdukFokus: new Set(
       lineItems.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)
     ).size,
@@ -337,7 +387,11 @@ export default async function SummaryPage({
       return { code: li.kodeProduk, name: li.namaProduk };
     }
     if (tab === "customer") {
-      return { code: li.kodeCust ?? `no-code:${li.namaCust}`, name: li.namaCust };
+      // Customers with no kodeCust are filtered out before this is ever
+      // called for them (2026-07-30: "kalau customernya gaada kode... gausah
+      // ditampilin aja" — no more synthetic "no-code:Name" rows) — code is
+      // always real here.
+      return { code: li.kodeCust!, name: li.namaCust };
     }
     const ownerNip = poaOwnerMap.get(li.poaId) ?? "-";
     const mr = mrUsers.find((u) => u.nip === ownerNip);
@@ -435,6 +489,18 @@ export default async function SummaryPage({
     const list = outletsByMr.get(row.nipMR) ?? [];
     list.push(row.kodePI);
     outletsByMr.set(row.nipMR, list);
+  }
+
+  // Realisasi Quarter Sebelumnya, dispatched per tab (2026-07-30) — "mr" has
+  // no direct PsspKontrak grouping of its own, so it's the sum of realisasi
+  // across whichever outlets that MR is currently assigned (same rollup
+  // pattern realSalesAgg below uses for real sales).
+  function realisasiSebelumnyaFor(code: string, name: string): number {
+    if (tab === "outlet") return realisasiSebelumnyaByOutlet.get(code) ?? 0;
+    if (tab === "customer") return realisasiSebelumnyaByCust.get(code) ?? 0;
+    if (tab === "produk") return realisasiSebelumnyaByProdName.get(normName(name)) ?? 0;
+    const outlets = outletsByMr.get(code) ?? [];
+    return outlets.reduce((s, o) => s + (realisasiSebelumnyaByOutlet.get(o) ?? 0), 0);
   }
 
   // DIR10001B is outlet-level only — no per-customer/per-product sales value
@@ -548,6 +614,10 @@ export default async function SummaryPage({
   // "produk" tab: no pre-seeding — products only appear once actually planned.
 
   for (const li of lineItems) {
+    // 2026-07-30: customers with no real kodeCust no longer get their own
+    // synthetic "no-code:Name" row on the Per Customer tab — just excluded
+    // entirely rather than shown under a fabricated identity.
+    if (tab === "customer" && !li.kodeCust) continue;
     const key = getTerritoryKey(li);
     if (!groupMap.has(key.code)) groupMap.set(key.code, { key, items: [] });
     groupMap.get(key.code)!.items.push(li);
@@ -641,14 +711,14 @@ export default async function SummaryPage({
         ? stRows.reduce((s, li) => s + li.qtyProdukResep! / li.jumlahPasienHari!, 0) / stRows.length
         : null;
 
-      const qoq = qoqEstimasiByCode.get(key.code);
+      const qoq = qoqIniByCode.get(key.code);
       const estimasiQuarterIni = qoq?.ini ?? 0;
-      const estimasiQuarterSebelumnya = qoq?.sebelumnya ?? 0;
-      // Null (not -100%) when there's nothing to compare: no prior-quarter
-      // baseline, OR no submission at all yet this quarter (see hasIni note
-      // above) — a missing "ini" isn't the same as a genuine drop to zero.
-      const growthVsQuarterSebelumnyaPct = estimasiQuarterSebelumnya > 0 && qoq?.hasIni
-        ? ((estimasiQuarterIni - estimasiQuarterSebelumnya) / estimasiQuarterSebelumnya) * 100
+      const realisasiQuarterSebelumnya = realisasiSebelumnyaFor(key.code, key.name);
+      // Null (not -100%) when there's nothing to compare: no realisasi at all
+      // last quarter, OR no submission at all yet this quarter (see hasIni
+      // note above) — a missing "ini" isn't the same as a genuine drop to zero.
+      const growthVsQuarterSebelumnyaPct = realisasiQuarterSebelumnya > 0 && qoq?.hasIni
+        ? ((estimasiQuarterIni - realisasiQuarterSebelumnya) / realisasiQuarterSebelumnya) * 100
         : null;
 
       return {
@@ -659,7 +729,7 @@ export default async function SummaryPage({
         variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
         variasiProdukFokus: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
         produkPssp: produkPsspSet.size,
-        customer: new Set(items.map((li) => li.namaCust)).size,
+        customer: new Set(items.map(custIdentity)).size,
         pengajuan: items.length,
         terstandarisasi,
         prosesStandar,
@@ -681,7 +751,7 @@ export default async function SummaryPage({
         pelunasanRunningRate,
         biayaAktif,
         estimasiQuarterIni,
-        estimasiQuarterSebelumnya,
+        realisasiQuarterSebelumnya,
         growthVsQuarterSebelumnyaPct,
       };
     })
@@ -755,7 +825,7 @@ export default async function SummaryPage({
     biayaAktif: g.biayaAktif,
     pelunasanRunningRate: g.pelunasanRunningRate,
     estimasiQuarterIni: g.estimasiQuarterIni,
-    estimasiQuarterSebelumnya: g.estimasiQuarterSebelumnya,
+    realisasiQuarterSebelumnya: g.realisasiQuarterSebelumnya,
     growthVsQuarterSebelumnyaPct: g.growthVsQuarterSebelumnyaPct,
   }));
 
@@ -785,8 +855,10 @@ export default async function SummaryPage({
         </div>
       </Card>
 
-      {/* Stats — ADMIN only for now; non-admin goes straight to the table. */}
-      {session.role === "ADMIN" && (
+      {/* Stats — NSM/GM/ADMIN only (2026-07-30: reworked as a dashboard-style
+          visualization and reopened to upper management, not just ADMIN);
+          everyone else goes straight to the table. */}
+      {(session.role === "NSM" || session.role === "GM" || session.role === "ADMIN") && (
         <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"} />
       )}
 

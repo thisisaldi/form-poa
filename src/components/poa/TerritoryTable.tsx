@@ -160,8 +160,8 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                   ? "Total rencana biaya: 'Aktif' dari kontrak PSSP yang sedang berjalan, 'Pengajuan' dari POA yang sudah disubmit (bukan draft)."
                   : "Total rencana biaya (rencanaTotalBiaya) dari POA yang sudah disubmit, bukan draft."} />
               <SortableTh label="Growth vs Quarter Sebelumnya" sortKey="growth" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
-                title={quarterIni && quarterSebelumnya ? `${quarterIni} vs ${quarterSebelumnya}` : undefined}
-                info="Persentase perubahan Estimasi kuartal ini dibanding kuartal sebelumnya, dihitung hanya dari POA yang sudah disubmit di kedua kuartal. Tanda '-' berarti belum ada data pembanding (misalnya kuartal sebelumnya belum pernah disubmit)." />
+                title={quarterIni && quarterSebelumnya ? `Estimasi ${quarterIni} vs Realisasi ${quarterSebelumnya}` : undefined}
+                info="Persentase perbandingan Estimasi (POA yang disubmit) kuartal ini terhadap Realisasi (PSSP lunas) kuartal sebelumnya. Tanda '-' berarti belum ada realisasi kuartal sebelumnya untuk dibandingkan, atau belum ada POA yang disubmit kuartal ini." />
               {showRealisasi && (
                 <>
                   <SortableTh label="Realisasi Sebelumnya" sortKey="realisasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
@@ -253,7 +253,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                     )}
                   </td>
                   <td className="py-2 px-3 text-right whitespace-nowrap"
-                    title={quarterIni && quarterSebelumnya ? `${quarterIni} ${formatRp(g.estimasiQuarterIni)} vs ${quarterSebelumnya} ${formatRp(g.estimasiQuarterSebelumnya)}` : undefined}
+                    title={quarterIni && quarterSebelumnya ? `Estimasi ${quarterIni} ${formatRp(g.estimasiQuarterIni)} vs Realisasi ${quarterSebelumnya} ${formatRp(g.realisasiQuarterSebelumnya)}` : undefined}
                     style={{ color: g.growthVsQuarterSebelumnyaPct == null ? "var(--color-text-faint)"
                       : g.growthVsQuarterSebelumnyaPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                     {g.growthVsQuarterSebelumnyaPct != null

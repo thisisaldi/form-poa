@@ -568,7 +568,7 @@ export async function GET(req: NextRequest) {
     const statusProdukRekomendasi = history.some((r) => r.nmProduk?.toLowerCase().trim() === namaProdukNorm)
       ? "Pernah PSSP"
       : getAllPakets(li.namaProduk).length > 0
-      ? "PM"
+      ? "Rekomendasi PM"
       : surveyKodeProduk?.has(li.kodeProduk)
       ? "Produk Survey"
       : li.kriteriaProduk?.startsWith("Produk Sudah Terstandarisasi")
