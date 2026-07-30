@@ -1,5 +1,7 @@
 "use client";
 
+import { HeaderInfo } from "@/components/ui/HeaderInfo";
+
 export type SortDir = "asc" | "desc";
 
 /**
@@ -12,7 +14,7 @@ export type SortDir = "asc" | "desc";
  * convention as the tab bar elsewhere in this app.
  */
 export function SortableTh<K extends string>({
-  label, sortKey, currentKey, currentDir, onSort, align = "right", sticky = false, title,
+  label, sortKey, currentKey, currentDir, onSort, align = "right", sticky = false, title, info,
 }: {
   label: string;
   sortKey: K;
@@ -23,6 +25,8 @@ export function SortableTh<K extends string>({
   /** Pins this header to the left edge, matching the table body's frozen first column. */
   sticky?: boolean;
   title?: string;
+  /** Shown in a click-to-open popover via the header's "i" icon — what this column means. */
+  info?: string;
 }) {
   const active = currentKey === sortKey;
   return (
@@ -35,25 +39,28 @@ export function SortableTh<K extends string>({
         ...(sticky ? { background: "var(--color-surface)", borderRight: "1px solid var(--color-border)" } : {}),
       }}
     >
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className="inline-flex items-center gap-1 hover:opacity-75 transition-opacity cursor-pointer"
-        style={align === "right" ? { flexDirection: "row-reverse" } : undefined}
-        aria-label={`Urutkan berdasarkan ${label}`}
-      >
-        <span>{label}</span>
-        <span className="inline-flex flex-col leading-none">
-          <svg viewBox="0 0 10 6" className="h-[5px] w-2.5"
-            style={{ fill: active && currentDir === "asc" ? "var(--color-blue)" : "var(--color-text-faint)", opacity: active && currentDir === "asc" ? 1 : 0.4 }}>
-            <path d="M5 0L10 6H0L5 0Z" />
-          </svg>
-          <svg viewBox="0 0 10 6" className="h-[5px] w-2.5 mt-[2px]"
-            style={{ fill: active && currentDir === "desc" ? "var(--color-blue)" : "var(--color-text-faint)", opacity: active && currentDir === "desc" ? 1 : 0.4 }}>
-            <path d="M5 6L0 0H10L5 6Z" />
-          </svg>
-        </span>
-      </button>
+      <span className="inline-flex items-center gap-1" style={align === "right" ? { flexDirection: "row-reverse" } : undefined}>
+        <button
+          type="button"
+          onClick={() => onSort(sortKey)}
+          className="inline-flex items-center gap-1 hover:opacity-75 transition-opacity cursor-pointer"
+          style={align === "right" ? { flexDirection: "row-reverse" } : undefined}
+          aria-label={`Urutkan berdasarkan ${label}`}
+        >
+          <span>{label}</span>
+          <span className="inline-flex flex-col leading-none">
+            <svg viewBox="0 0 10 6" className="h-[5px] w-2.5"
+              style={{ fill: active && currentDir === "asc" ? "var(--color-blue)" : "var(--color-text-faint)", opacity: active && currentDir === "asc" ? 1 : 0.4 }}>
+              <path d="M5 0L10 6H0L5 0Z" />
+            </svg>
+            <svg viewBox="0 0 10 6" className="h-[5px] w-2.5 mt-[2px]"
+              style={{ fill: active && currentDir === "desc" ? "var(--color-blue)" : "var(--color-text-faint)", opacity: active && currentDir === "desc" ? 1 : 0.4 }}>
+              <path d="M5 6L0 0H10L5 6Z" />
+            </svg>
+          </span>
+        </button>
+        {info && <HeaderInfo text={info} />}
+      </span>
     </th>
   );
 }

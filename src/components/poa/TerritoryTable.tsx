@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { MonitoringGroup } from "@/components/poa/MonitoringChecklist";
 import { Card } from "@/components/ui/Card";
 import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/SortableTh";
+import { HeaderInfo } from "@/components/ui/HeaderInfo";
 
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
@@ -136,50 +137,84 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
               {/* Frozen first column (2026-07-27 request: "difreeze biar tetep
                   keliatan kalau geser kanan"). */}
-              <SortableTh label={codeLabel} sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="left" sticky />
+              <SortableTh label={codeLabel} sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="left" sticky
+                info={`Nama dan kode ${codeLabel.toLowerCase()}.`} />
               {isProduk && (
-                <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Status</th>
+                <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                  <span className="inline-flex items-center gap-1">
+                    Status
+                    <HeaderInfo text="Fokus jika produk ini termasuk daftar Produk Fokus perusahaan, Non-Fokus jika bukan." />
+                  </span>
+                </th>
               )}
               {!isProduk && (
-                <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>PIC</th>
+                <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                  <span className="inline-flex items-center gap-1">
+                    PIC
+                    <HeaderInfo text="MR (Marketing Representative) yang menangani baris ini." />
+                  </span>
+                </th>
               )}
-              <SortableTh label={isOutlet || isProduk ? "Estimasi Aktif+Pengajuan" : "Estimasi"} sortKey="estimasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label={isOutlet || isProduk ? "Estimasi Aktif+Pengajuan" : "Estimasi"} sortKey="estimasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                info={isOutlet || isProduk
+                  ? "Total rencana biaya: 'Aktif' dari kontrak PSSP yang sedang berjalan, 'Pengajuan' dari POA yang sudah disubmit (bukan draft)."
+                  : "Total rencana biaya (rencanaTotalBiaya) dari POA yang sudah disubmit, bukan draft."} />
               <SortableTh label="Growth vs Quarter Sebelumnya" sortKey="growth" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
-                title={quarterIni && quarterSebelumnya ? `${quarterIni} vs ${quarterSebelumnya}` : undefined} />
+                title={quarterIni && quarterSebelumnya ? `${quarterIni} vs ${quarterSebelumnya}` : undefined}
+                info="Persentase perubahan Estimasi kuartal ini dibanding kuartal sebelumnya, dihitung hanya dari POA yang sudah disubmit di kedua kuartal. Tanda '-' berarti belum ada data pembanding (misalnya kuartal sebelumnya belum pernah disubmit)." />
               {showRealisasi && (
                 <>
-                  <SortableTh label="Realisasi Sebelumnya" sortKey="realisasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <SortableTh label="Gap" sortKey="gap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="Realisasi Sebelumnya" sortKey="realisasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Total nilai PSSP yang sudah benar-benar lunas/dibayar dari kontrak-kontrak sebelumnya (baik yang masih berjalan maupun yang sudah selesai)." />
+                  <SortableTh label="Gap" sortKey="gap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Estimasi sekarang dikurangi Realisasi Sebelumnya. Makin besar/positif, makin mencolok — artinya realisasi dulu rendah tapi estimasi sekarang tinggi." />
                 </>
               )}
-              <SortableTh label={isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"} sortKey="user" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label={isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"} sortKey="user" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                info={isOutlet
+                  ? "Jumlah customer unik yang punya PSSP aktif dan/atau diajukan di outlet ini (gabungan, tidak dobel hitung)."
+                  : isProduk
+                  ? "Jumlah customer unik yang punya PSSP aktif untuk produk ini."
+                  : "Jumlah customer unik yang diajukan."} />
               {isOutlet && (
-                <SortableTh label="Variasi Produk (Fokus/Non-Fokus)" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortableTh label="Variasi Produk (Fokus/Non-Fokus)" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info="Jumlah variasi produk yang diajukan di outlet ini, dipecah jadi Fokus dan Non-Fokus." />
               )}
               {!isOutlet && !isProduk && (
-                <SortableTh label="Produk Fokus" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortableTh label="Produk Fokus" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info="Jumlah variasi Produk Fokus yang diajukan." />
               )}
-              <SortableTh label="Pengajuan" sortKey="pengajuan" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Pengajuan" sortKey="pengajuan" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                info="Jumlah baris pengajuan (kombinasi produk × customer) yang sudah disubmit, bukan draft." />
               {(isOutlet || isProduk) && (
-                <SortableTh label="Biaya" sortKey="biaya" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortableTh label="Biaya" sortKey="biaya" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info="Total biaya PSSP + Discount + Entertain: 'Aktif' dari kontrak yang sedang berjalan, 'Pengajuan' dari POA yang diajukan." />
               )}
-              <SortableTh label={isOutlet || isProduk ? "Cost Ratio" : "% Budget"} sortKey="costRatio" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label={isOutlet || isProduk ? "Cost Ratio" : "% Budget"} sortKey="costRatio" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                info="Persentase total biaya (PSSP + Discount + Entertain) dibanding Estimasi — makin tinggi, makin besar porsi biaya terhadap rencana penjualan." />
               {isOutlet && (
                 <>
-                  <SortableTh label="Estimasi Per User" sortKey="estimasiPerUser" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <SortableTh label="Listing Fee" sortKey="listingFee" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <SortableTh label="Pelunasan (%) Running Rate" sortKey="pelunasan" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="Estimasi Per User" sortKey="estimasiPerUser" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Estimasi Aktif+Pengajuan dibagi jumlah User PSSP — rata-rata estimasi per customer." />
+                  <SortableTh label="Listing Fee" sortKey="listingFee" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Total nilai kontrak Listing Fee outlet ini." />
+                  <SortableTh label="Pelunasan (%) Running Rate" sortKey="pelunasan" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Realisasi pelunasan dibanding ekspektasi berdasarkan seberapa jauh kontrak sudah berjalan. 100% berarti pelunasan sesuai jadwal, di bawah itu berarti tertinggal." />
                 </>
               )}
               {isProduk && (
                 <>
-                  <SortableTh label="Sales Per User" sortKey="salesPerUser" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <SortableTh label="AVG Pasien/User" sortKey="avgPasien" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <SortableTh label="AVG ST/Pasien" sortKey="avgSt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="Sales Per User" sortKey="salesPerUser" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Sales Aktif (qty × HNA) dibagi jumlah User Aktif PSSP." />
+                  <SortableTh label="AVG Pasien/User" sortKey="avgPasien" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Rata-rata jumlah pasien per hari, dihitung dari baris pengajuan yang mengisi data pasien." />
+                  <SortableTh label="AVG ST/Pasien" sortKey="avgSt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                    info="Rata-rata jumlah ST (satuan terkecil produk yang diresepkan) per pasien." />
                 </>
               )}
               {!isOutlet && !isProduk && (
-                <SortableTh label="Listing" sortKey="listing" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortableTh label="Listing" sortKey="listing" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info="Jumlah produk berstatus 'Sudah Standarisasi' dibanding total produk yang diajukan." />
               )}
             </tr>
           </thead>
