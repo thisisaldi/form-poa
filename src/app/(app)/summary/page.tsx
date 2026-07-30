@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
+import { currentQuarter } from "@/lib/quarterUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { MonitoringChecklist } from "@/components/poa/MonitoringChecklist";
@@ -172,22 +173,23 @@ export default async function SummaryPage({
   ]);
 
   const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
-  const periodsInRange = allPeriods.filter((p) =>
-    (!periodFrom || p >= periodFrom) && (!periodTo || p <= periodTo)
-  );
   const poaIds = poas.map((p) => p.id);
 
-  // Growth vs Quarter Sebelumnya (2026-07-28) — "quarter ini" is the latest
-  // period within the selected range, or the latest quarter with any
-  // submission at all when viewing "Semua"/an empty range (pooled across
-  // periods, where `estimasi` elsewhere has no single quarter to anchor to).
-  // Fetched independently of poaWhere/lineItems above so the comparison
-  // still works even when the range narrows the main query to fewer quarters
-  // (previous quarter's data wouldn't otherwise be fetched at all).
-  const quarterIni = periodsInRange.length > 0
-    ? periodsInRange[periodsInRange.length - 1]
-    : (allPeriods.length > 0 ? allPeriods[allPeriods.length - 1] : null);
-  const quarterSebelumnya = quarterIni ? previousQuarterPeriod(quarterIni) : null;
+  // Growth vs Quarter Sebelumnya (2026-07-28, fixed 2026-07-30) — "quarter
+  // ini" is always the REAL calendar quarter containing today, never just
+  // "whichever period happens to have the most recent submission". The old
+  // "latest period with any data" logic broke as soon as a single early POA
+  // landed in the NEXT quarter before most MRs had caught up: it anchored
+  // quarterIni to that near-empty future quarter and compared it against the
+  // prior quarter's full data, showing a false -100% company-wide for every
+  // MR who simply hadn't submitted yet (2026-07-30 bug report: "growth vs
+  // quarter sebelumnya di summary per personil itu -100% semua" — root cause
+  // was exactly this: 1 stray Q4 POA vs 182 real Q3 POAs while today is still
+  // in Q3). Fetched independently of poaWhere/lineItems above so the
+  // comparison still works even when the range narrows the main query to
+  // fewer quarters (previous quarter's data wouldn't otherwise be fetched).
+  const quarterIni = currentQuarter();
+  const quarterSebelumnya = previousQuarterPeriod(quarterIni);
   const qoqPeriods = [quarterIni, quarterSebelumnya].filter((p): p is string => !!p);
 
   const qoqPoas = qoqPeriods.length > 0 && mrNips.length > 0
@@ -216,14 +218,20 @@ export default async function SummaryPage({
     return qoqPoaOwnerMap.get(li.poaId) ?? "-";
   }
 
-  const qoqEstimasiByCode = new Map<string, { ini: number; sebelumnya: number }>();
+  // hasIni tracks whether this code has an actual POA submitted THIS quarter
+  // (not just whether its estimasi summed to something > 0) — without it, a
+  // code with no Q-ini submission at all (hasn't gotten around to it yet)
+  // reads identically to "estimasi genuinely collapsed to zero", both showing
+  // a -100% growth. Only the latter should ever say -100%; the former should
+  // show "belum ada data" (2026-07-30, part of the same fix as quarterIni above).
+  const qoqEstimasiByCode = new Map<string, { ini: number; sebelumnya: number; hasIni: boolean }>();
   for (const li of qoqLineItems) {
     const period = qoqPoaPeriodMap.get(li.poaId);
     if (!period) continue;
     const code = qoqCode(li);
-    const agg = qoqEstimasiByCode.get(code) ?? { ini: 0, sebelumnya: 0 };
+    const agg = qoqEstimasiByCode.get(code) ?? { ini: 0, sebelumnya: 0, hasIni: false };
     const val = toNum(li.rencanaTotalBiaya);
-    if (period === quarterIni) agg.ini += val;
+    if (period === quarterIni) { agg.ini += val; agg.hasIni = true; }
     else if (period === quarterSebelumnya) agg.sebelumnya += val;
     qoqEstimasiByCode.set(code, agg);
   }
@@ -629,7 +637,10 @@ export default async function SummaryPage({
       const qoq = qoqEstimasiByCode.get(key.code);
       const estimasiQuarterIni = qoq?.ini ?? 0;
       const estimasiQuarterSebelumnya = qoq?.sebelumnya ?? 0;
-      const growthVsQuarterSebelumnyaPct = estimasiQuarterSebelumnya > 0
+      // Null (not -100%) when there's nothing to compare: no prior-quarter
+      // baseline, OR no submission at all yet this quarter (see hasIni note
+      // above) — a missing "ini" isn't the same as a genuine drop to zero.
+      const growthVsQuarterSebelumnyaPct = estimasiQuarterSebelumnya > 0 && qoq?.hasIni
         ? ((estimasiQuarterIni - estimasiQuarterSebelumnya) / estimasiQuarterSebelumnya) * 100
         : null;
 

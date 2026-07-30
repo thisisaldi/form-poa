@@ -9,6 +9,13 @@ export function toYYYYMM(year: number, month: number): string {
   return `${year}${String(month).padStart(2, "0")}`;
 }
 
+/** The calendar quarter containing today, e.g. Jul 2026 -> "2026-Q3". */
+export function currentQuarter(): string {
+  const now = new Date();
+  const q = Math.floor(now.getMonth() / 3) + 1;
+  return `${now.getFullYear()}-Q${q}`;
+}
+
 /** "2026-Q3" -> ["202607", "202608", "202609"] */
 export function quarterToMonths(quarter: string): string[] {
   const m = quarter.match(/^(\d{4})-Q([1-4])$/);
