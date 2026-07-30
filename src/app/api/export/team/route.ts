@@ -18,13 +18,21 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
-import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets } from "@/app/actions/customer";
+import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, type PsspKontrakSummary } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir } from "@/lib/poaUtils";
 import { spesLabel } from "@/lib/spesialisasi";
 
 const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 const fmtRp = (n: number) => `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+
+// "Jenis PSSP" export label — mirrors the same map in /api/poa/[id]/export
+// (BentukPssp enum, schema.prisma).
+const BENTUK_PSSP_LABELS: Record<string, string> = {
+  CASH: "Cash",
+  BARANG: "Barang",
+  JASA: "Jasa",
+};
 
 export async function GET(req: NextRequest) {
   const session = await getCurrentUser();
@@ -116,8 +124,26 @@ export async function GET(req: NextRequest) {
         persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
         pengaliNilaiR: { toString(): string } | null;
         produkKompetitor: string | null;
+        bentukPssp: string | null;
+        kriteriaProduk: string | null;
       }[]
     : [];
+
+  // ── PSSP history + survey recommendations (for "Historis PSSP" / "Jenis
+  //    PSSP" / "Keterangan Produk" columns on "Semua Pengajuan" — same
+  //    columns already on the single-POA export, missing here) ──────────────
+  const psspHistoryMap = new Map<string, PsspKontrakSummary[]>();
+  for (const kodeCust of new Set(lineItems.map((li) => li.kodeCust).filter((k): k is string => !!k))) {
+    psspHistoryMap.set(kodeCust, await getPsspHistory(kodeCust));
+  }
+  const surveyByOutletMap = new Map<string, Set<string>>();
+  for (const li of lineItems) {
+    if (!li.kodeCust || !li.kodePI) continue;
+    const key = `${li.kodeCust}|${li.kodePI}`;
+    if (surveyByOutletMap.has(key)) continue;
+    const rows = await getSurveyRekomendasiByOutlet(li.kodeCust, li.kodePI);
+    surveyByOutletMap.set(key, new Set(rows.map((r) => r.kodeProduk)));
+  }
 
   // ── Build org hierarchy map ─────────────────────────────────────────────────
   // Trace 3 levels up from MR: ASM → SM → NSM
@@ -469,6 +495,9 @@ export async function GET(req: NextRequest) {
     { header: "Produk Kompetitor Utama", key: "kompetitor",    width: 22 },
     { header: "Total Estimasi (Dokter)", key: "totalEstimasiDokter", width: 20 },
     { header: "Total Nilai PSSP (Dokter)", key: "totalNilaiPsspDokter", width: 20 },
+    { header: "Historis PSSP",        key: "historisPssp",     width: 16 },
+    { header: "Jenis PSSP",           key: "jenisPsspBentuk",  width: 12 },
+    { header: "Keterangan Produk",    key: "statusProdukRekomendasi", width: 22 },
   ];
   styleHeader(ws3);
 
@@ -526,6 +555,26 @@ export async function GET(req: NextRequest) {
           : "—";
     const dTotal = doctorTotals.get(doctorKey(li))!;
 
+    // "Historis PSSP" / "Jenis PSSP" / "Keterangan Produk" — same logic as
+    // /api/poa/[id]/export's "Pengisian" sheet (historisPssp/jenisPsspBentuk/
+    // statusProdukRekomendasi there), just missing from this team-wide sheet.
+    const history = li.kodeCust ? psspHistoryMap.get(li.kodeCust) ?? [] : [];
+    const historisPssp = history.length === 0
+      ? "Belum Pernah PSSP"
+      : `PSSP ke-${new Set(history.map((r) => r.cUrut)).size}`;
+    const jenisPsspBentuk = li.bentukPssp ? BENTUK_PSSP_LABELS[li.bentukPssp] ?? li.bentukPssp : "—";
+    const namaProdukNorm = li.namaProduk.toLowerCase().trim();
+    const surveyKodeProduk = li.kodeCust && li.kodePI ? surveyByOutletMap.get(`${li.kodeCust}|${li.kodePI}`) : undefined;
+    const statusProdukRekomendasi = history.some((r) => r.nmProduk?.toLowerCase().trim() === namaProdukNorm)
+      ? "Pernah PSSP"
+      : getAllPakets(li.namaProduk).length > 0
+      ? "PM"
+      : surveyKodeProduk?.has(li.kodeProduk)
+      ? "Produk Survey"
+      : li.kriteriaProduk?.startsWith("Produk Sudah Terstandarisasi")
+      ? "Corporate Listing"
+      : "Lainnya";
+
     const row = ws3.addRow({
       nsmNip: mr.nsmNip, nsmName: mr.nsmName,
       smNip: mr.smNip,   smName: mr.smName,
@@ -559,6 +608,9 @@ export async function GET(req: NextRequest) {
       kompetitor: li.produkKompetitor ?? "—",
       totalEstimasiDokter: Math.round(dTotal.estimasi),
       totalNilaiPsspDokter: Math.round(dTotal.nilaiPssp),
+      historisPssp,
+      jenisPsspBentuk,
+      statusProdukRekomendasi,
     });
     if (li.isManualCustomer) manualCustomerRows.push(row.number);
   }

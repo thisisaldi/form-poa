@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getSubordinateMRNips } from "@/lib/authz";
+import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { buildOrgMaps } from "@/lib/targetCalculation";
 import { Card } from "@/components/ui/Card";
 import { SalesAchievementTable, type AchievementRow } from "@/components/poa/SalesAchievementTable";
@@ -94,7 +94,11 @@ export default async function MonitoringPage({
 
   // ── POAs (real target lives here) ─────────────────────────────────────────
 
-  const NON_DRAFT = ["APPROVED_BY_ASM", "APPROVED_BY_SM", "APPROVED_BY_NSM"];
+  // Same bug/fix as summary/page.tsx: the old local literal only matched the
+  // near-unreachable APPROVED_BY_ASM/SM statuses (approvePoa jumps straight
+  // SUBMITTED_TO_X → SUBMITTED_TO_Y, see poaWorkflow.ts), starving this page
+  // of almost all real data. authz.ts's NON_DRAFT_STATUSES is correct.
+  const NON_DRAFT = NON_DRAFT_STATUSES;
   const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips }, status: { in: NON_DRAFT } };
   if (hasPeriodFilter) {
     poaWhere.period = {

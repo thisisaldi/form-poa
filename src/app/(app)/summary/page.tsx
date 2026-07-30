@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getSubordinateMRNips } from "@/lib/authz";
+import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
 import { currentQuarter } from "@/lib/quarterUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
@@ -156,7 +156,14 @@ export default async function SummaryPage({
       })) as { nip: string; name: string }[]
     : [];
 
-  const NON_DRAFT = ["APPROVED_BY_ASM", "APPROVED_BY_SM", "APPROVED_BY_NSM"];
+  // Was a local ["APPROVED_BY_ASM","APPROVED_BY_SM","APPROVED_BY_NSM"] literal
+  // — those three statuses are near-unreachable (approvePoa jumps straight
+  // from SUBMITTED_TO_X to SUBMITTED_TO_Y, see poaWorkflow.ts's
+  // APPROVE_TRANSITIONS), so that filter matched almost nothing and every
+  // Pengajuan/Estimasi figure on this page read as 0 (2026-07-30 bug report:
+  // "pengajuan nya semuanya 0"). authz.ts's NON_DRAFT_STATUSES is the correct,
+  // already-used-elsewhere definition of "submitted, not DRAFT/REVISI".
+  const NON_DRAFT = NON_DRAFT_STATUSES;
   const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips }, status: { in: NON_DRAFT } };
   // String gte/lte on "YYYY-QN" is safe — fixed-width format, lexicographic
   // order matches chronological order.
