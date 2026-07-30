@@ -157,6 +157,15 @@ async function main() {
   const filePath = path.resolve(process.argv[2] ?? SOURCE_FILE_DEFAULT);
   const now = new Date();
   const periode = process.argv[3]?.trim() || `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  if (!/^\d{6}$/.test(periode)) { console.error(`Invalid periode "${periode}" — expected YYYYMM.`); process.exit(1); }
+  // MrOutletAssignment.periode is Int (YYYYMM) — same source-of-truth string as
+  // above, parsed once, so both OrgStrukturMeta and MrOutletAssignment always
+  // agree on which month this import is FOR (2026-07-30 fix: this used to
+  // silently use today's real-world date for assignments regardless of the
+  // periode arg, so importing e.g. August's file in July tagged the
+  // assignments 202607 instead of 202608 while OrgStrukturMeta correctly said
+  // 202608 — the two tables disagreed about which period had just been loaded).
+  const periodeInt = parseInt(periode, 10);
   console.log(`Reading: ${filePath} (struktur periode ${periode})\n`);
 
   const wb = new ExcelJS.Workbook();
@@ -338,7 +347,7 @@ async function main() {
   console.log(`   Covered by MR: ${coverageCounts.MR} · ASM (vacant MR): ${coverageCounts.ASM} · SM (vacant MR+ASM): ${coverageCounts.SM} · NSM (vacant MR+ASM+SM): ${coverageCounts.NSM} · nobody resolvable: ${coverageCounts.none}\n`);
 
   // ── 4. MrOutletAssignment — the latest import is authoritative ───────────────
-  const assignPeriode = now.getFullYear() * 100 + (now.getMonth() + 1);
+  const assignPeriode = periodeInt;
   let assignmentsWritten = 0, assignmentsCleared = 0, outletsNoMr = 0, outletsMrNotUser = 0;
 
   for (const r of rows) {
