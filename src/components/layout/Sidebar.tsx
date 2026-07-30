@@ -45,6 +45,16 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ASM", "SM", "NSM", "ADMIN", "SFE", "GM", "VIEWER"],
   },
   {
+    href: "/monitoring",
+    label: "Monitoring",
+    icon: <IconChart />,
+    // Target-vs-actual view built on the same DIR10001B sales data as
+    // Summary. ADMIN-only while under review (2026-07-30) — widen back to
+    // the full Summary audience (matches the page-level gate in
+    // monitoring/page.tsx) once approved.
+    roles: ["ADMIN"],
+  },
+  {
     href: "/faq",
     label: "FAQ",
     icon: <IconBook />,
