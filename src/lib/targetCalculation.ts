@@ -54,12 +54,19 @@ export interface OrgMaps {
 }
 
 export async function buildOrgMaps(): Promise<OrgMaps> {
+  // isDummy excluded at every level — workshop/test chains (see
+  // createDummyChainAction in admin.ts) are a fully separate NSM→SM→ASM→MR
+  // hierarchy with "national" outlet access, not real territories, so they
+  // shouldn't be counted in productivity/target math or surfaced as a real
+  // Area anywhere this feeds into (Monitoring's Area tab, target-produk's
+  // territory simulation) (2026-07-30: "nip dummy jangan masukkin ke
+  // monitoring dan summary").
   const [activeSms, activeAsms, activeMrs, assignments, nsms] = await Promise.all([
-    prisma.user.findMany({ where: { role: "SM", isActive: true }, select: { nip: true, name: true, nipAtasan: true } }),
-    prisma.user.findMany({ where: { role: "ASM", isActive: true }, select: { nip: true, nipAtasan: true } }),
-    prisma.user.findMany({ where: { role: "MR", isActive: true }, select: { nip: true, nipAtasan: true } }),
+    prisma.user.findMany({ where: { role: "SM", isActive: true, isDummy: false }, select: { nip: true, name: true, nipAtasan: true } }),
+    prisma.user.findMany({ where: { role: "ASM", isActive: true, isDummy: false }, select: { nip: true, nipAtasan: true } }),
+    prisma.user.findMany({ where: { role: "MR", isActive: true, isDummy: false }, select: { nip: true, nipAtasan: true } }),
     prisma.mrOutletAssignment.findMany({ select: { nipMR: true, kodePI: true } }),
-    prisma.user.findMany({ where: { role: "NSM", isActive: true }, select: { nip: true, name: true } }),
+    prisma.user.findMany({ where: { role: "NSM", isActive: true, isDummy: false }, select: { nip: true, name: true } }),
   ]);
 
   const asmToSm = new Map<string, string>(); // ASM nip -> SM nip
