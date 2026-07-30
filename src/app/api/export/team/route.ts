@@ -783,7 +783,7 @@ export async function GET(req: NextRequest) {
     kodePI: string; namaOutlet: string;
     estimasi: number; estimasiAktif: number; userCount: number;
     variasiProduk: number; variasiProdukFokus: number;
-    budgetTotal: number; salesAktif: number; listingFeeTotal: number;
+    budgetTotal: number; biayaAktif: number; salesAktif: number; listingFeeTotal: number;
   }
   const outletSummaryRows: OutletSummaryRow[] = [...outletGroups.entries()].map(([kodePI, { namaOutlet, items }]) => {
     let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
@@ -800,6 +800,21 @@ export async function GET(req: NextRequest) {
     }
     const activeRows = kodePI !== "—" ? (activePsspByOutlet.get(kodePI) ?? []) : [];
     const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+    // PsspKontrak.biaya is a flat per-CONTRACT total repeated on every product
+    // row of that contract — dedupe by cUrut before summing (same fix as
+    // Biaya Aktif in the produk sheet below / src/app/(app)/summary/page.tsx).
+    // Missing here entirely was the bug (2026-07-30 report: "cost ratio di
+    // excel ada yang salah") — Cost Ratio below used to divide
+    // Pengajuan-only budgetTotal/estimasi, silently dropping the Aktif side
+    // out of both the numerator and denominator instead of matching the web
+    // Summary "Per Outlet" tab's combined (biayaAktif+budgetTotal)/(estimasiAktif+estimasi).
+    const seenContracts = new Set<string>();
+    let biayaAktif = 0;
+    for (const r of activeRows) {
+      if (seenContracts.has(r.cUrut)) continue;
+      seenContracts.add(r.cUrut);
+      biayaAktif += r.biaya;
+    }
     const activeCustKeys = new Set(activeRows.map((r) => r.kdCust));
     const draftCustKeys = new Set(items.map((li) => li.kodeCust ?? `name:${li.namaCust}`));
     const userCount = new Set([...activeCustKeys, ...draftCustKeys]).size;
@@ -809,6 +824,7 @@ export async function GET(req: NextRequest) {
       variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
       variasiProdukFokus: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
       budgetTotal: psspTotal + discountTotal + entertainTotal,
+      biayaAktif,
       salesAktif: kodePI !== "—" ? (salesValueByOutlet.get(kodePI) ?? 0) : 0,
       listingFeeTotal: kodePI !== "—" ? (listingFeeByOutlet.get(kodePI) ?? 0) : 0,
     };
@@ -832,7 +848,8 @@ export async function GET(req: NextRequest) {
 
   for (const r of outletSummaryRows) {
     const estimasiAktifPengajuan = r.estimasi + r.estimasiAktif;
-    const costRatio = r.estimasi > 0 ? (r.budgetTotal / r.estimasi) * 100 : 0;
+    const biayaAktifPengajuan = r.biayaAktif + r.budgetTotal;
+    const costRatio = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : 0;
     ws5.addRow({
       kodePI: r.kodePI, namaOutlet: r.namaOutlet,
       estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
