@@ -4,6 +4,7 @@ import { getKpiMonitoringData } from "@/app/actions/kpi";
 import { Card } from "@/components/ui/Card";
 import { KpiTable } from "@/components/kpi/KpiTable";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
+import { KpiDashboardStats } from "@/components/kpi/KpiDashboardStats";
 
 export const metadata = { title: "Monitoring KPI Perpanjangan · Form POA" };
 
@@ -65,6 +66,8 @@ export default async function KpiPerpanjanganPage({
           <code className="text-[11px]">docs/kpi-monitoring/01-business-rules.md §7</code>.
         </p>
       </Card>
+
+      <KpiDashboardStats rows={rows} />
 
       <KpiTable rows={rows} period={period} />
     </div>
