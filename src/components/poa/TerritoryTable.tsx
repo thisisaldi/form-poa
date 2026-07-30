@@ -19,7 +19,7 @@ function fmtNum(n: number | null, digits = 1): string {
 
 type SortKey =
   | "name" | "estimasi" | "growth" | "realisasi" | "gap" | "user" | "variasi" | "pengajuan"
-  | "biaya" | "costRatio" | "salesAktif" | "estimasiPerUser" | "listingFee" | "pelunasan"
+  | "biaya" | "costRatio" | "estimasiPerUser" | "listingFee" | "pelunasan"
   | "salesPerUser" | "avgPasien" | "avgSt" | "listing";
 
 /** Every value the table can be sorted by, computed once per row up front so
@@ -101,7 +101,6 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
       case "pengajuan": return g.pengajuan;
       case "biaya": return isOutlet || isProduk ? row.biayaAktifPengajuan : g.budgetTotal;
       case "costRatio": return isOutlet || isProduk ? row.costRatioTotal : row.budgetPct;
-      case "salesAktif": return g.salesAktif;
       case "estimasiPerUser": return row.estimasiPerUser;
       case "listingFee": return g.listingFeeTotal;
       case "pelunasan": return g.pelunasanRunningRate;
@@ -165,9 +164,6 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                 <SortableTh label="Biaya" sortKey="biaya" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               )}
               <SortableTh label={isOutlet || isProduk ? "Cost Ratio" : "% Budget"} sortKey="costRatio" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-              {(isOutlet || isProduk) && (
-                <SortableTh label="Sales Aktif (2026)" sortKey="salesAktif" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-              )}
               {isOutlet && (
                 <>
                   <SortableTh label="Estimasi Per User" sortKey="estimasiPerUser" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
@@ -276,11 +272,6 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                       budgetPct != null ? `${budgetPct.toFixed(1)}%` : "-"
                     )}
                   </td>
-                  {(isOutlet || isProduk) && (
-                    <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                      {g.salesAktif > 0 ? formatRp(g.salesAktif) : "-"}
-                    </td>
-                  )}
                   {isOutlet && (
                     <>
                       <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>

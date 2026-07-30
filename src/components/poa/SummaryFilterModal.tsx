@@ -35,7 +35,7 @@ export function SummaryFilterModal({
     <>
       <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)}>
         <FilterIcon />
-        Filter
+        Filter Periode
         {activeCount > 0 && (
           <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold"
             style={{ background: "var(--color-blue)", color: "#fff" }}>
@@ -57,7 +57,7 @@ export function SummaryFilterModal({
             <form method="get" className="p-5 space-y-4">
               <input type="hidden" name="tab" value={tab} />
               <p id="summary-filter-title" className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>
-                Filter Summary
+                Filter Periode
               </p>
 
               <div className="space-y-1.5">

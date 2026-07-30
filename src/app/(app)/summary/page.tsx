@@ -755,15 +755,11 @@ export default async function SummaryPage({
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1>Summary POA</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
-          </p>
-        </div>
-
-        <SummaryFilterModal tab={tab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
+      <div>
+        <h1>Summary POA</h1>
+        <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
+        </p>
       </div>
 
       {/* Tab bar */}
@@ -782,11 +778,18 @@ export default async function SummaryPage({
         </div>
       </Card>
 
-      {/* Stats */}
-      <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"} />
+      {/* Stats — ADMIN only for now; non-admin goes straight to the table. */}
+      {session.role === "ADMIN" && (
+        <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"} />
+      )}
 
-      {/* Per-row breakdown for the active tab — Ringkasan above only shows the
-          grand total, this is what actually differs between tabs. */}
+      {/* Table header row — filter sits next to the table it filters, not the page title. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{CODE_LABEL[tab]}</p>
+        <SummaryFilterModal tab={tab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
+      </div>
+
+      {/* Per-row breakdown for the active tab. */}
       <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} variant={tab}
         quarterIni={quarterIni} quarterSebelumnya={quarterSebelumnya} />
     </div>
