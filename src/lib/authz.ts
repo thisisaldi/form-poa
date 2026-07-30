@@ -160,21 +160,18 @@ export async function getVisiblePoaFilter(
 
     case Role.GM:
     case Role.VIEWER:
-      // GM/VIEWER: read-only oversight across every territory — same
+    case Role.SFE:
+      // GM/VIEWER/SFE: read-only oversight across every territory — same
       // visibility as ADMIN, but canEdit/canApprove below deliberately
-      // don't grant either any write access.
+      // don't grant any of them write access. SFE was originally
+      // monitoring-only with no per-POA visibility at all (2026-07-24), but
+      // was given the same POA detail access as GM/VIEWER on 2026-07-30
+      // request ("bisa lihat detail POA bukan overview nya saja").
       return {};
 
     case Role.ADMIN:
       // ADMIN sees everything
       return {};
-
-    case Role.SFE:
-      // SFE is monitoring-only (2026-07-24: new role, "hanya monitor
-      // summarynya saja") — no per-POA visibility at all, not even read-only
-      // like GM. They only ever read the aggregate /summary page, which goes
-      // through getSubordinateMRNips (also updated for SFE), not this filter.
-      return { id: "impossible" };
 
     default:
       return { id: "impossible" }; // safe fallback — matches nothing
@@ -186,7 +183,7 @@ export async function getVisiblePoaFilter(
  */
 export async function canView(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
-  if (user.role === Role.GM || user.role === Role.VIEWER) return true; // read-only oversight, sees every POA at any status
+  if (user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE) return true; // read-only oversight, sees every POA at any status
 
   // The owner always sees their own POA, any status — normally an MR, but an
   // ASM/SM/NSM can own one too when their team is vacant (see canCreatePoa).
