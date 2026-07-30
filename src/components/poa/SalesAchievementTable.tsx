@@ -1,4 +1,8 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/SortableTh";
 
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
@@ -10,30 +14,57 @@ export interface AchievementRow {
   code: string;
   name: string;
   pic: string;
-  /** Rencana/estimasi — sum of PoaLineItem.rencanaTotalBiaya at this grouping. */
+  /** Real target only — PoaForm.target (mr/area tabs) or ProductTargetAllocation
+   * × HNA (produk tab). 0 means no target has actually been set at this
+   * grouping (outlet tab always reads 0 — there is no per-outlet target
+   * model at all), never a stand-in like planned rencana (2026-07-30: "jangan
+   * pakai target dummy lagi"). */
   target: number;
-  /** Only populated on the "mr" tab — PoaForm.target, the Rupiah quota an
-   * atasan set for that MR/period, distinct from the MR's own rencana above. */
-  targetAtasan: number | null;
   /** Real sales value sourced from DIR10001B (see monitoring/page.tsx for the
-   * per-tab derivation — outlet/mr are a real observed Rupiah figure, produk
-   * is qty × HNA). */
+   * per-tab derivation — outlet/mr/area are a real observed Rupiah figure,
+   * produk is qty × HNA). */
   salesActual: number;
   achievementPct: number | null;
-  gap: number;
+  /** actual - target (2026-07-30 fix: was target - actual, backwards from
+   * what "gap" should mean here — positive now means over-achieving). Null
+   * when there's no target to gap against at all, rather than silently
+   * computing against an assumed-zero target. */
+  gap: number | null;
 }
+
+type SortKey = "name" | "target" | "salesActual" | "achievementPct" | "gap";
 
 /**
  * Target vs Actual table for the Monitoring page — a focused view (just
  * target/actual/achievement/gap) distinct from Summary's much wider
  * TerritoryTable, which tracks program-execution metrics (PSSP, listing fee,
  * standarisasi, etc.) that don't belong here.
+ *
+ * Sortable column headers (2026-07-30) — click any header to sort by it,
+ * click again to flip direction; starts unsorted (server's own default order,
+ * worst achievement first — see monitoring/page.tsx).
  */
-export function SalesAchievementTable({ rows, codeLabel, showTargetAtasan = false }: {
+export function SalesAchievementTable({ rows, codeLabel }: {
   rows: AchievementRow[];
   codeLabel: string;
-  showTargetAtasan?: boolean;
 }) {
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return rows;
+    return [...rows].sort((a, b) => compareSortValues(a[sortKey], b[sortKey], sortDir));
+  }, [rows, sortKey, sortDir]);
+
   if (rows.length === 0) {
     return (
       <Card>
@@ -50,22 +81,17 @@ export function SalesAchievementTable({ rows, codeLabel, showTargetAtasan = fals
         <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <th className="text-left py-2 px-3 font-medium whitespace-nowrap sticky left-0 z-10"
-                style={{ color: "var(--color-text-faint)", background: "var(--color-surface)", borderRight: "1px solid var(--color-border)" }}>
-                {codeLabel}
-              </th>
+              <SortableTh label={codeLabel} sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="left" sticky />
+
               <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>PIC</th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Target (Rencana)</th>
-              {showTargetAtasan && (
-                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Target Atasan</th>
-              )}
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Sales Actual</th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Achievement</th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Gap</th>
+              <SortableTh label="Target" sortKey="target" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Sales Actual" sortKey="salesActual" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Achievement" sortKey="achievementPct" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Gap" sortKey="gap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={r.code} style={{ borderBottom: "1px solid var(--color-border)" }}>
                 <td className="py-2 px-3 sticky left-0 z-10"
                   style={{ color: "var(--color-text)", background: "var(--color-surface)", borderRight: "1px solid var(--color-border)" }}>
@@ -76,11 +102,6 @@ export function SalesAchievementTable({ rows, codeLabel, showTargetAtasan = fals
                 <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                   {r.target > 0 ? formatRp(r.target) : "-"}
                 </td>
-                {showTargetAtasan && (
-                  <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                    {r.targetAtasan != null && r.targetAtasan > 0 ? formatRp(r.targetAtasan) : "-"}
-                  </td>
-                )}
                 <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
                   {r.salesActual > 0 ? formatRp(r.salesActual) : "-"}
                 </td>
@@ -92,8 +113,9 @@ export function SalesAchievementTable({ rows, codeLabel, showTargetAtasan = fals
                   {r.achievementPct != null ? `${r.achievementPct.toFixed(1)}%` : "-"}
                 </td>
                 <td className="py-2 px-3 text-right whitespace-nowrap"
-                  style={{ color: r.gap > 0 ? "var(--color-danger, #dc2626)" : "var(--color-text-muted)" }}>
-                  {r.gap !== 0 ? formatRp(r.gap) : "-"}
+                  style={{ color: r.gap == null ? "var(--color-text-faint)"
+                    : r.gap < 0 ? "var(--color-danger, #dc2626)" : "var(--color-text-muted)" }}>
+                  {r.gap != null ? (r.gap !== 0 ? formatRp(r.gap) : "0") : "Belum ada target"}
                 </td>
               </tr>
             ))}

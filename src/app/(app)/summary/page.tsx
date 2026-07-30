@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { MonitoringChecklist } from "@/components/poa/MonitoringChecklist";
 import type { MonitoringGroup, MonitoringTotals } from "@/components/poa/MonitoringChecklist";
 import { TerritoryTable } from "@/components/poa/TerritoryTable";
+import { SummaryFilterModal } from "@/components/poa/SummaryFilterModal";
 
 // PSSP contract rows key products by name only (Procode ≠ Item Kode across
 // systems — see computeOldEstPerMonth in LineItemEditor.tsx for the same
@@ -135,12 +136,6 @@ export default async function SummaryPage({
   const periodFrom = params.periodFrom ?? null;
   const periodTo = params.periodTo ?? null;
   const hasPeriodFilter = !!periodFrom || !!periodTo;
-  // Fitur Sorting pada Summary (2026-07-27) — GAP tertinggi (vs realisasi
-  // sebelumnya) is the default, matching the existing outlet/customer sort;
-  // "estimasi" is the only alternative offered, since that's what produk/mr
-  // already used as their (non-configurable) sort before this feature.
-  const sortMode: "gap" | "estimasi" = params.sort === "estimasi" ? "estimasi" : "gap";
-  const sortQuery = sortMode === "estimasi" ? "&sort=estimasi" : "";
   const periodQuery = `${periodFrom ? `&periodFrom=${periodFrom}` : ""}${periodTo ? `&periodTo=${periodTo}` : ""}`;
 
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -673,12 +668,13 @@ export default async function SummaryPage({
       };
     })
     // "outlet"/"customer": GAP tertinggi (vs prior realisasi) is the default —
-    // flags "dulu jelek kok estimasinya tinggi sekarang" — with "Estimasi
-    // Tertinggi" as the user-selectable alternative (sortMode, #51 2026-07-27).
-    // Other tabs have no realisasi/gap concept at all, so they always sort by
-    // estimasi regardless of sortMode.
+    // flags "dulu jelek kok estimasinya tinggi sekarang". This is only the
+    // INITIAL order now — TerritoryTable's column headers are independently
+    // sortable client-side (2026-07-30, replaces the old GAP/Estimasi pill
+    // toggle here). Other tabs have no realisasi/gap concept at all, so they
+    // default to sorting by estimasi.
     .sort((a, b) => {
-      if (sortMode !== "gap" || !(tab === "outlet" || tab === "customer")) {
+      if (!(tab === "outlet" || tab === "customer")) {
         return b.estimasi - a.estimasi;
       }
       // "outlet": PSSP Aktif paling atas dulu (official spec, item #2: "Urutkan
@@ -756,37 +752,7 @@ export default async function SummaryPage({
           </p>
         </div>
 
-        {/* Rentang Periode (2026-07-28) — inclusive from/to range over
-            allPeriods, replacing the old single-quarter pill selector. Plain
-            GET form (no JS needed) — tab/sort carried as hidden inputs so
-            submitting doesn't lose them. */}
-        {allPeriods.length > 0 && (
-          <form method="get" className="flex flex-wrap items-center gap-1.5">
-            <input type="hidden" name="tab" value={tab} />
-            {sortMode === "estimasi" && <input type="hidden" name="sort" value="estimasi" />}
-            <select name="periodFrom" defaultValue={periodFrom ?? ""} className="input-field text-xs" style={{ width: "auto" }}>
-              <option value="">Dari (awal)</option>
-              {allPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>–</span>
-            <select name="periodTo" defaultValue={periodTo ?? ""} className="input-field text-xs" style={{ width: "auto" }}>
-              <option value="">Sampai (akhir)</option>
-              {allPeriods.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <button type="submit"
-              className="rounded px-2.5 py-1 text-xs font-medium border"
-              style={{ background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }}>
-              Terapkan
-            </button>
-            {hasPeriodFilter && (
-              <Link href={`/summary?tab=${tab}${sortQuery}`}
-                className="rounded px-2.5 py-1 text-xs font-medium border"
-                style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
-                Semua
-              </Link>
-            )}
-          </form>
-        )}
+        <SummaryFilterModal tab={tab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
       </div>
 
       {/* Tab bar */}
@@ -794,7 +760,7 @@ export default async function SummaryPage({
         <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
           {TABS.map((t) => (
             <Link key={t.key}
-              href={`/summary?tab=${t.key}${periodQuery}${sortQuery}`}
+              href={`/summary?tab=${t.key}${periodQuery}`}
               className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
               style={tab === t.key
                 ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
@@ -804,30 +770,6 @@ export default async function SummaryPage({
           ))}
         </div>
       </Card>
-
-      {/* Fitur Sorting pada Summary (2026-07-27, #51) — only meaningful for
-          "outlet"/"customer", the only tabs with a real GAP-vs-realisasi
-          concept; produk/mr always sort by estimasi so the toggle would be
-          a no-op there. */}
-      {(tab === "outlet" || tab === "customer") && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Urutkan:</span>
-          <Link href={`/summary?tab=${tab}${periodQuery}`}
-            className="rounded px-2.5 py-1 text-xs font-medium border"
-            style={sortMode === "gap"
-              ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
-              : { color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
-            GAP Tertinggi
-          </Link>
-          <Link href={`/summary?tab=${tab}${periodQuery}&sort=estimasi`}
-            className="rounded px-2.5 py-1 text-xs font-medium border"
-            style={sortMode === "estimasi"
-              ? { background: "var(--color-blue)", color: "#fff", borderColor: "var(--color-blue)" }
-              : { color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
-            Estimasi Tertinggi
-          </Link>
-        </div>
-      )}
 
       {/* Stats */}
       <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"} />

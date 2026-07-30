@@ -1,5 +1,9 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import type { MonitoringGroup } from "@/components/poa/MonitoringChecklist";
 import { Card } from "@/components/ui/Card";
+import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/SortableTh";
 
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
@@ -13,9 +17,29 @@ function fmtNum(n: number | null, digits = 1): string {
   return n != null ? n.toFixed(digits) : "-";
 }
 
+type SortKey =
+  | "name" | "estimasi" | "growth" | "realisasi" | "gap" | "user" | "variasi" | "pengajuan"
+  | "biaya" | "costRatio" | "salesAktif" | "estimasiPerUser" | "listingFee" | "pelunasan"
+  | "salesPerUser" | "avgPasien" | "avgSt" | "listing";
+
+/** Every value the table can be sorted by, computed once per row up front so
+ * both rendering and sorting read the same numbers (2026-07-27 Matriks work
+ * computed most of these inline during render — hoisted out here so sorting
+ * doesn't have to duplicate that math). */
+interface EnrichedRow {
+  g: MonitoringGroup;
+  budgetPct: number | null;
+  estimasiAktifPengajuan: number;
+  biayaAktifPengajuan: number;
+  costRatioTotal: number | null;
+  userCount: number;
+  estimasiPerUser: number | null;
+  salesPerUser: number | null;
+}
+
 /**
- * Per-row breakdown behind whichever tab is active on /summary (Region, Area,
- * Sub Area, GT, Outlet, or Per MR) — MonitoringChecklist above only shows the
+ * Per-row breakdown behind whichever tab is active on /summary (Outlet,
+ * Customer, Produk, or Per MR) — MonitoringChecklist above only shows the
  * grand total, so without this table switching tabs had no visible effect
  * (2026-07-23: the whole point of "bisa lihat per outlet, per personil" is
  * seeing the individual rows, not just one aggregate card).
@@ -24,6 +48,13 @@ function fmtNum(n: number | null, digits = 1): string {
  * Summary Per Outlet / Per Produk request (2026-07-27) — Estimasi Per User and
  * Sales Per User are derived here (not stored) since they're a simple ratio of
  * two fields already on the group.
+ *
+ * Sortable column headers (2026-07-30 request: "tombol sort by nya juga...
+ * berlaku untuk summary") replace the old GAP/Estimasi pill toggle — every
+ * numeric column here is clickable, not just those two. Starts unsorted
+ * (server's own default order, whatever /summary computed — see sort in
+ * summary/page.tsx); click a header to sort by it, click again to flip
+ * direction.
  */
 export function TerritoryTable({ groups, codeLabel, showRealisasi = false, variant = "mr", quarterIni, quarterSebelumnya }: {
   groups: MonitoringGroup[]; codeLabel: string; showRealisasi?: boolean; variant?: Variant;
@@ -31,6 +62,63 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
   quarterIni?: string | null;
   quarterSebelumnya?: string | null;
 }) {
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const isOutlet = variant === "outlet";
+  const isProduk = variant === "produk";
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  }
+
+  const enriched: EnrichedRow[] = useMemo(() => groups.map((g) => {
+    const budgetPct = g.estimasi > 0 ? (g.budgetTotal / g.estimasi) * 100 : null;
+    const estimasiAktifPengajuan = g.estimasi + g.estimasiAktif;
+    const biayaAktifPengajuan = g.biayaAktif + g.budgetTotal;
+    const costRatioTotal = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : null;
+    const userCount = isOutlet ? g.userPsspAktifEstimasi : isProduk ? g.userPsspAktif : g.customer;
+    const estimasiPerUser = userCount > 0 ? estimasiAktifPengajuan / userCount : null;
+    const salesPerUser = userCount > 0 ? g.salesAktif / userCount : null;
+    return { g, budgetPct, estimasiAktifPengajuan, biayaAktifPengajuan, costRatioTotal, userCount, estimasiPerUser, salesPerUser };
+  }), [groups, isOutlet, isProduk]);
+
+  function sortValue(row: EnrichedRow, key: SortKey): number | string | null {
+    const { g } = row;
+    switch (key) {
+      case "name": return g.name;
+      case "estimasi": return isOutlet || isProduk ? row.estimasiAktifPengajuan : g.estimasi;
+      case "growth": return g.growthVsQuarterSebelumnyaPct;
+      case "realisasi": return g.realisasi;
+      case "gap": return g.gapVsRealisasi;
+      case "user": return row.userCount;
+      case "variasi": return g.variasiProdukFokus;
+      case "pengajuan": return g.pengajuan;
+      case "biaya": return isOutlet || isProduk ? row.biayaAktifPengajuan : g.budgetTotal;
+      case "costRatio": return isOutlet || isProduk ? row.costRatioTotal : row.budgetPct;
+      case "salesAktif": return g.salesAktif;
+      case "estimasiPerUser": return row.estimasiPerUser;
+      case "listingFee": return g.listingFeeTotal;
+      case "pelunasan": return g.pelunasanRunningRate;
+      case "salesPerUser": return row.salesPerUser;
+      case "avgPasien": return g.avgPasienPerUser;
+      case "avgSt": return g.avgStPerPasien;
+      case "listing": return g.terstandarisasi;
+      default: return null;
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return enriched;
+    return [...enriched].sort((a, b) => compareSortValues(sortValue(a, sortKey), sortValue(b, sortKey), sortDir));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enriched, sortKey, sortDir]);
+
   if (groups.length === 0) {
     return (
       <Card>
@@ -41,9 +129,6 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
     );
   }
 
-  const isOutlet = variant === "outlet";
-  const isProduk = variant === "produk";
-
   return (
     <Card padded={false}>
       <div className="overflow-x-auto">
@@ -51,92 +136,62 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
               {/* Frozen first column (2026-07-27 request: "difreeze biar tetep
-                  keliatan kalau geser kanan") — sticky needs an opaque
-                  background matching the Card so scrolled columns don't show
-                  through underneath, plus a right border marking the freeze
-                  edge since there's no shadow-based affordance in this table. */}
-              <th className="text-left py-2 px-3 font-medium whitespace-nowrap sticky left-0 z-10"
-                style={{ color: "var(--color-text-faint)", background: "var(--color-surface)", borderRight: "1px solid var(--color-border)" }}>
-                {codeLabel}
-              </th>
+                  keliatan kalau geser kanan"). */}
+              <SortableTh label={codeLabel} sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="left" sticky />
               {isProduk && (
                 <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Status</th>
               )}
               {!isProduk && (
                 <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>PIC</th>
               )}
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                {isOutlet || isProduk ? "Estimasi Aktif+Pengajuan" : "Estimasi"}
-              </th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}
-                title={quarterIni && quarterSebelumnya ? `${quarterIni} vs ${quarterSebelumnya}` : undefined}>
-                Growth vs Quarter Sebelumnya
-              </th>
+              <SortableTh label={isOutlet || isProduk ? "Estimasi Aktif+Pengajuan" : "Estimasi"} sortKey="estimasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Growth vs Quarter Sebelumnya" sortKey="growth" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                title={quarterIni && quarterSebelumnya ? `${quarterIni} vs ${quarterSebelumnya}` : undefined} />
               {showRealisasi && (
                 <>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Realisasi Sebelumnya</th>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Gap</th>
+                  <SortableTh label="Realisasi Sebelumnya" sortKey="realisasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="Gap" sortKey="gap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </>
               )}
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                {isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"}
-              </th>
+              <SortableTh label={isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"} sortKey="user" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               {isOutlet && (
-                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Variasi Produk (Fokus/Non-Fokus)</th>
+                <SortableTh label="Variasi Produk (Fokus/Non-Fokus)" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               )}
               {!isOutlet && !isProduk && (
-                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Produk Fokus</th>
+                <SortableTh label="Produk Fokus" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               )}
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Pengajuan</th>
+              <SortableTh label="Pengajuan" sortKey="pengajuan" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               {(isOutlet || isProduk) && (
-                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Biaya</th>
+                <SortableTh label="Biaya" sortKey="biaya" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               )}
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                {isOutlet || isProduk ? "Cost Ratio" : "% Budget"}
-              </th>
+              <SortableTh label={isOutlet || isProduk ? "Cost Ratio" : "% Budget"} sortKey="costRatio" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               {(isOutlet || isProduk) && (
-                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Sales Aktif (2026)</th>
+                <SortableTh label="Sales Aktif (2026)" sortKey="salesAktif" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               )}
               {isOutlet && (
                 <>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Estimasi Per User</th>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Listing Fee</th>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Pelunasan (%) Running Rate</th>
+                  <SortableTh label="Estimasi Per User" sortKey="estimasiPerUser" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="Listing Fee" sortKey="listingFee" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="Pelunasan (%) Running Rate" sortKey="pelunasan" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </>
               )}
               {isProduk && (
                 <>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Sales Per User</th>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>AVG Pasien/User</th>
-                  <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>AVG ST/Pasien</th>
+                  <SortableTh label="Sales Per User" sortKey="salesPerUser" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="AVG Pasien/User" sortKey="avgPasien" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="AVG ST/Pasien" sortKey="avgSt" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </>
               )}
               {!isOutlet && !isProduk && (
-                <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Listing</th>
+                <SortableTh label="Listing" sortKey="listing" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
               )}
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => {
-              const budgetPct = g.estimasi > 0 ? (g.budgetTotal / g.estimasi) * 100 : null;
-              // listingDenom is the raw pengajuan count for this row (g.gap is
-              // already items.length - terstandarisasi, i.e. it already
-              // includes prosesStandar rows — adding prosesStandar on top of
-              // that double-counted them, inflating the shown denominator).
-              const listingDenom = g.pengajuan;
-              const estimasiAktifPengajuan = g.estimasi + g.estimasiAktif;
-              // Biaya/Cost Ratio Aktif+Pengajuan (2026-07-27) — same shape as
-              // Estimasi's own Aktif+Pengajuan breakdown above: g.biayaAktif
-              // is PsspKontrak.biaya (a real per-contract cost figure) for
-              // still-active contracts, g.budgetTotal is the POA draft's own
-              // PSSP/discount/entertain % cost for Pengajuan rows.
-              const biayaAktifPengajuan = g.biayaAktif + g.budgetTotal;
+            {sortedRows.map(({ g, budgetPct, estimasiAktifPengajuan, biayaAktifPengajuan, costRatioTotal, userCount, estimasiPerUser, salesPerUser }) => {
               const costRatioAktif = g.estimasiAktif > 0 ? (g.biayaAktif / g.estimasiAktif) * 100 : null;
               const costRatioPengajuan = budgetPct;
-              const costRatioTotal = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : null;
-              const userCount = isOutlet ? g.userPsspAktifEstimasi : isProduk ? g.userPsspAktif : g.customer;
-              const estimasiPerUser = userCount > 0 ? estimasiAktifPengajuan / userCount : null;
-              const salesPerUser = userCount > 0 ? g.salesAktif / userCount : null;
+              const listingDenom = g.pengajuan;
               return (
                 <tr key={g.code} style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <td className="py-2 px-3 sticky left-0 z-10"
@@ -167,9 +222,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                     )}
                   </td>
                   <td className="py-2 px-3 text-right whitespace-nowrap"
-                    title={quarterIni && quarterSebelumnya
-                      ? `${quarterIni} ${formatRp(g.estimasiQuarterIni)} vs ${quarterSebelumnya} ${formatRp(g.estimasiQuarterSebelumnya)}`
-                      : undefined}
+                    title={quarterIni && quarterSebelumnya ? `${quarterIni} ${formatRp(g.estimasiQuarterIni)} vs ${quarterSebelumnya} ${formatRp(g.estimasiQuarterSebelumnya)}` : undefined}
                     style={{ color: g.growthVsQuarterSebelumnyaPct == null ? "var(--color-text-faint)"
                       : g.growthVsQuarterSebelumnyaPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                     {g.growthVsQuarterSebelumnyaPct != null
