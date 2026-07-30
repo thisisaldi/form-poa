@@ -55,6 +55,15 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/kpi-perpanjangan",
+    label: "Monitoring KPI Perpanjangan",
+    icon: <IconChart />,
+    // KPI Personil Kinerja/Kontrak scorecard (Memo SM/ETH-II/PI/08.2026) —
+    // ADMIN-only for v1 (2026-07-30), same pattern as /monitoring. See
+    // docs/kpi-monitoring/ for the full spec.
+    roles: ["ADMIN"],
+  },
+  {
     href: "/faq",
     label: "FAQ",
     icon: <IconBook />,

@@ -92,38 +92,38 @@ enum BentukPssp {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 model User {
-  nip         String    @id
-  name        String
-  role        Role
+  nip       String    @id
+  name      String
+  role      Role
   // Display-only override for what's SHOWN as this person's title (e.g. "SPV")
   // when their actual `role`/permissions are a lower level (SPV collapses to
   // MR everywhere in this app — same approval rights, same outlet-holding
   // rules — see scripts/importStrukturHospital.ts). Null means "just show role".
-  jabatan     String?
-  email       String?
-  isActive    Boolean   @default(true)
-  isDummy     Boolean   @default(false)  // workshop/demo account — bypasses outlet-assignment restrictions
-  syncedAt    DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  jabatan   String?
+  email     String?
+  isActive  Boolean   @default(true)
+  isDummy   Boolean   @default(false) // workshop/demo account — bypasses outlet-assignment restrictions
+  syncedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Territory assignment (derived from org structure CSV)
   // MR → GT, SPV (MR) → Sub, ASM → Area, SM → Reg
-  kodeWilayah  String?
-  namaWilayah  String?
+  kodeWilayah String?
+  namaWilayah String?
 
   // Self-relation for org hierarchy
   nipAtasan    String?
   namaAtasan   String?
-  reportsTo    User?    @relation("OrgHierarchy", fields: [nipAtasan], references: [nip])
-  subordinates User[]   @relation("OrgHierarchy")
+  reportsTo    User?   @relation("OrgHierarchy", fields: [nipAtasan], references: [nip])
+  subordinates User[]  @relation("OrgHierarchy")
 
   // POA ownership
-  ownedPoas    PoaForm[] @relation("PoaOwner")
-  heldPoas     PoaForm[] @relation("PoaCurrentHolder")
+  ownedPoas PoaForm[] @relation("PoaOwner")
+  heldPoas  PoaForm[] @relation("PoaCurrentHolder")
 
   // Audit activity
-  auditLogs    PoaAuditLog[]
+  auditLogs PoaAuditLog[]
 
   // Doctor registration submissions
   pengajuanCustomer CustomerPengajuan[] @relation("CustomerPengajuanSubmitter")
@@ -131,21 +131,26 @@ model User {
   // Outlet assignments (synced from MSSQL)
   outletAssignments MrOutletAssignment[]
 
+  // KPI Monitoring (see docs/kpi-monitoring/)
+  kpiMonthlyEntries      KpiMonthlyEntry[]
+  kpiContractEvaluations KpiContractEvaluation[] @relation("KpiEvaluatee")
+  kpiEvaluationsGiven    KpiContractEvaluation[] @relation("KpiEvaluator")
+
   @@index([nipAtasan])
   @@index([role])
 }
 
 model PoaForm {
   id        String    @id @default(uuid())
-  period    String    // e.g. "2026-07" — flexible, not locked to monthly
+  period    String // e.g. "2026-07" — flexible, not locked to monthly
   status    PoaStatus @default(DRAFT)
-  version   Int       @default(1)  // bumped every time it re-enters REVISI — "Version X" label
-  target    Decimal?  @db.Decimal(18, 2)  // sales target in Rupiah set by atasan
+  version   Int       @default(1) // bumped every time it re-enters REVISI — "Version X" label
+  target    Decimal?  @db.Decimal(18, 2) // sales target in Rupiah set by atasan
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  ownerId   String
-  owner     User      @relation("PoaOwner", fields: [ownerId], references: [nip])
+  ownerId String
+  owner   User   @relation("PoaOwner", fields: [ownerId], references: [nip])
 
   // Null in DRAFT (owner holds it implicitly) or once fully approved
   currentHolderId String?
@@ -160,15 +165,15 @@ model PoaForm {
 }
 
 model Customer {
-  id           String   @id @default(uuid())
-  kodeCustomer String?  @unique
+  id           String    @id @default(uuid())
+  kodeCustomer String?   @unique
   namaCustomer String
   spesialisasi String
   syncedAt     DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  outlets      CustomerOutlet[]
+  outlets               CustomerOutlet[]
   psspHospinetSnapshots PsspHospinetSnapshot[]
 
   @@index([spesialisasi])
@@ -176,12 +181,12 @@ model Customer {
 }
 
 model CustomerOutlet {
-  id         String   @id @default(uuid())
+  id         String    @id @default(uuid())
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   kodePI     String
-  outlet     Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
-  isFokus    Boolean  @default(false)
+  outlet     Outlet    @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  isFokus    Boolean   @default(false)
   syncedAt   DateTime?
 
   @@unique([customerId, kodePI])
@@ -208,10 +213,10 @@ model PsspHospinetSnapshot {
   // main CDB code, alphanumeric like "F1045097"). Never write this into
   // Customer.kodeCustomer — customer identity here is still resolved by name.
   kodeCustomer   String?
-  statusCustomer String   // "active-repeat" | "inactive-new"
-  psspBerjalan   Boolean  // true when source "Terakhir PSSP" == "Berjalan"
-  periodeAwal    String?  // YYYYMM, source "-" (no current/last PSSP period) → null
-  periodeAkhir   String?  // YYYYMM, same null convention
+  statusCustomer String // "active-repeat" | "inactive-new"
+  psspBerjalan   Boolean // true when source "Terakhir PSSP" == "Berjalan"
+  periodeAwal    String? // YYYYMM, source "-" (no current/last PSSP period) → null
+  periodeAkhir   String? // YYYYMM, same null convention
   valuePssp      Decimal  @db.Decimal(18, 2)
   pelunasan      Decimal  @db.Decimal(18, 2)
   rr             Decimal? @db.Decimal(10, 4) // pelunasan / valuePssp, as given by source
@@ -235,70 +240,70 @@ model PsspHospinetSnapshot {
 // Customer.kodeCustomer/Outlet.kodePI at query time — not FK'd, since a
 // doctor here doesn't need to already exist as a full Customer row.
 model SurveyRekomendasi {
-  id                     String   @id @default(uuid())
-  kodePI                 String
-  outlet                 Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
-  kodeCustomer           String   // "Kode Dokter" — same namespace as Customer.kodeCustomer, not FK'd
-  namaCustomer           String
-  kodeProduk             String   // Pharos's own recommended product for this doctor+category
-  namaProdukRekomendasi  String
-  zatAktif               String?
-  dosageForm             String?
-  kodeSpesialis          String?
-  spesialis              String?
-  potensiBulan           Decimal? @db.Decimal(10, 2)
-  historyProduk          String   // raw "PRODUCT NAME (XX.X%); PRODUCT NAME (YY.Y%)" string
-  statusSales            String?
-  statusPssp             String?
-  metodePemilihan        String?
-  syncedAt               DateTime
+  id                    String   @id @default(uuid())
+  kodePI                String
+  outlet                Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  kodeCustomer          String // "Kode Dokter" — same namespace as Customer.kodeCustomer, not FK'd
+  namaCustomer          String
+  kodeProduk            String // Pharos's own recommended product for this doctor+category
+  namaProdukRekomendasi String
+  zatAktif              String?
+  dosageForm            String?
+  kodeSpesialis         String?
+  spesialis             String?
+  potensiBulan          Decimal? @db.Decimal(10, 2)
+  historyProduk         String // raw "PRODUCT NAME (XX.X%); PRODUCT NAME (YY.Y%)" string
+  statusSales           String?
+  statusPssp            String?
+  metodePemilihan       String?
+  syncedAt              DateTime
 
   @@unique([kodePI, kodeCustomer, kodeProduk])
   @@index([kodePI, kodeCustomer])
 }
 
 model PoaLineItem {
-  id     String  @id @default(uuid())
-  poaId  String
-  poa    PoaForm @relation(fields: [poaId], references: [id], onDelete: Cascade)
+  id    String  @id @default(uuid())
+  poaId String
+  poa   PoaForm @relation(fields: [poaId], references: [id], onDelete: Cascade)
 
   // ── Customer group (auto-filled from Customer lookup) ────────────────────
-  kodeRequest    String?  // legacy PSSP contract code — nullable
-  kodeCust       String?  // Customer.kodeCustomer
-  namaCust       String
-  role           String   // e.g. "Dokter Spesialis"
-  spesialisasi   String
+  kodeRequest      String? // legacy PSSP contract code — nullable
+  kodeCust         String? // Customer.kodeCustomer
+  namaCust         String
+  role             String // e.g. "Dokter Spesialis"
+  spesialisasi     String
   // True when namaCust came from a Customer the MR registered manually via
   // "Daftar User Baru" (Customer.syncedAt == null at line-item creation time),
   // not from the synced CDB. Flagged in the Excel exports so reviewers know
   // this doctor isn't yet in the official customer database.
   isManualCustomer Boolean @default(false)
-  historisPSSP   String?
-  kodePI         String?
-  namaOutlet     String
+  historisPSSP     String?
+  kodePI           String?
+  namaOutlet       String
 
   // ── Product group (auto-filled from kodeProduk lookup) ───────────────────
-  kodeProduk            String
-  namaProduk            String
-  kategoriProdukFokus   String
-  itemKode              String
-  satuanTerkecil        String
+  kodeProduk          String
+  namaProduk          String
+  kategoriProdukFokus String
+  itemKode            String
+  satuanTerkecil      String
 
   // ── MR manual input ───────────────────────────────────────────────────────
-  labelCustomer         String?
-  produkKompetitor      String?
-  kriteriaProduk        String?
-  statusStandarisasi    StatusStandarisasi?
-  jenisPssp             JenisPssp?
+  labelCustomer      String?
+  produkKompetitor   String?
+  kriteriaProduk     String?
+  statusStandarisasi StatusStandarisasi?
+  jenisPssp          JenisPssp?
   // Per-product — see PihakPssp doc comment above.
-  pihakPssp             PihakPssp @default(USER)
+  pihakPssp          PihakPssp           @default(USER)
   // Doctor-level (same value duplicated across all of one doctor's product
   // rows, same pattern as hariKerjaBulan/rencanaVisitMinggu below) — see
   // PsSp doc comment above.
-  jenisPsSp             PsSp?
+  jenisPsSp          PsSp?
   // Doctor-level, same duplication pattern as jenisPsSp above — see
   // BentukPssp doc comment.
-  bentukPssp            BentukPssp?
+  bentukPssp         BentukPssp?
 
   // tentative fields (C20-C23) — nullable
   hariKerjaBulan   Int?
@@ -306,41 +311,41 @@ model PoaLineItem {
   jumlahResepHari  Int?
   qtyProdukResep   Int?
 
-  lamaPeriode      Int     // 1, 3, 6, or 12
-  periodeAwal      String  // YYYYMM
+  lamaPeriode Int // 1, 3, 6, or 12
+  periodeAwal String // YYYYMM
   // periodeAkhir is NOT stored — computed as periodeAwal + (lamaPeriode-1) months
 
-  rencanaTotalBiaya   Decimal  @db.Decimal(18, 2)
-  rencanaVisitMinggu  Int
+  rencanaTotalBiaya  Decimal @db.Decimal(18, 2)
+  rencanaVisitMinggu Int
 
   // ── Master data (auto from sync) ─────────────────────────────────────────
-  nilaiR             Decimal?  @db.Decimal(18, 2)
-  historySales3Bln   Decimal?  @db.Decimal(18, 2)
-  avgDiskon          Decimal?  @db.Decimal(18, 4)
+  nilaiR           Decimal? @db.Decimal(18, 2)
+  historySales3Bln Decimal? @db.Decimal(18, 2)
+  avgDiskon        Decimal? @db.Decimal(18, 4)
 
   // ── MR input per produk ───────────────────────────────────────────────────
-  rasioEstimasiGrowth   Decimal?  @db.Decimal(18, 4)  // multiplier growth (e.g. 1.0 / 1.2)
-  persenPsspDokter      Decimal?  @db.Decimal(18, 4)
-  persenPsspKpdm        Decimal?  @db.Decimal(18, 4)
-  persenDiskon          Decimal?  @db.Decimal(18, 4)
-  persenDp              Decimal?  @db.Decimal(18, 4)
-  persenListingFee      Decimal?  @db.Decimal(18, 4)
-  persenEntertain       Decimal?  @db.Decimal(18, 4)
+  rasioEstimasiGrowth Decimal? @db.Decimal(18, 4) // multiplier growth (e.g. 1.0 / 1.2)
+  persenPsspDokter    Decimal? @db.Decimal(18, 4)
+  persenPsspKpdm      Decimal? @db.Decimal(18, 4)
+  persenDiskon        Decimal? @db.Decimal(18, 4)
+  persenDp            Decimal? @db.Decimal(18, 4)
+  persenListingFee    Decimal? @db.Decimal(18, 4)
+  persenEntertain     Decimal? @db.Decimal(18, 4)
 
   // ── Formula placeholder columns (all nullable, computed externally) ───────
-  hargaSatuanTerkecil           Decimal?  @db.Decimal(18, 2)
-  estimasiPSSPBulan             Decimal?  @db.Decimal(18, 2)
-  totalEstimasiPSSPBulan        Decimal?  @db.Decimal(18, 2)
-  pengaliNilaiR                 Decimal?  @db.Decimal(18, 4)
-  rekomendasiBiayaBulan         Decimal?  @db.Decimal(18, 2)
-  totalRekomendasiBiayaBulan    Decimal?  @db.Decimal(18, 2)
-  estimasiPSSPPeriode           Decimal?  @db.Decimal(18, 2)
-  totalEstimasiPSSPPeriode      Decimal?  @db.Decimal(18, 2)
-  rekomendasiBiayaPeriode       Decimal?  @db.Decimal(18, 2)
-  totalRekomendasiBiayaPeriode  Decimal?  @db.Decimal(18, 2)
-  rasioRekomenEstimasi          Decimal?  @db.Decimal(18, 4)
-  rasioRencanaBiayaEstimasi     Decimal?  @db.Decimal(18, 4)
-  totalPersenBudget             Decimal?  @db.Decimal(18, 4)
+  hargaSatuanTerkecil          Decimal? @db.Decimal(18, 2)
+  estimasiPSSPBulan            Decimal? @db.Decimal(18, 2)
+  totalEstimasiPSSPBulan       Decimal? @db.Decimal(18, 2)
+  pengaliNilaiR                Decimal? @db.Decimal(18, 4)
+  rekomendasiBiayaBulan        Decimal? @db.Decimal(18, 2)
+  totalRekomendasiBiayaBulan   Decimal? @db.Decimal(18, 2)
+  estimasiPSSPPeriode          Decimal? @db.Decimal(18, 2)
+  totalEstimasiPSSPPeriode     Decimal? @db.Decimal(18, 2)
+  rekomendasiBiayaPeriode      Decimal? @db.Decimal(18, 2)
+  totalRekomendasiBiayaPeriode Decimal? @db.Decimal(18, 2)
+  rasioRekomenEstimasi         Decimal? @db.Decimal(18, 4)
+  rasioRencanaBiayaEstimasi    Decimal? @db.Decimal(18, 4)
+  totalPersenBudget            Decimal? @db.Decimal(18, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -354,14 +359,14 @@ model PoaAuditLog {
   action     AuditAction
   fromStatus PoaStatus?
   toStatus   PoaStatus?
-  snapshot   Json        @default("{}")  // metadata at time of action (status, actor)
+  snapshot   Json        @default("{}") // metadata at time of action (status, actor)
   createdAt  DateTime    @default(now())
 
-  poaId   String
-  poa     PoaForm @relation(fields: [poaId], references: [id])
+  poaId String
+  poa   PoaForm @relation(fields: [poaId], references: [id])
 
   actorId String
-  actor   User    @relation(fields: [actorId], references: [nip])
+  actor   User   @relation(fields: [actorId], references: [nip])
 
   @@index([poaId])
   @@index([actorId])
@@ -376,12 +381,12 @@ model Outlet {
   outCode      String?
   statusOutlet String? // 'A' = active, 'M' = merged/inactive
   namaChannel  String?
-  groupRS      String?  // e.g. "HERMINA GRUP", "NON CHAIN"
+  groupRS      String? // e.g. "HERMINA GRUP", "NON CHAIN"
   sector       String?
   subSektor    String?
   kota         String?
   propinsi     String?
-  kategori     String?  // "KATEGORI OUTLET" A/B/C from Struktur Verified org file
+  kategori     String? // "KATEGORI OUTLET" A/B/C from Struktur Verified org file
 
   // Territory hierarchy (from org structure CSV)
   kodeGT   String?
@@ -400,14 +405,14 @@ model Outlet {
   // Drives canCreatePoa()'s "vacant team" exception — scoped to just the
   // specific outlets a manager covers this way, not their whole subtree.
   coveredByNip  String?
-  coveredByRole String?  // "MR" | "ASM" | "SM" | "NSM"
+  coveredByRole String? // "MR" | "ASM" | "SM" | "NSM"
 
-  syncedAt     DateTime
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  syncedAt  DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  assignments      MrOutletAssignment[]
-  customerOutlets  CustomerOutlet[]
+  assignments           MrOutletAssignment[]
+  customerOutlets       CustomerOutlet[]
   psspHospinetSnapshots PsspHospinetSnapshot[]
   surveyRekomendasi     SurveyRekomendasi[]
 
@@ -422,28 +427,28 @@ model Product {
   // "Kd Item" / "Item Kode" — sourced from TKT...LAPORAN HNA SARUASUBUR.xlsx.
   // Nilai R.xlsx and Kebutuhan Satuan Terkecil.xlsx key by this same code
   // natively, so no bridge/mapping file is needed for those syncs.
-  kodeProduk      String   @id
-  namaGroupBrand  String
-  namaProduk      String
-  zatAktif        String?
-  satuan          String            // SJ (Satuan Jual), e.g. "BOX"
-  hna             Decimal  @db.Decimal(18, 2)   // HNA per SJ
-  nilaiRPersen    Decimal? @db.Decimal(10, 6)   // NILAI_R / HNA from Nilai R.xlsx
+  kodeProduk             String   @id
+  namaGroupBrand         String
+  namaProduk             String
+  zatAktif               String?
+  satuan                 String // SJ (Satuan Jual), e.g. "BOX"
+  hna                    Decimal  @db.Decimal(18, 2) // HNA per SJ
+  nilaiRPersen           Decimal? @db.Decimal(10, 6) // NILAI_R / HNA from Nilai R.xlsx
   // Satuan Terkecil — from Kebutuhan Satuan Terkecil.xlsx
-  satuanTerkecil  String?           // Pack_Name, e.g. "TABLET", "BOTOL"
-  konversiPembagi Decimal? @db.Decimal(10, 2)   // how many ST per SJ (e.g. 100 for tablet BOX 100's)
+  satuanTerkecil         String? // Pack_Name, e.g. "TABLET", "BOTOL"
+  konversiPembagi        Decimal? @db.Decimal(10, 2) // how many ST per SJ (e.g. 100 for tablet BOX 100's)
   // Dosis reference data — from "List Product pharos.xlsx" (sheets "Oral Product" / "Injeksi Product").
   // Keyed by that file's "PROCOD" column, which despite the name matches kodeProduk (Kd Item) directly.
-  dosisKekuatanSediaan   String?           // "Dosis/Kekuatan Sediaan"
-  qtyPerRxPasien         Decimal? @db.Decimal(10, 2)   // "Berapa banyak per Rx per Pasien (Satuan Terkecil)"
-  lamaPemberianHari      Int?              // "Lama pemberian Per Pasien (Hari)"
-  jumlahPemberianPerHari Decimal? @db.Decimal(10, 2)   // "Jumlah pemberian Per hari (Satuan Terkecil)"
+  dosisKekuatanSediaan   String? // "Dosis/Kekuatan Sediaan"
+  qtyPerRxPasien         Decimal? @db.Decimal(10, 2) // "Berapa banyak per Rx per Pasien (Satuan Terkecil)"
+  lamaPemberianHari      Int? // "Lama pemberian Per Pasien (Hari)"
+  jumlahPemberianPerHari Decimal? @db.Decimal(10, 2) // "Jumlah pemberian Per hari (Satuan Terkecil)"
   bentukSediaan          String?
   packing                String?
   indikasi               String?  @db.Text
-  syncedAt        DateTime
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  syncedAt               DateTime
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@index([namaGroupBrand])
 }
@@ -453,31 +458,31 @@ model Product {
 // kdCust links to Customer.kodeCustomer for history lookup.
 
 model PsspKontrak {
-  id         String   @id @default(uuid())
+  id String @id @default(uuid())
 
   // Contract identity
-  kdCust     String              // KD_CUST — links to Customer.kodeCustomer
-  nmCust     String
-  cUrut      String              // contract number
-  kdSpc      String?
-  nmSpc      String?
-  role       String?
-  nDivisi    Int?
-  divKode    String?
-  biaya      Decimal  @db.Decimal(18, 2)
-  prdAwal    String              // YYYYMM
-  prdAkhir   String              // YYYYMM
-  nipUsul    String?
-  nmUsul     String?
-  kdOutlet   String?
-  nmOutlet   String?
-  divProd    String?
-  kdProduk   String?
-  nmProduk   String?
+  kdCust   String // KD_CUST — links to Customer.kodeCustomer
+  nmCust   String
+  cUrut    String // contract number
+  kdSpc    String?
+  nmSpc    String?
+  role     String?
+  nDivisi  Int?
+  divKode  String?
+  biaya    Decimal @db.Decimal(18, 2)
+  prdAwal  String // YYYYMM
+  prdAkhir String // YYYYMM
+  nipUsul  String?
+  nmUsul   String?
+  kdOutlet String?
+  nmOutlet String?
+  divProd  String?
+  kdProduk String?
+  nmProduk String?
 
   // Computed scalars (from ETL)
-  estBaris   Decimal? @db.Decimal(18, 2)
-  bmBaris    Decimal? @db.Decimal(18, 2)
+  estBaris Decimal? @db.Decimal(18, 2)
+  bmBaris  Decimal? @db.Decimal(18, 2)
 
   // Pre-computed period totals (sum across all months)
   totalEst   Decimal? @db.Decimal(18, 2)
@@ -489,8 +494,8 @@ model PsspKontrak {
   bmByPeriod    Json @default("{}")
   lunasByPeriod Json @default("{}")
 
-  snapshotDate DateTime?       // date of source Excel file
-  importedAt   DateTime @default(now())
+  snapshotDate DateTime? // date of source Excel file
+  importedAt   DateTime  @default(now())
 
   @@unique([cUrut, kdProduk])
   @@index([kdCust])
@@ -499,37 +504,37 @@ model PsspKontrak {
 }
 
 model ListingFeeKontrak {
-  id         String   @id @default(uuid())
+  id String @id @default(uuid())
 
   // Contract identity
-  noreq      String              // request/contract number
-  div        String?             // KML / KMP
+  noreq      String // request/contract number
+  div        String? // KML / KMP
   jenis      String?
   tglApprove DateTime?
   tglPpud    DateTime?
   noOr       String?
 
-  kdCust     String              // KODE CUST — links to Customer.kodeCustomer
-  nmCust     String
-  kdOutlet   String?             // KODE PI
-  nmOutlet   String?
+  kdCust   String // KODE CUST — links to Customer.kodeCustomer
+  nmCust   String
+  kdOutlet String? // KODE PI
+  nmOutlet String?
 
-  prdAwal    String              // YYYYMM
-  prdAkhir   String              // YYYYMM
+  prdAwal  String // YYYYMM
+  prdAkhir String // YYYYMM
 
-  value       Decimal  @db.Decimal(18, 2)  // total listing fee value
+  value       Decimal  @db.Decimal(18, 2) // total listing fee value
   targetSales Decimal? @db.Decimal(18, 2)
 
-  kdProduk   String?
-  nmProduk   String?
-  nsm        String?
+  kdProduk String?
+  nmProduk String?
+  nsm      String?
 
   // Per-period detail as JSONB: { "202604": 1234.56, ... }
   bmByPeriod         Json @default("{}")
   pctListingByPeriod Json @default("{}")
 
-  snapshotDate DateTime?       // date of source Excel file
-  importedAt   DateTime @default(now())
+  snapshotDate DateTime? // date of source Excel file
+  importedAt   DateTime  @default(now())
 
   @@unique([noreq, kdProduk])
   @@index([kdCust])
@@ -583,7 +588,7 @@ model OutletStrukturBaru {
 // how current the structure is without checking the DB directly.
 model OrgStrukturMeta {
   id         Int      @id @default(1)
-  periode    String   // YYYYMM
+  periode    String // YYYYMM
   sourceFile String
   importedAt DateTime @default(now())
 }
@@ -599,19 +604,19 @@ model OrgStrukturMeta {
 // outlet+product+period.
 
 model DiskonKontrak {
-  id         String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  nomor      String              // NOMOR — contract number
+  nomor      String // NOMOR — contract number
   nmAreaPi   String?
   areaPi     String?
-  kodePIRaw  String              // raw KODEPI from source sheet (numeric suffix only)
-  kodePI     String              // areaPi + kodePIRaw — matches Outlet.kodePI
+  kodePIRaw  String // raw KODEPI from source sheet (numeric suffix only)
+  kodePI     String // areaPi + kodePIRaw — matches Outlet.kodePI
   namaOutlet String?
   bumn       String?
   divisi     String?
 
-  prdAwal    String              // YYYYMM
-  prdAkhir   String              // YYYYMM
+  prdAwal  String // YYYYMM
+  prdAkhir String // YYYYMM
 
   kodeProduk String
   namaProduk String?
@@ -623,10 +628,10 @@ model DiskonKontrak {
   qtyBon  Decimal? @db.Decimal(10, 2)
   qtyBuy  Decimal? @db.Decimal(10, 2)
 
-  newOnPi Decimal? @db.Decimal(10, 4)   // effective on-invoice discount %, used for avgDiskon
+  newOnPi Decimal? @db.Decimal(10, 4) // effective on-invoice discount %, used for avgDiskon
 
-  snapshotDate DateTime?       // date of source Excel file
-  importedAt   DateTime @default(now())
+  snapshotDate DateTime? // date of source Excel file
+  importedAt   DateTime  @default(now())
 
   @@unique([nomor, kodeProduk])
   @@index([kodePI])
@@ -647,7 +652,7 @@ model DiskonHistory {
   kodePI       String
   kodeProduk   String
   maxDiskonPct Decimal  @db.Decimal(10, 4) // e.g. 7.75 for 7.75%, highest single invoice's % Total Diskon
-  sourcePeriod String              // e.g. "202601-202604" — the invoice period range this covers
+  sourcePeriod String // e.g. "202601-202604" — the invoice period range this covers
   syncedAt     DateTime
 
   @@unique([kodePI, kodeProduk])
@@ -659,44 +664,44 @@ model DiskonHistory {
 // records are created and customerId is populated.
 
 model CustomerPengajuan {
-  id              String    @id @default(uuid())
+  id String @id @default(uuid())
 
   // Step 1 — Informasi Umum
-  namaLengkap     String
-  namaPanggilan   String
-  jabatan         String
-  tipeCustomer    String    // "NEGERI" | "SWASTA"
-  tanggalLahir    DateTime?
-  jenisKelamin    String?   // "L" | "P"
-  alamatRumah     String?
-  kota            String?
-  nik             String?
-  email           String?
-  nomorHp1        String
-  nomorHp2        String?
-  rekening        Json      @default("[]")  // [{pemilik, nomor, bank, relasi}]
+  namaLengkap   String
+  namaPanggilan String
+  jabatan       String
+  tipeCustomer  String // "NEGERI" | "SWASTA"
+  tanggalLahir  DateTime?
+  jenisKelamin  String? // "L" | "P"
+  alamatRumah   String?
+  kota          String?
+  nik           String?
+  email         String?
+  nomorHp1      String
+  nomorHp2      String?
+  rekening      Json      @default("[]") // [{pemilik, nomor, bank, relasi}]
 
   // Step 2 — Pendidikan, Spesialisasi & Organisasi
-  universitasS1       String?
-  spesialisasi        String
+  universitasS1        String?
+  spesialisasi         String
   universitasSpesialis String?
-  subSpesialisasi     String?
-  organisasi          Json   @default("[]")  // [{namaOrganisasi, jabatanOrganisasi}]
+  subSpesialisasi      String?
+  organisasi           Json    @default("[]") // [{namaOrganisasi, jabatanOrganisasi}]
 
   // Step 3 — Outlet
-  outletsPengajuan    Json   @default("[]")
+  outletsPengajuan Json @default("[]")
   // [{kodePI, namaOutlet, jadwalPraktik: [{hari, mulai, selesai, jumlahPasien}]}]
 
   // Status & tracking
-  status          String    @default("DRAFT")  // "DRAFT" | "SUBMITTED"
-  submittedBy     String
-  submitter       User      @relation("CustomerPengajuanSubmitter", fields: [submittedBy], references: [nip])
+  status      String @default("DRAFT") // "DRAFT" | "SUBMITTED"
+  submittedBy String
+  submitter   User   @relation("CustomerPengajuanSubmitter", fields: [submittedBy], references: [nip])
 
   // Populated after submit creates the Customer
-  customerId      String?
+  customerId String?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([submittedBy])
   @@index([status])
@@ -712,8 +717,8 @@ model OutletSalesHistory {
   kodePI          String
   itemKode        String
   totalSales12Bln Decimal  @db.Decimal(18, 2)
-  periodeFrom     String   // YYYYMM — start of 12-month window
-  periodeTo       String   // YYYYMM — end of 12-month window
+  periodeFrom     String // YYYYMM — start of 12-month window
+  periodeTo       String // YYYYMM — end of 12-month window
   syncedAt        DateTime
 
   @@unique([kodePI, itemKode])
@@ -730,7 +735,7 @@ model OutletSalesMonthly {
   id       String   @id @default(uuid())
   kodePI   String
   itemKode String
-  periode  String   // YYYYMM
+  periode  String // YYYYMM
   qty      Decimal  @db.Decimal(18, 2)
   syncedAt DateTime
 
@@ -753,7 +758,7 @@ model OutletSalesValueMonthly {
   // this is raw source data and shouldn't reject rows for an outlet our
   // Outlet table hasn't synced yet.
   kodePI     String
-  periode    String   // YYYYMM
+  periode    String // YYYYMM
   valueSales Decimal  @db.Decimal(18, 2)
   syncedAt   DateTime
 
@@ -771,9 +776,9 @@ model OutletSalesValueMonthly {
 model ProductTargetInput {
   id          String   @id @default(uuid())
   kodeProduk  String
-  quarter     String   // e.g. "2026-Q3" — matches PoaForm.period format
+  quarter     String // e.g. "2026-Q3" — matches PoaForm.period format
   monthlyRamp Decimal  @db.Decimal(18, 2)
-  setBy       String?  // nip of the NSM/Admin who set it
+  setBy       String? // nip of the NSM/Admin who set it
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -793,10 +798,10 @@ model ProductTargetInput {
 model ProductTargetAllocation {
   id         String   @id @default(uuid())
   kodeProduk String
-  quarter    String   // e.g. "2026-Q3"
-  nip        String   // NSM, SM, ASM, or MR nip — level implied by User.role
+  quarter    String // e.g. "2026-Q3"
+  nip        String // NSM, SM, ASM, or MR nip — level implied by User.role
   qty        Decimal  @db.Decimal(18, 2)
-  setBy      String?  // nip of the admin/NSM who last saved this row
+  setBy      String? // nip of the admin/NSM who last saved this row
   updatedAt  DateTime @updatedAt
 
   @@unique([kodeProduk, quarter, nip])
@@ -807,13 +812,13 @@ model ProductTargetAllocation {
 // Criteria tag per product per outlet — from ProductPMDatabase Unpivot sheets.
 // Drives "produk fokus per outlet" logic in the POA form and stats panel.
 model OutletProductKriteria {
-  id              String   @id @default(uuid())
+  id              String @id @default(uuid())
   kodePI          String
   kodeProduk      String
-  paket           String   // e.g. "PAKET PENCERNAAN"
-  kategori        String   // Low Hanging Fruit | Blue Ocean | Red Ocean
-  kriteriaBaru    String   // e.g. "Produk Sudah Terstandarisasi - Ada Sales"
-  statusTransaksi Int      // 0 or 1
+  paket           String // e.g. "PAKET PENCERNAAN"
+  kategori        String // Low Hanging Fruit | Blue Ocean | Red Ocean
+  kriteriaBaru    String // e.g. "Produk Sudah Terstandarisasi - Ada Sales"
+  statusTransaksi Int // 0 or 1
 
   @@unique([kodePI, kodeProduk, paket])
   @@index([kodePI])
@@ -822,16 +827,116 @@ model OutletProductKriteria {
 
 // Junction: which MRs are assigned to which outlets per periode (from Struktur_Marketing_PI)
 model MrOutletAssignment {
-  id        String   @id @default(uuid())
-  nipMR     String
-  user      User     @relation(fields: [nipMR], references: [nip], onDelete: Cascade)
-  kodePI    String
-  outlet    Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
-  periode   Int      // YYYYMM, e.g. 202607
-  syncedAt  DateTime
+  id       String   @id @default(uuid())
+  nipMR    String
+  user     User     @relation(fields: [nipMR], references: [nip], onDelete: Cascade)
+  kodePI   String
+  outlet   Outlet   @relation(fields: [kodePI], references: [kodePI], onDelete: Cascade)
+  periode  Int // YYYYMM, e.g. 202607
+  syncedAt DateTime
 
   @@unique([nipMR, kodePI, periode])
   @@index([nipMR])
   @@index([kodePI])
   @@index([periode])
+}
+
+// ─── KPI Monitoring (Monitoring KPI Perpanjangan) ────────────────────────────
+// See docs/kpi-monitoring/ for the full spec. Source: Memo Internal
+// SM/ETH-II/PI/08.2026 (28 Juli 2026, efektif 01 Agustus 2026) — 4-pillar
+// weighted monthly scorecard for MR (incl. jabatan "SPV")/ASM/SM, feeding a
+// contract-extension recommendation. Several formula details (visit standard
+// numbers, absensi unit, PS/SP filter) are WORKING ASSUMPTIONS pending
+// stakeholder confirmation — see docs/kpi-monitoring/01-business-rules.md §7.
+// v1 access is ADMIN-only (2026-07-30 decision, same pattern as /monitoring).
+
+// One row per personil × calendar month. Sales/customer figures are
+// snapshotted here (not derived live) so historical months don't silently
+// shift if underlying sync data is corrected later — same reasoning as
+// PoaAuditLog storing snapshots rather than only live references.
+model KpiMonthlyEntry {
+  id     String @id @default(uuid())
+  nip    String
+  user   User   @relation(fields: [nip], references: [nip], onDelete: Cascade)
+  period String // "YYYY-MM"
+
+  // Business Result: Sales Achievement (50%) — auto-derived snapshot, same
+  // source as Monitoring page's "Per MR" tab (PoaForm.target vs
+  // OutletSalesValueMonthly).
+  salesTargetRp       Decimal? @db.Decimal(18, 2)
+  salesActualRp       Decimal? @db.Decimal(18, 2)
+  salesAchievementPct Decimal? @db.Decimal(7, 2)
+
+  // Activity & Coverage: Call Activity (25%) — manual input by atasan for v1,
+  // no realized-visit data source exists anywhere else in this app (overlaps
+  // internal/TODO.md #38/#25, both still unresolved).
+  callActivityRealisasi  Int?
+  callActivityStandar    Int? // working assumption: MR/SPV=10, ASM=5, SM=3 (§2b)
+  callActivitySource     String    @default("MANUAL") // "MANUAL" | future sync source key
+  callActivityInputByNip String?
+  callActivityInputAt    DateTime?
+
+  // Market Development: Customer Expansion (15%) — auto-derived from active
+  // PSSP contracts (getActivePsspByOutlets), working assumption per §2c.
+  customerAktifCount Int?
+
+  // Attitude: Kepatuhan Absensi (10%) — manual input by atasan for v1, no
+  // attendance data source exists anywhere in this app.
+  absensiValue      Decimal?  @db.Decimal(6, 2) // working assumption: avg jam keterlambatan/bulan (§2d)
+  absensiSource     String    @default("MANUAL")
+  absensiInputByNip String?
+  absensiInputAt    DateTime?
+
+  // Cached band scores (0/40/55/70/85/100) + weighted total, recomputed
+  // whenever an input above changes — avoids re-running band logic on every
+  // listing render.
+  salesScore    Int?
+  activityScore Int?
+  customerScore Int?
+  absensiScore  Int?
+  totalScore    Decimal? @db.Decimal(5, 2)
+
+  computedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@unique([nip, period])
+  @@index([period])
+}
+
+// Aggregation at contract-renewal time — window = the personil's current
+// contract period (rolling, not a fixed calendar cycle; see
+// docs/kpi-monitoring/01-business-rules.md §5), averaging every
+// KpiMonthlyEntry inside [periodeMulai, periodeAkhir].
+model KpiContractEvaluation {
+  id   String @id @default(uuid())
+  nip  String
+  user User   @relation("KpiEvaluatee", fields: [nip], references: [nip], onDelete: Cascade)
+
+  periodeMulai String // "YYYY-MM"
+  periodeAkhir String // "YYYY-MM"
+
+  avgSalesScore    Decimal @db.Decimal(5, 2)
+  avgActivityScore Decimal @db.Decimal(5, 2)
+  avgCustomerScore Decimal @db.Decimal(5, 2)
+  avgAbsensiScore  Decimal @db.Decimal(5, 2)
+  totalScore       Decimal @db.Decimal(5, 2)
+
+  systemRecommendationMonths Int // band result: 12/9/6/0
+
+  // Atasan's actual decision — may differ from the system recommendation
+  // ("keputusan diusulkan atasan, tidak harus mengikuti rekomendasi asal ada
+  // penjelasan jelas dan logis"). decisionReason is required at the
+  // server-action layer whenever decisionMonths != systemRecommendationMonths.
+  decisionMonths Int
+  decisionReason String?
+
+  // Wajib per memo: "Evaluasi Rencana Pengembangan Personil" + rasionalisasi ke direksi.
+  developmentPlanNotes String
+
+  evaluatedByNip String
+  evaluatedBy    User     @relation("KpiEvaluator", fields: [evaluatedByNip], references: [nip])
+  evaluatedAt    DateTime @default(now())
+
+  @@index([nip])
+  @@index([evaluatedByNip])
 }
