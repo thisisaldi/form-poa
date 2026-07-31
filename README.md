@@ -406,7 +406,10 @@ Other one-off/repeatable scripts in `scripts/` (run via `npx tsx scripts/<name>.
 - **Product master**: `syncProducts.ts` (primary, password-protected HNA
   file), `importHnaProducts.ts` (from pre-extracted JSON),
   `syncNilaiR.ts`, `syncSatuanTerkecil.ts`, `syncProductZatAktifDosis.ts`,
-  `fixNarfoz4InjeksiKonversi.ts` (one-off single-product fix).
+  `fixNarfoz4InjeksiKonversi.ts` (one-off single-product fix),
+  `importProductSpesialisasiRekomendasi.ts` (per-product specialty
+  relevance → `Product.spesialisasiRekomendasi`, filters the "Listing
+  Corporate" sections in the Produk Rekomendasi panel).
 - **PSSP / discount / survey / listing fee**: `importPsspKontrak.ts`,
   `importPsspHospinet.ts`, `importDpl.ts` (DPL — primary discount source),
   `importDiskonHistory.ts` (fallback discount source, max not average),

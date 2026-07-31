@@ -11,7 +11,7 @@ import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHosp
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
-import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
+import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier, isRelevantToSpesialisasi } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
 
@@ -318,6 +318,20 @@ function rowsActiveLast3Months(history: PsspKontrakSummary[], namaProduk: string
 // last 3 months.
 function computePelunasan3Bln(history: PsspKontrakSummary[], namaProduk: string): number | null {
   const rows = rowsActiveLast3Months(history, namaProduk);
+  if (rows.length === 0) return null;
+  const sumEst = rows.reduce((s, r) => s + r.estBaris, 0);
+  const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
+  return sumEst > 0 ? Math.round((sumLunas / sumEst) * 100) : null;
+}
+
+// Same pelunasan-% computation as computePelunasan3Bln, but across ALL PSSP
+// history for this product (any prdAkhir), not just rows active in the last
+// 3 months — used by the "Pernah PSSP" section of the Produk Rekomendasi tab
+// (KriteriaProdukPanel), where the stakeholder wants any past PSSP to surface
+// the product regardless of how long ago it ran (2026-07-31).
+function computePelunasanAllPeriode(history: PsspKontrakSummary[], namaProduk: string): number | null {
+  const norm = namaProduk.toLowerCase().trim();
+  const rows = history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm);
   if (rows.length === 0) return null;
   const sumEst = rows.reduce((s, r) => s + r.estBaris, 0);
   const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
@@ -1791,11 +1805,11 @@ function KriteriaProdukPanel({
   for (const p of products) {
     if (matchedPakets.length > 0 && getProductTier(p.namaProduk, matchedPakets) === 0) fokusPMRaw.push(p);
 
-    const pct = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
+    const pct = psspHistory ? computePelunasanAllPeriode(psspHistory, p.namaProduk) : null;
     if (pct != null) pernahPsspRaw.push({ p, pct });
 
     const kriteria = kriteriaMap.get(p.kodeProduk);
-    if (kriteria?.startsWith("Produk Sudah Terstandarisasi")) {
+    if (kriteria?.startsWith("Produk Sudah Terstandarisasi") && (!spesialisasi || isRelevantToSpesialisasi(p.spesialisasiRekomendasi, spesialisasi))) {
       (kriteria.includes("Tidak Ada Sales") ? listingNoSalesRaw : listingSalesRaw).push(p);
     }
   }
@@ -1845,12 +1859,12 @@ function KriteriaProdukPanel({
           : kriteria?.startsWith("Produk Kompetisi Rendah") ? "blue"
           : kriteria?.startsWith("Produk Kompetisi Tinggi") ? "red"
           : undefined;
-        const pelunasan3Bln = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
+        const pelunasanAllPeriode = psspHistory ? computePelunasanAllPeriode(psspHistory, p.namaProduk) : null;
         return {
           key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk),
           badge: kriteria ? formatKriteriaLabel(kriteria) : undefined, badgeColor: kriteriaColor ?? "blue",
-          badge2: pelunasan3Bln != null ? `Pernah PSSP · ${pelunasan3Bln}%` : undefined,
-          badge2Color: pelunasan3Bln == null ? undefined : pelunasan3Bln >= 80 ? "green" : pelunasan3Bln >= 40 ? "yellow" : "red",
+          badge2: pelunasanAllPeriode != null ? `Pernah PSSP · ${pelunasanAllPeriode}%` : undefined,
+          badge2Color: pelunasanAllPeriode == null ? undefined : pelunasanAllPeriode >= 80 ? "green" : pelunasanAllPeriode >= 40 ? "yellow" : "red",
         };
       }),
     },

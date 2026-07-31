@@ -198,3 +198,83 @@ export function sortProductsBySpesialisasi<T extends { namaProduk: string }>(
     return a.namaProduk.localeCompare(b.namaProduk, "id");
   });
 }
+
+/**
+ * Maps DB spesialisasi (uppercased) to the specialty column names used in
+ * "internal/Rekomendasi Paket Produk Per Spesialisasi.xlsx" (sheet
+ * "Recommendation" — see Product.spesialisasiRekomendasi). Source: same
+ * workbook, Sheet2, columns SPESIALISASI2 and "REKOMENDASI PAKET DATA PAK
+ * LEEMAN". Distinct from SPESIALISASI_TO_PAKET above — that one maps to the
+ * 6 broad "Produk Fokus PM" pakets, this one to the 13 finer-grained
+ * specialty columns covering the wider "Listing Corporate" product set.
+ */
+export const SPESIALISASI_TO_KOLOM_REKOMENDASI: Record<string, string[]> = {
+  "SYARAF (NEUROLOGI)": ["NEURO"],
+  "NEUROLOGI": ["NEURO"],
+  "KANDUNGAN (OBSGYN)": ["OBGYN"],
+  "OBSGYN": ["OBGYN"],
+  "BEDAH TULANG (ORTHOPEDI)": ["BEDAH", "ANASTESI", "ORTHOPEDI"],
+  "BEDAH ORTHOPEDI": ["BEDAH", "ANASTESI", "ORTHOPEDI"],
+  "UMUM (GP)": ["GP &UGD"],
+  "UMUM ( GP)": ["GP &UGD"],
+  "GIGI (DENTIST)": ["GP &UGD"],
+  "REHAB MEDIK": ["GP &UGD"],
+  "KEPALA ICU": ["GP &UGD"],
+  "ANAK (PEDIATRIC)": ["PEDIATRICT"],
+  "PEDIATRIC": ["PEDIATRICT"],
+  "PULMONOLOGY ANAK": ["PEDIATRICT"],
+  "BEDAH ANAK": ["BEDAH", "ANASTESI", "PEDIATRICT"],
+  "PENYAKIT DALAM (INTERNIST)": ["INTERNIST", "GASTRO", "PULMO"],
+  "INTERNIST": ["INTERNIST", "GASTRO", "PULMO"],
+  "INTERNIST UMUM": ["INTERNIST", "GASTRO", "PULMO"],
+  "BEDAH (UROLOGIS)": ["BEDAH", "ANASTESI", "UROLOGY"],
+  "BEDAH UROLOGIS": ["BEDAH", "ANASTESI", "UROLOGY"],
+  "KANDUNG KEMIH (UROLOGIST)": ["UROLOGY"],
+  "JANTUNG (KARDIOLOGI)": ["JANTUNG"],
+  "CARDIO": ["JANTUNG"],
+  "JIWA (PSIKIATER)": ["PSIKIATRI"],
+  "KESEHATAN JIWA": ["PSIKIATRI"],
+  "BEDAH KANKER (ONKOLOGI)": ["BEDAH", "ANASTESI"],
+  "BEDAH ONKOLOGI": ["BEDAH", "ANASTESI"],
+  "ANESTESI": ["ANASTESI"],
+  "PENATA ANESTESI": ["ANASTESI"],
+  "PENATA ANASTESI": ["ANASTESI"],
+  "BEDAH (SURGEON)": ["BEDAH", "ANASTESI"],
+  "BEDAH": ["BEDAH", "ANASTESI"],
+  "BEDAH UMUM": ["BEDAH", "ANASTESI"],
+  "BEDAH SYARAF": ["BEDAH", "ANASTESI", "NEURO"],
+  "BEDAH TORAK / JANTUNG": ["BEDAH", "ANASTESI", "JANTUNG"],
+  "BEDAH THORAKS & KARDIO VASKULAR (BTKV)": ["BEDAH", "ANASTESI", "JANTUNG"],
+  "PARU (PULMONOLOGI)": ["PULMO"],
+  "PULMONOLOGI": ["PULMO"],
+  "BEDAH DIGESTIF": ["BEDAH", "ANASTESI"],
+  "BEDAH PLASTIK": ["BEDAH", "ANASTESI"],
+  "BEDAH MULUT": ["BEDAH", "ANASTESI"],
+  "BEDAH THT": ["BEDAH", "ANASTESI"],
+  "THT & BEDAH KEPALA LEHER": ["BEDAH", "ANASTESI"],
+  "GASTROENTEROLOGY-HEPATOLOGY": ["GASTRO"],
+  "DIGESTIVE & ENDOSCOPY": ["GASTRO"],
+  "BEDAH TULANG BELAKANG (SPINAL SURGERY)": ["BEDAH", "ANASTESI", "NEURO", "ORTHOPEDI"],
+};
+
+/**
+ * Returns the Recommendation-sheet specialty columns that match a given
+ * spesialisasi DB value (empty array = no relevance data for this specialty).
+ */
+export function getKolomRekomendasiBySpesialisasi(spesialisasi: string): string[] {
+  return SPESIALISASI_TO_KOLOM_REKOMENDASI[spesialisasi.toUpperCase()] ?? [];
+}
+
+/**
+ * Whether a product is relevant to a doctor's spesialisasi per the
+ * Recommendation-sheet mapping. Products the reference sheet doesn't cover
+ * (empty spesialisasiRekomendasi) are treated as relevant to everyone —
+ * absence of data isn't evidence of irrelevance — so this only narrows down
+ * products the sheet explicitly scoped to other specialties.
+ */
+export function isRelevantToSpesialisasi(spesialisasiRekomendasi: string[], spesialisasi: string): boolean {
+  if (spesialisasiRekomendasi.length === 0) return true;
+  const matchedKolom = getKolomRekomendasiBySpesialisasi(spesialisasi);
+  if (matchedKolom.length === 0) return false;
+  return spesialisasiRekomendasi.some((k) => matchedKolom.includes(k));
+}

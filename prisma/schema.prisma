@@ -446,6 +446,18 @@ model Product {
   bentukSediaan          String?
   packing                String?
   indikasi               String?  @db.Text
+  // Which medical specialties this product is recommended for — from
+  // "internal/Rekomendasi Paket Produk Per Spesialisasi.xlsx", sheet
+  // "Recommendation" (columns BEDAH..UROLOGY, "Y" marks a match), uppercased
+  // column names (e.g. "BEDAH", "ANASTESI", "ORTHOPEDI", "GP &UGD",
+  // "PEDIATRICT" — sic, matches the source header typo). Empty = product not
+  // covered by that reference sheet (no specialty claim either way). Used to
+  // filter the "Listing Corporate" sections in the Produk Rekomendasi panel
+  // down to products relevant to the doctor's own spesialisasi — see
+  // SPESIALISASI_TO_KOLOM_REKOMENDASI in src/lib/paketProduk.ts for the DB
+  // spesialisasi -> these column names mapping (sourced from the same
+  // workbook's Sheet2, column "REKOMENDASI PAKET DATA PAK LEEMAN").
+  spesialisasiRekomendasi String[] @default([])
   syncedAt               DateTime
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt

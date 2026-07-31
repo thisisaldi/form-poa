@@ -26,6 +26,7 @@ export interface Product {
   bentukSediaan: string | null;
   packing: string | null;
   indikasi: string | null;
+  spesialisasiRekomendasi: string[];
 }
 
 // ─── Outlet queries ───────────────────────────────────────────────────────────
