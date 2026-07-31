@@ -3,13 +3,12 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
-import { getAllPakets, PAKET_BY_PRODUK, SPESIALISASI_TO_PAKET } from "@/lib/paketProduk";
+import { getAllPakets } from "@/lib/paketProduk";
 import { spesLabel } from "@/lib/spesialisasi";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { TerritoryTable } from "@/components/poa/TerritoryTable";
-import { ProdukRekomendasiView, type PaketRekomendasiStat } from "@/components/poa/ProdukRekomendasiView";
 import { SummaryFilterModal } from "@/components/poa/SummaryFilterModal";
 
 // PSSP contract rows key products by name only (Procode ≠ Item Kode across
@@ -139,11 +138,15 @@ export default async function SummaryPage({
   const params = await searchParams;
   // Ringkasan tab removed (2026-07-31) — rawTab is just the raw ?tab= param
   // now, no more "ringkasan"-only redirect-to-"mr" gating needed. "tab"
-  // (GroupingTab) still needs to fold "produk-rekomendasi" into "mr" for
-  // grouping/query purposes, since that tab has its own bespoke data fetch
-  // further down rather than a real outlet/customer/produk/mr grouping.
+  // (GroupingTab) folds "produk-rekomendasi" into "produk" (2026-07-31
+  // rework — this tab now reuses the exact same per-product rows/columns as
+  // "Per Produk", just split into Fokus/Low Hanging Fruit/Blue Ocean/Red
+  // Ocean/Standarisasi sections instead of one flat table — see the
+  // kategori split further down), so the SAME rich per-product grouping
+  // logic below (activePsspByProdName, salesValueByProduk, avgPasienPerUser,
+  // etc.) computes for it too, instead of a separate bespoke aggregate.
   const rawTab: Tab = (params.tab as Tab) ?? "mr";
-  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "mr" : rawTab;
+  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab;
   // Rentang Periode (2026-07-28) — replaces the old single `period` pill
   // selector with an inclusive from/to range over the same "YYYY-QN" period
   // strings; string comparison sorts them chronologically correctly since
@@ -488,112 +491,22 @@ export default async function SummaryPage({
   const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
   const SALES_2026_FROM = "202601";
 
-  // ── Per Produk Rekomendasi tab (2026-07-31) — one section per Produk Fokus
-  // paket, each showing doctor coverage ("X Dokter Pediatric, Y/X sudah di
-  // POA") and a Low Hanging Fruit / Blue Ocean / Red Ocean / Standarisasi
-  // product-count breakdown. Gated behind rawTab (only fetched when this tab
-  // is actually open) — same "don't pay for what isn't rendered" principle
-  // as the Data Sales query below.
-  const PAKET_LIST = [...new Set(Object.values(PAKET_BY_PRODUK).flat())].sort();
-  // Reverse of SPESIALISASI_TO_PAKET: paket -> every spesialisasi string
-  // that's "the target audience" for it, used to find the doctor universe.
-  const spesialisasiByPaket = new Map<string, string[]>();
-  for (const [spesialisasi, pakets] of Object.entries(SPESIALISASI_TO_PAKET)) {
-    for (const paket of pakets) {
-      const list = spesialisasiByPaket.get(paket) ?? [];
-      list.push(spesialisasi);
-      spesialisasiByPaket.set(paket, list);
-    }
-  }
-
-  const [customerOutletRows, outletProductKriteriaRows] = rawTab === "produk-rekomendasi" && outletKodesForMR.length > 0
-    ? await Promise.all([
-        prisma.customerOutlet.findMany({
-          where: { kodePI: { in: outletKodesForMR } },
-          select: { customer: { select: { kodeCustomer: true, namaCustomer: true, spesialisasi: true } } },
-        }),
-        prisma.outletProductKriteria.findMany({
-          where: { kodePI: { in: outletKodesForMR }, paket: { in: PAKET_LIST } },
-          select: { kodeProduk: true, paket: true, kategori: true, kriteriaBaru: true },
-        }),
-      ]) as [
-        { customer: { kodeCustomer: string | null; namaCustomer: string; spesialisasi: string } }[],
-        { kodeProduk: string; paket: string; kategori: string; kriteriaBaru: string }[],
-      ]
-    : [[], []];
-
-  function doctorIdentity(c: { kodeCustomer: string | null; namaCustomer: string }): string {
-    return c.kodeCustomer ?? c.namaCustomer;
-  }
-
-  // Denominator per paket: every distinct doctor in the visible territory
-  // whose spesialisasi matches that paket's target audience — regardless of
-  // whether they've been planned for at all yet.
-  const doctorsByPaket = new Map<string, Set<string>>();
-  for (const row of customerOutletRows) {
-    const spesialisasiUpper = row.customer.spesialisasi.toUpperCase();
-    for (const [paket, spesialisasiList] of spesialisasiByPaket) {
-      if (!spesialisasiList.includes(spesialisasiUpper)) continue;
-      const set = doctorsByPaket.get(paket) ?? new Set<string>();
-      set.add(doctorIdentity(row.customer));
-      doctorsByPaket.set(paket, set);
-    }
-  }
-
-  // Numerator per paket: of those doctors, which ones already have >=1
-  // submitted line item for a product belonging to that same paket (not
-  // just any product) — reuses the already-fetched, period-filtered `lineItems`.
-  const coveredDoctorsByPaket = new Map<string, Set<string>>();
-  for (const li of lineItems) {
-    const pakets = getAllPakets(li.namaProduk);
-    if (pakets.length === 0) continue;
-    const doctorId = li.kodeCust ?? li.namaCust;
-    for (const paket of pakets) {
-      const set = coveredDoctorsByPaket.get(paket) ?? new Set<string>();
-      set.add(doctorId);
-      coveredDoctorsByPaket.set(paket, set);
-    }
-  }
-
-  // Kategori/Standarisasi product-count breakdown per paket. A product can be
-  // classified per-OUTLET (OutletProductKriteria is keyed by kodePI+kodeProduk
-  // +paket), so within one paket the same product is deduped across outlets,
-  // keeping whichever outlet's row is seen first — a reasonable simplification
-  // rather than picking a "majority" classification across the territory.
-  interface KriteriaBucket { total: number; covered: number }
-  const emptyBucket = (): KriteriaBucket => ({ total: 0, covered: 0 });
-  const submittedProdukSet = new Set(lineItems.map((li) => li.kodeProduk));
-  const kriteriaStatsByPaket = new Map<string, { lowHangingFruit: KriteriaBucket; blueOcean: KriteriaBucket; redOcean: KriteriaBucket; standarisasi: KriteriaBucket }>();
-  const seenProdukPerPaket = new Set<string>();
-  for (const row of outletProductKriteriaRows) {
-    const dedupeKey = `${row.paket}|${row.kodeProduk}`;
-    if (seenProdukPerPaket.has(dedupeKey)) continue;
-    seenProdukPerPaket.add(dedupeKey);
-    const stats = kriteriaStatsByPaket.get(row.paket) ?? { lowHangingFruit: emptyBucket(), blueOcean: emptyBucket(), redOcean: emptyBucket(), standarisasi: emptyBucket() };
-    const isSubmitted = submittedProdukSet.has(row.kodeProduk);
-    const bucketKey = row.kategori === "Low Hanging Fruit" ? "lowHangingFruit"
-      : row.kategori === "Blue Ocean" ? "blueOcean"
-      : row.kategori === "Red Ocean" ? "redOcean"
-      : null;
-    if (bucketKey) {
-      stats[bucketKey].total++;
-      if (isSubmitted) stats[bucketKey].covered++;
-    }
-    if (row.kriteriaBaru?.startsWith("Produk Sudah Terstandarisasi")) {
-      stats.standarisasi.total++;
-      if (isSubmitted) stats.standarisasi.covered++;
-    }
-    kriteriaStatsByPaket.set(row.paket, stats);
-  }
-
-  const paketRekomendasiStats: PaketRekomendasiStat[] = PAKET_LIST.map((paket) => {
-    const doctorSet = doctorsByPaket.get(paket) ?? new Set<string>();
-    const coveredSet = coveredDoctorsByPaket.get(paket) ?? new Set<string>();
-    let doctorCovered = 0;
-    for (const d of doctorSet) if (coveredSet.has(d)) doctorCovered++;
-    const stats = kriteriaStatsByPaket.get(paket) ?? { lowHangingFruit: emptyBucket(), blueOcean: emptyBucket(), redOcean: emptyBucket(), standarisasi: emptyBucket() };
-    return { paket, doctorTotal: doctorSet.size, doctorCovered, ...stats };
-  });
+  // ── Per Produk Rekomendasi tab (reworked 2026-07-31) ───────────────────────
+  // Flat kategori sections (Produk Fokus / Low Hanging Fruit / Blue Ocean /
+  // Red Ocean / Standarisasi), each a full per-product table — was one card
+  // per Produk Fokus paket with aggregate coverage bars, replaced per
+  // request. Just needs the per-product kategori classification here; the
+  // actual per-product rows/columns are the SAME ones "Per Produk" computes
+  // (tab folds "produk-rekomendasi" → "produk" above), split by kategori
+  // further down once `groups` exists. Gated behind rawTab (only fetched
+  // when this tab is actually open) — same "don't pay for what isn't
+  // rendered" principle as the Data Sales query below.
+  const outletProductKriteriaRows = rawTab === "produk-rekomendasi" && outletKodesForMR.length > 0
+    ? (await prisma.outletProductKriteria.findMany({
+        where: { kodePI: { in: outletKodesForMR } },
+        select: { kodeProduk: true, kategori: true, kriteriaBaru: true },
+      })) as { kodeProduk: string; kategori: string; kriteriaBaru: string }[]
+    : [];
 
   const [activePssp, listingFeeRows, salesValueRaw, salesQtyRaw] = await Promise.all([
     outletKodesForMR.length > 0 ? getActivePsspByOutlets(outletKodesForMR) : Promise.resolve([] as ActivePsspRow[]),
@@ -879,6 +792,29 @@ export default async function SummaryPage({
       return aHas ? b.gapVsRealisasi - a.gapVsRealisasi : b.estimasi - a.estimasi;
     });
 
+  // Per Produk Rekomendasi kategori split (2026-07-31 rework — was one card
+  // per Produk Fokus paket with aggregate coverage bars; request was flat
+  // sections instead, each a full per-product table with the same columns as
+  // "Per Produk": Produk Fokus, Low Hanging Fruit, Blue Ocean, Red Ocean,
+  // Standarisasi). Classifies each already-computed produk group by
+  // kodeProduk against OutletProductKriteria (deduped across outlets/pakets,
+  // first-seen wins — same simplification the old paket view used) plus
+  // getAllPakets() for Fokus, same definition as the Status Fokus/Non-Fokus
+  // column on "Per Produk" itself. A product can land in more than one
+  // section (Fokus and Low Hanging Fruit aren't mutually exclusive axes).
+  const kriteriaByKodeProduk = new Map<string, { kategori: string | null; kriteriaBaru: string | null }>();
+  if (rawTab === "produk-rekomendasi") {
+    for (const row of outletProductKriteriaRows) {
+      if (kriteriaByKodeProduk.has(row.kodeProduk)) continue;
+      kriteriaByKodeProduk.set(row.kodeProduk, { kategori: row.kategori, kriteriaBaru: row.kriteriaBaru });
+    }
+  }
+  const produkFokusGroups = groups.filter((g) => getAllPakets(g.name).length > 0);
+  const lowHangingFruitGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kategori === "Low Hanging Fruit");
+  const blueOceanGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kategori === "Blue Ocean");
+  const redOceanGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kategori === "Red Ocean");
+  const standarisasiGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kriteriaBaru?.startsWith("Produk Sudah Terstandarisasi"));
+
   // ── Tab labels ────────────────────────────────────────────────────────────
 
   const TABS: { key: Tab; label: string }[] = [
@@ -937,9 +873,27 @@ export default async function SummaryPage({
         <SummaryFilterModal tab={rawTab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
       </div>
 
-      {/* Per Produk Rekomendasi (2026-07-31) — one section per Produk Fokus paket. */}
+      {/* Per Produk Rekomendasi (reworked 2026-07-31) — flat kategori sections
+          instead of one card per paket, each a full per-product table (same
+          columns as "Per Produk" below) filtered to that kategori. */}
       {rawTab === "produk-rekomendasi" && (
-        <ProdukRekomendasiView stats={paketRekomendasiStats} />
+        <div className="space-y-6">
+          {[
+            { title: "Produk Fokus", rows: produkFokusGroups },
+            { title: "Produk Low Hanging Fruit", rows: lowHangingFruitGroups },
+            { title: "Produk Blue Ocean", rows: blueOceanGroups },
+            { title: "Produk Red Ocean", rows: redOceanGroups },
+            { title: "Produk Standarisasi", rows: standarisasiGroups },
+          ].map(({ title, rows }) => (
+            <div key={title}>
+              <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-text)" }}>
+                {title} <span style={{ color: "var(--color-text-faint)", fontWeight: 400 }}>({rows.length})</span>
+              </p>
+              <TerritoryTable groups={rows} codeLabel="Produk" variant="produk"
+                quarterIni={quarterIni} quarterSebelumnya={quarterSebelumnya} />
+            </div>
+          ))}
+        </div>
       )}
 
       {(rawTab === "outlet" || rawTab === "customer" || rawTab === "spesialisasi" || rawTab === "produk" || rawTab === "mr") && (
