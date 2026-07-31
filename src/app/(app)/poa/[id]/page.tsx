@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, hasApprovalThisCycle, canRequestEdit, canRespondEditRequest, getLastApprover } from "@/lib/authz";
+import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover } from "@/lib/authz";
 import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction, requestEditAction, grantEditRequestAction, declineEditRequestAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -104,12 +104,6 @@ export default async function PoaDetailPage({
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
   const isRevisi = poa.status === "REVISI";
-  // Editing only actually bounces the POA back to Revisi once someone above
-  // the owner has already approved this review cycle — while it's still
-  // waiting on its first review (e.g. SUBMITTED_TO_ASM, nobody's approved
-  // yet), the owner can keep editing in place (2026-07-27, see
-  // flagRevisionOnEdit in poaWorkflow.ts for the matching server-side rule).
-  const willTriggerRevisi = isOwner && !isDraft && !isRevisi && (await hasApprovalThisCycle(poa.id));
 
   // Edit request (2026-07-28): once locked out (someone above has already
   // approved this cycle), the owner can ask that last approver — whoever
@@ -384,8 +378,6 @@ export default async function PoaDetailPage({
         poaVersion={poa.version}
         showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
         userCanEdit={userCanEdit}
-        isDraft={isDraft}
-        willTriggerRevisi={willTriggerRevisi}
         selectable={isOwner}
         activePssp={activePssp}
         focusProductTargets={focusProductTargets}

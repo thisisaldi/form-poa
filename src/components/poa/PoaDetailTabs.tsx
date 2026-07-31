@@ -24,7 +24,7 @@ interface FocusProductTarget {
 // (full per-doctor/per-contract breakdown) — the last two used to sit inline as
 // full detail on every page load; now only their summary shows in Drafting.
 export function PoaDetailTabs({
-  items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi,
+  items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
   selectable = true, activePssp = [], focusProductTargets, salesSummary,
 }: {
   items: PoaLineItem[];
@@ -34,8 +34,6 @@ export function PoaDetailTabs({
   poaVersion?: number;
   showSubmit?: boolean;
   userCanEdit?: boolean;
-  isDraft?: boolean;
-  willTriggerRevisi?: boolean;
   selectable?: boolean;
   activePssp?: ActivePsspRow[];
   focusProductTargets: FocusProductTarget[];
@@ -128,8 +126,6 @@ export function PoaDetailTabs({
               poaVersion={poaVersion}
               showSubmit={showSubmit}
               userCanEdit={userCanEdit}
-              isDraft={isDraft}
-              willTriggerRevisi={willTriggerRevisi}
               selectable={selectable}
               activePssp={activePssp}
               salesSummary={salesSummary}

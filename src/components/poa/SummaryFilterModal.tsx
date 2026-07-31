@@ -75,8 +75,8 @@ export function SummaryFilterModal({
                 </div>
               </div>
 
-              {/* Default view (no filter) is bounded to a rolling 4-quarter
-                  window for performance (2026-07-31) — this is the explicit
+              {/* Default view (no filter) is bounded to current + 1 previous
+                  quarter for performance (2026-07-31) — this is the explicit
                   opt-in back to unbounded history: sets periodFrom to the
                   earliest period that exists, which makes it a real filter
                   (hasPeriodFilter) rather than "no filter". */}

@@ -162,12 +162,14 @@ export default async function SummaryPage({
   // The per-row TABLE isn't the problem (it's bounded by distinct outlets/
   // customers/products/personnel, a few hundred at most) — it's the RAW
   // line-item fetch behind the aggregation that scales with history × org
-  // size. Defaulting to a rolling 4-quarter window (current + 3 back) covers
-  // what people actually look at day to day; "Semua" is still one click away
-  // via the filter's "Lihat semua periode" link (SummaryFilterModal), which
-  // sets an explicit periodFrom and so counts as hasPeriodFilter.
-  let defaultPeriodFrom = currentQuarter();
-  for (let i = 0; i < 3; i++) defaultPeriodFrom = previousQuarterPeriod(defaultPeriodFrom) ?? defaultPeriodFrom;
+  // size. Tightened further same day (2026-07-31, "dibatesin untuk periode
+  // sebelumnya aja") from a 4-quarter window down to just current + 1
+  // previous quarter — that's the narrowest window that still lets
+  // Growth-vs-Quarter-Sebelumnya (which needs exactly one prior quarter's
+  // realisasi) work without an explicit filter. "Semua" is still one click
+  // away via the filter's "Lihat semua periode" link (SummaryFilterModal),
+  // which sets an explicit periodFrom and so counts as hasPeriodFilter.
+  const defaultPeriodFrom = previousQuarterPeriod(currentQuarter()) ?? currentQuarter();
   const isDefaultBounded = !hasPeriodFilter;
 
   // ── Data ──────────────────────────────────────────────────────────────────

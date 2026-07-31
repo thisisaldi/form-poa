@@ -5,7 +5,6 @@ import Link from "next/link";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
@@ -837,20 +836,21 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, isDraft, willTriggerRevisi, selectable = true, activePssp = [], salesSummary }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], salesSummary }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
   poaStatus?: PoaStatus;
   poaVersion?: number;
   showSubmit?: boolean;
+  /** Whether this user can edit right now — server-computed (canEdit in
+   * authz.ts), already accounts for Lock Edit Logic (someone above having
+   * approved this cycle locks the owner out, routing them to "Ajukan Edit"
+   * instead — see poa/[id]/page.tsx) and ownership/subtree visibility. No
+   * extra client-side "click to unlock" gate on top of this (removed
+   * 2026-07-31 — it required an extra click even before anyone had approved
+   * anything, which is exactly when editing should just work immediately). */
   userCanEdit?: boolean;
-  isDraft?: boolean;
-  /** True only when the owning MR's edit will actually bounce status back to
-   * Revisi — i.e. someone above has already approved this review cycle. While
-   * still waiting on the first review (submitted, nobody's approved yet),
-   * this is false and editing just saves in place. */
-  willTriggerRevisi?: boolean;
   /** False for approvers viewing the checklist read-only — no checkboxes, all items count toward the summary. */
   selectable?: boolean;
   /** Still-active PSSP contracts for the doctors on this POA, for the ringkasan. */
@@ -864,24 +864,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
     try { return quarterToMonths(poaPeriod); } catch { return []; }
   }, [poaPeriod]);
 
-  // Once a POA has already been submitted, editing it is gated behind an explicit
-  // "Edit" click. For the owning MR this bounces the status back to Revisi and
-  // requires resubmission from ASM again. For an ASM/SM/NSM editing mid-review,
-  // it doesn't reset anything — they still need their own atasan's approval next,
-  // exactly like a normal approve, so they just save the change and click
-  // Approve & Teruskan as usual. Either way, we don't want the per-row
-  // Edit/Hapus controls exposed by default.
-  const [editUnlocked, setEditUnlocked] = useState(false);
-  const [showEditConfirm, setShowEditConfirm] = useState(false);
-  const canEditNow = !!userCanEdit && (!!isDraft || editUnlocked);
-
-  function handleUnlockEdit() {
-    if (!willTriggerRevisi) {
-      setEditUnlocked(true);
-      return;
-    }
-    setShowEditConfirm(true);
-  }
+  const canEditNow = !!userCanEdit;
 
   const groups = useMemo(() => {
     const map = new Map<string, PoaLineItem[]>();
@@ -976,15 +959,6 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
             </div>
             <div className="flex items-center gap-2">
               {poaStatus && <StatusBadge status={poaStatus} version={poaVersion} />}
-              {userCanEdit && !canEditNow && (
-                <button
-                  type="button"
-                  onClick={handleUnlockEdit}
-                  className="text-xs px-2.5 py-1 rounded-md font-medium"
-                  style={{ background: "var(--color-status-revisi-bg)", color: "var(--color-status-revisi)", border: "1px solid var(--color-status-revisi)" }}>
-                  ✎ Edit
-                </button>
-              )}
               {canEditNow && poaId && (
                 <Link href={`/poa/${poaId}/edit`}
                   className="text-xs px-2.5 py-1 rounded-md font-medium"
@@ -1077,17 +1051,6 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           activePssp={activePssp}
         />
       </div>
-
-      <ConfirmDialog
-        open={showEditConfirm}
-        tone="warning"
-        title="Edit rencana yang sudah diajukan?"
-        message="Mengedit POA yang sudah diajukan akan mengembalikan statusnya ke Revisi dan perlu diajukan ulang dari awal. Lanjutkan?"
-        confirmLabel="Ya, Edit"
-        cancelLabel="Batal"
-        onConfirm={() => { setEditUnlocked(true); setShowEditConfirm(false); }}
-        onCancel={() => setShowEditConfirm(false)}
-      />
     </div>
   );
 }
