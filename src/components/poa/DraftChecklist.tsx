@@ -756,19 +756,27 @@ function DoctorRow({
           <p className="text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
             {doctorItems.length} produk
           </p>
-          {userCanEdit && poaId && (
+          {poaId && (
             <div className="flex flex-col gap-1 items-end">
+              {/* Same route either way — /doctor/[itemId]/edit renders read-only
+                  (fieldset disabled) for anyone who can view but not edit, so a
+                  VIEWER/GM/SFE gets the SAME full per-product detail (Histori
+                  PSSP, Kriteria Produk, semua field) an editor sees, not just
+                  the lightweight "Detail ▼" summary table below (2026-07-31:
+                  "benar-benar bisa lihat detailnya, bukan cuma ringkasan"). */}
               <Link href={`/poa/${poaId}/doctor/${doctorItems[0].id}/edit`}
-                className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
-                Edit
+                className="text-xs font-medium" style={{ color: userCanEdit ? "var(--color-blue)" : "var(--color-text-muted)" }}>
+                {userCanEdit ? "Edit" : "Lihat"}
               </Link>
-              <button
-                type="button"
-                disabled={isDeleting}
-                onClick={handleDelete}
-                className="text-xs" style={{ color: "var(--color-red)" }}>
-                Hapus
-              </button>
+              {userCanEdit && (
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handleDelete}
+                  className="text-xs" style={{ color: "var(--color-red)" }}>
+                  Hapus
+                </button>
+              )}
             </div>
           )}
           <button

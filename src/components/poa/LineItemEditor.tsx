@@ -3465,8 +3465,13 @@ function produkEntryFromItem(
   };
 }
 
-export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo }: {
+export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo, readOnly = false }: {
   items: PoaLineItem[]; poaId: string; poaPeriod: string; products: Product[]; redirectTo: string;
+  /** True for a viewer who can see this POA but not edit it (VIEWER/GM/SFE
+   * etc., or an editor whose access is currently locked) — renders every
+   * field via a <fieldset disabled>, same full detail an editor sees, just
+   * nothing is clickable and there's no Simpan button (2026-07-31). */
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const first = items[0];
@@ -3649,7 +3654,9 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
     <div className="rounded-xl border p-4 space-y-5"
       style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 1.5 }}>
       <div>
-        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Edit Rencana POA</p>
+        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+          {readOnly ? "Detail Rencana POA" : "Edit Rencana POA"}
+        </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>
             {namaCust} · {spesLabel(spesialisasi)} · {namaOutlet}
@@ -3670,6 +3677,10 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
+        {/* display:contents so the fieldset adds no box/border of its own —
+            disabling it natively disables every input/select/button nested
+            inside, without threading a readOnly prop through each one. */}
+        <fieldset disabled={readOnly} className="contents">
         <DokterFieldsSection
           fields={dokterFields}
           onChange={(patch) => setDokterFields((prev) => ({ ...prev, ...patch }))}
@@ -3917,14 +3928,21 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo 
           </div>
         );
         })()}
+        </fieldset>
 
         <div className="flex items-center gap-3 pt-1">
-          <Button type="submit" size="sm" disabled={isPending}>
-            {isPending
-              ? (progress ? `Menyimpan ${progress.done}/${progress.total}…` : "Menyimpan…")
-              : `Simpan (${filledCount} produk)`}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => router.push(redirectTo)}>Batal</Button>
+          {readOnly ? (
+            <Button type="button" size="sm" variant="ghost" onClick={() => router.push(redirectTo)}>← Kembali</Button>
+          ) : (
+            <>
+              <Button type="submit" size="sm" disabled={isPending}>
+                {isPending
+                  ? (progress ? `Menyimpan ${progress.done}/${progress.total}…` : "Menyimpan…")
+                  : `Simpan (${filledCount} produk)`}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => router.push(redirectTo)}>Batal</Button>
+            </>
+          )}
         </div>
       </form>
       {namaCust && (

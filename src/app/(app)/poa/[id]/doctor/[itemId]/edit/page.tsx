@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canEdit } from "@/lib/authz";
+import { canEdit, canView } from "@/lib/authz";
 import { getProducts } from "@/lib/masterData";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Card";
@@ -27,7 +27,13 @@ export default async function EditDoctorPage({
   ]);
 
   if (!poa || !anchorItem || anchorItem.poaId !== id) notFound();
-  if (!(await canEdit(actor, poa))) redirect(`/poa/${id}`);
+  const userCanEdit = await canEdit(actor, poa);
+  // Anyone who can VIEW this POA (not just edit it) can open this page too —
+  // read-only (all fields disabled via fieldset, no Simpan button) rather
+  // than redirected back to the lightweight checklist summary (2026-07-31:
+  // VIEWER/GM/SFE need the SAME full per-product detail an editor sees —
+  // Histori PSSP, Kriteria Produk, every field — not just a summary table).
+  if (!userCanEdit && !(await canView(actor, poa))) redirect(`/poa/${id}`);
 
   // Same-doctor group: all line items sharing this outlet + customer name (mirrors DraftChecklist's doctorKey).
   const items = await prisma.poaLineItem.findMany({
@@ -45,9 +51,10 @@ export default async function EditDoctorPage({
             style={{ color: "var(--color-text-faint)" }}>
             ← Kembali ke Draft
           </Link>
-          <h1>Edit Rencana POA</h1>
+          <h1>{userCanEdit ? "Edit Rencana POA" : "Detail Rencana POA"}</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
             Periode {poa.period} · {poa.owner.name}
+            {!userCanEdit && <span style={{ color: "var(--color-text-faint)" }}> · Mode lihat saja</span>}
           </p>
         </div>
         <StatusBadge status={poa.status} version={poa.version} />
@@ -60,6 +67,7 @@ export default async function EditDoctorPage({
           poaPeriod={poa.period}
           products={products}
           redirectTo={backUrl}
+          readOnly={!userCanEdit}
         />
       </Card>
     </div>
