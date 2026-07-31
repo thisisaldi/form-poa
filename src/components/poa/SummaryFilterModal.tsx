@@ -75,6 +75,18 @@ export function SummaryFilterModal({
                 </div>
               </div>
 
+              {/* Default view (no filter) is bounded to a rolling 4-quarter
+                  window for performance (2026-07-31) — this is the explicit
+                  opt-in back to unbounded history: sets periodFrom to the
+                  earliest period that exists, which makes it a real filter
+                  (hasPeriodFilter) rather than "no filter". */}
+              {periods.length > 0 && periodFrom !== periods[0] && (
+                <a href={`/summary?tab=${tab}&periodFrom=${periods[0]}`}
+                  className="block text-xs" style={{ color: "var(--color-blue)" }}>
+                  Lihat semua periode (dari {periods[0]})
+                </a>
+              )}
+
               <div className="flex justify-end gap-2 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
                 {activeCount > 0 && (
                   <a href={`/summary?tab=${tab}`} className="rounded px-2.5 py-1.5 text-xs font-medium border"

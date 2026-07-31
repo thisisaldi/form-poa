@@ -173,6 +173,23 @@ export default async function SummaryPage({
   const hasPeriodFilter = !!periodFrom || !!periodTo;
   const periodQuery = `${periodFrom ? `&periodFrom=${periodFrom}` : ""}${periodTo ? `&periodTo=${periodTo}` : ""}`;
 
+  // Default period window (2026-07-31 perf fix: "performance starts to slow
+  // down... bound the unbounded queries") — with no explicit filter, this
+  // page used to fetch EVERY submitted POA/line-item ever, for every MR in
+  // the viewer's subtree, with no limit at all ("Semua" was the default, not
+  // an opt-in). That's the one thing that keeps getting slower over time
+  // regardless of query/index tuning, since the dataset itself only grows.
+  // The per-row TABLE isn't the problem (it's bounded by distinct outlets/
+  // customers/products/personnel, a few hundred at most) — it's the RAW
+  // line-item fetch behind the aggregation that scales with history × org
+  // size. Defaulting to a rolling 4-quarter window (current + 3 back) covers
+  // what people actually look at day to day; "Semua" is still one click away
+  // via the filter's "Lihat semua periode" link (SummaryFilterModal), which
+  // sets an explicit periodFrom and so counts as hasPeriodFilter.
+  let defaultPeriodFrom = currentQuarter();
+  for (let i = 0; i < 3; i++) defaultPeriodFrom = previousQuarterPeriod(defaultPeriodFrom) ?? defaultPeriodFrom;
+  const isDefaultBounded = !hasPeriodFilter;
+
   // ── Data ──────────────────────────────────────────────────────────────────
 
   // Shared helper (not a local reimplementation) so ADMIN/GM correctly see
@@ -211,6 +228,10 @@ export default async function SummaryPage({
       ...(periodFrom ? { gte: periodFrom } : {}),
       ...(periodTo ? { lte: periodTo } : {}),
     };
+  } else {
+    // No explicit filter — bound to the rolling default window instead of
+    // fetching all history (see isDefaultBounded above).
+    poaWhere.period = { gte: defaultPeriodFrom };
   }
 
   const [poas, allPoasForPeriods] = await Promise.all([
@@ -218,7 +239,13 @@ export default async function SummaryPage({
     // real, atasan-set Rupiah quota SalesAchievementTable.tsx already sums for
     // the Monitoring page, never a fabricated stand-in.
     mrNips.length > 0 ? prisma.poaForm.findMany({ where: poaWhere }) as Promise<{ id: string; ownerId: string; period: string; target: { toString(): string } | null }[]> : Promise.resolve([]),
-    mrNips.length > 0 ? prisma.poaForm.findMany({ where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT } } }) as Promise<{ period: string }[]> : Promise.resolve([]),
+    // Distinct periods only, for the filter dropdown + "Lihat semua periode"
+    // link — deliberately UNBOUNDED (full history) and select-only, unlike
+    // poaWhere above, so the filter can still offer/jump to older quarters
+    // even though the default table view no longer fetches them.
+    mrNips.length > 0
+      ? prisma.poaForm.findMany({ where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT } }, select: { period: true }, distinct: ["period"] }) as Promise<{ period: string }[]>
+      : Promise.resolve([]),
   ]);
 
   const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
@@ -1025,6 +1052,9 @@ export default async function SummaryPage({
         <h1>Summary POA</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
           {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
+          {isDefaultBounded && (
+            <span style={{ color: "var(--color-text-faint)" }}> · menampilkan {defaultPeriodFrom} – {quarterIni} (gunakan Filter Periode untuk lihat semua)</span>
+          )}
         </p>
       </div>
 

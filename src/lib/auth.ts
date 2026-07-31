@@ -22,8 +22,14 @@ export type VerifyResult =
  * canCreatePoa), not restricting login.
  */
 export async function verifyNip(nip: string): Promise<VerifyResult> {
-  const user: User | null = await prisma.user.findFirst({
-    where: { nip: { equals: nip, mode: "insensitive" } },
+  // Every real NIP in the DB is stored uppercase (see any User row) — case-
+  // insensitive matching on the primary key (findFirst + mode: "insensitive")
+  // can't use the PK index at all (confirmed via EXPLAIN: forces a full
+  // Seq Scan on User), so login got slower with every user added. Normalizing
+  // here and doing a plain findUnique keeps the same "type it in any case"
+  // UX while hitting the PK index directly (2026-07-31 perf pass).
+  const user: User | null = await prisma.user.findUnique({
+    where: { nip: nip.toUpperCase() },
   });
   if (!user) return { ok: false, error: "not_found" };
   if (!user.isActive) return { ok: false, error: "inactive" };
