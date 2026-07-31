@@ -87,6 +87,12 @@ function toNum(v: { toString(): string } | number | string | null | undefined): 
   return parseFloat(String(v ?? 0)) || 0;
 }
 
+function formatRp(n: number) {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return Math.round(n).toLocaleString("id-ID");
+}
+
 function toYYYYMM(y: number, m: number): string {
   return `${y}${String(m).padStart(2, "0")}`;
 }
@@ -806,6 +812,15 @@ export default async function SummaryPage({
     outlet: "Outlet", customer: "Customer", produk: "Produk", mr: "Personil",
   };
 
+  // Pengajuan+Aktif subtext under the table header (2026-07-31 request) —
+  // same Aktif/Pengajuan split already shown per-row in the Estimasi column,
+  // summed across every row of the active tab so the header caption isn't a
+  // black box. estimasiAktif is only ever populated for "outlet"/"produk"
+  // (see estimasiAktif above) — "customer"/"mr" naturally sum to 0, so the
+  // Aktif clause is dropped for those instead of showing a misleading "Rp 0".
+  const estimasiTotal = groups.reduce((s, g) => s + g.estimasi, 0);
+  const estimasiAktifTotal = groups.reduce((s, g) => s + g.estimasiAktif, 0);
+
   const monitoringGroups: MonitoringGroup[] = groups.map((g) => ({
     code: g.code,
     name: g.name,
@@ -881,7 +896,14 @@ export default async function SummaryPage({
 
       {/* Table header row — filter sits next to the table it filters, not the page title. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{CODE_LABEL[tab]}</p>
+        <div>
+          <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{CODE_LABEL[tab]}</p>
+          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+            {estimasiAktifTotal > 0
+              ? `Aktif ${formatRp(estimasiAktifTotal)} · Pengajuan ${formatRp(estimasiTotal)}`
+              : `Pengajuan ${formatRp(estimasiTotal)}`}
+          </p>
+        </div>
         <SummaryFilterModal tab={tab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
       </div>
 
