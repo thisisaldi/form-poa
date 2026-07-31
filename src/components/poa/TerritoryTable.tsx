@@ -95,8 +95,11 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
       case "name": return g.name;
       case "estimasi": return isOutlet || isProduk ? row.estimasiAktifPengajuan : g.estimasi;
       case "growth": return g.growthVsQuarterSebelumnyaPct;
-      case "realisasi": return g.realisasi;
-      case "gap": return g.gapVsRealisasi;
+      case "realisasi": return g.realisasiQuarterSebelumnya;
+      // Nominal counterpart of the Growth % column (same numerator,
+      // estimasiQuarterIni - realisasiQuarterSebelumnya) — null whenever
+      // Growth itself is null, so the two never disagree on "no data".
+      case "gap": return g.growthVsQuarterSebelumnyaPct != null ? g.estimasiQuarterIni - g.realisasiQuarterSebelumnya : null;
       case "user": return row.userCount;
       case "variasi": return g.variasiProdukFokus;
       case "pengajuan": return g.pengajuan;
@@ -159,16 +162,17 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                 info={isOutlet || isProduk
                   ? "Total rencana biaya: 'Aktif' dari kontrak PSSP yang sedang berjalan, 'Pengajuan' dari POA yang sudah disubmit (bukan draft)."
                   : "Total rencana biaya (rencanaTotalBiaya) dari POA yang sudah disubmit, bukan draft."} />
+              {showRealisasi && (
+                <SortableTh label="Realisasi Quarter Sebelumnya" sortKey="realisasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  title={quarterSebelumnya ? `Realisasi ${quarterSebelumnya}` : undefined}
+                  info="Total nilai PSSP yang benar-benar lunas/dibayar dalam kuartal sebelumnya saja (bukan akumulasi sepanjang masa) — baseline yang sama dipakai kolom Growth di sebelah kanan." />
+              )}
               <SortableTh label="Growth vs Quarter Sebelumnya" sortKey="growth" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
                 title={quarterIni && quarterSebelumnya ? `Estimasi ${quarterIni} vs Realisasi ${quarterSebelumnya}` : undefined}
                 info="Persentase perbandingan Estimasi (POA yang disubmit) kuartal ini terhadap Realisasi (PSSP lunas) kuartal sebelumnya. Tanda '-' berarti belum ada realisasi kuartal sebelumnya untuk dibandingkan, atau belum ada POA yang disubmit kuartal ini." />
               {showRealisasi && (
-                <>
-                  <SortableTh label="Realisasi Sebelumnya" sortKey="realisasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
-                    info="Total nilai PSSP yang sudah benar-benar lunas/dibayar dari kontrak-kontrak sebelumnya (baik yang masih berjalan maupun yang sudah selesai)." />
-                  <SortableTh label="Gap" sortKey="gap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
-                    info="Estimasi sekarang dikurangi Realisasi Sebelumnya. Makin besar/positif, makin mencolok — artinya realisasi dulu rendah tapi estimasi sekarang tinggi." />
-                </>
+                <SortableTh label="Gap" sortKey="gap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info="Selisih Estimasi kuartal ini dikurangi Realisasi kuartal sebelumnya, dalam Rupiah — nilai riil dari persentase yang ditunjukkan kolom Growth di sebelah kiri (tanda sama: hijau = Estimasi di atas Realisasi lalu)." />
               )}
               <SortableTh label={isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"} sortKey="user" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
                 info={isOutlet
@@ -252,6 +256,11 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                       g.estimasi > 0 ? formatRp(g.estimasi) : "-"
                     )}
                   </td>
+                  {showRealisasi && (
+                    <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                      {g.realisasiQuarterSebelumnya > 0 ? formatRp(g.realisasiQuarterSebelumnya) : "-"}
+                    </td>
+                  )}
                   <td className="py-2 px-3 text-right whitespace-nowrap"
                     style={{ color: g.growthVsQuarterSebelumnyaPct == null ? "var(--color-text-faint)"
                       : g.growthVsQuarterSebelumnyaPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
@@ -267,15 +276,13 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                     )}
                   </td>
                   {showRealisasi && (
-                    <>
-                      <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                        {g.realisasi > 0 ? formatRp(g.realisasi) : "-"}
-                      </td>
-                      <td className="py-2 px-3 text-right whitespace-nowrap"
-                        style={{ color: g.gapVsRealisasi > 0 ? "var(--color-danger, #dc2626)" : "var(--color-text-muted)" }}>
-                        {g.gapVsRealisasi !== 0 ? formatRp(g.gapVsRealisasi) : "-"}
-                      </td>
-                    </>
+                    <td className="py-2 px-3 text-right whitespace-nowrap"
+                      style={{ color: g.growthVsQuarterSebelumnyaPct == null ? "var(--color-text-faint)"
+                        : g.growthVsQuarterSebelumnyaPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      {g.growthVsQuarterSebelumnyaPct != null
+                        ? formatRp(g.estimasiQuarterIni - g.realisasiQuarterSebelumnya)
+                        : "-"}
+                    </td>
                   )}
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{userCount}</td>
                   {isOutlet && (
