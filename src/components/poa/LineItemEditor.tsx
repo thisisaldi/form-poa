@@ -491,27 +491,29 @@ function UnitInput({ value, onChange, unit, placeholder = "0", step, min = 0 }: 
 
 const MONTH_LABELS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 
-// Parses a PoaForm.period string ("2026-Q3") into its year and 1-indexed quarter months.
-function parsePoaQuarterMonths(poaPeriod: string): { year: number; months: number[] } | null {
-  const m = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+// Parses a "YYYY-QN" period string (PoaForm.period, or a per-row quarter
+// string built the same way — see DokterFieldsSection's rowQuarter) into its
+// year, 1-indexed quarter number, and the quarter's 3 months.
+function parsePoaQuarterMonths(period: string): { year: number; quarter: number; months: number[] } | null {
+  const m = period.match(/^(\d{4})-Q([1-4])$/);
   if (!m) return null;
   const year = parseInt(m[1], 10);
-  const q = parseInt(m[2], 10);
-  const startMonth = (q - 1) * 3 + 1;
-  return { year, months: [startMonth, startMonth + 1, startMonth + 2] };
+  const quarter = parseInt(m[2], 10);
+  const startMonth = (quarter - 1) * 3 + 1;
+  return { year, quarter, months: [startMonth, startMonth + 1, startMonth + 2] };
 }
 
-// Returns an error message if periodeAwal (YYYYMM) is malformed or falls outside the POA's quarter.
+// Returns an error message if periodeAwal (YYYYMM) is malformed or falls outside the given quarter.
 // Returns null while the field is still incomplete.
-function periodeAwalFormatError(periodeAwal: string, poaPeriod: string): string | null {
+function periodeAwalFormatError(periodeAwal: string, quarterPeriod: string): string | null {
   if (periodeAwal.length !== 6) return null;
   const year = parseInt(periodeAwal.slice(0, 4), 10);
   const month = parseInt(periodeAwal.slice(4, 6), 10);
   if (isNaN(year) || isNaN(month) || month < 1 || month > 12) return "Format tidak valid (YYYYMM)";
-  const quarter = parsePoaQuarterMonths(poaPeriod);
+  const quarter = parsePoaQuarterMonths(quarterPeriod);
   if (quarter && (year !== quarter.year || !quarter.months.includes(month))) {
     const [m1, , m3] = quarter.months;
-    return `Harus di periode POA ${poaPeriod} (${MONTH_LABELS[m1 - 1]}-${MONTH_LABELS[m3 - 1]} ${quarter.year})`;
+    return `Harus di ${MONTH_LABELS[m1 - 1]}-${MONTH_LABELS[m3 - 1]} ${quarter.year} (sesuai Quarter yang dipilih)`;
   }
   return null;
 }
@@ -536,13 +538,30 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
   const lamaPeriodeTooLong = fields.lamaPeriode > 12;
   const lamaPeriodeError = lamaPeriodeTooLong || !!lamaPeriodeRequiredError;
   const periodeOk = fields.periodeAwal.length === 6;
-  const periodeFormatErr = periodeAwalFormatError(fields.periodeAwal, poaPeriod);
+
+  // Per-row Quarter picker (2026-07-31 request: "tiap baris bisa atur mau
+  // masukkin poa nya ke q berapa") — a doctor's rencana no longer has to
+  // fall inside the parent POA form's own quarter; each doctor row picks its
+  // own target Quarter (year fixed to the POA's own year — cross-year rows
+  // aren't part of this request), and Periode Awal's month options + the
+  // format/range validation both key off THIS instead of poaPeriod directly.
+  const poaYear = parsePoaQuarterMonths(poaPeriod)?.year ?? new Date().getFullYear();
+  const [rowQuarter, setRowQuarter] = useState<number>(() => {
+    if (fields.periodeAwal.length === 6) {
+      return Math.ceil(parseInt(fields.periodeAwal.slice(4, 6), 10) / 3);
+    }
+    return parsePoaQuarterMonths(poaPeriod)?.quarter ?? 1;
+  });
+  const rowQuarterPeriod = `${poaYear}-Q${rowQuarter}`;
+
+  const periodeFormatErr = periodeAwalFormatError(fields.periodeAwal, rowQuarterPeriod);
   const periodeHasErr = periodeAwalError || !!periodeFormatErr;
 
-  // One dropdown, options are the 3 YYYYMM values inside the POA's own quarter
-  // (e.g. POA period "2026-Q3" → 202607, 202608, 202609).
+  // One dropdown, options are the 3 YYYYMM values inside the ROW's chosen
+  // quarter (e.g. rowQuarterPeriod "2026-Q3" → 202607, 202608, 202609) — not
+  // necessarily the same quarter as the parent POA form itself anymore.
   const periodeOptions = useMemo(() => {
-    const quarter = parsePoaQuarterMonths(poaPeriod);
+    const quarter = parsePoaQuarterMonths(rowQuarterPeriod);
     const opts: { value: string; label: string }[] = [];
     if (quarter) {
       for (const m of quarter.months) {
@@ -556,7 +575,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
       opts.unshift({ value: fields.periodeAwal, label: `${MONTH_LABELS[m - 1] ?? "?"} ${y}` });
     }
     return opts;
-  }, [fields.periodeAwal, poaPeriod]);
+  }, [fields.periodeAwal, rowQuarterPeriod]);
 
   return (
     <div className="space-y-4">
@@ -589,6 +608,25 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
       <div>
         <SectionLabel>Rencana PSSP</SectionLabel>
         <div className="flex flex-wrap items-start gap-3">
+          <label className="flex flex-col gap-1 shrink-0" style={{ width: 130 }}>
+            <span className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Quarter</span>
+            <select
+              value={rowQuarter}
+              onChange={(e) => {
+                const q = parseInt(e.target.value, 10);
+                setRowQuarter(q);
+                // Old Periode Awal almost certainly falls outside the newly
+                // picked quarter — clear it rather than leave a stale value
+                // silently failing periodeAwalFormatError.
+                onChange({ periodeAwal: "" });
+              }}
+              className="input-field w-full">
+              <option value={1}>Q1 (Jan-Mar)</option>
+              <option value={2}>Q2 (Apr-Jun)</option>
+              <option value={3}>Q3 (Jul-Sep)</option>
+              <option value={4}>Q4 (Okt-Des)</option>
+            </select>
+          </label>
           <div className="flex flex-col gap-1 shrink-0" style={{ width: 200 }} {...(periodeHasErr ? { "data-field-err": "true" } : {})}>
             <span className="text-xs whitespace-nowrap" style={{ color: periodeHasErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
               Periode Awal<Req />
