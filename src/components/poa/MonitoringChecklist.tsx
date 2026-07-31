@@ -187,6 +187,12 @@ export function MonitoringChecklist({
   groups,
   totals,
   salesAvailable = true,
+  poaCount,
+  outletCount,
+  produkCount,
+  targetTotal,
+  costRatioPct,
+  growthPct,
 }: {
   groups: MonitoringGroup[];
   totals?: MonitoringTotals;
@@ -196,6 +202,21 @@ export function MonitoringChecklist({
    * (2026-07-27: replaced the old dummySales() placeholder with real data
    * for "outlet"/"mr", see computeRealSales in summary/page.tsx). */
   salesAvailable?: boolean;
+  /** Ringkasan-tab-only figures (2026-07-31 rework — Ringkasan is now its own
+   * tab, always Personil-scoped, see summary/page.tsx). Optional so this
+   * component still degrades gracefully if ever reused elsewhere without them. */
+  poaCount?: number;
+  outletCount?: number;
+  produkCount?: number;
+  /** PoaForm.target summed across visible MRs — the one REAL target source
+   * in this app (same as Monitoring's SalesAchievementTable), never a
+   * fabricated stand-in. 0 means nobody has set one yet. */
+  targetTotal?: number;
+  costRatioPct?: number | null;
+  /** Growth-of-totals (Estimasi kuartal ini vs Realisasi kuartal sebelumnya),
+   * summed across every visible MR — same definition as the per-row Growth
+   * column on the Per Personil table, just aggregated. */
+  growthPct?: number | null;
 }) {
   const [salesOpen, setSalesOpen] = useState(false);
 
@@ -244,8 +265,17 @@ export function MonitoringChecklist({
     <Card>
       <p className="font-semibold text-base mb-5" style={{ color: TEXT }}>Ringkasan</p>
 
+      {/* ── Activity footprint (2026-07-31, Ringkasan-tab-only) ── */}
+      {poaCount != null && outletCount != null && produkCount != null && (
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <StatTile label="Jumlah POA" value={String(poaCount)} />
+          <StatTile label="Jumlah Outlet" value={String(outletCount)} />
+          <StatTile label="Jumlah Produk" value={String(produkCount)} />
+        </div>
+      )}
+
       {/* ── Hero figure — the one number this dashboard leads with ── */}
-      <div className="rounded-lg p-4 mb-5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+      <div className="rounded-lg p-4 mb-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
         <p className="text-xs mb-1" style={{ color: MUTED }}>
           {estimasiAktifTotal > 0 ? "Estimasi Aktif+Pengajuan" : "Estimasi POA"}
         </p>
@@ -257,7 +287,24 @@ export function MonitoringChecklist({
             Aktif {formatRp(estimasiAktifTotal)} · Pengajuan {formatRp(estimasi)}
           </p>
         )}
+        {targetTotal != null && (
+          <p className="text-xs mt-1.5" style={{ color: targetTotal > 0 ? MUTED : FAINT }}>
+            {targetTotal > 0
+              ? `Target ${formatRp(targetTotal)}${estimasiCombined > 0 ? ` · ${((estimasiCombined / targetTotal) * 100).toFixed(1)}% dari target` : ""}`
+              : "Belum ada target."}
+          </p>
+        )}
       </div>
+
+      {/* ── Kinerja (2026-07-31, Ringkasan-tab-only) — Cost Ratio + Growth, same
+          growth-of-totals definition as the Per Personil table's Growth column. ── */}
+      {(costRatioPct !== undefined || growthPct !== undefined) && (
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <StatTile label="Cost Ratio" value={costRatioPct != null ? `${costRatioPct.toFixed(1)}%` : "-"} />
+          <StatTile label="Growth vs Quarter Sebelumnya" value={growthPct != null ? `${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}%` : "-"}
+            tone={growthPct == null ? "neutral" : growthPct >= 0 ? "good" : "bad"} />
+        </div>
+      )}
 
       {/* ── KPI tiles — Variasi Produk + Cakupan, same figures as before ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

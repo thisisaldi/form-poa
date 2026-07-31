@@ -3,13 +3,14 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
-import { getAllPakets } from "@/lib/paketProduk";
+import { getAllPakets, PAKET_BY_PRODUK, SPESIALISASI_TO_PAKET } from "@/lib/paketProduk";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { MonitoringChecklist } from "@/components/poa/MonitoringChecklist";
 import type { MonitoringGroup, MonitoringTotals } from "@/components/poa/MonitoringChecklist";
 import { TerritoryTable } from "@/components/poa/TerritoryTable";
+import { ProdukRekomendasiView, type PaketRekomendasiStat } from "@/components/poa/ProdukRekomendasiView";
 import { SummaryFilterModal } from "@/components/poa/SummaryFilterModal";
 
 // PSSP contract rows key products by name only (Procode ≠ Item Kode across
@@ -24,7 +25,16 @@ export const metadata = { title: "Summary · Form POA" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = "outlet" | "customer" | "produk" | "mr";
+// "ringkasan" and "produk-rekomendasi" are the two new tabs (2026-07-31
+// rework: Ringkasan moved out of a card-above-every-tab into its own tab,
+// scoped to Personil data only; Per Produk Rekomendasi is new) — everywhere
+// below that already groups/queries by outlet/customer/produk/mr keeps doing
+// exactly that, unchanged, by reading the narrower `tab` (GroupingTab) local
+// further down instead of the raw URL param. Only the render switch at the
+// bottom and the tab bar itself need to know about the two new values —
+// see `rawTab` there.
+type Tab = "ringkasan" | "mr" | "outlet" | "customer" | "produk-rekomendasi" | "produk";
+type GroupingTab = "outlet" | "customer" | "produk" | "mr";
 
 interface SalesFigures {
   historis2025: number;
@@ -142,7 +152,17 @@ export default async function SummaryPage({
   const showRingkasan = session.role === "NSM" || session.role === "GM" || session.role === "ADMIN";
 
   const params = await searchParams;
-  const tab: Tab = (params.tab as Tab) ?? "mr";
+  const requestedTab: Tab = (params.tab as Tab) ?? "mr";
+  // Ringkasan is gated to the same roles as before (see showRingkasan) —
+  // anyone else requesting it via a raw ?tab=ringkasan URL silently falls
+  // back to Per Personil instead of erroring.
+  const rawTab: Tab = requestedTab === "ringkasan" && !showRingkasan ? "mr" : requestedTab;
+  // Every grouping/query decision below this point (getTerritoryKey,
+  // realSalesAgg, activeRows, etc.) only ever needs to know
+  // outlet/customer/produk/mr — "ringkasan" reuses the "mr" grouping (it's
+  // the Personil aggregate) and "produk-rekomendasi" has its own bespoke
+  // data fetch further down, so neither needs a real grouping of its own.
+  const tab: GroupingTab = rawTab === "ringkasan" || rawTab === "produk-rekomendasi" ? "mr" : rawTab;
   // Rentang Periode (2026-07-28) — replaces the old single `period` pill
   // selector with an inclusive from/to range over the same "YYYY-QN" period
   // strings; string comparison sorts them chronologically correctly since
@@ -194,12 +214,16 @@ export default async function SummaryPage({
   }
 
   const [poas, allPoasForPeriods] = await Promise.all([
-    mrNips.length > 0 ? prisma.poaForm.findMany({ where: poaWhere }) as Promise<{ id: string; ownerId: string; period: string }[]> : Promise.resolve([]),
+    // target included (2026-07-31, Ringkasan tab's "Estimasi % Target") — same
+    // real, atasan-set Rupiah quota SalesAchievementTable.tsx already sums for
+    // the Monitoring page, never a fabricated stand-in.
+    mrNips.length > 0 ? prisma.poaForm.findMany({ where: poaWhere }) as Promise<{ id: string; ownerId: string; period: string; target: { toString(): string } | null }[]> : Promise.resolve([]),
     mrNips.length > 0 ? prisma.poaForm.findMany({ where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT } } }) as Promise<{ period: string }[]> : Promise.resolve([]),
   ]);
 
   const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
   const poaIds = poas.map((p) => p.id);
+  const targetTotal = poas.reduce((s, p) => s + toNum(p.target), 0);
 
   // Growth vs Quarter Sebelumnya (2026-07-28, redefined 2026-07-30) —
   // "quarter ini" is always the REAL calendar quarter containing today,
@@ -451,6 +475,113 @@ export default async function SummaryPage({
   const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
   const SALES_2026_FROM = "202601";
 
+  // ── Per Produk Rekomendasi tab (2026-07-31) — one section per Produk Fokus
+  // paket, each showing doctor coverage ("X Dokter Pediatric, Y/X sudah di
+  // POA") and a Low Hanging Fruit / Blue Ocean / Red Ocean / Standarisasi
+  // product-count breakdown. Gated behind rawTab (only fetched when this tab
+  // is actually open) — same "don't pay for what isn't rendered" principle
+  // as the Data Sales query below.
+  const PAKET_LIST = [...new Set(Object.values(PAKET_BY_PRODUK).flat())].sort();
+  // Reverse of SPESIALISASI_TO_PAKET: paket -> every spesialisasi string
+  // that's "the target audience" for it, used to find the doctor universe.
+  const spesialisasiByPaket = new Map<string, string[]>();
+  for (const [spesialisasi, pakets] of Object.entries(SPESIALISASI_TO_PAKET)) {
+    for (const paket of pakets) {
+      const list = spesialisasiByPaket.get(paket) ?? [];
+      list.push(spesialisasi);
+      spesialisasiByPaket.set(paket, list);
+    }
+  }
+
+  const [customerOutletRows, outletProductKriteriaRows] = rawTab === "produk-rekomendasi" && outletKodesForMR.length > 0
+    ? await Promise.all([
+        prisma.customerOutlet.findMany({
+          where: { kodePI: { in: outletKodesForMR } },
+          select: { customer: { select: { kodeCustomer: true, namaCustomer: true, spesialisasi: true } } },
+        }),
+        prisma.outletProductKriteria.findMany({
+          where: { kodePI: { in: outletKodesForMR }, paket: { in: PAKET_LIST } },
+          select: { kodeProduk: true, paket: true, kategori: true, kriteriaBaru: true },
+        }),
+      ]) as [
+        { customer: { kodeCustomer: string | null; namaCustomer: string; spesialisasi: string } }[],
+        { kodeProduk: string; paket: string; kategori: string; kriteriaBaru: string }[],
+      ]
+    : [[], []];
+
+  function doctorIdentity(c: { kodeCustomer: string | null; namaCustomer: string }): string {
+    return c.kodeCustomer ?? c.namaCustomer;
+  }
+
+  // Denominator per paket: every distinct doctor in the visible territory
+  // whose spesialisasi matches that paket's target audience — regardless of
+  // whether they've been planned for at all yet.
+  const doctorsByPaket = new Map<string, Set<string>>();
+  for (const row of customerOutletRows) {
+    const spesialisasiUpper = row.customer.spesialisasi.toUpperCase();
+    for (const [paket, spesialisasiList] of spesialisasiByPaket) {
+      if (!spesialisasiList.includes(spesialisasiUpper)) continue;
+      const set = doctorsByPaket.get(paket) ?? new Set<string>();
+      set.add(doctorIdentity(row.customer));
+      doctorsByPaket.set(paket, set);
+    }
+  }
+
+  // Numerator per paket: of those doctors, which ones already have >=1
+  // submitted line item for a product belonging to that same paket (not
+  // just any product) — reuses the already-fetched, period-filtered `lineItems`.
+  const coveredDoctorsByPaket = new Map<string, Set<string>>();
+  for (const li of lineItems) {
+    const pakets = getAllPakets(li.namaProduk);
+    if (pakets.length === 0) continue;
+    const doctorId = li.kodeCust ?? li.namaCust;
+    for (const paket of pakets) {
+      const set = coveredDoctorsByPaket.get(paket) ?? new Set<string>();
+      set.add(doctorId);
+      coveredDoctorsByPaket.set(paket, set);
+    }
+  }
+
+  // Kategori/Standarisasi product-count breakdown per paket. A product can be
+  // classified per-OUTLET (OutletProductKriteria is keyed by kodePI+kodeProduk
+  // +paket), so within one paket the same product is deduped across outlets,
+  // keeping whichever outlet's row is seen first — a reasonable simplification
+  // rather than picking a "majority" classification across the territory.
+  interface KriteriaBucket { total: number; covered: number }
+  const emptyBucket = (): KriteriaBucket => ({ total: 0, covered: 0 });
+  const submittedProdukSet = new Set(lineItems.map((li) => li.kodeProduk));
+  const kriteriaStatsByPaket = new Map<string, { lowHangingFruit: KriteriaBucket; blueOcean: KriteriaBucket; redOcean: KriteriaBucket; standarisasi: KriteriaBucket }>();
+  const seenProdukPerPaket = new Set<string>();
+  for (const row of outletProductKriteriaRows) {
+    const dedupeKey = `${row.paket}|${row.kodeProduk}`;
+    if (seenProdukPerPaket.has(dedupeKey)) continue;
+    seenProdukPerPaket.add(dedupeKey);
+    const stats = kriteriaStatsByPaket.get(row.paket) ?? { lowHangingFruit: emptyBucket(), blueOcean: emptyBucket(), redOcean: emptyBucket(), standarisasi: emptyBucket() };
+    const isSubmitted = submittedProdukSet.has(row.kodeProduk);
+    const bucketKey = row.kategori === "Low Hanging Fruit" ? "lowHangingFruit"
+      : row.kategori === "Blue Ocean" ? "blueOcean"
+      : row.kategori === "Red Ocean" ? "redOcean"
+      : null;
+    if (bucketKey) {
+      stats[bucketKey].total++;
+      if (isSubmitted) stats[bucketKey].covered++;
+    }
+    if (row.kriteriaBaru?.startsWith("Produk Sudah Terstandarisasi")) {
+      stats.standarisasi.total++;
+      if (isSubmitted) stats.standarisasi.covered++;
+    }
+    kriteriaStatsByPaket.set(row.paket, stats);
+  }
+
+  const paketRekomendasiStats: PaketRekomendasiStat[] = PAKET_LIST.map((paket) => {
+    const doctorSet = doctorsByPaket.get(paket) ?? new Set<string>();
+    const coveredSet = coveredDoctorsByPaket.get(paket) ?? new Set<string>();
+    let doctorCovered = 0;
+    for (const d of doctorSet) if (coveredSet.has(d)) doctorCovered++;
+    const stats = kriteriaStatsByPaket.get(paket) ?? { lowHangingFruit: emptyBucket(), blueOcean: emptyBucket(), redOcean: emptyBucket(), standarisasi: emptyBucket() };
+    return { paket, doctorTotal: doctorSet.size, doctorCovered, ...stats };
+  });
+
   // "Data Sales" card in Ringkasan (2026-07-27 follow-up to the Matriks
   // Summary work above) — same DIR10001B-sourced OutletSalesValueMonthly,
   // just a wider period window (Jan last year → last completed month this
@@ -672,8 +803,13 @@ export default async function SummaryPage({
       // matched by outlet code (outlet tab) or normalized product name (produk
       // tab, see normName). Both tabs get estimasiAktif/userPsspAktif; the
       // aktif+pengajuan UNION headcount and Listing Fee only apply per outlet.
+      // "mr" rolls up every outlet that MR is assigned (2026-07-31, added for
+      // Ringkasan's "Estimasi & Aktif" figure — previously always 0 here since
+      // ActivePsspRow has no direct per-MR grouping of its own, same rollup
+      // pattern outletsByMr already uses for realSalesAgg above).
       const activeRows = tab === "outlet" ? (activePsspByOutlet.get(key.code) ?? [])
         : tab === "produk" ? (activePsspByProdName.get(normName(key.name)) ?? [])
+        : tab === "mr" ? (outletsByMr.get(key.code) ?? []).flatMap((o) => activePsspByOutlet.get(o) ?? [])
         : [];
       const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
 
@@ -802,14 +938,19 @@ export default async function SummaryPage({
 
   // ── Tab labels ────────────────────────────────────────────────────────────
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: "outlet",   label: "Per Outlet" },
-    { key: "customer", label: "Per Customer" },
-    { key: "produk",   label: "Per Produk" },
-    { key: "mr",       label: "Per Personil" },
+  const ALL_TABS: { key: Tab; label: string }[] = [
+    { key: "ringkasan",          label: "Ringkasan" },
+    { key: "mr",                 label: "Per Personil" },
+    { key: "outlet",             label: "Per Outlet" },
+    { key: "customer",           label: "Per Customer" },
+    { key: "produk-rekomendasi", label: "Per Produk Rekomendasi" },
+    { key: "produk",             label: "Per Produk" },
   ];
+  // Ringkasan tab itself hidden for roles that can't see it — matches rawTab's fallback above.
+  const TABS = ALL_TABS.filter((t) => t.key !== "ringkasan" || showRingkasan);
   const CODE_LABEL: Record<Tab, string> = {
-    outlet: "Outlet", customer: "Customer", produk: "Produk", mr: "Personil",
+    ringkasan: "Ringkasan", outlet: "Outlet", customer: "Customer",
+    produk: "Produk", "produk-rekomendasi": "Produk Rekomendasi", mr: "Personil",
   };
 
   // Pengajuan+Aktif subtext under the table header (2026-07-31 request) —
@@ -820,6 +961,22 @@ export default async function SummaryPage({
   // Aktif clause is dropped for those instead of showing a misleading "Rp 0".
   const estimasiTotal = groups.reduce((s, g) => s + g.estimasi, 0);
   const estimasiAktifTotal = groups.reduce((s, g) => s + g.estimasiAktif, 0);
+
+  // ── Ringkasan tab aggregates (2026-07-31) — always Personil-scoped (`tab`
+  // reads as "mr" here whenever rawTab is "ringkasan", see the GroupingTab
+  // indirection above), never averaged-of-percentages (growth-of-totals,
+  // same house rule as MonitoringChecklist's own historis2025/salesYtd sums).
+  const ringkasanBudgetTotal = groups.reduce((s, g) => s + g.budgetTotal, 0);
+  // "Estimasi % Target" itself is computed inline in MonitoringChecklist from
+  // the targetTotal/estimasiCombined props it already receives — no need to
+  // duplicate that math here too.
+  const ringkasanEstimasiCombined = estimasiTotal + estimasiAktifTotal;
+  const ringkasanCostRatioPct = ringkasanEstimasiCombined > 0 ? (ringkasanBudgetTotal / ringkasanEstimasiCombined) * 100 : null;
+  const ringkasanEstimasiQuarterIniTotal = groups.reduce((s, g) => s + g.estimasiQuarterIni, 0);
+  const ringkasanRealisasiQuarterSebelumnyaTotal = groups.reduce((s, g) => s + g.realisasiQuarterSebelumnya, 0);
+  const ringkasanGrowthPct = ringkasanRealisasiQuarterSebelumnyaTotal > 0
+    ? ((ringkasanEstimasiQuarterIniTotal - ringkasanRealisasiQuarterSebelumnyaTotal) / ringkasanRealisasiQuarterSebelumnyaTotal) * 100
+    : null;
 
   const monitoringGroups: MonitoringGroup[] = groups.map((g) => ({
     code: g.code,
@@ -878,7 +1035,7 @@ export default async function SummaryPage({
             <Link key={t.key}
               href={`/summary?tab=${t.key}${periodQuery}`}
               className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
-              style={tab === t.key
+              style={rawTab === t.key
                 ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
                 : { borderColor: "transparent", color: "var(--color-text-muted)" }}>
               {t.label}
@@ -887,29 +1044,45 @@ export default async function SummaryPage({
         </div>
       </Card>
 
-      {/* Stats — NSM/GM/ADMIN only (2026-07-30: reworked as a dashboard-style
-          visualization and reopened to upper management, not just ADMIN);
-          everyone else goes straight to the table. */}
-      {showRingkasan && (
-        <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"} />
-      )}
-
-      {/* Table header row — filter sits next to the table it filters, not the page title. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{CODE_LABEL[tab]}</p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-            {estimasiAktifTotal > 0
-              ? `Aktif ${formatRp(estimasiAktifTotal)} · Pengajuan ${formatRp(estimasiTotal)}`
-              : `Pengajuan ${formatRp(estimasiTotal)}`}
-          </p>
-        </div>
-        <SummaryFilterModal tab={tab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
+      {/* Filter is global (applies to every tab's underlying query), so it
+          stays visible regardless of which tab is active — its hidden `tab`
+          field must be rawTab (the real selected tab), not the internal
+          GroupingTab substitute, or submitting it from Ringkasan/Produk
+          Rekomendasi would silently bounce the user to Per Personil. */}
+      <div className="flex justify-end">
+        <SummaryFilterModal tab={rawTab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
       </div>
 
-      {/* Per-row breakdown for the active tab. */}
-      <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} variant={tab}
-        quarterIni={quarterIni} quarterSebelumnya={quarterSebelumnya} />
+      {/* Ringkasan (2026-07-31) — its own tab now, always Personil-scoped
+          (`tab` reads "mr" here, see the GroupingTab indirection above). */}
+      {rawTab === "ringkasan" && (
+        <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"}
+          poaCount={poas.length} outletCount={outletCodes.length} produkCount={allProductSet.size}
+          targetTotal={targetTotal} costRatioPct={ringkasanCostRatioPct} growthPct={ringkasanGrowthPct} />
+      )}
+
+      {/* Per Produk Rekomendasi (2026-07-31) — one section per Produk Fokus paket. */}
+      {rawTab === "produk-rekomendasi" && (
+        <ProdukRekomendasiView stats={paketRekomendasiStats} />
+      )}
+
+      {(rawTab === "outlet" || rawTab === "customer" || rawTab === "produk" || rawTab === "mr") && (
+        <>
+          {/* Table header row */}
+          <div>
+            <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{CODE_LABEL[tab]}</p>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+              {estimasiAktifTotal > 0
+                ? `Aktif ${formatRp(estimasiAktifTotal)} · Pengajuan ${formatRp(estimasiTotal)}`
+                : `Pengajuan ${formatRp(estimasiTotal)}`}
+            </p>
+          </div>
+
+          {/* Per-row breakdown for the active tab. */}
+          <TerritoryTable groups={monitoringGroups} codeLabel={CODE_LABEL[tab]} showRealisasi={tab === "outlet" || tab === "customer"} variant={tab}
+            quarterIni={quarterIni} quarterSebelumnya={quarterSebelumnya} />
+        </>
+      )}
     </div>
   );
 }
