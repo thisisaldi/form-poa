@@ -764,7 +764,10 @@ function DoctorRow({
                   the lightweight "Detail ▼" summary table below (2026-07-31:
                   "benar-benar bisa lihat detailnya, bukan cuma ringkasan"). */}
               <Link href={`/poa/${poaId}/doctor/${doctorItems[0].id}/edit`}
-                className="text-xs font-medium" style={{ color: userCanEdit ? "var(--color-blue)" : "var(--color-text-muted)" }}>
+                className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
+                style={userCanEdit
+                  ? { background: "var(--color-blue)", color: "#fff" }
+                  : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
                 {userCanEdit ? "Edit" : "Lihat"}
               </Link>
               {userCanEdit && (
