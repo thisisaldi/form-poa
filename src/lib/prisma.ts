@@ -22,7 +22,7 @@ declare global {
 // max_connections has headroom, this is a dedicated instance, see prior
 // discussion). Bumping this constant is now the one place that changes it,
 // independent of env/Vault config.
-const CONNECTION_LIMIT = 20;
+const CONNECTION_LIMIT = 50;
 
 function withConnectionLimit(databaseUrl: string): string {
   try {
