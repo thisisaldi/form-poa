@@ -13,10 +13,34 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
+// Hardcoded rather than left to whatever's in DATABASE_URL's own
+// ?connection_limit= — that string comes from a Vault secret in production
+// (see scripts/start.sh), which this app doesn't control day-to-day, so the
+// pool size silently reverting to Prisma's default (or an old low value
+// someone set once) is invisible until the app is slow again under load
+// (2026-07-31: "jadi agak lemot setelah banyak yang pakai" — the DB's own
+// max_connections has headroom, this is a dedicated instance, see prior
+// discussion). Bumping this constant is now the one place that changes it,
+// independent of env/Vault config.
+const CONNECTION_LIMIT = 20;
+
+function withConnectionLimit(databaseUrl: string): string {
+  try {
+    const url = new URL(databaseUrl);
+    url.searchParams.set("connection_limit", String(CONNECTION_LIMIT));
+    return url.toString();
+  } catch {
+    // Malformed URL — let Prisma surface its own connection error rather
+    // than masking it here.
+    return databaseUrl;
+  }
+}
+
 function createRealClient(): PrismaClient {
   return (
     global.__prisma ??
     new PrismaClient({
+      datasources: { db: { url: withConnectionLimit(process.env.DATABASE_URL!) } },
       log:
         process.env.NODE_ENV === "development"
           ? ["query", "error", "warn"]
