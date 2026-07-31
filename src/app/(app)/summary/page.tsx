@@ -128,6 +128,13 @@ export default async function SummaryPage({
   if (!session) redirect("/login");
   if (session.role === "MR") redirect("/dashboard");
 
+  // Gates the Ringkasan dashboard-visualization card (see render below) —
+  // hoisted up here too so the heavy "Data Sales" query below can skip
+  // itself entirely for roles that will never render the card that shows it
+  // (2026-07-31 perf fix: "summary lag banget" — this query was previously
+  // unconditional on every single page load regardless of role or tab).
+  const showRingkasan = session.role === "NSM" || session.role === "GM" || session.role === "ADMIN";
+
   const params = await searchParams;
   const tab: Tab = (params.tab as Tab) ?? "mr";
   // Rentang Periode (2026-07-28) — replaces the old single `period` pill
@@ -156,6 +163,11 @@ export default async function SummaryPage({
         orderBy: { name: "asc" },
       })) as { nip: string; name: string }[]
     : [];
+  // O(1) lookup instead of mrUsers.find(...) — the latter was an O(mrUsers)
+  // linear scan called once per LINE ITEM inside the grouping loop below
+  // (2026-07-31 perf fix: "summary lag banget" — this compounds badly once
+  // an org has hundreds of MRs and thousands of submitted line items).
+  const mrUserByNip = new Map(mrUsers.map((u) => [u.nip, u]));
 
   // Was a local ["APPROVED_BY_ASM","APPROVED_BY_SM","APPROVED_BY_NSM"] literal
   // — those three statuses are near-unreachable (approvePoa jumps straight
@@ -394,7 +406,7 @@ export default async function SummaryPage({
       return { code: li.kodeCust!, name: li.namaCust };
     }
     const ownerNip = poaOwnerMap.get(li.poaId) ?? "-";
-    const mr = mrUsers.find((u) => u.nip === ownerNip);
+    const mr = mrUserByNip.get(ownerNip);
     return { code: ownerNip, name: mr?.name ?? ownerNip };
   }
 
@@ -408,7 +420,7 @@ export default async function SummaryPage({
     : [];
   const mrNamesByOutlet = new Map<string, string[]>();
   for (const row of mrOutletRows) {
-    const mrName = mrUsers.find((u) => u.nip === row.nipMR)?.name ?? row.nipMR;
+    const mrName = mrUserByNip.get(row.nipMR)?.name ?? row.nipMR;
     const list = mrNamesByOutlet.get(row.kodePI) ?? [];
     list.push(mrName);
     mrNamesByOutlet.set(row.kodePI, list);
@@ -416,7 +428,7 @@ export default async function SummaryPage({
 
   function findPic(code: string): string {
     if (tab === "mr") {
-      const mr = mrUsers.find((u) => u.nip === code);
+      const mr = mrUserByNip.get(code);
       return mr?.name ?? code;
     }
     if (tab === "outlet") {
@@ -460,7 +472,12 @@ export default async function SummaryPage({
     outletKodesForMR.length > 0
       ? prisma.outletSalesMonthly.groupBy({ by: ["itemKode"], where: { kodePI: { in: outletKodesForMR }, periode: { gte: SALES_2026_FROM } }, _sum: { qty: true } })
       : Promise.resolve([]),
-    outletKodesForMR.length > 0 && ytdTo
+    // Only feeds the Ringkasan card's collapsed "Data Sales" section, which
+    // itself only shows real figures for tab "outlet"/"mr" (salesAvailable
+    // below) — skip the fetch entirely otherwise instead of paying for a
+    // findMany spanning ~19 months across every outlet in the org just to
+    // discard the result.
+    showRingkasan && (tab === "outlet" || tab === "mr") && outletKodesForMR.length > 0 && ytdTo
       ? prisma.outletSalesValueMonthly.findMany({
           where: { kodePI: { in: outletKodesForMR }, periode: { gte: lastYearFullFrom, lte: ytdTo } },
           select: { kodePI: true, periode: true, valueSales: true },
@@ -858,7 +875,7 @@ export default async function SummaryPage({
       {/* Stats — NSM/GM/ADMIN only (2026-07-30: reworked as a dashboard-style
           visualization and reopened to upper management, not just ADMIN);
           everyone else goes straight to the table. */}
-      {(session.role === "NSM" || session.role === "GM" || session.role === "ADMIN") && (
+      {showRingkasan && (
         <MonitoringChecklist groups={monitoringGroups} totals={globalTotals} salesAvailable={tab === "outlet" || tab === "mr"} />
       )}
 

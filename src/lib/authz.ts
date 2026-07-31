@@ -32,23 +32,28 @@ export const NON_DRAFT_STATUSES: PoaStatus[] = [
 /**
  * Resolve IDs of all MRs that ultimately report (directly or indirectly) to a given user.
  * Traversal depth is bounded to the known org depth (MR→ASM→SM→NSM = 3 hops).
+ *
+ * Level-by-level BFS (2026-07-31 perf fix: "summary lag banget") — one bulk
+ * `nipAtasan IN [...]` query per depth level (≤3 round-trips total, however
+ * wide the org is), not the old per-manager-node recursion (one query per
+ * SM, then one per ASM under each, etc. — dozens of sequential round-trips
+ * for an NSM with a real subtree, on every single page load that resolves
+ * "which MRs report to me").
  */
 async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]> {
-  if (depth === 0) return [];
-
-  const directReports = await prisma.user.findMany({
-    where: { nipAtasan: managerId, isActive: true },
-    select: { nip: true, role: true },
-  });
-
   const mrIds: string[] = [];
-  for (const report of directReports) {
-    if (report.role === Role.MR) {
-      mrIds.push(report.nip);
-    } else {
-      const deeper = await getMrIdsUnder(report.nip, depth - 1);
-      mrIds.push(...deeper);
+  let currentLevelManagerIds = [managerId];
+  for (let level = 0; level < depth && currentLevelManagerIds.length > 0; level++) {
+    const directReports = await prisma.user.findMany({
+      where: { nipAtasan: { in: currentLevelManagerIds }, isActive: true },
+      select: { nip: true, role: true },
+    });
+    const nextLevelManagerIds: string[] = [];
+    for (const report of directReports) {
+      if (report.role === Role.MR) mrIds.push(report.nip);
+      else nextLevelManagerIds.push(report.nip);
     }
+    currentLevelManagerIds = nextLevelManagerIds;
   }
   return mrIds;
 }
@@ -61,22 +66,25 @@ async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]
  * never surface that owner's NIP to their own superior (2026-07-22 fix — an
  * SM couldn't open an ASM's self-owned, already-submitted POA at all, since
  * the old MR-only subtree check never matched the ASM's own NIP as owner).
+ *
+ * Same level-by-level BFS as getMrIdsUnder above, same reason.
  */
 async function getSubordinateIdsUnder(managerId: string, depth: number): Promise<string[]> {
-  if (depth === 0) return [];
-
-  const directReports = await prisma.user.findMany({
-    where: { nipAtasan: managerId, isActive: true },
-    select: { nip: true, role: true },
-  });
-
   const ids: string[] = [];
-  for (const report of directReports) {
-    ids.push(report.nip);
-    if (report.role !== Role.MR) {
-      const deeper = await getSubordinateIdsUnder(report.nip, depth - 1);
-      ids.push(...deeper);
+  let currentLevelManagerIds = [managerId];
+  for (let level = 0; level < depth && currentLevelManagerIds.length > 0; level++) {
+    const directReports = await prisma.user.findMany({
+      where: { nipAtasan: { in: currentLevelManagerIds }, isActive: true },
+      select: { nip: true, role: true },
+    });
+    const nextLevelManagerIds: string[] = [];
+    for (const report of directReports) {
+      ids.push(report.nip);
+      // MRs have no reports of their own — no point querying for their
+      // children next level, same short-circuit the old per-node recursion did.
+      if (report.role !== Role.MR) nextLevelManagerIds.push(report.nip);
     }
+    currentLevelManagerIds = nextLevelManagerIds;
   }
   return ids;
 }
