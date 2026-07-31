@@ -1649,96 +1649,6 @@ function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
   );
 }
 
-// ─── ProdukFokusPanel ─────────────────────────────────────────────────────────
-// Focus/PM-recommended products (tier 0 for the doctor's spesialisasi) that
-// aren't in produkList yet — a nudge to add them before submitting, not a
-// requirement. Renders nothing if the spesialisasi has no mapped paket fokus.
-
-function ProdukFokusPanel({
-  spesialisasi,
-  produkList,
-  products,
-  kriteriaList,
-  psspHistory,
-}: {
-  spesialisasi: string;
-  produkList: ProdukEntry[];
-  products: Product[];
-  /** Same source as the product picker's kriteria badge (low hanging fruit / kompetisi rendah-tinggi). */
-  kriteriaList?: KriteriaByOutlet[];
-  /** Same source as the product picker's "Pernah PSSP" badge. */
-  psspHistory?: PsspKontrakSummary[];
-}) {
-  const matchedPakets = getPaketsBySpesialisasi(spesialisasi);
-  if (matchedPakets.length === 0) return null;
-
-  const kriteriaMap = new Map<string, { kriteriaBaru: string; kategori: string }>();
-  for (const k of kriteriaList ?? []) kriteriaMap.set(k.kodeProduk, { kriteriaBaru: k.kriteriaBaru, kategori: k.kategori });
-
-  const addedKodeProduk = new Set(produkList.map((e) => e.kodeProduk).filter(Boolean));
-  const missing = products
-    .filter((p) => getProductTier(p.namaProduk, matchedPakets) === 0)
-    .filter((p) => !addedKodeProduk.has(p.kodeProduk))
-    .sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
-
-  if (missing.length === 0) return null;
-
-  return (
-    <div>
-      <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8 }}>
-        Produk Fokus PM Belum Diajukan
-      </p>
-      <ul className="space-y-1.5">
-        {missing.map((p) => {
-          // Same kriteria + PSSP source as the product picker dropdown
-          // (2026-07-23), but shown as full text for every kriteria here —
-          // unlike the dropdown, which deliberately dot-only's Kompetisi
-          // Rendah/Tinggi (2026-07-21 business decision scoped to that
-          // compact picker specifically), this list has room to spell it
-          // out, and hiding it behind a tooltip-only dot made it read as
-          // "missing" (2026-07-23 follow-up).
-          const kriteriaRow = kriteriaMap.get(p.kodeProduk);
-          const kriteria = kriteriaRow?.kriteriaBaru;
-          const isStandarisasi = kriteria?.startsWith("Produk Sudah Terstandarisasi") ?? false;
-          const tagColor: "orange" | "yellow" | "blue" | "red" | undefined = isStandarisasi
-            ? (kriteria?.includes("Tidak Ada Sales") ? "yellow" : "orange")
-            : kriteria?.startsWith("Produk Kompetisi Rendah") ? "blue"
-            : kriteria?.startsWith("Produk Kompetisi Tinggi") ? "red"
-            : undefined;
-
-          const pelunasan3Bln = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
-          const psspLabel = pelunasan3Bln != null ? `Pernah PSSP · Pelunasan 3 Bln ${pelunasan3Bln}%` : "Belum Pernah PSSP";
-          const psspColor: "green" | "yellow" | "red" | null = pelunasan3Bln == null ? null
-            : pelunasan3Bln >= 80 ? "green"
-            : pelunasan3Bln >= 40 ? "yellow"
-            : "red";
-
-          return (
-            <li key={p.kodeProduk} className="text-xs px-2 py-1.5 rounded space-y-1"
-              style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" }}>
-              <div>{p.namaProduk}</div>
-              <div className="flex items-center flex-wrap gap-1.5">
-                {kriteria && (
-                  <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
-                    style={{ background: TAG_COLORS[tagColor ?? "blue"].bg, color: TAG_COLORS[tagColor ?? "blue"].fg }}>
-                    {formatKriteriaLabel(kriteria)}
-                  </span>
-                )}
-                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
-                  style={psspColor
-                    ? { background: TAG_COLORS[psspColor].bg, color: TAG_COLORS[psspColor].fg }
-                    : { background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
-                  {psspLabel}
-                </span>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
 // ─── KriteriaProdukPanel ──────────────────────────────────────────────────────
 // Every product matching one of the 4 product-criteria buckets that used to
 // only show up inline in the picker dropdown (2026-07-24) — Produk Fokus PM,
@@ -1748,12 +1658,19 @@ function ProdukFokusPanel({
 // exclusive: a product matching more than one criterion appears in each.
 
 function KriteriaSectionList({ items }: {
-  items: { key: string; label: string; added?: boolean; isFokus?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[]
+  items: {
+    key: string; label: string; added?: boolean; isFokus?: boolean;
+    badge?: string; badgeColor?: keyof typeof TAG_COLORS;
+    /** Second badge — used by "Produk Fokus PM" to show kriteria AND Pernah
+     * PSSP status together (merged from the old separate "Belum Diajukan"
+     * panel, 2026-07-31), while every other section still only ever sets one. */
+    badge2?: string; badge2Color?: keyof typeof TAG_COLORS;
+  }[]
 }) {
   return (
     <ul className="space-y-1">
       {items.map((it) => (
-        <li key={it.key} className="flex items-center justify-between gap-2 text-xs px-2 py-1.5 rounded"
+        <li key={it.key} className="flex items-center justify-between gap-2 flex-wrap text-xs px-2 py-1.5 rounded"
           style={{ background: "var(--color-bg-subtle)" }}>
           <span className="flex items-center gap-1.5 min-w-0">
             {it.added && (
@@ -1768,10 +1685,20 @@ function KriteriaSectionList({ items }: {
             )}
             <span className="truncate" style={{ color: "var(--color-text)" }}>{it.label}</span>
           </span>
-          {it.badge && (
-            <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
-              style={{ background: TAG_COLORS[it.badgeColor ?? "blue"].bg, color: TAG_COLORS[it.badgeColor ?? "blue"].fg }}>
-              {it.badge}
+          {(it.badge || it.badge2) && (
+            <span className="flex items-center gap-1 shrink-0">
+              {it.badge && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                  style={{ background: TAG_COLORS[it.badgeColor ?? "blue"].bg, color: TAG_COLORS[it.badgeColor ?? "blue"].fg }}>
+                  {it.badge}
+                </span>
+              )}
+              {it.badge2 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                  style={{ background: TAG_COLORS[it.badge2Color ?? "blue"].bg, color: TAG_COLORS[it.badge2Color ?? "blue"].fg }}>
+                  {it.badge2}
+                </span>
+              )}
             </span>
           )}
         </li>
@@ -1893,7 +1820,7 @@ function KriteriaProdukPanel({
   // Order requested 2026-07-27: Pernah PSSP (sort pelunasan terbaik) -> Produk
   // Fokus PM -> Produk Survey, then the two Listing Corporate sections kept
   // after (not part of the requested 3, but not removed either).
-  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; isFokus?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS }[] };
+  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; isFokus?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS; badge2?: string; badge2Color?: keyof typeof TAG_COLORS }[] };
   const allSections: Section[] = [
     {
       title: "Pernah PSSP", color: "green",
@@ -1902,7 +1829,31 @@ function KriteriaProdukPanel({
         badge: `${pct}%`, badgeColor: pct >= 80 ? "green" : pct >= 40 ? "yellow" : "red",
       })),
     },
-    { title: "Produk Fokus PM", color: "blue", items: fokusPM.map((p) => ({ key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk) })) },
+    {
+      // Merged with the old separate "Produk Fokus PM Belum Diajukan" panel
+      // (2026-07-31 — they used to render as two same-titled sections, one
+      // ✓-only, one enriched-but-missing-only) — every matched focus product
+      // now gets both: the ✓ if already added, AND the kriteria + Pernah PSSP
+      // badges the "Belum Diajukan" version used to show (same source as the
+      // product picker dropdown's own badges).
+      title: "Produk Fokus PM", color: "blue",
+      items: fokusPM.map((p) => {
+        const kriteria = kriteriaMap.get(p.kodeProduk);
+        const isStandarisasi = kriteria?.startsWith("Produk Sudah Terstandarisasi") ?? false;
+        const kriteriaColor: keyof typeof TAG_COLORS | undefined = isStandarisasi
+          ? (kriteria?.includes("Tidak Ada Sales") ? "yellow" : "orange")
+          : kriteria?.startsWith("Produk Kompetisi Rendah") ? "blue"
+          : kriteria?.startsWith("Produk Kompetisi Tinggi") ? "red"
+          : undefined;
+        const pelunasan3Bln = psspHistory ? computePelunasan3Bln(psspHistory, p.namaProduk) : null;
+        return {
+          key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk),
+          badge: kriteria ? formatKriteriaLabel(kriteria) : undefined, badgeColor: kriteriaColor ?? "blue",
+          badge2: pelunasan3Bln != null ? `Pernah PSSP · ${pelunasan3Bln}%` : undefined,
+          badge2Color: pelunasan3Bln == null ? undefined : pelunasan3Bln >= 80 ? "green" : pelunasan3Bln >= 40 ? "yellow" : "red",
+        };
+      }),
+    },
     {
       title: "Produk Survey", color: "orange",
       items: sortSurveyRows(surveyRows ?? []).map((r) => ({
@@ -2143,21 +2094,13 @@ function PsspSidebar({
         {activeTab === "survey" ? (
           <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
         ) : activeTab === "kriteria" ? (
-          <>
-            {/* KriteriaProdukPanel first (2026-07-28: was rendering after the
-                "Belum Diajukan" nudge below, which put a second "Produk Fokus
-                PM"-titled block ABOVE "Pernah PSSP" and read as a duplicated,
-                out-of-order section) — its own section order is Pernah PSSP,
-                then Produk Fokus PM, then Produk Survey, then Listing. */}
-            <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
-            {/* "Belum Diajukan" nudge — a different, narrower list (only focus
-                products NOT YET added to this doctor) than KriteriaProdukPanel's
-                own "Produk Fokus PM" section above, so it's kept last instead of
-                first to avoid reading as the same section twice. */}
-            {spesialisasi && produkList && products && (
-              <ProdukFokusPanel spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
-            )}
-          </>
+          // "Produk Fokus PM Belum Diajukan" merged into KriteriaProdukPanel's
+          // own "Produk Fokus PM" section (2026-07-31 — the two used to render
+          // as separate blocks with the same title, reading as a duplicate).
+          // That section now covers every matched focus product (not just the
+          // missing ones) with a ✓ for already-added ones AND the kriteria +
+          // Pernah PSSP badges the old "Belum Diajukan" panel used to show.
+          <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
         ) : (
           <>
             <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
