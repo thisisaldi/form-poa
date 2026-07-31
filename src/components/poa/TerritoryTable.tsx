@@ -6,12 +6,17 @@ import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/Sor
 import { HeaderInfo } from "@/components/ui/HeaderInfo";
 
 function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  // Magnitude thresholds must compare on ABS(n) — a negative Gap (e.g.
+  // estimasi < realisasi sebelumnya) is well below the raw 1_000_000
+  // threshold and used to fall through to the raw-digit branch instead of
+  // "-X,X Jt" (2026-07-31 bug report).
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (abs >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
   return Math.round(n).toLocaleString("id-ID");
 }
 
-type Variant = "outlet" | "customer" | "produk" | "mr";
+type Variant = "outlet" | "customer" | "spesialisasi" | "produk" | "mr";
 
 // Decoupled from MonitoringChecklist's old MonitoringGroup (that component and
 // its Ringkasan card were removed 2026-07-31) — lists exactly the fields this

@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets, PAKET_BY_PRODUK, SPESIALISASI_TO_PAKET } from "@/lib/paketProduk";
+import { spesLabel } from "@/lib/spesialisasi";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
@@ -30,8 +31,8 @@ export const metadata = { title: "Summary · Form POA" };
 // param. Only the render switch at the bottom and the tab bar itself need to
 // know about the raw value — see `rawTab` there. (The "ringkasan" tab that
 // used to also need this distinction was removed 2026-07-31.)
-type Tab = "mr" | "outlet" | "customer" | "produk-rekomendasi" | "produk";
-type GroupingTab = "outlet" | "customer" | "produk" | "mr";
+type Tab = "mr" | "outlet" | "customer" | "spesialisasi" | "produk-rekomendasi" | "produk";
+type GroupingTab = "outlet" | "customer" | "spesialisasi" | "produk" | "mr";
 
 interface SalesFigures {
   historis2025: number;
@@ -258,8 +259,8 @@ export default async function SummaryPage({
   const qoqLineItems = qoqPoaIds.length > 0
     ? (await prisma.poaLineItem.findMany({
         where: { poaId: { in: qoqPoaIds } },
-        select: { poaId: true, kodePI: true, kodeCust: true, kodeProduk: true, rencanaTotalBiaya: true },
-      })) as { poaId: string; kodePI: string | null; kodeCust: string | null; kodeProduk: string; rencanaTotalBiaya: { toString(): string } | number }[]
+        select: { poaId: true, kodePI: true, kodeCust: true, kodeProduk: true, spesialisasi: true, rencanaTotalBiaya: true },
+      })) as { poaId: string; kodePI: string | null; kodeCust: string | null; kodeProduk: string; spesialisasi: string; rencanaTotalBiaya: { toString(): string } | number }[]
     : [];
 
   // Same "code" identity as getTerritoryKey below, minus the display name —
@@ -272,6 +273,7 @@ export default async function SummaryPage({
     if (tab === "outlet") return li.kodePI ?? "-";
     if (tab === "produk") return li.kodeProduk;
     if (tab === "customer") return li.kodeCust;
+    if (tab === "spesialisasi") return spesLabel(li.spesialisasi);
     return qoqPoaOwnerMap.get(li.poaId) ?? "-";
   }
 
@@ -301,6 +303,7 @@ export default async function SummaryPage({
           namaCust: true,
           namaProduk: true,
           kodeProduk: true,
+          spesialisasi: true,
           statusStandarisasi: true,
           rencanaTotalBiaya: true,
           persenPsspDokter: true,
@@ -319,6 +322,7 @@ export default async function SummaryPage({
         namaCust: string;
         namaProduk: string;
         kodeProduk: string;
+        spesialisasi: string;
         statusStandarisasi: string | null;
         rencanaTotalBiaya: { toString(): string } | number;
         persenPsspDokter: { toString(): string } | number | null;
@@ -434,6 +438,15 @@ export default async function SummaryPage({
       // ditampilin aja" — no more synthetic "no-code:Name" rows) — code is
       // always real here.
       return { code: li.kodeCust!, name: li.namaCust };
+    }
+    if (tab === "spesialisasi") {
+      // Grouped by DISPLAY label (spesLabel), not the raw DB value — several
+      // raw spesialisasi strings collapse to the same PM label (e.g.
+      // "INTERNIST" and "PENYAKIT DALAM (INTERNIST)" both -> "INTERNIST
+      // UMUM", see spesLabel), and those should merge into one row here
+      // rather than appearing as separate near-duplicate specialties.
+      const label = spesLabel(li.spesialisasi);
+      return { code: label, name: label };
     }
     const ownerNip = poaOwnerMap.get(li.poaId) ?? "-";
     const mr = mrUserByNip.get(ownerNip);
@@ -872,11 +885,12 @@ export default async function SummaryPage({
     { key: "mr",                 label: "Per Personil" },
     { key: "outlet",             label: "Per Outlet" },
     { key: "customer",           label: "Per Customer" },
+    { key: "spesialisasi",       label: "Per Spesialisasi" },
     { key: "produk-rekomendasi", label: "Per Produk Rekomendasi" },
     { key: "produk",             label: "Per Produk" },
   ];
   const CODE_LABEL: Record<Tab, string> = {
-    outlet: "Outlet", customer: "Customer",
+    outlet: "Outlet", customer: "Customer", spesialisasi: "Spesialisasi",
     produk: "Produk", "produk-rekomendasi": "Produk Rekomendasi", mr: "Personil",
   };
 
@@ -928,7 +942,7 @@ export default async function SummaryPage({
         <ProdukRekomendasiView stats={paketRekomendasiStats} />
       )}
 
-      {(rawTab === "outlet" || rawTab === "customer" || rawTab === "produk" || rawTab === "mr") && (
+      {(rawTab === "outlet" || rawTab === "customer" || rawTab === "spesialisasi" || rawTab === "produk" || rawTab === "mr") && (
         <>
           {/* Table header row */}
           <div>
