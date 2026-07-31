@@ -299,36 +299,15 @@ function computeLatestEstPerMonth(history: PsspKontrakSummary[], namaProduk: str
   return { perBulan: latest.estBaris / months, period: `${latest.prdAwal}-${latest.prdAkhir}` };
 }
 
-// Rows for a product (matched by name — Procode ≠ Item Kode across systems) that were
-// active at any point in the last 3 months, i.e. prdAkhir falls within that window.
-// Used by computePelunasan3Bln (% realized, used for the "Pernah PSSP" tag) —
-// Growth Pelunasan below no longer uses this window (see comment there).
-function rowsActiveLast3Months(history: PsspKontrakSummary[], namaProduk: string): PsspKontrakSummary[] {
-  const now = new Date();
-  const y = now.getFullYear(), m = now.getMonth() + 1; // 1-12
-  const threeMonthsAgoY = m > 3 ? y : y - 1;
-  const threeMonthsAgoM = m > 3 ? m - 3 : m - 3 + 12;
-  const threeMonthsAgoPeriod = `${threeMonthsAgoY}${String(threeMonthsAgoM).padStart(2, "0")}`;
-  const norm = namaProduk.toLowerCase().trim();
-  return history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir >= threeMonthsAgoPeriod);
-}
-
-// "Pernah di PSSP" product tag: pelunasan % across PSSP rows for this product (already
-// scoped to the selected doctor+outlet via kdCust) that were active at any point in the
-// last 3 months.
-function computePelunasan3Bln(history: PsspKontrakSummary[], namaProduk: string): number | null {
-  const rows = rowsActiveLast3Months(history, namaProduk);
-  if (rows.length === 0) return null;
-  const sumEst = rows.reduce((s, r) => s + r.estBaris, 0);
-  const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
-  return sumEst > 0 ? Math.round((sumLunas / sumEst) * 100) : null;
-}
-
-// Same pelunasan-% computation as computePelunasan3Bln, but across ALL PSSP
-// history for this product (any prdAkhir), not just rows active in the last
-// 3 months — used by the "Pernah PSSP" section of the Produk Rekomendasi tab
-// (KriteriaProdukPanel), where the stakeholder wants any past PSSP to surface
-// the product regardless of how long ago it ran (2026-07-31).
+// "Pernah di PSSP" product tag: pelunasan % across ALL PSSP history for this
+// product (matched by name — Procode ≠ Item Kode across systems), already
+// scoped to the selected doctor+outlet via kdCust, regardless of how long ago
+// it ran. Used by both the product picker dropdown (buildProductOptions) and
+// the "Pernah PSSP" section of the Produk Rekomendasi tab (KriteriaProdukPanel)
+// — used to be windowed to the last 3 months only (rowsActiveLast3Months /
+// computePelunasan3Bln, removed 2026-07-31), which meant a product with real
+// but older PSSP history could show as "Pernah PSSP" in one place and not the
+// other, since only the panel had been switched to all-period.
 function computePelunasanAllPeriode(history: PsspKontrakSummary[], namaProduk: string): number | null {
   const norm = namaProduk.toLowerCase().trim();
   const rows = history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm);
@@ -732,11 +711,15 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
   for (const r of surveyRows ?? []) surveyPotensiByKode.set(r.kodeProduk, r.potensiBulan);
 
   // New top sort priority: products with PSSP history first, then the existing
-  // tier order within each of those two buckets.
+  // tier order within each of those two buckets. All-period (2026-07-31,
+  // matches the "Pernah PSSP" section of Produk Rekomendasi/KriteriaProdukPanel
+  // — was 3-month-windowed here, which meant a product with real but older-
+  // than-3-months PSSP history could show "Pernah PSSP" in the panel but not
+  // in this dropdown, or vice versa; both now agree).
   const pelunasanByProduk = new Map<string, number>();
   if (psspHistory) {
     for (const p of tierSorted) {
-      const pct = computePelunasan3Bln(psspHistory, p.namaProduk);
+      const pct = computePelunasanAllPeriode(psspHistory, p.namaProduk);
       if (pct != null) pelunasanByProduk.set(p.kodeProduk, pct);
     }
   }
@@ -781,22 +764,23 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     // kriteria (Kompetisi Rendah/Tinggi, etc.) is still a plain color dot.
     const tagDotOnly = !isStandarisasi;
     const paketLabel = relevantPaket ?? p.namaGroupBrand;
-    // "Produk Pernah di PSSP" — pelunasan % (last 3 months) for this doctor+outlet
-    // (psspHistory is already scoped to the selected kdCust, which ties doctor+outlet together).
-    const pelunasan3Bln = pelunasanByProduk.get(p.kodeProduk) ?? null;
+    // "Produk Pernah di PSSP" — pelunasan % across ALL PSSP history for this
+    // doctor+outlet (psspHistory is already scoped to the selected kdCust,
+    // which ties doctor+outlet together), not just the last 3 months.
+    const pelunasanAllPeriode = pelunasanByProduk.get(p.kodeProduk) ?? null;
     const potensiSurvey = isSurveyOnly ? surveyPotensiByKode.get(p.kodeProduk) ?? null : null;
-    const tag2 = pelunasan3Bln != null
-      ? `Pernah PSSP · Pelunasan 3 Bln ${pelunasan3Bln}%`
+    const tag2 = pelunasanAllPeriode != null
+      ? `Pernah PSSP · Pelunasan ${pelunasanAllPeriode}%`
       : potensiSurvey != null ? `Potensi Survey ${potensiSurvey}/bln` : undefined;
-    const tag2Color: "green" | "yellow" | "red" | "orange" | undefined = pelunasan3Bln != null
-      ? (pelunasan3Bln >= 80 ? "green" : pelunasan3Bln >= 40 ? "yellow" : "red")
+    const tag2Color: "green" | "yellow" | "red" | "orange" | undefined = pelunasanAllPeriode != null
+      ? (pelunasanAllPeriode >= 80 ? "green" : pelunasanAllPeriode >= 40 ? "yellow" : "red")
       : potensiSurvey != null ? "orange"
       : undefined;
     return {
       value: p.kodeProduk,
       label: p.namaProduk,
       sublabel: [`${p.kodeProduk} · ${paketLabel}`, p.zatAktif].filter(Boolean).join(" · "),
-      group: pelunasan3Bln != null
+      group: pelunasanAllPeriode != null
         ? "Pernah di PSSP"
         : isSurveyOnly
         ? "Produk Survey"
