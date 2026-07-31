@@ -7,6 +7,11 @@ RUN addgroup --gid 1001 --system nodejs && \
 
 WORKDIR /app
 
+# Prevent OOM crashes — default heap in small containers can be as low as 256 MB.
+# 512 MB gives enough headroom for sync jobs + in-flight Next.js rendering.
+# See: scripts/start.sh also passes --max-old-space-size=512 explicitly.
+ENV NODE_OPTIONS="--max-old-space-size=512"
+
 # Copy common dir
 COPY --chown=appuser:nodejs ./scripts ./scripts/
 COPY --chown=appuser:nodejs ./public ./public/

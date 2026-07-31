@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { MonitoringGroup } from "@/components/poa/MonitoringChecklist";
 import { Card } from "@/components/ui/Card";
 import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/SortableTh";
 import { HeaderInfo } from "@/components/ui/HeaderInfo";
@@ -13,6 +12,35 @@ function formatRp(n: number) {
 }
 
 type Variant = "outlet" | "customer" | "produk" | "mr";
+
+// Decoupled from MonitoringChecklist's old MonitoringGroup (that component and
+// its Ringkasan card were removed 2026-07-31) — lists exactly the fields this
+// table actually reads, structurally satisfied by summary/page.tsx's own
+// TerritoryGroup (which has these plus more; TS structural typing allows that).
+export interface TerritoryTableGroup {
+  code: string;
+  name: string;
+  pic: string;
+  estimasi: number;
+  estimasiAktif: number;
+  estimasiQuarterIni: number;
+  realisasiQuarterSebelumnya: number;
+  growthVsQuarterSebelumnyaPct: number | null;
+  budgetTotal: number;
+  biayaAktif: number;
+  customer: number;
+  userPsspAktif: number;
+  userPsspAktifEstimasi: number;
+  variasiProduk: number;
+  variasiProdukFokus: number;
+  pengajuan: number;
+  terstandarisasi: number;
+  salesAktif: number;
+  listingFeeTotal: number;
+  pelunasanRunningRate: number | null;
+  avgPasienPerUser: number | null;
+  avgStPerPasien: number | null;
+}
 
 function fmtNum(n: number | null, digits = 1): string {
   return n != null ? n.toFixed(digits) : "-";
@@ -28,7 +56,7 @@ type SortKey =
  * computed most of these inline during render — hoisted out here so sorting
  * doesn't have to duplicate that math). */
 interface EnrichedRow {
-  g: MonitoringGroup;
+  g: TerritoryTableGroup;
   budgetPct: number | null;
   estimasiAktifPengajuan: number;
   biayaAktifPengajuan: number;
@@ -40,10 +68,12 @@ interface EnrichedRow {
 
 /**
  * Per-row breakdown behind whichever tab is active on /summary (Outlet,
- * Customer, Produk, or Per MR) — MonitoringChecklist above only shows the
- * grand total, so without this table switching tabs had no visible effect
- * (2026-07-23: the whole point of "bisa lihat per outlet, per personil" is
- * seeing the individual rows, not just one aggregate card).
+ * Customer, Produk, or Per MR) — this is the whole page's content now that
+ * the Ringkasan grand-total card above it was removed (2026-07-31); before
+ * that, MonitoringChecklist only showed the grand total, so without this
+ * table switching tabs had no visible effect (2026-07-23: the whole point of
+ * "bisa lihat per outlet, per personil" is seeing the individual rows, not
+ * just one aggregate card).
  *
  * `variant === "outlet"` / `"produk"` add the extra columns from the Matriks
  * Summary Per Outlet / Per Produk request (2026-07-27) — Estimasi Per User and
@@ -58,7 +88,7 @@ interface EnrichedRow {
  * direction.
  */
 export function TerritoryTable({ groups, codeLabel, showRealisasi = false, variant = "mr", quarterIni, quarterSebelumnya }: {
-  groups: MonitoringGroup[]; codeLabel: string; showRealisasi?: boolean; variant?: Variant;
+  groups: TerritoryTableGroup[]; codeLabel: string; showRealisasi?: boolean; variant?: Variant;
   /** The two quarters compared by the "Growth vs Quarter Sebelumnya" column — shown in its header/tooltip so the comparison baseline isn't a black box. */
   quarterIni?: string | null;
   quarterSebelumnya?: string | null;

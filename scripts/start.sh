@@ -9,4 +9,4 @@ set -a
 source $WORKDIR/.env.$NAMESPACE
 set +a
 
-node $WORKDIR/$NAMESPACE-server.js
+node --max-old-space-size=512 $WORKDIR/$NAMESPACE-server.js

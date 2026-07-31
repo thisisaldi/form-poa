@@ -9,7 +9,6 @@ const USE_MOCK = process.env.USE_MOCK_DB === "true";
 type AnyPrisma = any;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __prisma: PrismaClient | undefined;
 }
 
@@ -49,13 +48,38 @@ function createRealClient(): PrismaClient {
   );
 }
 
+// Lazily constructed — `next build`'s "collecting page data" step imports
+// this module (transitively, via any route that imports prisma) just to
+// inspect route exports, with no request ever coming in and, critically,
+// with DATABASE_URL not yet set (it's a Vault-injected RUNTIME secret, see
+// scripts/start.sh — Vault only runs once the container actually starts).
+// Eagerly constructing PrismaClient at module-evaluation time read
+// process.env.DATABASE_URL immediately and crashed the whole build with
+// "Invalid value undefined for datasource db" the moment any route imported
+// prisma. The Proxy below defers both the env read and the real construction
+// until the first actual property access, which only happens at request
+// time — by then the env var is genuinely present. Methods are bound to the
+// real client so `this` inside e.g. $transaction/$queryRaw still resolves
+// correctly (Prisma's own methods rely on their internal `this`, which would
+// otherwise be the Proxy, not the real client).
+let realClient: PrismaClient | null = null;
+function getRealClient(): PrismaClient {
+  if (!realClient) {
+    realClient = createRealClient();
+    if (process.env.NODE_ENV !== "production") global.__prisma = realClient;
+  }
+  return realClient;
+}
+
 export const prisma: AnyPrisma = USE_MOCK
   ? mockPrismaClient
-  : (() => {
-      const client = createRealClient();
-      if (process.env.NODE_ENV !== "production") global.__prisma = client;
-      return client;
-    })();
+  : new Proxy({} as AnyPrisma, {
+      get(_target, prop) {
+        const client = getRealClient() as AnyPrisma;
+        const value = client[prop];
+        return typeof value === "function" ? value.bind(client) : value;
+      },
+    });
 
 if (USE_MOCK) {
   console.log("[db] Running in mock mode — no database connection.");
