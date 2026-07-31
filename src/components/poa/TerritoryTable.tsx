@@ -253,12 +253,18 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                     )}
                   </td>
                   <td className="py-2 px-3 text-right whitespace-nowrap"
-                    title={quarterIni && quarterSebelumnya ? `Estimasi ${quarterIni} ${formatRp(g.estimasiQuarterIni)} vs Realisasi ${quarterSebelumnya} ${formatRp(g.realisasiQuarterSebelumnya)}` : undefined}
                     style={{ color: g.growthVsQuarterSebelumnyaPct == null ? "var(--color-text-faint)"
                       : g.growthVsQuarterSebelumnyaPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                    {g.growthVsQuarterSebelumnyaPct != null
-                      ? `${g.growthVsQuarterSebelumnyaPct >= 0 ? "+" : ""}${g.growthVsQuarterSebelumnyaPct.toFixed(1)}%`
-                      : "-"}
+                    <div>
+                      {g.growthVsQuarterSebelumnyaPct != null
+                        ? `${g.growthVsQuarterSebelumnyaPct >= 0 ? "+" : ""}${g.growthVsQuarterSebelumnyaPct.toFixed(1)}%`
+                        : "-"}
+                    </div>
+                    {(g.estimasiQuarterIni > 0 || g.realisasiQuarterSebelumnya > 0) && (
+                      <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                        Estimasi {quarterIni ?? "ini"} {formatRp(g.estimasiQuarterIni)} · Realisasi {quarterSebelumnya ?? "sebelumnya"} {formatRp(g.realisasiQuarterSebelumnya)}
+                      </div>
+                    )}
                   </td>
                   {showRealisasi && (
                     <>
