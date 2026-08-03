@@ -107,8 +107,8 @@ Create vault agent inject config template for .env.staging file
 {{ `{{- range $key, $value := .Data.data }}` }}
 {{ `{{ $key }}="{{ $value }}"` }}
 {{ `{{- end -}}` }}
-{{ printf "{{- with secret \"%s\" }}" .Values.vault.databaseSecretPath }}
-{{ printf "DATABASE_URL=\"postgresql://%s:%s@%s:%d/form_poa\"" .Data.username .Data.password .Data.data.addr .Data.data.port }}
+{{ printf "{{ with secret \"%s\" }}" .Values.vault.databaseSecretPath }}
+DATABASE_URL="postgresql://{{ .Data.username }}:{{ .Data.password }}@{{ .Data.data.addr }}:{{ .Data.data.port }}/form_poa"
 {{ `{{- end -}}` }}
 {{ `{{- end -}}` }}
 {{- end }}
