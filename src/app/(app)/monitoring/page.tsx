@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
-import { buildOrgMaps } from "@/lib/targetCalculation";
+import { buildOrgMaps, type OrgMaps } from "@/lib/targetCalculation";
 import { Card } from "@/components/ui/Card";
 import { SalesAchievementTable, type AchievementRow } from "@/components/poa/SalesAchievementTable";
 import { MonitoringFilterModal } from "@/components/poa/MonitoringFilterModal";
@@ -45,6 +46,35 @@ function formatRp(n: number) {
  *
  * Gap = actual - target (2026-07-30 fix — was target - actual).
  */
+
+// Lightweight placeholder shown while MonitoringContent streams in (2026-08-03
+// — same split as summary/page.tsx: this page used to block on ALL of its
+// aggregation before rendering anything at all, including the tab bar/filter
+// that don't need any of that data). Row count is just a visual
+// approximation of SalesAchievementTable, not tied to any real data.
+function MonitoringSkeleton() {
+  return (
+    <div className="space-y-3 animate-pulse">
+      <div className="h-4 w-64 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Card key={i}>
+            <div className="h-3 w-24 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+            <div className="h-6 w-32 rounded mt-2" style={{ background: "var(--color-bg-subtle)" }} />
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-8 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default async function MonitoringPage({
   searchParams,
 }: {
@@ -92,6 +122,92 @@ export default async function MonitoringPage({
   const mrNipsSet = new Set(mrNips);
   const mrUsers = allMrUsers.filter((u) => mrNipsSet.has(u.nip));
 
+  // Cheap, deliberately UNBOUNDED (full history) distinct-periods query for the
+  // filter dropdown — kept in the shell (not Suspense-deferred like everything
+  // else below) so the filter is usable the instant the page loads, same as
+  // the tab bar. select-only on an indexed column, nowhere near as expensive
+  // as the poas/lineItems fetch/aggregation MonitoringContent does.
+  const NON_DRAFT = NON_DRAFT_STATUSES;
+  const allPoasForPeriods = baseMrNips.length > 0
+    ? (await prisma.poaForm.findMany({ where: { ownerId: { in: baseMrNips }, status: { in: NON_DRAFT } }, select: { period: true } })) as { period: string }[]
+    : [];
+  const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
+
+  const TABS: { key: Tab; label: string }[] = [
+    { key: "mr",     label: "Per MR" },
+    { key: "area",   label: "Per Area" },
+    { key: "outlet", label: "Per Outlet" },
+    { key: "produk", label: "Per Produk" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1>Monitoring</h1>
+        </div>
+
+        <MonitoringFilterModal
+          tab={tab}
+          periods={allPeriods}
+          areas={areaOptions}
+          mrs={allMrUsers}
+          periodFrom={periodFrom}
+          periodTo={periodTo}
+          areaNip={areaNip}
+          mrNip={mrNipFilter}
+        />
+      </div>
+
+      <Card padded={false}>
+        <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
+          {TABS.map((t) => (
+            <Link key={t.key} href={`/monitoring?tab=${t.key}${filterQuery}`}
+              className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
+              style={tab === t.key
+                ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
+                : { borderColor: "transparent", color: "var(--color-text-muted)" }}>
+              {t.label}
+            </Link>
+          ))}
+        </div>
+      </Card>
+
+      {/* Everything below needs the heavy poas/lineItems fetch/aggregation —
+          streamed in separately (2026-08-03) so it doesn't block the shell
+          above from showing up. key= forces a fresh Suspense fallback on
+          tab/filter change instead of showing stale content while the new
+          data loads. */}
+      <Suspense key={`${tab}|${periodFrom ?? ""}|${periodTo ?? ""}|${areaNip ?? ""}|${mrNipFilter ?? ""}`} fallback={<MonitoringSkeleton />}>
+        <MonitoringContent
+          tab={tab}
+          periodFrom={periodFrom}
+          periodTo={periodTo}
+          hasPeriodFilter={hasPeriodFilter}
+          org={org}
+          areaOptions={areaOptions}
+          mrNips={mrNips}
+          mrNipsSet={mrNipsSet}
+          mrUsers={mrUsers}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+async function MonitoringContent({
+  tab, periodFrom, periodTo, hasPeriodFilter, org, areaOptions, mrNips, mrNipsSet, mrUsers,
+}: {
+  tab: Tab;
+  periodFrom: string | null;
+  periodTo: string | null;
+  hasPeriodFilter: boolean;
+  org: OrgMaps;
+  areaOptions: { nip: string; name: string }[];
+  mrNips: string[];
+  mrNipsSet: Set<string>;
+  mrUsers: { nip: string; name: string }[];
+}) {
   // ── POAs (real target lives here) ─────────────────────────────────────────
 
   // Same bug/fix as summary/page.tsx: the old local literal only matched the
@@ -107,16 +223,10 @@ export default async function MonitoringPage({
     };
   }
 
-  const [poas, allPoasForPeriods] = await Promise.all([
-    mrNips.length > 0
-      ? (prisma.poaForm.findMany({ where: poaWhere, select: { id: true, ownerId: true, period: true, target: true } }) as Promise<{ id: string; ownerId: string; period: string; target: { toString(): string } | null }[]>)
-      : Promise.resolve([]),
-    baseMrNips.length > 0
-      ? (prisma.poaForm.findMany({ where: { ownerId: { in: baseMrNips }, status: { in: NON_DRAFT } }, select: { period: true } }) as Promise<{ period: string }[]>)
-      : Promise.resolve([]),
-  ]);
+  const poas = mrNips.length > 0
+    ? (await prisma.poaForm.findMany({ where: poaWhere, select: { id: true, ownerId: true, period: true, target: true } })) as { id: string; ownerId: string; period: string; target: { toString(): string } | null }[]
+    : [];
 
-  const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
   const poaIds = poas.map((p) => p.id);
 
   const targetByOwner = new Map<string, number>();
@@ -294,49 +404,15 @@ export default async function MonitoringPage({
   const totalAchievementPct = totalTarget > 0 ? (totalSalesActual / totalTarget) * 100 : null;
   const totalGap = totalTarget > 0 ? totalSalesActual - totalTarget : null;
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: "mr",     label: "Per MR" },
-    { key: "area",   label: "Per Area" },
-    { key: "outlet", label: "Per Outlet" },
-    { key: "produk", label: "Per Produk" },
-  ];
   const CODE_LABEL: Record<Tab, string> = { outlet: "Outlet", produk: "Produk", mr: "Personil", area: "Area (SM)" };
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1>Monitoring</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {mrUsers.length} MR · {poas.length} POA · Target (real) vs Sales Actual (DIR10001B)
-          </p>
-        </div>
-
-        <MonitoringFilterModal
-          tab={tab}
-          periods={allPeriods}
-          areas={areaOptions}
-          mrs={allMrUsers}
-          periodFrom={periodFrom}
-          periodTo={periodTo}
-          areaNip={areaNip}
-          mrNip={mrNipFilter}
-        />
-      </div>
-
-      <Card padded={false}>
-        <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
-          {TABS.map((t) => (
-            <Link key={t.key} href={`/monitoring?tab=${t.key}${filterQuery}`}
-              className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
-              style={tab === t.key
-                ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
-                : { borderColor: "transparent", color: "var(--color-text-muted)" }}>
-              {t.label}
-            </Link>
-          ))}
-        </div>
-      </Card>
+      {/* Counts line — was part of the static header in MonitoringPage's shell;
+          moved here since it needs the heavy-fetched poas count (2026-08-03). */}
+      <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+        {mrUsers.length} MR · {poas.length} POA · Target (real) vs Sales Actual (DIR10001B)
+      </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card>
