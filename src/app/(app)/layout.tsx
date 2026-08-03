@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { MaintenanceScreen } from "@/components/layout/MaintenanceScreen";
+import { getMaintenanceState, maintenanceMessage } from "@/lib/maintenance";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -14,6 +16,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await prisma.user.findUnique({ where: { nip: session.userId } });
   if (!user || !user.isActive) {
     redirect("/api/auth/logout");
+  }
+
+  // Site-wide maintenance lockout (2026-07-31) — every (app) route funnels
+  // through this one layout, so gating here blocks navigation everywhere at
+  // once rather than needing a check per page. ADMIN is exempt so they can
+  // still reach /admin to turn it back off; every other role sees ONLY this
+  // screen no matter what URL they hit.
+  if (session.role !== "ADMIN") {
+    const maintenance = await getMaintenanceState();
+    if (maintenance.enabled) {
+      return <MaintenanceScreen message={maintenanceMessage(maintenance)} />;
+    }
   }
 
   return (

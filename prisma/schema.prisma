@@ -995,3 +995,16 @@ model KpiContractEvaluation {
   @@index([nip])
   @@index([evaluatedByNip])
 }
+
+// ─── Maintenance Mode ──────────────────────────────────────────────────────────
+// Site-wide lockout switch (2026-07-31) — when enabled, every (app) route
+// shows only the maintenance screen for non-ADMIN roles (see (app)/layout.tsx);
+// ADMIN keeps full access so they can turn it back off. Singleton row,
+// always id=1 — upserted, never inserted a second time.
+model MaintenanceMode {
+  id          Int      @id @default(1)
+  enabled     Boolean  @default(false)
+  message     String?  @db.Text
+  updatedByNip String?
+  updatedAt   DateTime @updatedAt
+}
