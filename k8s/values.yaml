@@ -115,6 +115,7 @@ vault:
   authPath: auth/red-phoenix
   roleName: chc-pharmalogic-form-poa
   secretBasePath: env/data/century/form-poa
+  databaseSecretPath: CHC-PHARMALOGIC-form-poa/creds/form-poa
   kvVersion: 2
   tls:
     caCert: /vault/tls/tls.crt
@@ -156,8 +157,8 @@ tolerations:
     staging:
       env: staging-century
     production:
-      env: prod-canvasser
+      env: vertex
   cronjob:
-    env: prod-canvasser
+    env: vertex
 
 terminationGracePeriodSeconds: 30
