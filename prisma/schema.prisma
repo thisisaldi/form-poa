@@ -779,6 +779,49 @@ model OutletSalesValueMonthly {
   @@index([periode])
 }
 
+// Monthly Rupiah sales TARGET per territory (GT) — from "internal/Target
+// Hospital (in Value).xlsx", sheet "Rekap FFMedrep" (2026-07-31). One row per
+// (namaGT, periode); the source sheet is wide (one column per month), this
+// table is long like OutletSalesValueMonthly above. Distinct from
+// ProductTargetAllocation — this is a territory-level Rupiah VALUE target
+// ("target value"), not a per-product quantity ("target produk fokus").
+//
+// namaGT is the unit of assignment (source confirms 1 GT = 1 MR/SPV), so
+// nipMR/namaMR is that GT's own person; nipASM/SM/NSM + names come directly
+// from the same source row rather than being derived by walking
+// User.nipAtasan from nipMR, so a row keeps its ASM/SM/NSM attribution even
+// when the MR seat itself is vacant/shadow (source has literal "VACANT MR
+// ..."/"... (SHADOW)" placeholder names for those — see
+// importTargetHospitalValue.ts's name-matching notes). nip* fields are
+// resolved by name match against User at import time and are nullable
+// precisely for those vacant/shadow placeholders — nama* is always the raw
+// source text regardless of whether resolution succeeded, so the row is
+// still fully attributable/editable even unresolved.
+model TargetHospitalValue {
+  id       String   @id @default(uuid())
+  namaGT   String
+  periode  String // YYYYMM, e.g. "202608"
+  target   Decimal  @db.Decimal(18, 2)
+  nipMR    String?
+  namaMR   String
+  nipASM   String?
+  namaASM  String
+  nipSM    String?
+  namaSM   String
+  nipNSM   String?
+  namaNSM  String
+  syncedAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([namaGT, periode])
+  @@index([periode])
+  @@index([nipMR])
+  @@index([nipASM])
+  @@index([nipSM])
+  @@index([nipNSM])
+}
+
 // Manual policy input ("Tambahan Target" in the source spreadsheet) — the
 // per-month stretch increment an NSM/Admin sets for a product ahead of a
 // quarter. The calculation engine derives everything else from sales data.

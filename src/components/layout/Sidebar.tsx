@@ -84,6 +84,14 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/admin/target-value",
+    label: "Target Value",
+    icon: <IconTable />,
+    // Same NSM-hidden-from-sidebar convention as Target Produk above — the
+    // page itself still allows NSM in, just not surfaced in the nav yet.
+    roles: ["ADMIN"],
+  },
+  {
     href: "/admin",
     label: "Admin",
     icon: <IconTable />,
