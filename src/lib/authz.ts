@@ -9,6 +9,7 @@
  * org changes mid-cycle automatically propagate without re-running any job.
  */
 
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { PoaStatus, Role, AuditAction } from "@prisma/client";
 import type { Prisma, PoaForm, User } from "@prisma/client";
@@ -39,8 +40,15 @@ export const NON_DRAFT_STATUSES: PoaStatus[] = [
  * SM, then one per ASM under each, etc. — dozens of sequential round-trips
  * for an NSM with a real subtree, on every single page load that resolves
  * "which MRs report to me").
+ *
+ * Wrapped in React's `cache()` (2026-08-03 perf fix): canView/canEdit each
+ * re-derive this same subtree independently, so a page that runs canEdit
+ * per-row over a list (e.g. dashboard, up to pageSize rows) was re-running
+ * this BFS from scratch for every single row with IDENTICAL (managerId,
+ * depth) args. cache() dedupes repeat calls within one request/render —
+ * same result, ≤3 DB round-trips per request instead of ≤3 × N rows.
  */
-async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]> {
+const getMrIdsUnder = cache(async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]> {
   const mrIds: string[] = [];
   let currentLevelManagerIds = [managerId];
   for (let level = 0; level < depth && currentLevelManagerIds.length > 0; level++) {
@@ -56,7 +64,7 @@ async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]
     currentLevelManagerIds = nextLevelManagerIds;
   }
   return mrIds;
-}
+});
 
 /**
  * Resolve IDs of EVERY subordinate (any role, not just MR) within `depth`
@@ -67,9 +75,12 @@ async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]
  * SM couldn't open an ASM's self-owned, already-submitted POA at all, since
  * the old MR-only subtree check never matched the ASM's own NIP as owner).
  *
- * Same level-by-level BFS as getMrIdsUnder above, same reason.
+ * Same level-by-level BFS as getMrIdsUnder above, same reason. Also wrapped
+ * in `cache()` — same repeat-call story as getMrIdsUnder above, this one is
+ * the one actually hit by canView's per-row re-derivation on pages like
+ * dashboard (see canView below).
  */
-async function getSubordinateIdsUnder(managerId: string, depth: number): Promise<string[]> {
+const getSubordinateIdsUnder = cache(async function getSubordinateIdsUnder(managerId: string, depth: number): Promise<string[]> {
   const ids: string[] = [];
   let currentLevelManagerIds = [managerId];
   for (let level = 0; level < depth && currentLevelManagerIds.length > 0; level++) {
@@ -87,7 +98,7 @@ async function getSubordinateIdsUnder(managerId: string, depth: number): Promise
     currentLevelManagerIds = nextLevelManagerIds;
   }
   return ids;
-}
+});
 
 /** Public: returns all MR nips in the subtree of the given user (for monitoring, PM dashboard). */
 export async function getSubordinateMRNips(user: User): Promise<string[]> {
