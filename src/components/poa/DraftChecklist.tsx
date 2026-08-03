@@ -337,14 +337,18 @@ export function StatsPanel({
   }, { estimasi: 0, nilaiPssp: 0 });
   const aktifPssp = computeActivePsspStats(activePssp, quarterMonths);
   const budgetTotalWithAktif = s.budgetTotal + aktifPssp.nilaiTotal;
-  // "Estimasi POA" / Rasio Estimasi include the sales estimate already running via
-  // active PSSP contracts — kept separate from s.estimasiTotal so the Anggaran %
-  // labels below (which divide by s.estimasiTotal) are unaffected.
+  // Full-period estimasi (not apportioned to the quarter) — only feeds the
+  // "Bukan Tercacah (Full Periode)" table below now; kept separate from
+  // s.estimasiTotal so the Anggaran % labels (which divide by s.estimasiTotal)
+  // are unaffected by the active-PSSP add-on.
   const estimasiDisplay = s.estimasiTotal + aktifPssp.estBarisTotal;
   // Tercacah = apportioned to just this POA's quarter — active PSSP contracts almost
   // always span more than one quarter, so their full-period nilaiTotal/estBarisTotal
   // would overstate what actually falls in this specific quarter. Use the apportioned
-  // nilaiTercacah/estBarisTercacah here instead (see computeActivePsspStats).
+  // nilaiTercacah/estBarisTercacah here instead (see computeActivePsspStats). This is
+  // what "Estimasi POA" / Rasio Estimasi above now use (2026-08-03) — Target Area is
+  // itself a single-quarter figure, so comparing it against a full-period estimasi
+  // overstated the ratio.
   const tercacahEstimasiWithAktif = tercacah.estimasi + aktifPssp.estBarisTercacah;
   const tercacahNilaiPsspWithAktif = tercacah.nilaiPssp + aktifPssp.nilaiTercacah;
 
@@ -358,7 +362,7 @@ export function StatsPanel({
   const aktifDoctorKeys = new Set(activePssp.map((r) => `${r.kdOutlet ?? ""}|${r.nmCust ?? ""}`));
   const cakupanUserCount = new Set([...draftDoctorKeys, ...aktifDoctorKeys]).size;
 
-  const ratioEst     = targetArea > 0 ? (estimasiDisplay / targetArea) * 100 : 0;
+  const ratioEst     = targetArea > 0 ? (tercacahEstimasiWithAktif / targetArea) * 100 : 0;
   const salesPlusEst = salesFigures.salesYtd + s.estimasiTotal;
   const achievePct   = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
 
@@ -386,7 +390,7 @@ export function StatsPanel({
       {/* ── 1. Estimasi vs Target ── */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
-          { label: "Estimasi POA",  value: estimasiDisplay > 0 ? formatRp(estimasiDisplay) : "-", span: false },
+          { label: "Estimasi POA (Tercacah)", value: tercacahEstimasiWithAktif > 0 ? formatRp(tercacahEstimasiWithAktif) : "-", span: false },
           { label: targetAreaIsReal ? "Target Area" : "Target Area ★", value: formatRp(targetArea), span: false },
           { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "-", span: true },
         ].map(({ label, value, span }) => (
