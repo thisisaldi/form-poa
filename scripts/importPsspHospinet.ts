@@ -1,7 +1,7 @@
 /**
  * Import "internal/customer_pssp_hospinet.xlsx" — customer roster + a
  * customer-level PSSP snapshot for the Hospinet division, which the KAM
- * struktur/PsspKontrak imports never covered (see internal/TODO.md #40/#42).
+ * struktur/PsspKontrak imports never covered (see docs/TODO.md #40/#42).
  *
  * Source shape is flat (one row per customer×outlet): Kode Customer, Nama
  * Customer, Spesialisasi, Status Customer (active-repeat/inactive-new),

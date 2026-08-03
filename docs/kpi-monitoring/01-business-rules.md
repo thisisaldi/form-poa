@@ -1,6 +1,6 @@
 # KPI Monitoring — Business Rules
 
-*(Sumber: Memo `NO.SM/ETH-II/PI/08.2026`, 28 Juli 2026, efektif 01 Agustus 2026. Berlaku untuk role **MR** (termasuk jabatan "SPV" — secara sistem SPV = role MR dengan `jabatan` override, lihat `internal/TODO.md` #1), **ASM**, **SM**. NSM & GM tidak dinilai pakai KPI ini — mereka cuma jadi *evaluator*, bukan yang dievaluasi.)*
+*(Sumber: Memo `NO.SM/ETH-II/PI/08.2026`, 28 Juli 2026, efektif 01 Agustus 2026. Berlaku untuk role **MR** (termasuk jabatan "SPV" — secara sistem SPV = role MR dengan `jabatan` override, lihat `docs/TODO.md` #1), **ASM**, **SM**. NSM & GM tidak dinilai pakai KPI ini — mereka cuma jadi *evaluator*, bukan yang dievaluasi.)*
 
 ## 1. Pilar, indikator, dan bobot
 
@@ -37,7 +37,7 @@ Achievement % = realisasi kunjungan / standar kunjungan × 100.
 
 Standar kunjungan per memo: **MR/SPV = 4 + 6**, **ASM = 2+3**, **SM = 3**. ⚠️ **Butuh klarifikasi stakeholder** — angka ini kemungkinan "kunjungan ke customer tier-A + tier-B per bulan" tapi memo tidak menjelaskan unit/satuan/tier secara eksplisit. Jangan diasumsikan sebelum dikonfirmasi.
 
-⚠️ **Tidak ada data realisasi kunjungan sama sekali di sistem** (lihat `02-data-model.md` §2). Ini bukan celah baru — sudah lama nge-hang sebagai `internal/TODO.md` **#38** (Historis Kunjungan By MR by Customer, akumulasi 3 bulan terakhir — NEED CONFIRMATION, dikonfirmasi ke Pak Fakhri via Anthony SFE, belum ada jawaban) dan **#25** (History Visit sebelumnya — ON-PROSES, placeholder UI ada tapi angka historis belum). KPI Monitoring v1 memakai **input manual oleh atasan** sebagai jembatan sampai #38/#25 selesai atau ada sync eksternal.
+⚠️ **Tidak ada data realisasi kunjungan sama sekali di sistem** (lihat `02-data-model.md` §2). Ini bukan celah baru — sudah lama nge-hang sebagai `docs/TODO.md` **#38** (Historis Kunjungan By MR by Customer, akumulasi 3 bulan terakhir — NEED CONFIRMATION, dikonfirmasi ke Pak Fakhri via Anthony SFE, belum ada jawaban) dan **#25** (History Visit sebelumnya — ON-PROSES, placeholder UI ada tapi angka historis belum). KPI Monitoring v1 memakai **input manual oleh atasan** sebagai jembatan sampai #38/#25 selesai atau ada sync eksternal.
 
 ### 2c. Customer Expansion (15%)
 Indikator absolut (bukan persentase): jumlah customer aktif (PS/SP = Perpanjangan/Serah-terima Kontrak PSSP, perlu dikonfirmasi singkatan pastinya).
@@ -102,7 +102,7 @@ Kesimpulan: score 73,75 → kontrak diperpanjang 9 bulan. **Ini harus jadi unit 
 
 ## 7. Open questions — status & assumptions dipakai untuk v1
 
-Sesuai konvensi repo ini (lihat `internal/TODO.md` — item ambigu ditandai NEED CONFIRMATION, bukan diasumsikan diam-diam), berikut daftar lengkap dengan status masing-masing. **Keputusan user 2026-07-30: lanjut implementasi pakai asumsi di bawah, koreksi belakangan kalau meleset** — jadi ini BUKAN klarifikasi asli dari stakeholder/pemegang memo, cuma pilihan kerja sementara supaya v1 bisa dibangun. Tandai jelas di kode (komentar) supaya gampang ditelusuri & dikoreksi nanti, sama seperti pola item lain di `internal/TODO.md` yang punya catatan "⚠️ butuh klarifikasi".
+Sesuai konvensi repo ini (lihat `docs/TODO.md` — item ambigu ditandai NEED CONFIRMATION, bukan diasumsikan diam-diam), berikut daftar lengkap dengan status masing-masing. **Keputusan user 2026-07-30: lanjut implementasi pakai asumsi di bawah, koreksi belakangan kalau meleset** — jadi ini BUKAN klarifikasi asli dari stakeholder/pemegang memo, cuma pilihan kerja sementara supaya v1 bisa dibangun. Tandai jelas di kode (komentar) supaya gampang ditelusuri & dikoreksi nanti, sama seperti pola item lain di `docs/TODO.md` yang punya catatan "⚠️ butuh klarifikasi".
 
 1. **Standar kunjungan "4+6 / 2+3 / 3"** — **ASUMSI**: dipakai sebagai total angka standar kunjungan/bulan per role (bukan di-breakdown tier), yaitu MR/SPV = 10, ASM = 5, SM = 3. Achievement% = realisasi ÷ angka ini × 100. Kalau ternyata maksud aslinya breakdown per tier customer, band/formula ini perlu direvisi.
 2. **Format input manual Call Activity** — **ASUMSI**: satu angka realisasi kunjungan per personil per bulan (field `callActivityRealisasi` di `KpiMonthlyEntry`), tanpa breakdown per customer/tier di v1.

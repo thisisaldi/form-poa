@@ -50,11 +50,10 @@ CLAUDE.md
 src/lib/mock/generated-data.json
 
 # internal working folder (raw Excel source data + notes, not for version
-# control) — TODO.md is the one exception, kept tracked. /excel is a
-# junction to /internal kept for scripts that still reference the old
-# "excel/..." path
+# control). TODO.md used to live here as the one tracked exception — moved
+# to docs/TODO.md 2026-08-03. /excel is a junction to /internal kept for
+# scripts that still reference the old "excel/..." path
 /internal/*
-!/internal/TODO.md
 /excel
 
 *.txt

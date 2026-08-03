@@ -196,7 +196,7 @@ model CustomerOutlet {
 }
 
 // Customer-level PSSP snapshot for divisions not covered by PsspKontrak's
-// contract-level import (e.g. Hospinet — see internal/TODO.md #40). Source
+// contract-level import (e.g. Hospinet — see docs/TODO.md #40). Source
 // files here have no contract number, no per-product breakdown, and no
 // monthly detail — just one current lump value per customer×outlet — so
 // this deliberately does NOT reuse PsspKontrak's shape (same reasoning as
@@ -924,7 +924,7 @@ model KpiMonthlyEntry {
 
   // Activity & Coverage: Call Activity (25%) — manual input by atasan for v1,
   // no realized-visit data source exists anywhere else in this app (overlaps
-  // internal/TODO.md #38/#25, both still unresolved).
+  // docs/TODO.md #38/#25, both still unresolved).
   callActivityRealisasi  Int?
   callActivityStandar    Int? // working assumption: MR/SPV=10, ASM=5, SM=3 (§2b)
   callActivitySource     String    @default("MANUAL") // "MANUAL" | future sync source key

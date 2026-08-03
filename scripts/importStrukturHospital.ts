@@ -4,7 +4,7 @@
  * shape (KodePI..KATEGORI OUTLET, GM/NSM/SM/ASM/SPV/MR name+NIP per outlet),
  * but this file now covers BOTH the KAM-1 and HOSPINET divisions combined in
  * one roster (verified via the "NIP Perso" sheet: 255 KAM-1 + 121 HOSPINET),
- * closing the gap noted in internal/TODO.md #40 ("Hospinet masih belum
+ * closing the gap noted in docs/TODO.md #40 ("Hospinet masih belum
  * ke-cover di struktur org"). The business owner confirmed the OLD KAM-only
  * file had errors this one fixes — verified directly against this file
  * (2026-07-22) before writing this script:

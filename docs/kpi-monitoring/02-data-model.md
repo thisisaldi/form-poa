@@ -9,7 +9,7 @@
 | Sales Achievement | `PoaForm.target` (Rupiah, per periode) vs `OutletSalesValueMonthly` (real sales, hasil sync DIR10001B) | Logika sama seperti tab "Per MR" di `src/app/(app)/monitoring/page.tsx` — reuse `buildOrgMaps()` (`src/lib/targetCalculation.ts`) untuk rollup per role. |
 | Customer Expansion (terkonfirmasi 2026-07-30) | `PsspKontrak` aktif (`prdAkhir >= periode berjalan`) per outlet yang di-cover MR — PSSP yang sudah habis TIDAK terhitung | `getActivePsspByOutlets()` (`src/app/actions/customer.ts`), sudah dipakai Summary page untuk `activeCustKeys`. |
 
-Kedua sumber ini **read-only derive on demand** — tidak perlu tabel snapshot terpisah kecuali performa jadi masalah (Summary page tab "Per Outlet" sempat 58-74 detik untuk scope ADMIN company-wide, lihat `internal/TODO.md` #47 — pola query yang sama harus diwaspadai di sini, terutama kalau KPI Monitoring dibuka company-wide oleh ADMIN/GM).
+Kedua sumber ini **read-only derive on demand** — tidak perlu tabel snapshot terpisah kecuali performa jadi masalah (Summary page tab "Per Outlet" sempat 58-74 detik untuk scope ADMIN company-wide, lihat `docs/TODO.md` #47 — pola query yang sama harus diwaspadai di sini, terutama kalau KPI Monitoring dibuka company-wide oleh ADMIN/GM).
 
 ## 2. Data baru yang perlu dibangun (tidak ada sama sekali di sistem hari ini)
 

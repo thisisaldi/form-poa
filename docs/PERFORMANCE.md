@@ -1,12 +1,12 @@
 # Performance — Constraints & Patterns
 
-*(Ditulis 2026-08-03. Tujuan: jadi referensi wajib-baca sebelum nambah query/halaman baru — terutama yang company-wide/ADMIN-scope — supaya kelas bug yang udah pernah kejadian (lihat `internal/TODO.md` #47, fix 07-31) gak keulang lagi. Bukan dokumen aspirational/best-practice generik; semua contoh di sini nunjuk ke kode nyata yang ada sekarang.)*
+*(Ditulis 2026-08-03. Tujuan: jadi referensi wajib-baca sebelum nambah query/halaman baru — terutama yang company-wide/ADMIN-scope — supaya kelas bug yang udah pernah kejadian (lihat `docs/TODO.md` #47, fix 07-31) gak keulang lagi. Bukan dokumen aspirational/best-practice generik; semua contoh di sini nunjuk ke kode nyata yang ada sekarang.)*
 
 **Perubahan 2026-08-03 (sesi yang sama, setelah audit lebih dalam):** fix N+1 nyata di `dashboard` (§2 poin 4, `getMrIdsUnder`/`getSubordinateIdsUnder` dibungkus `cache()`) — diverifikasi typecheck bersih. Koreksi klaim index `PoaLineItem` yang ternyata salah setelah dicek ke query asli (§2 poin 6) — jangan ulangi pola "asumsi dari nama kolom tanpa cek `where` beneran".
 
 ## 1. Kenapa dokumen ini ada
 
-Riwayat insiden yang udah kejadian di app ini (semua di `internal/TODO.md`, section "Beres 07-31"):
+Riwayat insiden yang udah kejadian di app ini (semua di `docs/TODO.md`, section "Beres 07-31"):
 
 - Summary page tab "Per Outlet" pernah **58-74 detik** untuk scope ADMIN company-wide (#47).
 - Login (`findFirst` + `mode: "insensitive"`) forced **Seq Scan** tiap kali orang login.
@@ -59,4 +59,4 @@ Belum ada SLA formal tertulis di memo/stakeholder. Sampai ada angka resmi, pakai
 
 ## 6. Kalau nemuin pola baru yang melanggar §2
 
-Update dokumen ini (tambah ke watchlist atau checklist), bukan cuma fix diam-diam — biar constraint-nya tetap hidup dan gak ke-drift dari kode aktual. Kalau ada insiden performa baru, catat juga cross-reference-nya di `internal/TODO.md` (pola yang sudah dipakai buat #47).
+Update dokumen ini (tambah ke watchlist atau checklist), bukan cuma fix diam-diam — biar constraint-nya tetap hidup dan gak ke-drift dari kode aktual. Kalau ada insiden performa baru, catat juga cross-reference-nya di `docs/TODO.md` (pola yang sudah dipakai buat #47).

@@ -1,7 +1,7 @@
 /**
  * One-off: merge a duplicate NIP into the canonical one for the same person.
  * Written for IBNU SUBARDI (P070068 -> P260266, 2026-07-31 request: "P070068
- * harusnya nip nya P260266") but kept generic/reusable — see internal/TODO.md
+ * harusnya nip nya P260266") but kept generic/reusable — see docs/TODO.md
  * #1 for the earlier precedent (Anggres Saputra L240075 -> L240076, done by
  * hand at the time).
  *
