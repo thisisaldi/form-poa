@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover } from "@/lib/authz";
+import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips } from "@/lib/authz";
 import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction, requestEditAction, grantEditRequestAction, declineEditRequestAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +14,7 @@ import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { displayRole } from "@/lib/role";
 import { getMrSalesSummary } from "@/lib/salesSummary";
 import { quarterToMonths } from "@/lib/quarterUtils";
+import { EditQuarterControl } from "@/components/poa/EditQuarterControl";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -228,20 +229,27 @@ export default async function PoaDetailPage({
     }
   }
 
-  // Target Value (2026-08-03) — monthly Rupiah sales target per GT, imported
-  // from "Target Hospital (in Value).xlsx" into TargetHospitalValue, summed
-  // over the months in this POA's quarter for the owning MR's own GT(s).
-  // poa.target (manual, set by atasan) still wins if it's ever populated —
-  // this only fills the gap while that field stays unused. MR-only: an
-  // ASM/SM's self-owned POA (vacant-team case) has no single "own GT" to sum,
-  // so the tile just falls back to "-" for those, same as before this feature.
+  // Target Value (2026-08-03, widened same day — stakeholder item #11: label
+  // "Target Area" → "Target", calculation = SUM dari Personil) — monthly
+  // Rupiah sales target per GT, imported from "Target Hospital (in
+  // Value).xlsx" into TargetHospitalValue, summed over the months in this
+  // POA's quarter, across every MR getSubordinateMRNips resolves for the
+  // owner: just the owner's own nip for a normal MR-owned POA (unchanged
+  // behavior), or every subordinate MR when an ASM/SM/NSM owns the POA
+  // themselves (vacant-team case) — previously that case fell back to "-"
+  // entirely since only poa.ownerId (the ASM/SM's own nip, never a GT) was
+  // ever queried. poa.target (manual, set by atasan) still wins if it's ever
+  // populated — this only fills the gap while that field stays unused.
   let targetValueFromGT: number | null = null;
-  if (poa.owner.role === "MR" && /^\d{4}-Q[1-4]$/.test(poa.period)) {
+  if (/^\d{4}-Q[1-4]$/.test(poa.period)) {
     const months = quarterToMonths(poa.period);
-    const rows = await prisma.targetHospitalValue.findMany({
-      where: { nipMR: poa.ownerId, periode: { in: months } },
-      select: { target: true },
-    });
+    const targetNips = await getSubordinateMRNips(poa.owner);
+    const rows = targetNips.length > 0
+      ? await prisma.targetHospitalValue.findMany({
+          where: { nipMR: { in: targetNips }, periode: { in: months } },
+          select: { target: true },
+        })
+      : [];
     if (rows.length > 0) {
       targetValueFromGT = rows.reduce((sum: number, r: { target: { toString(): string } }) => sum + parseFloat(r.target.toString()), 0);
     }
@@ -260,7 +268,10 @@ export default async function PoaDetailPage({
         <div className="min-w-0">
           <h1>Detail POA</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            Periode {poa.period} · {poa.owner.name} ({poa.owner.nip})
+            {userCanEdit && (isDraft || isRevisi)
+              ? <EditQuarterControl poaId={poa.id} period={poa.period} />
+              : `Periode ${poa.period}`}
+            {" "}· {poa.owner.name} ({poa.owner.nip})
             {poa.currentHolder && (
               <span className="ml-2" style={{ color: "var(--color-text-faint)" }}>
                 · Pemegang: {poa.currentHolder.name} ({displayRole(poa.currentHolder.role, poa.currentHolder.jabatan)})

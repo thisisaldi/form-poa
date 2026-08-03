@@ -45,6 +45,9 @@ export interface TerritoryTableGroup {
   pelunasanRunningRate: number | null;
   avgPasienPerUser: number | null;
   avgStPerPasien: number | null;
+  // "spesialisasi" variant only — see TerritoryGroup in summary/page.tsx.
+  customerSebelumnya: number;
+  growthCustomerPct: number | null;
 }
 
 function fmtNum(n: number | null, digits = 1): string {
@@ -54,7 +57,7 @@ function fmtNum(n: number | null, digits = 1): string {
 type SortKey =
   | "name" | "estimasi" | "growth" | "realisasi" | "gap" | "user" | "variasi" | "pengajuan"
   | "biaya" | "costRatio" | "estimasiPerUser" | "listingFee" | "pelunasan"
-  | "salesPerUser" | "avgPasien" | "avgSt" | "listing";
+  | "salesPerUser" | "avgPasien" | "avgSt" | "listing" | "growthCustomer";
 
 /** Every value the table can be sorted by, computed once per row up front so
  * both rendering and sorting read the same numbers (2026-07-27 Matriks work
@@ -103,6 +106,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
 
   const isOutlet = variant === "outlet";
   const isProduk = variant === "produk";
+  const isSpes = variant === "spesialisasi";
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -135,6 +139,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
       // estimasiQuarterIni - realisasiQuarterSebelumnya) — null whenever
       // Growth itself is null, so the two never disagree on "no data".
       case "gap": return g.growthVsQuarterSebelumnyaPct != null ? g.estimasiQuarterIni - g.realisasiQuarterSebelumnya : null;
+      case "growthCustomer": return g.growthCustomerPct;
       case "user": return row.userCount;
       case "variasi": return g.variasiProdukFokus;
       case "pengajuan": return g.pengajuan;
@@ -208,6 +213,11 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
               {showRealisasi && (
                 <SortableTh label="Gap" sortKey="gap" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
                   info="Selisih Estimasi kuartal ini dikurangi Realisasi kuartal sebelumnya, dalam Rupiah — nilai riil dari persentase yang ditunjukkan kolom Growth di sebelah kiri (tanda sama: hijau = Estimasi di atas Realisasi lalu)." />
+              )}
+              {isSpes && (
+                <SortableTh label="Growth Jumlah Customer" sortKey="growthCustomer" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  title={quarterIni && quarterSebelumnya ? `Customer ${quarterIni} vs Customer ${quarterSebelumnya}` : undefined}
+                  info="Persentase perbandingan JUMLAH customer unik (bukan Rupiah) yang punya realisasi/pengajuan kuartal ini terhadap kuartal sebelumnya, untuk spesialisasi ini. Pelengkap kolom Growth (by value) di sebelah kiri." />
               )}
               <SortableTh label={isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"} sortKey="user" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
                 info={isOutlet
@@ -317,6 +327,22 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                       {g.growthVsQuarterSebelumnyaPct != null
                         ? formatRp(g.estimasiQuarterIni - g.realisasiQuarterSebelumnya)
                         : "-"}
+                    </td>
+                  )}
+                  {isSpes && (
+                    <td className="py-2 px-3 text-right whitespace-nowrap"
+                      style={{ color: g.growthCustomerPct == null ? "var(--color-text-faint)"
+                        : g.growthCustomerPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                      <div>
+                        {g.growthCustomerPct != null
+                          ? `${g.growthCustomerPct >= 0 ? "+" : ""}${g.growthCustomerPct.toFixed(1)}%`
+                          : "-"}
+                      </div>
+                      {g.customerSebelumnya > 0 && (
+                        <div className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                          vs {g.customerSebelumnya} customer {quarterSebelumnya ?? "sebelumnya"}
+                        </div>
+                      )}
                     </td>
                   )}
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{userCount}</td>

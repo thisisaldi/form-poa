@@ -247,3 +247,43 @@ export async function deletePoaAction(poaId: string): Promise<{ error?: string }
   revalidatePath("/dashboard");
   return {};
 }
+
+// Edit Quarter (2026-08-03, stakeholder item #10) — lets the owner change
+// which quarter a draft belongs to after creation, instead of that only ever
+// being fixed once at /poa/new. Restricted to DRAFT/REVISI (same as delete
+// above) — once a POA has been submitted/approved at least once this cycle,
+// its period is treated as locked, same spirit as the Lock Edit Logic gate
+// in authz.ts (canEdit), just stricter: any submission history this cycle
+// blocks it, not just an approval above the actor's own level. Deliberately
+// does NOT touch any PoaLineItem.periodeAwal — those stay exactly as entered
+// even if they now fall outside the new period's quarter months; re-aligning
+// them is left to the MR, same as any other manual edit.
+export async function updatePoaPeriodAction(poaId: string, newPeriod: string): Promise<{ error?: string }> {
+  const session = await getCurrentUser();
+  if (!session) redirect("/login");
+  if (await isWriteBlocked(session.role)) return { error: WRITE_BLOCKED_MESSAGE };
+
+  const period = newPeriod.trim();
+  if (!/^\d{4}-Q[1-4]$/.test(period)) return { error: "Format periode tidak valid." };
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) return { error: "POA tidak ditemukan." };
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canEdit(actor, poa))) return { error: "Tidak punya akses." };
+  if (poa.status !== "DRAFT" && poa.status !== "REVISI") {
+    return { error: "Periode hanya bisa diubah selama status Draft/Revisi." };
+  }
+  if (period === poa.period) return {};
+
+  const duplicate = await prisma.poaForm.findFirst({
+    where: { ownerId: poa.ownerId, period, id: { not: poaId } },
+  });
+  if (duplicate) return { error: `Draft ${period} untuk pemilik ini sudah ada.` };
+
+  await prisma.poaForm.update({ where: { id: poaId }, data: { period } });
+
+  revalidatePath(`/poa/${poaId}`);
+  revalidatePath(`/poa/${poaId}/edit`);
+  return {};
+}

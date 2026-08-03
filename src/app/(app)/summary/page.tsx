@@ -87,6 +87,12 @@ interface TerritoryGroup {
   estimasiQuarterIni: number;
   realisasiQuarterSebelumnya: number;
   growthVsQuarterSebelumnyaPct: number | null;
+  // Headcount counterpart of the above, "spesialisasi" tab only (2026-08-03,
+  // stakeholder item #13: growth by JUMLAH customer, not just by value) — 0 /
+  // null on every other tab, same "no data here" convention as the by-value
+  // fields above.
+  customerSebelumnya: number;
+  growthCustomerPct: number | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -384,13 +390,18 @@ async function SummaryContent({
   // reads identically to "estimasi genuinely collapsed to zero", both showing
   // a -100% growth. Only the latter should ever say -100%; the former should
   // show "belum ada data" (2026-07-30).
-  const qoqIniByCode = new Map<string, { ini: number; hasIni: boolean }>();
+  // custKeys tracks distinct customers this quarter per code — the headcount
+  // counterpart to `ini` (2026-08-03, item #13's "Growth Berdasarkan Jumlah
+  // Customer"), same quarter-ini scope as `ini` itself (not the wider default
+  // window `items`/`groups` below may use).
+  const qoqIniByCode = new Map<string, { ini: number; hasIni: boolean; custKeys: Set<string> }>();
   for (const li of qoqLineItems) {
     const code = qoqCode(li);
     if (!code) continue;
-    const agg = qoqIniByCode.get(code) ?? { ini: 0, hasIni: false };
+    const agg = qoqIniByCode.get(code) ?? { ini: 0, hasIni: false, custKeys: new Set<string>() };
     agg.ini += toNum(li.rencanaTotalBiaya);
     agg.hasIni = true;
+    if (li.kodeCust) agg.custKeys.add(li.kodeCust);
     qoqIniByCode.set(code, agg);
   }
 
@@ -495,9 +506,29 @@ async function SummaryContent({
     return months.reduce((s, m) => s + toNum(obj[m]), 0);
   }
 
+  // Customer → spesialisasi (PM label) lookup, needed to bucket PsspKontrak
+  // realisasi rows by spesialisasi below — PsspKontrak itself has no
+  // spesialisasi column, only kdCust (2026-08-03, stakeholder item #13: growth
+  // vs quarter sebelumnya on the "Per Spesialisasi" tab was silently always
+  // null, see realisasiSebelumnyaFor below — this was the missing piece).
+  const custSpesRows = custCodes.length > 0
+    ? (await prisma.customer.findMany({
+        where: { kodeCustomer: { in: custCodes } },
+        select: { kodeCustomer: true, spesialisasi: true },
+      })) as { kodeCustomer: string | null; spesialisasi: string }[]
+    : [];
+  const spesByCust = new Map(
+    custSpesRows.filter((c) => c.kodeCustomer).map((c) => [c.kodeCustomer as string, spesLabel(c.spesialisasi)])
+  );
+
   const realisasiSebelumnyaByOutlet = new Map<string, number>();
   const realisasiSebelumnyaByCust = new Map<string, number>();
   const realisasiSebelumnyaByProdName = new Map<string, number>();
+  const realisasiSebelumnyaBySpes = new Map<string, number>();
+  // Distinct customers WITH realisasi > 0 last quarter, per spesialisasi —
+  // the baseline for "Growth Berdasarkan Jumlah Customer" (item #13), a
+  // headcount-based counterpart to the existing by-value growth column.
+  const custSebelumnyaBySpes = new Map<string, Set<string>>();
   for (const r of realisasiPsspRows) {
     const v = sumLunasForMonths(r.lunasByPeriod, quarterSebelumnyaMonths);
     if (v === 0) continue;
@@ -506,6 +537,13 @@ async function SummaryContent({
     if (r.nmProduk) {
       const key = normName(r.nmProduk);
       realisasiSebelumnyaByProdName.set(key, (realisasiSebelumnyaByProdName.get(key) ?? 0) + v);
+    }
+    const spes = r.kdCust ? spesByCust.get(r.kdCust) : undefined;
+    if (spes) {
+      realisasiSebelumnyaBySpes.set(spes, (realisasiSebelumnyaBySpes.get(spes) ?? 0) + v);
+      const set = custSebelumnyaBySpes.get(spes) ?? new Set<string>();
+      set.add(r.kdCust);
+      custSebelumnyaBySpes.set(spes, set);
     }
   }
 
@@ -636,8 +674,18 @@ async function SummaryContent({
     if (tab === "outlet") return realisasiSebelumnyaByOutlet.get(code) ?? 0;
     if (tab === "customer") return realisasiSebelumnyaByCust.get(code) ?? 0;
     if (tab === "produk") return realisasiSebelumnyaByProdName.get(normName(name)) ?? 0;
+    // code IS the spesialisasi label itself here (see getTerritoryKey) — no
+    // outlet/MR rollup needed, unlike the fallback branch below.
+    if (tab === "spesialisasi") return realisasiSebelumnyaBySpes.get(code) ?? 0;
     const outlets = outletsByMr.get(code) ?? [];
     return outlets.reduce((s, o) => s + (realisasiSebelumnyaByOutlet.get(o) ?? 0), 0);
+  }
+
+  /** Distinct customers with realisasi > 0 last quarter for this spesialisasi
+   * — only meaningful for the "spesialisasi" tab (item #13); 0 elsewhere. */
+  function customerSebelumnyaFor(code: string): number {
+    if (tab !== "spesialisasi") return 0;
+    return custSebelumnyaBySpes.get(code)?.size ?? 0;
   }
 
   // Ringkasan tab (and its "Data Sales" YoY computation) has been removed —
@@ -834,6 +882,15 @@ async function SummaryContent({
         ? ((estimasiQuarterIni - realisasiQuarterSebelumnya) / realisasiQuarterSebelumnya) * 100
         : null;
 
+      // Growth Berdasarkan Jumlah Customer (2026-08-03, stakeholder item #13)
+      // — same null-vs-zero convention as growthVsQuarterSebelumnyaPct above,
+      // just counting distinct customers instead of Rupiah.
+      const customerIniCount = qoq?.custKeys.size ?? 0;
+      const customerSebelumnya = customerSebelumnyaFor(key.code);
+      const growthCustomerPct = customerSebelumnya > 0 && qoq?.hasIni
+        ? ((customerIniCount - customerSebelumnya) / customerSebelumnya) * 100
+        : null;
+
       return {
         code: key.code,
         name: key.name,
@@ -866,6 +923,8 @@ async function SummaryContent({
         estimasiQuarterIni,
         realisasiQuarterSebelumnya,
         growthVsQuarterSebelumnyaPct,
+        customerSebelumnya,
+        growthCustomerPct,
       };
     })
     // "outlet"/"customer": GAP tertinggi (vs prior realisasi) is the default —

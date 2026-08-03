@@ -391,7 +391,7 @@ export function StatsPanel({
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
           { label: "Estimasi POA (Tercacah)", value: tercacahEstimasiWithAktif > 0 ? formatRp(tercacahEstimasiWithAktif) : "-", span: false },
-          { label: targetAreaIsReal ? "Target Area" : "Target Area ★", value: formatRp(targetArea), span: false },
+          { label: targetAreaIsReal ? "Target" : "Target ★", value: formatRp(targetArea), span: false },
           { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "-", span: true },
         ].map(({ label, value, span }) => (
           <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`}
@@ -747,7 +747,13 @@ function DoctorRow({
             <StatTile label="Pengali Nilai R" value={pengaliAvg != null ? `${pengaliAvg.toFixed(2)}x` : "-"} />
             <StatTile label="Variasi Produk" value={`${variasiFokus}/${variasiTotal}`} sub="fokus/total" />
           </div>
-          {(rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
+          {/* Hidden for a brand-new doctor (no kodeCust — never had any PSSP
+              history) — this figure is always this same draft's own line
+              items sliced to the quarter (see computeBiayaTercacah), which
+              for a doctor with zero prior history is indistinguishable from
+              (and reads as a confusing duplicate of) the "Estimasi" tile
+              above (2026-08-03, stakeholder item #12). */}
+          {!isDokterBaru && (rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
             <div className="mt-1.5">
               <StatTile
                 label="Tercacah (Kuartal Ini)"

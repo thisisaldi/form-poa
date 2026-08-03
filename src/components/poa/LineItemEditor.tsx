@@ -1030,7 +1030,7 @@ function ProdukEntryRow({
       {/* Per-product inputs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <label className="flex flex-col gap-1" {...(resepErr ? { "data-field-err": "true" } : {})}>
-          <span className="text-xs" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Pasien Baru / Hari<Req /></span>
+          <span className="text-xs block min-h-8" style={{ color: resepErr ? "var(--color-red)" : "var(--color-text-muted)" }}>Pasien Baru / Hari<Req /></span>
           <div style={resepErr ? ERR_RING : undefined}>
             <UnitInput
               value={entry.jumlahResepHari}
@@ -1041,7 +1041,7 @@ function ProdukEntryRow({
           {resepErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
         </label>
         <label className="flex flex-col gap-1" {...(qtyErr ? { "data-field-err": "true" } : {})}>
-          <span className="text-xs" style={{ color: qtyErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
+          <span className="text-xs block min-h-8" style={{ color: qtyErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
             Jml Produk ST / Pasien Baru<Req />
           </span>
           <div style={qtyErr ? ERR_RING : undefined}>
@@ -1062,7 +1062,7 @@ function ProdukEntryRow({
           </div>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Standarisasi<Opt /></span>
+          <span className="text-xs block min-h-8" style={{ color: "var(--color-text-muted)" }}>Standarisasi<Opt /></span>
           <select value={entry.statusStandarisasi}
             onChange={(e) => onChange({ statusStandarisasi: e.target.value })}
             className="input-field text-xs">
@@ -1088,7 +1088,7 @@ function ProdukEntryRow({
           </label>
         )}
         <label className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Hari Praktek<Opt /></span>
+          <span className="text-xs block min-h-8" style={{ color: "var(--color-text-muted)" }}>Hari Praktek<Opt /></span>
           <UnitInput
             value={entry.hariKerjaBulan}
             onChange={(v) => onChange({ hariKerjaBulan: v })}
