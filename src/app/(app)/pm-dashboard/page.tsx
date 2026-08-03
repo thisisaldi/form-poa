@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips } from "@/lib/authz";
@@ -27,13 +28,56 @@ interface ProductRow {
   jumlahPSSP: number;
 }
 
+// Placeholder shown while PmDashboardContent streams in (2026-08-03) — same
+// pattern/style as summary/page.tsx's SummarySkeleton.
+function PmDashboardSkeleton() {
+  return (
+    <div className="space-y-5 animate-pulse">
+      <div className="grid grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Card key={i}>
+            <div className="h-3 w-24 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+            <div className="mt-2 h-6 w-16 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-8 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default async function PmDashboardPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
   if (!["NSM", "ADMIN"].includes(session.role)) redirect("/dashboard");
 
+  // Cheap single-row lookup — kept in the shell so the title/subtitle render
+  // immediately; the heavy line-item fetch/aggregation below is Suspense-deferred.
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
 
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1>PM Dashboard</h1>
+        <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          Ringkasan POA per produk · {actor.name}
+        </p>
+      </div>
+
+      <Suspense fallback={<PmDashboardSkeleton />}>
+        <PmDashboardContent actor={actor} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<ReturnType<typeof prisma.user.findUniqueOrThrow>>> }) {
   // Get all MRs visible to this user
   const mrNips = await getSubordinateMRNips(actor);
 
