@@ -115,7 +115,7 @@ vault:
   authPath: auth/red-phoenix
   roleName: chc-pharmalogic-form-poa
   secretBasePath: env/data/century/form-poa
-  databaseSecretPath: CHC-PHARMALOGIC-form-poa/creds/form-poa
+  databaseSecretPath: CHC-PHARMALOGIC-form-poa/creds/form_poa
   kvVersion: 2
   tls:
     caCert: /vault/tls/tls.crt
