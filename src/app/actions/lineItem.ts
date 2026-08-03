@@ -7,11 +7,13 @@ import { prisma } from "@/lib/prisma";
 import { canEdit } from "@/lib/authz";
 import { flagRevisionOnEdit } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
+import { isWriteBlocked } from "@/lib/maintenance";
 import { StatusStandarisasi, JenisPssp, PihakPssp, PsSp, BentukPssp, Prisma } from "@prisma/client";
 
 async function requireEditorOnPoa(poaId: string) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
+  if (await isWriteBlocked(session.role)) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Sistem sedang mode view-only untuk maintenance. Coba lagi nanti."));
 
   const [poa, actor] = await Promise.all([
     prisma.poaForm.findUnique({ where: { id: poaId } }),

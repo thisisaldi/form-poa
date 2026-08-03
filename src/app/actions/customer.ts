@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -16,6 +17,7 @@ export interface NewCustomerResult {
 export async function createCustomerAction(formData: FormData): Promise<NewCustomerResult> {
   const session = await getCurrentUser();
   if (!session) return { ok: false, error: "Sesi tidak valid." };
+  if (await isWriteBlocked(session.role)) return { ok: false, error: WRITE_BLOCKED_MESSAGE };
 
   const namaCustomer  = (formData.get("namaCustomer")  as string | null)?.trim() ?? "";
   const spesialisasi  = (formData.get("spesialisasi")  as string | null)?.trim() ?? "";

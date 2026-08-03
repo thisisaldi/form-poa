@@ -6,12 +6,15 @@ import { getCurrentUser } from "@/lib/session";
 import { createPoaDraft, submitPoa, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm, requestEdit, grantEditRequest, declineEditRequest } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
 import { canEdit, canApprove, canCreatePoa, canFastTrackApprove, canCancelApproved, canRequestEdit, canRespondEditRequest } from "@/lib/authz";
+import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 
-function requireSession() {
-  return getCurrentUser().then((session) => {
-    if (!session) redirect("/login");
-    return session;
-  });
+// Every export in this file is a mutation, so the write-block check lives
+// right here — single choke point instead of repeating it per action.
+async function requireSession() {
+  const session = await getCurrentUser();
+  if (!session) redirect("/login");
+  if (await isWriteBlocked(session.role)) redirect("/dashboard?error=" + encodeURIComponent(WRITE_BLOCKED_MESSAGE));
+  return session;
 }
 
 export async function createPoaAction(formData: FormData): Promise<void> {
@@ -227,6 +230,7 @@ export async function declineEditRequestAction(poaId: string, formData: FormData
 export async function deletePoaAction(poaId: string): Promise<{ error?: string }> {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
+  if (await isWriteBlocked(session.role)) return { error: WRITE_BLOCKED_MESSAGE };
 
   const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
   if (!poa) return { error: "POA tidak ditemukan." };

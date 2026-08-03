@@ -1001,9 +1001,18 @@ model KpiContractEvaluation {
 // shows only the maintenance screen for non-ADMIN roles (see (app)/layout.tsx);
 // ADMIN keeps full access so they can turn it back off. Singleton row,
 // always id=1 — upserted, never inserted a second time.
+//
+// viewOnly (2026-08-03): a softer sibling of `enabled` — non-ADMIN roles keep
+// full read/browse access to every page, but every mutating server action is
+// blocked (see assertWritable/isWriteBlocked in src/lib/maintenance.ts, called
+// from every "use server" write path). Meant for DB migrations: freeze new
+// writes without a full outage, so people can keep reading data mid-migration.
+// `enabled` (full lockout) implies write-blocked too — isWriteBlocked() checks
+// both flags, not just this one.
 model MaintenanceMode {
   id          Int      @id @default(1)
   enabled     Boolean  @default(false)
+  viewOnly    Boolean  @default(false)
   message     String?  @db.Text
   updatedByNip String?
   updatedAt   DateTime @updatedAt

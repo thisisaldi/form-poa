@@ -23,10 +23,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // once rather than needing a check per page. ADMIN is exempt so they can
   // still reach /admin to turn it back off; every other role sees ONLY this
   // screen no matter what URL they hit.
+  //
+  // viewOnly (2026-08-03) is a softer sibling — non-ADMIN roles keep normal
+  // navigation/read access here (just a banner below), the actual write
+  // block happens per mutation via isWriteBlocked/assertWritable in
+  // src/lib/maintenance.ts, called from every "use server" write action.
+  let viewOnlyBanner: string | null = null;
   if (session.role !== "ADMIN") {
     const maintenance = await getMaintenanceState();
     if (maintenance.enabled) {
       return <MaintenanceScreen message={maintenanceMessage(maintenance)} />;
+    }
+    if (maintenance.viewOnly) {
+      viewOnlyBanner = maintenance.message?.trim() ||
+        "Sistem sedang mode view-only untuk maintenance/migrasi data. Anda masih bisa melihat semua halaman, tapi perubahan data (submit, approve, edit, dst) sementara dinonaktifkan.";
     }
   }
 
@@ -40,7 +50,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       />
       {/* pt-14 accounts for the fixed mobile top bar; md:pt-0 removes it on desktop */}
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
-        <div className="mx-auto max-w-5xl px-4 py-6 md:px-6 md:py-8">{children}</div>
+        <div className="mx-auto max-w-5xl px-4 py-6 md:px-6 md:py-8">
+          {viewOnlyBanner && (
+            <div className="mb-4 rounded-md px-4 py-3 text-sm font-medium"
+              style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #f59e0b)" }}>
+              🛠️ {viewOnlyBanner}
+            </div>
+          )}
+          {children}
+        </div>
       </main>
     </div>
   );

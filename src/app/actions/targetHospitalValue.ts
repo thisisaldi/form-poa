@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { assertWritable } from "@/lib/maintenance";
 import { TARGET_HOSPITAL_PERIODS } from "@/lib/targetHospitalValue";
 
 interface Session { userId: string; role: string }
@@ -80,6 +81,7 @@ export interface TargetHospitalActionResult {
 export async function updateTargetHospitalValueAction(namaGT: string, periode: string, target: number): Promise<TargetHospitalActionResult> {
   try {
     const session = await requireNsmOrAdmin();
+    await assertWritable(session.role);
     if (isNaN(target) || target < 0) return { ok: false, error: "Nilai target tidak valid." };
     if (!(TARGET_HOSPITAL_PERIODS as readonly string[]).includes(periode)) return { ok: false, error: "Periode tidak valid." };
 

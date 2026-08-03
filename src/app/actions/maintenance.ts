@@ -38,7 +38,28 @@ export async function setMaintenanceModeAction(enabled: boolean, message: string
       create: { id: 1, enabled, message: message.trim() || null, updatedByNip: session.userId },
     });
     revalidatePath("/", "layout");
-    return { ok: true, state: { enabled: row.enabled, message: row.message } };
+    return { ok: true, state: { enabled: row.enabled, viewOnly: row.viewOnly, message: row.message } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Gagal menyimpan." };
+  }
+}
+
+/**
+ * Toggles view-only mode — non-ADMIN roles keep full read access but every
+ * mutating server action is blocked (see isWriteBlocked/assertWritable in
+ * src/lib/maintenance.ts). Independent of the full lockout above; meant for
+ * DB migrations where reads should keep working.
+ */
+export async function setViewOnlyModeAction(viewOnly: boolean): Promise<MaintenanceActionResult> {
+  try {
+    const session = await requireAdmin();
+    const row = await prisma.maintenanceMode.upsert({
+      where: { id: 1 },
+      update: { viewOnly, updatedByNip: session.userId },
+      create: { id: 1, viewOnly, updatedByNip: session.userId },
+    });
+    revalidatePath("/", "layout");
+    return { ok: true, state: { enabled: row.enabled, viewOnly: row.viewOnly, message: row.message } };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Gagal menyimpan." };
   }

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { assertWritable } from "@/lib/maintenance";
 import {
   computeFocusProductTargetsSummary,
   setProductTargetInput,
@@ -47,6 +48,7 @@ export async function setTambahanTargetBulkAction(
 ): Promise<{ ok: boolean; saved?: number; error?: string }> {
   try {
     const session = await requireNsmOrAdmin();
+    await assertWritable(session.role);
     let saved = 0;
     for (const e of entries) {
       if (isNaN(e.monthlyRamp)) continue;
@@ -82,7 +84,8 @@ export async function applyQuarterlyTargetsAction(
   quarter: string
 ): Promise<{ ok: boolean; applied?: number; skipped?: number; error?: string }> {
   try {
-    await requireNsmOrAdmin();
+    const session = await requireNsmOrAdmin();
+    await assertWritable(session.role);
     const summary = await computeFocusProductTargetsSummary(quarter);
     const org = await buildOrgMaps();
 
@@ -168,7 +171,8 @@ export async function deleteTargetAllocationAction(
   nip: string
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    await requireNsmOrAdmin();
+    const session = await requireNsmOrAdmin();
+    await assertWritable(session.role);
     await prisma.productTargetAllocation.deleteMany({ where: { kodeProduk, quarter, nip } });
     revalidatePath("/admin/target-produk");
     return { ok: true };
@@ -185,6 +189,7 @@ export async function setTargetAllocationsAction(
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const session = await requireNsmOrAdmin();
+    await assertWritable(session.role);
     for (const e of entries) {
       if (isNaN(e.qty)) continue;
       await prisma.productTargetAllocation.upsert({
@@ -211,7 +216,8 @@ export async function applyManualTargetsAction(
   quarter: string
 ): Promise<{ ok: boolean; applied?: number; skipped?: number; error?: string }> {
   try {
-    await requireNsmOrAdmin();
+    const session = await requireNsmOrAdmin();
+    await assertWritable(session.role);
 
     const { getProducts } = await import("@/lib/masterData");
     const allProducts = await getProducts();

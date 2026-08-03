@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 
 export interface RekeningItem {
   pemilik: string;
@@ -85,6 +86,7 @@ export async function saveDraftAction(
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Sesi tidak valid." };
+  if (await isWriteBlocked(user.role)) return { ok: false, error: WRITE_BLOCKED_MESSAGE };
 
   const payload = buildPayload(data, user.nip, "DRAFT");
 
@@ -102,6 +104,7 @@ export async function submitCustomerPengajuanAction(
 ): Promise<{ ok: boolean; customerId?: string; error?: string }> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, error: "Sesi tidak valid." };
+  if (await isWriteBlocked(user.role)) return { ok: false, error: WRITE_BLOCKED_MESSAGE };
 
   if (!data.namaLengkap || !data.spesialisasi || !data.nomorHp1) {
     return { ok: false, error: "Nama lengkap, spesialisasi, dan nomor HP wajib diisi." };
