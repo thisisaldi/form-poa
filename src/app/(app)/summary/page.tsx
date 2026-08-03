@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -126,6 +127,35 @@ function previousQuarterPeriod(period: string): string | null {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const TABS: { key: Tab; label: string }[] = [
+  { key: "mr",                 label: "Per Personil" },
+  { key: "outlet",             label: "Per Outlet" },
+  { key: "customer",           label: "Per Customer" },
+  { key: "spesialisasi",       label: "Per Spesialisasi" },
+  { key: "produk-rekomendasi", label: "Per Produk Rekomendasi" },
+  { key: "produk",             label: "Per Produk" },
+];
+
+// Lightweight placeholder shown while SummaryContent streams in (2026-08-03
+// — see the split below: this page used to block on ALL of its aggregation
+// before rendering anything at all, including the tab bar/filter that don't
+// need any of that data). Row count is just a visual approximation of
+// TerritoryTable, not tied to any real data.
+function SummarySkeleton() {
+  return (
+    <div className="space-y-3 animate-pulse">
+      <div className="h-4 w-64 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+      <Card>
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-8 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default async function SummaryPage({
   searchParams,
 }: {
@@ -186,6 +216,81 @@ export default async function SummaryPage({
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   const mrNips = await getSubordinateMRNips(actor);
 
+  // Cheap, deliberately UNBOUNDED (full history) distinct-periods query for the
+  // filter dropdown — kept in the shell (not Suspense-deferred like everything
+  // else below) so the filter is usable the instant the page loads, same as
+  // the tab bar. select-only on an indexed column, nowhere near as expensive
+  // as the line-item fetch/aggregation SummaryContent does.
+  const allPoasForPeriods = mrNips.length > 0
+    ? (await prisma.poaForm.findMany({
+        where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT_STATUSES } },
+        select: { period: true },
+        distinct: ["period"],
+      })) as { period: string }[]
+    : [];
+  const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <h1>Summary POA</h1>
+      </div>
+
+      {/* Tab bar — static, no DB dependency, renders immediately */}
+      <Card padded={false}>
+        <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
+          {TABS.map((t) => (
+            <Link key={t.key}
+              href={`/summary?tab=${t.key}${periodQuery}`}
+              className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
+              style={rawTab === t.key
+                ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
+                : { borderColor: "transparent", color: "var(--color-text-muted)" }}>
+              {t.label}
+            </Link>
+          ))}
+        </div>
+      </Card>
+
+      <div className="flex justify-end">
+        <SummaryFilterModal tab={rawTab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
+      </div>
+
+      {/* Everything below needs the heavy line-item fetch/aggregation — streamed
+          in separately (2026-08-03) so it doesn't block the shell above from
+          showing up. key= forces a fresh Suspense fallback on tab/filter change
+          instead of showing stale content while the new data loads. */}
+      <Suspense key={`${rawTab}|${periodFrom ?? ""}|${periodTo ?? ""}`} fallback={<SummarySkeleton />}>
+        <SummaryContent
+          mrNips={mrNips}
+          rawTab={rawTab}
+          periodFrom={periodFrom}
+          periodTo={periodTo}
+          hasPeriodFilter={hasPeriodFilter}
+          periodQuery={periodQuery}
+          isDefaultBounded={isDefaultBounded}
+          defaultPeriodFrom={defaultPeriodFrom}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+async function SummaryContent({
+  mrNips, rawTab, periodFrom, periodTo, hasPeriodFilter, isDefaultBounded, defaultPeriodFrom,
+}: {
+  mrNips: string[];
+  rawTab: Tab;
+  periodFrom: string | null;
+  periodTo: string | null;
+  hasPeriodFilter: boolean;
+  periodQuery: string;
+  isDefaultBounded: boolean;
+  defaultPeriodFrom: string;
+}) {
+  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab;
+
   const mrUsers = mrNips.length > 0
     ? (await prisma.user.findMany({
         where: { nip: { in: mrNips } },
@@ -220,21 +325,14 @@ export default async function SummaryPage({
     poaWhere.period = { gte: defaultPeriodFrom };
   }
 
-  const [poas, allPoasForPeriods] = await Promise.all([
-    // target included (2026-07-31, Ringkasan tab's "Estimasi % Target") — same
-    // real, atasan-set Rupiah quota SalesAchievementTable.tsx already sums for
-    // the Monitoring page, never a fabricated stand-in.
-    mrNips.length > 0 ? prisma.poaForm.findMany({ where: poaWhere }) as Promise<{ id: string; ownerId: string; period: string; target: { toString(): string } | null }[]> : Promise.resolve([]),
-    // Distinct periods only, for the filter dropdown + "Lihat semua periode"
-    // link — deliberately UNBOUNDED (full history) and select-only, unlike
-    // poaWhere above, so the filter can still offer/jump to older quarters
-    // even though the default table view no longer fetches them.
-    mrNips.length > 0
-      ? prisma.poaForm.findMany({ where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT } }, select: { period: true }, distinct: ["period"] }) as Promise<{ period: string }[]>
-      : Promise.resolve([]),
-  ]);
-
-  const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
+  // target included (2026-07-31, Ringkasan tab's "Estimasi % Target") — same
+  // real, atasan-set Rupiah quota SalesAchievementTable.tsx already sums for
+  // the Monitoring page, never a fabricated stand-in. (allPeriods for the
+  // filter dropdown is now fetched in the shell above SummaryContent — see
+  // SummaryPage — so it's available before this heavy fetch even starts.)
+  const poas = mrNips.length > 0
+    ? (await prisma.poaForm.findMany({ where: poaWhere })) as { id: string; ownerId: string; period: string; target: { toString(): string } | null }[]
+    : [];
   const poaIds = poas.map((p) => p.id);
   const targetTotal = poas.reduce((s, p) => s + toNum(p.target), 0);
 
@@ -817,14 +915,6 @@ export default async function SummaryPage({
 
   // ── Tab labels ────────────────────────────────────────────────────────────
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: "mr",                 label: "Per Personil" },
-    { key: "outlet",             label: "Per Outlet" },
-    { key: "customer",           label: "Per Customer" },
-    { key: "spesialisasi",       label: "Per Spesialisasi" },
-    { key: "produk-rekomendasi", label: "Per Produk Rekomendasi" },
-    { key: "produk",             label: "Per Produk" },
-  ];
   const CODE_LABEL: Record<Tab, string> = {
     outlet: "Outlet", customer: "Customer", spesialisasi: "Spesialisasi",
     produk: "Produk", "produk-rekomendasi": "Produk Rekomendasi", mr: "Personil",
@@ -837,41 +927,14 @@ export default async function SummaryPage({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div>
-        <h1>Summary POA</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
-          {isDefaultBounded && (
-            <span style={{ color: "var(--color-text-faint)" }}> · menampilkan {defaultPeriodFrom} – {quarterIni} (gunakan Filter Periode untuk lihat semua)</span>
-          )}
-        </p>
-      </div>
-
-      {/* Tab bar */}
-      <Card padded={false}>
-        <div className="flex gap-0 border-b overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
-          {TABS.map((t) => (
-            <Link key={t.key}
-              href={`/summary?tab=${t.key}${periodQuery}`}
-              className="px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors"
-              style={rawTab === t.key
-                ? { borderColor: "var(--color-blue)", color: "var(--color-blue)" }
-                : { borderColor: "transparent", color: "var(--color-text-muted)" }}>
-              {t.label}
-            </Link>
-          ))}
-        </div>
-      </Card>
-
-      {/* Filter is global (applies to every tab's underlying query), so it
-          stays visible regardless of which tab is active — its hidden `tab`
-          field must be rawTab (the real selected tab), not the internal
-          GroupingTab substitute, or submitting it from Ringkasan/Produk
-          Rekomendasi would silently bounce the user to Per Personil. */}
-      <div className="flex justify-end">
-        <SummaryFilterModal tab={rawTab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
-      </div>
+      {/* Counts line — was part of the static header in SummaryPage's shell;
+          moved here since it needs the heavy-fetched mrUsers/poas/lineItems. */}
+      <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+        {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
+        {isDefaultBounded && (
+          <span style={{ color: "var(--color-text-faint)" }}> · menampilkan {defaultPeriodFrom} – {quarterIni} (gunakan Filter Periode untuk lihat semua)</span>
+        )}
+      </p>
 
       {/* Per Produk Rekomendasi (reworked 2026-07-31) — flat kategori sections
           instead of one card per paket, each a full per-product table (same
