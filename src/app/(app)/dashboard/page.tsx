@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/session";
+import type { SessionData } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit } from "@/lib/authz";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -34,6 +36,27 @@ type PoaWithMeta = PoaFormType & {
   _pctBudget: number | null;       // weighted avg budget % (0-100), null if no items
 };
 
+// Lightweight placeholder shown while DashboardContent streams in (2026-08-03
+// — see the split below: this page used to block on the full POA
+// list/aggregation, MR progress rollup, and even the header action buttons
+// before rendering anything at all, including the title that doesn't need
+// any of that data). Row count is just a visual approximation of the POA
+// table, not tied to any real data — same style as SummarySkeleton in
+// summary/page.tsx.
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse">
+      <Card>
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-8 rounded" style={{ background: "var(--color-bg-subtle)" }} />
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const session = (await getCurrentUser())!;
   const actor = await prisma.user.findUnique({ where: { nip: session.userId } });
@@ -42,6 +65,52 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const params = await searchParams;
   const isMR = session.role === "MR";
 
+  return (
+    <div className="space-y-6">
+      {params.error === "no_outlets" && (
+        <div className="rounded-md px-4 py-3 text-sm"
+          style={{ background: "var(--color-warning-light, #fff7ed)", color: "var(--color-warning, #92400e)", border: "1px solid var(--color-warning-border, #fcd34d)" }}>
+          Akun Anda belum memiliki outlet yang ditugaskan. Hubungi admin untuk mendapatkan akses.
+        </div>
+      )}
+
+      {/* Header — static, no DB dependency, renders immediately */}
+      <div>
+        <h1>Dashboard</h1>
+        <p style={{ color: "var(--color-text-muted)" }} className="mt-0.5 text-sm">
+          Selamat datang, {session.name}
+          <span className="ml-2 rounded px-1.5 py-0.5 text-xs font-medium"
+            style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
+            {displayRole(session.role, session.jabatan)}
+          </span>
+        </p>
+      </div>
+
+      {/* Everything below needs the heavy POA fetch/aggregation and MR progress
+          rollup — streamed in separately (2026-08-03) so it doesn't block the
+          header above from showing up. The action-buttons row (was inline
+          next to the header title) moved into DashboardContent too, since the
+          Export Excel button's href depends on mrProgressPeriod, which is
+          only known after the heavy MR-progress computation resolves — same
+          "relocate a header element that needs heavy data" move Summary's
+          refactor made for its counts line. key= forces a fresh Suspense
+          fallback on page/size change instead of showing stale content while
+          the new page loads. */}
+      <Suspense key={`${params.page ?? ""}|${params.size ?? ""}`} fallback={<DashboardSkeleton />}>
+        <DashboardContent session={session} actor={actor} isMR={isMR} params={params} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DashboardContent({
+  session, actor, isMR, params,
+}: {
+  session: SessionData;
+  actor: UserType;
+  isMR: boolean;
+  params: Record<string, string>;
+}) {
   const [visibleFilter, pendingFilter, eligible] = await Promise.all([
     getVisiblePoaFilter(actor),
     Promise.resolve(getPendingActionFilter(actor)),
@@ -236,40 +305,26 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <div className="space-y-6">
-      {params.error === "no_outlets" && (
-        <div className="rounded-md px-4 py-3 text-sm"
-          style={{ background: "var(--color-warning-light, #fff7ed)", color: "var(--color-warning, #92400e)", border: "1px solid var(--color-warning-border, #fcd34d)" }}>
-          Akun Anda belum memiliki outlet yang ditugaskan. Hubungi admin untuk mendapatkan akses.
-        </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <div>
-          <h1>Dashboard</h1>
-          <p style={{ color: "var(--color-text-muted)" }} className="mt-0.5 text-sm">
-            Selamat datang, {session.name}
-            <span className="ml-2 rounded px-1.5 py-0.5 text-xs font-medium"
-              style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-              {displayRole(session.role, session.jabatan)}
-            </span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {isMR && (
-            <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
-          )}
-          {eligible && (
-            <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
-          )}
-          {/* SFE is monitoring-only (2026-07-24) — the full team export goes
-              well past what /summary shows, so it's hidden here too (see
-              matching block in /api/export/team). */}
-          {!isMR && session.role !== "SFE" && (
-            <a href={mrProgressPeriod ? `/api/export/team?period=${mrProgressPeriod}` : "/api/export/team"}>
-              <Button variant="secondary" size="sm">↓ Export Excel</Button>
-            </a>
-          )}
-        </div>
+      {/* Action-buttons row — was inline next to the header title in the
+          shell; moved here since the Export Excel button needs
+          mrProgressPeriod, which only exists once the heavy MR-progress
+          computation above resolves (see comment on the Suspense in
+          DashboardPage). */}
+      <div className="flex items-center justify-end gap-2">
+        {isMR && (
+          <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
+        )}
+        {eligible && (
+          <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
+        )}
+        {/* SFE is monitoring-only (2026-07-24) — the full team export goes
+            well past what /summary shows, so it's hidden here too (see
+            matching block in /api/export/team). */}
+        {!isMR && session.role !== "SFE" && (
+          <a href={mrProgressPeriod ? `/api/export/team?period=${mrProgressPeriod}` : "/api/export/team"}>
+            <Button variant="secondary" size="sm">↓ Export Excel</Button>
+          </a>
+        )}
       </div>
 
       {!isMR && pendingCount > 0 && (
