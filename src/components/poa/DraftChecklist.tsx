@@ -743,7 +743,7 @@ function DoctorRow({
           {(rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
             <div className="mt-1.5">
               <StatTile
-                label="Pengajuan Sebelumnya (Tercacah - Kuartal Ini)"
+                label="Tercacah (Kuartal Ini)"
                 value={formatRp(rowTercacah.estimasi)}
                 sub={rowTercacah.nilaiPssp > 0 ? `Nilai PSSP ${formatRpPssp(rowTercacah.nilaiPssp)}` : undefined}
               />
