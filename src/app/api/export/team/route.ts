@@ -20,8 +20,16 @@ import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, type PsspKontrakSummary } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
-import { computePeriodeAkhir } from "@/lib/poaUtils";
+import { computePeriodeAkhir, expandPeriodeMonths, formatPeriode } from "@/lib/poaUtils";
 import { spesLabel } from "@/lib/spesialisasi";
+import { displayRole } from "@/lib/role";
+
+// Canonical display order for the "Estimasi PSSP per Bulan" level breakdown
+// — matches the KPI memo's personnel levels (MR, SPV, ASM, SM Hospital), not
+// necessarily who actually owns POAs in this export's scope (see sheet
+// comment below: this export is MR-subtree-only, so ASM/SM rows are normally
+// empty unless a vacant-team ASM/SM owns a POA directly, see canCreatePoa).
+const PSSP_LEVEL_ORDER = ["MR", "SPV", "ASM", "SM", "NSM"];
 
 const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
 const fmtRp = (n: number) => `Rp ${Math.round(n).toLocaleString("id-ID")}`;
@@ -106,7 +114,7 @@ export async function GET(req: NextRequest) {
     where: poaWhere,
     include: { owner: true },
     orderBy: { updatedAt: "desc" },
-  }) as { id: string; ownerId: string; period: string; status: string; createdAt: Date; updatedAt: Date; target: { toString(): string } | null; owner: { nip: string; name: string } }[];
+  }) as { id: string; ownerId: string; period: string; status: string; createdAt: Date; updatedAt: Date; target: { toString(): string } | null; owner: { nip: string; name: string; role: string; jabatan: string | null } }[];
 
   const poaIds = poas.map(p => p.id);
 
@@ -452,6 +460,53 @@ export async function GET(req: NextRequest) {
   });
   ws2.getColumn("budgetPct").numFmt = '0.0"%"';
   shadeAlt(ws2, 1);
+
+  // ── Sheet: Estimasi PSSP per Bulan ────────────────────────────────────────
+  // Breaks each line item's Nilai PSSP (rencanaTotalBiaya × %PSSP dokter ×
+  // pengaliNilaiR — same formula as the "PSSP" column on "Per MR" above,
+  // just not yet summed across the whole lamaPeriode) evenly across every
+  // month in its periodeAwal–periodeAkhir span, then rolls up by the
+  // owning POA's personnel level (MR/SPV/ASM/SM — jabatan-aware via
+  // displayRole, see src/lib/role.ts). No other basis exists to distribute
+  // non-uniformly (2026-08-03, confirmed with business: rata rata per bulan
+  // is the accepted approximation, not a real monthly run-rate).
+  const poaIdToLevel = new Map(poas.map((p) => [p.id, displayRole(p.owner.role, p.owner.jabatan)]));
+  const psspByLevelMonth = new Map<string, Map<string, number>>();
+  const allPsspMonths = new Set<string>();
+  for (const li of lineItems) {
+    const level = poaIdToLevel.get(li.poaId);
+    if (!level) continue;
+    const base = toNum(li.rencanaTotalBiaya);
+    const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+    const nilaiPssp = base * toNum(li.persenPsspDokter) * pengaliNilaiR;
+    if (nilaiPssp === 0) continue;
+    const months = expandPeriodeMonths(li.periodeAwal, li.lamaPeriode);
+    const perBulan = nilaiPssp / months.length;
+    const monthMap = psspByLevelMonth.get(level) ?? new Map<string, number>();
+    for (const m of months) {
+      monthMap.set(m, (monthMap.get(m) ?? 0) + perBulan);
+      allPsspMonths.add(m);
+    }
+    psspByLevelMonth.set(level, monthMap);
+  }
+  const psspMonthsSorted = [...allPsspMonths].sort();
+  const psspLevelsPresent = PSSP_LEVEL_ORDER.filter((lv) => psspByLevelMonth.has(lv));
+
+  const wsPssp = wb.addWorksheet("Estimasi PSSP per Bulan");
+  wsPssp.columns = [
+    { header: "Level", key: "level", width: 14 },
+    ...psspMonthsSorted.map((m) => ({ header: formatPeriode(m), key: m, width: 16 })),
+  ];
+  styleHeader(wsPssp);
+  for (const level of psspLevelsPresent) {
+    const monthMap = psspByLevelMonth.get(level)!;
+    const row: Record<string, string | number> = { level };
+    for (const m of psspMonthsSorted) row[m] = Math.round(monthMap.get(m) ?? 0);
+    wsPssp.addRow(row);
+  }
+  psspMonthsSorted.forEach((m) => { wsPssp.getColumn(m).numFmt = '#,##0'; });
+  shadeAlt(wsPssp, 1);
+  if (psspLevelsPresent.length === 0) wsPssp.addRow(["(Tidak ada data Estimasi PSSP)"]);
 
   // ── Sheet 3: Semua Pengajuan ─────────────────────────────────────────────────
 

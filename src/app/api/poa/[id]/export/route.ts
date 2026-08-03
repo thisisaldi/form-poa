@@ -11,7 +11,8 @@ import type { PoaLineItem } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
-import { computePeriodeAkhir } from "@/lib/poaUtils";
+import { computePeriodeAkhir, expandPeriodeMonths, formatPeriode } from "@/lib/poaUtils";
+import { displayRole } from "@/lib/role";
 import { getAllPakets } from "@/lib/paketProduk";
 import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 
@@ -344,6 +345,43 @@ export async function GET(
 
   // Light blue header row placeholder (column headers not used, style top border instead)
   summary.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: LBLUE } };
+
+  // ─── Sheet: Estimasi PSSP per Bulan ──────────────────────────────────────
+  // Same breakdown as the "Estimasi PSSP per Bulan" sheet in the team export
+  // (/api/export/team) — Nilai PSSP per line item spread evenly across its
+  // periodeAwal–periodeAkhir months (rata rata, no other basis available),
+  // rolled up by level. A single POA has exactly one owner, so this is
+  // normally a single row — kept as its own sheet for consistency with the
+  // team export rather than folded into Summary.
+  {
+    const level = displayRole(poa.owner.role, poa.owner.jabatan);
+    const monthMap = new Map<string, number>();
+    for (const it of allItems) {
+      const base = toNum(it.rencanaTotalBiaya);
+      const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
+      const nilaiPssp = base * toNum(it.persenPsspDokter) * pengaliNilaiR;
+      if (nilaiPssp === 0) continue;
+      const months = expandPeriodeMonths(it.periodeAwal, it.lamaPeriode);
+      const perBulan = nilaiPssp / months.length;
+      for (const m of months) monthMap.set(m, (monthMap.get(m) ?? 0) + perBulan);
+    }
+    const monthsSorted = [...monthMap.keys()].sort();
+    const wsPssp = wb.addWorksheet("Estimasi PSSP per Bulan");
+    wsPssp.columns = [
+      { header: "Level", key: "level", width: 14 },
+      ...monthsSorted.map((m) => ({ header: formatPeriode(m), key: m, width: 16 })),
+    ];
+    wsPssp.getRow(1).font = { bold: true, color: { argb: WHITE } };
+    wsPssp.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+    if (monthsSorted.length > 0) {
+      const row: Record<string, string | number> = { level };
+      for (const m of monthsSorted) row[m] = Math.round(monthMap.get(m) ?? 0);
+      wsPssp.addRow(row);
+      monthsSorted.forEach((m) => { wsPssp.getColumn(m).numFmt = '#,##0'; });
+    } else {
+      wsPssp.addRow(["(Tidak ada data Estimasi PSSP)"]);
+    }
+  }
 
   // ─── Sheet 2: Pengisian ──────────────────────────────────────────────────
   // Column set/order mirrors "Pengisian" sheet in
