@@ -1042,7 +1042,7 @@ function ProdukEntryRow({
         </label>
         <label className="flex flex-col gap-1" {...(qtyErr ? { "data-field-err": "true" } : {})}>
           <span className="text-xs" style={{ color: qtyErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
-            Jml Produk ST / Resep<Req />
+            Jml Produk ST / Pasien Baru<Req />
           </span>
           <div style={qtyErr ? ERR_RING : undefined}>
             <UnitInput
