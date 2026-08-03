@@ -119,7 +119,7 @@ Create vault agent inject config template for .env.production file
 {{ `{{ $key }}="{{ $value }}"` }}
 {{ `{{- end -}}` }}
 {{ printf "{{ with secret \"%s\" }}" .Values.vault.databaseSecretPath }}
-{{ `DATABASE_URL="postgresql://{{ .Data.username }}:{{ .Data.password }}@10.220.34.3:5432/form_poa"` }}
+{{ `DATABASE_URL="postgresql://{{ .Data.username }}:{{ .Data.password }}@vertex.default.svc.cluster.local:5432/form_poa"` }}
 {{ `{{- end -}}` }}
 {{ `{{- end -}}` }}
 {{- end }}
