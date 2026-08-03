@@ -312,12 +312,15 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 // ─── Stats Panel ─────────────────────────────────────────────────────────────
 
 export function StatsPanel({
-  items, selectedDoctorCount, totalDoctorCount, targetArea, salesFigures, salesIsReal = false, quarterMonths, activePssp = [],
+  items, selectedDoctorCount, totalDoctorCount, targetArea, targetAreaIsReal = false, salesFigures, salesIsReal = false, quarterMonths, activePssp = [],
 }: {
   items: PoaLineItem[];
   selectedDoctorCount: number;
   totalDoctorCount: number;
   targetArea: number;
+  /** True when targetArea came from real TargetHospitalValue data rather than
+   * the dummy placeholder — controls the "★" dummy-data marker below. */
+  targetAreaIsReal?: boolean;
   salesFigures: SalesFigures;
   /** True when salesFigures came from getMrSalesSummary (real MSSQL-sourced
    * data) rather than computeDummySales — hides the "data sementara" caveat. */
@@ -384,7 +387,7 @@ export function StatsPanel({
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
           { label: "Estimasi POA",  value: estimasiDisplay > 0 ? formatRp(estimasiDisplay) : "-", span: false },
-          { label: "Target Area ★", value: formatRp(targetArea), span: false },
+          { label: targetAreaIsReal ? "Target Area" : "Target Area ★", value: formatRp(targetArea), span: false },
           { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "-", span: true },
         ].map(({ label, value, span }) => (
           <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`}
@@ -839,7 +842,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], salesSummary }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], salesSummary, targetArea: targetAreaProp }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -862,6 +865,12 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
    * to this POA's own MR) — absent only if the caller genuinely couldn't
    * compute it, in which case the card shows zeros rather than a guess. */
   salesSummary?: SalesFigures;
+  /** Real Target Value for this MR's own GT(s), summed for this POA's quarter
+   * (TargetHospitalValue, server-computed — see poa/[id]/page.tsx). Falls back
+   * to the dummy placeholder only if the caller genuinely has none to give
+   * (e.g. an ASM/SM self-owned POA with no single "own GT" to sum — see the
+   * same MR-only scoping note on poa/[id]/page.tsx's targetValueFromGT). */
+  targetArea?: number;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -895,9 +904,10 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
     setChecked(checked.size === allKeys.length ? new Set() : new Set(allKeys));
   }
 
-  // targetArea is still a dummy stand-in (not affected by checklist selection);
+  // targetArea prefers the real server-computed Target Value (see poa/[id]/page.tsx);
+  // only falls back to the dummy placeholder when the caller has none to give.
   // salesFigures is the real server-computed summary for this POA's MR.
-  const targetArea = useMemo(() => computeDummyTarget(), []);
+  const targetArea = targetAreaProp ?? computeDummyTarget();
   const salesFigures: SalesFigures = salesSummary ?? {
     historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0,
   };
@@ -944,6 +954,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
             selectedDoctorCount={checked.size}
             totalDoctorCount={allKeys.length}
             targetArea={targetArea}
+            targetAreaIsReal={targetAreaProp != null}
             salesFigures={salesFigures}
             salesIsReal={!!salesSummary}
             quarterMonths={quarterMonths}
@@ -1048,6 +1059,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
           selectedDoctorCount={checked.size}
           totalDoctorCount={allKeys.length}
           targetArea={targetArea}
+          targetAreaIsReal={targetAreaProp != null}
           salesFigures={salesFigures}
           salesIsReal={!!salesSummary}
           quarterMonths={quarterMonths}

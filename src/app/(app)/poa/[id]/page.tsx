@@ -402,6 +402,7 @@ export default async function PoaDetailPage({
         activePssp={activePssp}
         focusProductTargets={focusProductTargets}
         salesSummary={salesSummary}
+        targetArea={targetValueFromGT ?? undefined}
       />
 
       {/* Actions — approver only (MR submit is inside DraftChecklist) */}
