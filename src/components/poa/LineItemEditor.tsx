@@ -2714,7 +2714,6 @@ function AddPanel({
                   <span><span style={{ color: "var(--color-text-faint)" }}>Kode Customer:</span> {selectedCustomer.kodeCustomer}</span>
                 )}
                 <span><span style={{ color: "var(--color-text-faint)" }}>Spesialisasi:</span> {spesLabel(selectedCustomer.spesialisasi)}</span>
-                <span><span style={{ color: "var(--color-text-faint)" }}>Kategori:</span> {selectedCustomer.spesialisasi.toLowerCase().includes("spesialis") ? "Dokter Spesialis" : "Dokter Umum"}</span>
                 {(() => {
                   const psspStatus = selectedCustomer.kodeCustomer ? psspStatusByCust.get(selectedCustomer.kodeCustomer) : undefined;
                   if (!psspStatus) return null;
