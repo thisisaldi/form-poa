@@ -13,6 +13,7 @@ import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
 import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { displayRole } from "@/lib/role";
 import { getMrSalesSummary } from "@/lib/salesSummary";
+import { quarterToMonths } from "@/lib/quarterUtils";
 
 export const metadata = { title: "Detail POA · Form POA" };
 
@@ -227,7 +228,26 @@ export default async function PoaDetailPage({
     }
   }
 
-  const target      = poa.target ? parseFloat(poa.target.toString()) : null;
+  // Target Value (2026-08-03) — monthly Rupiah sales target per GT, imported
+  // from "Target Hospital (in Value).xlsx" into TargetHospitalValue, summed
+  // over the months in this POA's quarter for the owning MR's own GT(s).
+  // poa.target (manual, set by atasan) still wins if it's ever populated —
+  // this only fills the gap while that field stays unused. MR-only: an
+  // ASM/SM's self-owned POA (vacant-team case) has no single "own GT" to sum,
+  // so the tile just falls back to "-" for those, same as before this feature.
+  let targetValueFromGT: number | null = null;
+  if (poa.owner.role === "MR" && /^\d{4}-Q[1-4]$/.test(poa.period)) {
+    const months = quarterToMonths(poa.period);
+    const rows = await prisma.targetHospitalValue.findMany({
+      where: { nipMR: poa.ownerId, periode: { in: months } },
+      select: { target: true },
+    });
+    if (rows.length > 0) {
+      targetValueFromGT = rows.reduce((sum: number, r: { target: { toString(): string } }) => sum + parseFloat(r.target.toString()), 0);
+    }
+  }
+
+  const target      = poa.target ? parseFloat(poa.target.toString()) : targetValueFromGT;
   const ratioEst    = target && target > 0 ? (estimasiTotal / target) * 100 : null;
   const pctBudget   = estimasiTotal > 0 ? (budgetWeighted / estimasiTotal) * 100 : null;
   const budgetOver  = pctBudget != null && pctBudget > 42.5;
