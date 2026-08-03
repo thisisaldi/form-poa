@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/Button";
 import {
   searchTargetHospitalValueAction,
   updateTargetHospitalValueAction,
-  TARGET_HOSPITAL_PERIODS,
   type TargetHospitalRow,
 } from "@/app/actions/targetHospitalValue";
+import { TARGET_HOSPITAL_PERIODS } from "@/lib/targetHospitalValue";
 
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;

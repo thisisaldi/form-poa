@@ -3,12 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-
-// Same 5 months the import script (scripts/importTargetHospitalValue.ts)
-// populates from "Target Hospital (in Value).xlsx" — kept in sync manually,
-// there's no calendar-derived source for which months this target program
-// actually covers.
-export const TARGET_HOSPITAL_PERIODS = ["202608", "202609", "202610", "202611", "202612"] as const;
+import { TARGET_HOSPITAL_PERIODS } from "@/lib/targetHospitalValue";
 
 interface Session { userId: string; role: string }
 
