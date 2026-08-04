@@ -1102,19 +1102,43 @@ async function SummaryContent({
   //     above scopes ownerId to mrNips (MR-only, see getSubordinateMRNips),
   //     so an ASM/SM's own vacant-team POA never reaches this page's dataset
   //     at all — unlike the export sheet, which has no such restriction.
+  //  3. by produk (top contributors — same "darimana aja" spirit)
   const poaPeriodMap = new Map(poas.map((p) => [p.id, p.period]));
   const poaOwnerLevelMap = new Map(poas.map((p) => [p.id, displayRole(mrUserByNip.get(p.ownerId)?.role ?? "MR", mrUserByNip.get(p.ownerId)?.jabatan)]));
   const estimasiByPeriod = new Map<string, number>();
   const estimasiByLevel = new Map<string, number>();
+  const estimasiByProduct = new Map<string, { name: string; value: number }>();
   for (const li of lineItems) {
     const value = toNum(li.rencanaTotalBiaya);
     const period = poaPeriodMap.get(li.poaId);
     if (period) estimasiByPeriod.set(period, (estimasiByPeriod.get(period) ?? 0) + value);
     const level = poaOwnerLevelMap.get(li.poaId);
     if (level) estimasiByLevel.set(level, (estimasiByLevel.get(level) ?? 0) + value);
+    const prod = estimasiByProduct.get(li.kodeProduk) ?? { name: li.namaProduk, value: 0 };
+    prod.value += value;
+    estimasiByProduct.set(li.kodeProduk, prod);
   }
   const estimasiByPeriodSorted = [...estimasiByPeriod.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const estimasiByLevelSorted = [...estimasiByLevel.entries()].sort((a, b) => b[1] - a[1]);
+  // Top 8 products by Estimasi — same spirit as "Per Produk" tab but
+  // condensed for the Ringkasan card (2026-08-04 request: "harusnya ada
+  // section produk juga"), not the full sortable table (that's what the
+  // "Per Produk" tab itself is for).
+  const TOP_PRODUK_COUNT = 8;
+  const estimasiByProductSorted = [...estimasiByProduct.entries()]
+    .sort((a, b) => b[1].value - a[1].value)
+    .slice(0, TOP_PRODUK_COUNT);
+  // Estimasi Tercacah per periode (2026-08-04 request: "ada estimasi
+  // tercacah per quartal juga") — same month-apportionment as
+  // ringkasanEstimasiTercacah above, just computed for EVERY period in
+  // estimasiByPeriodSorted instead of only quarterIni, so the "per Periode"
+  // breakdown can show both the full and the apportioned figure side by side.
+  const estimasiTercacahByPeriod = new Map(
+    estimasiByPeriodSorted.map(([period]) => [
+      period,
+      quarterToMonths(period).reduce((s, m) => s + (ringkasanMonthlyBreakdown.get(m)?.estimasi ?? 0), 0),
+    ])
+  );
 
   // Map groups → TerritoryTable shape (monitoringGroups removed with Ringkasan tab).
 
@@ -1152,23 +1176,34 @@ async function SummaryContent({
               the tile above is a single number that can quietly span more
               than one quarter (default window = quarterIni + quarterSebelumnya),
               so this spells out which periods/levels it's actually made of. */}
-          {(estimasiByPeriodSorted.length > 0 || estimasiByLevelSorted.length > 0) && (
-            <div className="mt-3 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+          {(estimasiByPeriodSorted.length > 0 || estimasiByLevelSorted.length > 0 || estimasiByProductSorted.length > 0) && (
+            <div className="mt-3 pt-3 grid grid-cols-1 lg:grid-cols-3 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
               {estimasiByPeriodSorted.length > 0 && (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
                     Total Estimasi per Periode
                   </p>
-                  <div className="space-y-1">
-                    {estimasiByPeriodSorted.map(([period, value]) => (
-                      <div key={period} className="flex justify-between text-xs">
-                        <span style={{ color: "var(--color-text-muted)" }}>{period}</span>
-                        <span style={{ color: "var(--color-text)" }}>
-                          {formatRp(value)}
-                          {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="space-y-1.5">
+                    {estimasiByPeriodSorted.map(([period, value]) => {
+                      const tercacah = estimasiTercacahByPeriod.get(period) ?? 0;
+                      return (
+                        <div key={period} className="text-xs">
+                          <div className="flex justify-between">
+                            <span style={{ color: "var(--color-text-muted)" }}>{period}</span>
+                            <span style={{ color: "var(--color-text)" }}>
+                              {formatRp(value)}
+                              {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
+                            </span>
+                          </div>
+                          {tercacah > 0 && (
+                            <div className="flex justify-between" style={{ color: "var(--color-text-faint)" }}>
+                              <span>Tercacah</span>
+                              <span>{formatRp(tercacah)}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1182,6 +1217,24 @@ async function SummaryContent({
                       <div key={level} className="flex justify-between text-xs">
                         <span style={{ color: "var(--color-text-muted)" }}>{level}</span>
                         <span style={{ color: "var(--color-text)" }}>
+                          {formatRp(value)}
+                          {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {estimasiByProductSorted.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
+                    Total Estimasi per Produk {estimasiByProduct.size > TOP_PRODUK_COUNT && `(Top ${TOP_PRODUK_COUNT})`}
+                  </p>
+                  <div className="space-y-1">
+                    {estimasiByProductSorted.map(([kodeProduk, { name, value }]) => (
+                      <div key={kodeProduk} className="flex justify-between gap-2 text-xs">
+                        <span className="truncate" style={{ color: "var(--color-text-muted)" }} title={name}>{name}</span>
+                        <span className="shrink-0 whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                           {formatRp(value)}
                           {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
                         </span>
@@ -1238,7 +1291,12 @@ async function SummaryContent({
             })}
             <div className="flex justify-between pt-2 text-sm font-semibold" style={{ borderTop: "1px solid var(--color-border)", color: "var(--color-text)" }}>
               <span>Total Budget</span>
-              <span>{formatRp(ringkasanBudgetTotal)}</span>
+              <span>
+                {formatRp(ringkasanBudgetTotal)}
+                {estimasiTotal > 0 && (
+                  <span className="font-normal text-xs" style={{ color: "var(--color-text-faint)" }}> · {((ringkasanBudgetTotal / estimasiTotal) * 100).toFixed(1)}%</span>
+                )}
+              </span>
             </div>
           </div>
 
