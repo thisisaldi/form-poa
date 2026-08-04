@@ -64,10 +64,25 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
   const user = await prisma.user.findUnique({ where: { nip: userId }, select: { isDummy: true, role: true } });
   if (user?.isDummy || user?.role === "ADMIN") return getCustomers();
 
-  const assignments = await prisma.mrOutletAssignment.findMany({
+  // MrOutletAssignment is synced monthly (@@unique [nipMR, kodePI, periode]) —
+  // one row per outlet PER MONTH, so querying without a periode filter pulled
+  // every month this MR has ever been synced, and the SAME outlet came back
+  // once per month it appeared in. Scoped the dropdown to just the latest
+  // synced periode instead of "this calendar month" (which could be all-empty
+  // if this month's sync hasn't run yet) — fixes the "Pilih Outlet" combobox
+  // showing duplicate entries per outlet and lagging under the inflated list
+  // (2026-08-04 bug report).
+  const latestAssignment = await prisma.mrOutletAssignment.findFirst({
     where: { nipMR: userId },
-    include: { outlet: true },
+    orderBy: { periode: "desc" },
+    select: { periode: true },
   });
+  const assignments = latestAssignment
+    ? await prisma.mrOutletAssignment.findMany({
+        where: { nipMR: userId, periode: latestAssignment.periode },
+        include: { outlet: true },
+      })
+    : [];
   const fromAssignments = assignments.map(({ outlet: o }: { outlet: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null; groupRS: string | null } }) =>
     toMockCustomer(o)
   );

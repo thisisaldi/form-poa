@@ -10,7 +10,7 @@ import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
 import { submitPoaWithSelectionAction } from "@/app/actions/poa";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
-import { quarterToMonths } from "@/lib/quarterUtils";
+import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
 import { computeMonthlyBreakdown, formatPeriode } from "@/lib/poaUtils";
@@ -185,6 +185,7 @@ function ActivePsspDoctorRow({ doctorRows, quarterMonths }: { doctorRows: Active
   // totalLunas is a real cumulative figure with no monthly breakdown to apportion meaningfully.
   const totalEstKuartal = doctorRows.reduce((s, r) => s + apportion(r.estBaris, r.prdAwal, r.prdAkhir, quarterMonths), 0);
   const lunasPct = totalEst > 0 ? (totalLunas / totalEst) * 100 : null;
+  const qLabel = quarterLabelFromMonths(quarterMonths);
 
   return (
     <div className="py-3 px-2 rounded-lg">
@@ -210,7 +211,7 @@ function ActivePsspDoctorRow({ doctorRows, quarterMonths }: { doctorRows: Active
             </p>
           )}
           <p className="text-xs mt-0.5" style={{ color: "var(--color-blue)" }}>
-            Estimasi Kuartal Ini: {formatRp(totalEstKuartal)}
+            Estimasi Kuartal {qLabel}: {formatRp(totalEstKuartal)}
           </p>
           <button
             type="button"
@@ -226,7 +227,7 @@ function ActivePsspDoctorRow({ doctorRows, quarterMonths }: { doctorRows: Active
           <table className="w-full text-xs">
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)" }}>
-                {["No. Kontrak", "Produk", "Biaya", "Periode", "Lunas", "Estimasi Kuartal Ini"].map((h) => (
+                {["No. Kontrak", "Produk", "Biaya", "Periode", "Lunas", `Estimasi Kuartal ${qLabel}`].map((h) => (
                   <th key={h} className="text-left px-2.5 py-1.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{h}</th>
                 ))}
               </tr>
@@ -365,6 +366,12 @@ export function StatsPanel({
 
   const monthlyBreakdown = useMemo(() => computeMonthlyBreakdown(items), [items]);
   const monthlyBreakdownSorted = [...monthlyBreakdown.keys()].sort();
+  const monthlyBreakdownTotal = [...monthlyBreakdown.values()].reduce(
+    (acc, v) => ({ estimasi: acc.estimasi + v.estimasi, nilaiPssp: acc.nilaiPssp + v.nilaiPssp }),
+    { estimasi: 0, nilaiPssp: 0 }
+  );
+
+  const qLabel = quarterLabelFromMonths(quarterMonths);
 
   const ratioEst     = targetArea > 0 ? (tercacahEstimasiWithAktif / targetArea) * 100 : 0;
   const salesPlusEst = salesFigures.salesYtd + s.estimasiTotal;
@@ -391,91 +398,22 @@ export function StatsPanel({
         </span>
       </div>
 
-      {/* ── 1. Estimasi vs Target ── */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        {[
-          { label: "Estimasi POA (Tercacah)", value: tercacahEstimasiWithAktif > 0 ? formatRp(tercacahEstimasiWithAktif) : "-", span: false },
-          { label: targetAreaIsReal ? "Target" : "Target ★", value: formatRp(targetArea), span: false },
-          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "-", span: true },
-        ].map(({ label, value, span }) => (
-          <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`}
-            style={{ background: BG, border: `1px solid ${BORDER}` }}>
-            <p className="text-xs" style={{ color: MUTED }}>{label}</p>
-            <p className={`font-bold leading-tight ${span ? "text-lg" : "text-base"}`} style={{ color: TEXT }}>{value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Ratio bar — no fixed pass/fail threshold, just a plain fill of the ratio itself */}
-      {ratioEst > 0 && (
-        <div className="mb-5 space-y-1">
-          <div className="flex justify-between text-xs" style={{ color: FAINT }}>
-            <span>0%</span>
-            <span>200%</span>
-          </div>
-          <div className="relative h-2 rounded-full overflow-hidden" style={{ background: BORDER }}>
-            <div className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(ratioEst / 2, 100)}%`, background: PRIMARY }} />
-          </div>
-        </div>
-      )}
-
-      {/* ── 2. Anggaran ── */}
-      <SectionTitle>Anggaran</SectionTitle>
-      <div className="space-y-2.5 mb-5">
-        {[
-          { label: "PSSP",               value: s.psspTotal },
-          { label: "Discount + DPL + DPF", value: s.discountTotal },
-          { label: "Entertain",          value: s.entertainTotal },
-        ].map(({ label, value }) => {
-          const pct = s.estimasiTotal > 0 ? (value / s.estimasiTotal) * 100 : 0;
-          const fmt = label === "PSSP" ? formatRpPssp : formatRp;
-          return (
-            <div key={label}>
-              <div className="flex justify-between text-xs mb-1">
-                <span style={{ color: MUTED }}>{label}</span>
-                <span style={{ color: TEXT }}>
-                  {value > 0 ? fmt(value) : "-"}
-                  {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
-                </span>
-              </div>
-              <Bar pct={pct * 5} color={PRIMARY} />
-            </div>
-          );
-        })}
-        {aktifPssp.kontrakTotal > 0 && (
-          <div>
-            <div className="flex justify-between text-xs mb-1">
-              <span style={{ color: MUTED }}>PSSP Aktif (kontrak berjalan)</span>
-              <span style={{ color: TEXT }}>{formatRp(aktifPssp.nilaiTotal)}</span>
-            </div>
-            <p className="text-xs" style={{ color: FAINT }}>
-              {aktifPssp.kontrakTotal} kontrak · {aktifPssp.dokterCount} user
-            </p>
-          </div>
-        )}
-        <div className="flex justify-between pt-2 text-sm font-semibold"
-          style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
-          <span>Total Budget</span>
-          <span>{formatRp(budgetTotalWithAktif)}</span>
-        </div>
-      </div>
-
-      {/* ── 2b. Estimasi & Nilai PSSP — PSSP Berjalan vs POA, Tercacah vs Bukan Tercacah ──
-          Tercacah = apportioned to just this POA's quarter. Bukan Tercacah = full
-          period as originally planned/contracted. Kept as two clearly-labeled tables
-          (not blended into one number) so it's unambiguous which slice of which
-          source a figure represents. */}
+      {/* ── 1. Estimasi & Nilai PSSP — PSSP Berjalan vs POA, Tercacah vs Bukan Tercacah ──
+          Moved to the top (2026-08-04 request) so it's immediately visible, above
+          the fold. Tercacah = apportioned to just this POA's quarter. Bukan
+          Tercacah = full period as originally planned/contracted. Kept as two
+          clearly-labeled tables (not blended into one number) so it's unambiguous
+          which slice of which source a figure represents. */}
       {(tercacahEstimasiWithAktif > 0 || tercacahNilaiPsspWithAktif > 0 ||
         estimasiDisplay > 0 || (s.psspTotal + aktifPssp.nilaiTotal) > 0) && (
         <div className="mb-5 space-y-3">
           {[
             {
-              title: "Tercacah (Kuartal Ini)",
+              title: `Tercacah (Kuartal ${qLabel})`,
               rows: [
-                { label: "PSSP Berjalan", estimasi: aktifPssp.estBarisTercacah, nilai: aktifPssp.nilaiTercacah },
-                { label: "POA",           estimasi: tercacah.estimasi,          nilai: tercacah.nilaiPssp },
-                { label: "Total",         estimasi: tercacahEstimasiWithAktif,  nilai: tercacahNilaiPsspWithAktif, bold: true },
+                { label: `PSSP Aktif ${qLabel}`, estimasi: aktifPssp.estBarisTercacah, nilai: aktifPssp.nilaiTercacah },
+                { label: `POA ${qLabel}`,        estimasi: tercacah.estimasi,          nilai: tercacah.nilaiPssp },
+                { label: "Total",                estimasi: tercacahEstimasiWithAktif,  nilai: tercacahNilaiPsspWithAktif, bold: true },
               ],
             },
             {
@@ -516,9 +454,11 @@ export function StatsPanel({
         </div>
       )}
 
-      {/* ── 2c. Estimasi & Nilai PSSP per Bulan — same rata-rata spread across
+      {/* ── 2. Estimasi & Nilai PSSP per Bulan — same rata-rata spread across
           periodeAwal..periodeAkhir as the "Estimasi PSSP per Bulan" Excel sheet,
-          shown here too so the monthly breakdown isn't Excel-only (2026-08-04). */}
+          shown here too so the monthly breakdown isn't Excel-only (2026-08-04).
+          Ordered right after Tercacah/Bukan Tercacah (2026-08-04 request: Tercacah
+          → Full Periode → Per Bulan), not after Anggaran. */}
       {monthlyBreakdownSorted.length > 0 && (
         <div className="mb-5">
           <SectionTitle>Estimasi & Nilai PSSP per Bulan</SectionTitle>
@@ -542,13 +482,74 @@ export function StatsPanel({
                     </tr>
                   );
                 })}
+                <tr style={{ borderTop: `1px solid ${BORDER}`, fontWeight: 600 }}>
+                  <td className="px-3 py-1.5" style={{ color: TEXT }}>Total</td>
+                  <td className="text-right px-3 py-1.5" style={{ color: TEXT }}>{formatRp(monthlyBreakdownTotal.estimasi)}</td>
+                  <td className="text-right px-3 py-1.5" style={{ color: TEXT }}>{formatRpPssp(monthlyBreakdownTotal.nilaiPssp)}</td>
+                </tr>
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* ── 3. Cakupan ── */}
+      {/* ── 3. Estimasi vs Target ── */}
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        {[
+          { label: "Estimasi POA (Tercacah)", value: tercacahEstimasiWithAktif > 0 ? formatRp(tercacahEstimasiWithAktif) : "-", span: false },
+          { label: targetAreaIsReal ? "Target" : "Target ★", value: formatRp(targetArea), span: false },
+          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "-", span: true },
+        ].map(({ label, value, span }) => (
+          <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`}
+            style={{ background: BG, border: `1px solid ${BORDER}` }}>
+            <p className="text-xs" style={{ color: MUTED }}>{label}</p>
+            <p className={`font-bold leading-tight ${span ? "text-lg" : "text-base"}`} style={{ color: TEXT }}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── 4. Anggaran ── */}
+      <SectionTitle>Anggaran</SectionTitle>
+      <div className="space-y-2.5 mb-5">
+        {[
+          { label: "PSSP",               value: s.psspTotal },
+          { label: "Discount + DPL + DPF", value: s.discountTotal },
+          { label: "Entertain",          value: s.entertainTotal },
+        ].map(({ label, value }) => {
+          const pct = s.estimasiTotal > 0 ? (value / s.estimasiTotal) * 100 : 0;
+          const fmt = label === "PSSP" ? formatRpPssp : formatRp;
+          return (
+            <div key={label}>
+              <div className="flex justify-between text-xs mb-1">
+                <span style={{ color: MUTED }}>{label}</span>
+                <span style={{ color: TEXT }}>
+                  {value > 0 ? fmt(value) : "-"}
+                  {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
+                </span>
+              </div>
+              <Bar pct={pct * 5} color={PRIMARY} />
+            </div>
+          );
+        })}
+        {aktifPssp.kontrakTotal > 0 && (
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span style={{ color: MUTED }}>PSSP Aktif (kontrak berjalan)</span>
+              <span style={{ color: TEXT }}>{formatRp(aktifPssp.nilaiTotal)}</span>
+            </div>
+            <p className="text-xs" style={{ color: FAINT }}>
+              {aktifPssp.kontrakTotal} kontrak · {aktifPssp.dokterCount} user
+            </p>
+          </div>
+        )}
+        <div className="flex justify-between pt-2 text-sm font-semibold"
+          style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
+          <span>Total Budget</span>
+          <span>{formatRp(budgetTotalWithAktif)}</span>
+        </div>
+      </div>
+
+      {/* ── 5. Cakupan ── */}
       <SectionTitle>Cakupan</SectionTitle>
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
@@ -578,7 +579,7 @@ export function StatsPanel({
         </div>
       </div>
 
-      {/* ── 4. Listing / Standarisasi ── */}
+      {/* ── 6. Listing / Standarisasi ── */}
       <SectionTitle>Listing Produk</SectionTitle>
       <div className="mb-5 space-y-2">
         {s.totalPengajuan > 0 ? (
@@ -603,7 +604,7 @@ export function StatsPanel({
         )}
       </div>
 
-      {/* ── 5. Data Sales (collapsible) ── */}
+      {/* ── 7. Data Sales (collapsible) ── */}
       <button
         type="button"
         onClick={() => setSalesOpen((v) => !v)}
@@ -728,6 +729,7 @@ function DoctorRow({
   // this purpose (2026-08-04, item #11), not two separate conditions.
   const hasPsspNow = !isDokterBaru && !!everPsspKodeCust?.has(first.kodeCust!);
   const noPsspHistory = !hasPsspNow;
+  const qLabel = quarterLabelFromMonths(quarterMonths);
   // first.labelCustomer is a SNAPSHOT taken when this line item was created
   // (computeLabelCustomer in LineItemEditor.tsx, saved once into
   // PoaLineItem.labelCustomer) — it never gets recomputed afterward. A
@@ -817,7 +819,7 @@ function DoctorRow({
           {!noPsspHistory && (rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
             <div className="mt-1.5">
               <StatTile
-                label="Tercacah (Kuartal Ini)"
+                label={`Tercacah (Kuartal ${qLabel})`}
                 value={formatRp(rowTercacah.estimasi)}
                 sub={rowTercacah.nilaiPssp > 0 ? `Nilai PSSP ${formatRpPssp(rowTercacah.nilaiPssp)}` : undefined}
               />

@@ -38,14 +38,22 @@ function computeStandarisasiIndicator(entries: { kodeProduk: string; statusStand
   return { status: "SUDAH", label: "Sudah Listing", color: "var(--color-success, #16a34a)", bg: "var(--color-success-bg, #dcfce7)" };
 }
 
-function StandarisasiIndicator({ entries }: { entries: { kodeProduk: string; statusStandarisasi: string }[] }) {
+// compact = dot + short word only (for narrow table cells, e.g. the per-produk
+// breakdown table) — full pill w/ long label is for the "Total Semua Produk"
+// header where there's room to spell it out.
+const STANDARISASI_SHORT_LABEL: Record<"SUDAH" | "PROSES" | "BELUM", string> = {
+  SUDAH: "Sudah", PROSES: "Proses", BELUM: "Belum",
+};
+
+function StandarisasiIndicator({ entries, compact = false }: { entries: { kodeProduk: string; statusStandarisasi: string }[]; compact?: boolean }) {
   const indicator = computeStandarisasiIndicator(entries);
   if (!indicator) return null;
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full"
-      style={{ background: indicator.bg, color: indicator.color }}>
-      <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: indicator.color }} />
-      {indicator.label}
+      style={{ background: indicator.bg, color: indicator.color }}
+      title={compact ? indicator.label : undefined}>
+      <span className="inline-block rounded-full shrink-0" style={{ width: 7, height: 7, background: indicator.color }} />
+      {compact ? STANDARISASI_SHORT_LABEL[indicator.status] : indicator.label}
     </span>
   );
 }
@@ -2269,7 +2277,7 @@ function AddPanel({
   // load even though the save had already succeeded (2026-07-28 bug report).
   const savedRef = useRef(false);
 
-  const outletOptions = useMemo(() => [...outlets]
+  const outletOptions = useMemo(() => [...new Map(outlets.map((o) => [o.kodePI, o])).values()]
     .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
     .map((o) => ({
       value: o.kodePI,
@@ -2874,12 +2882,9 @@ function AddPanel({
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                  Total Semua Produk
-                </p>
-                <StandarisasiIndicator entries={produkList} />
-              </div>
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Total Semua Produk
+              </p>
               {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
                   fields at the top of the form) — customer-level, shared across
                   every product for this doctor. */}
@@ -2957,13 +2962,14 @@ function AddPanel({
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "11%" }} />
                   <col style={{ width: "9%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "17.5%" }} />
-                  <col style={{ width: "17.5%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "15%" }} />
                 </colgroup>
                 <thead>
                   <tr style={{ color: "var(--color-text-faint)" }}>
@@ -2974,6 +2980,7 @@ function AddPanel({
                     <th className="text-right font-medium pb-1">% Budget</th>
                     <th className="text-right font-medium pb-1">Growth Estimasi</th>
                     <th className="text-right font-medium pb-1">Growth Pelunasan</th>
+                    <th className="text-right font-medium pb-1">Standarisasi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3044,6 +3051,9 @@ function AddPanel({
                           style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "-"}
                         </td>
+                        <td className="py-1 text-right">
+                          <StandarisasiIndicator entries={[entry]} compact />
+                        </td>
                       </tr>
                     );
                   })}
@@ -3106,7 +3116,7 @@ function AddDokterBaruPanel({
     getCustomersByOutlet(kodePI).then(setCustomerList);
   }, [kodePI]);
 
-  const outletOptions = useMemo(() => [...outlets]
+  const outletOptions = useMemo(() => [...new Map(outlets.map((o) => [o.kodePI, o])).values()]
     .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
     .map((o) => ({
       value: o.kodePI,
@@ -3805,12 +3815,9 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                  Total Semua Produk
-                </p>
-                <StandarisasiIndicator entries={produkList} />
-              </div>
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Total Semua Produk
+              </p>
               {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
                   fields at the top of the form) — customer-level, shared across
                   every product for this doctor. */}
@@ -3888,13 +3895,14 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "11%" }} />
+                  <col style={{ width: "11%" }} />
                   <col style={{ width: "9%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "12%" }} />
-                  <col style={{ width: "10%" }} />
-                  <col style={{ width: "17.5%" }} />
-                  <col style={{ width: "17.5%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "15%" }} />
                 </colgroup>
                 <thead>
                   <tr style={{ color: "var(--color-text-faint)" }}>
@@ -3905,6 +3913,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                     <th className="text-right font-medium pb-1">% Budget</th>
                     <th className="text-right font-medium pb-1">Growth Estimasi</th>
                     <th className="text-right font-medium pb-1">Growth Pelunasan</th>
+                    <th className="text-right font-medium pb-1">Standarisasi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3974,6 +3983,9 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                             : undefined}
                           style={{ color: growthPelunasanPct == null ? "var(--color-text-faint)" : growthPelunasanPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
                           {growthPelunasanPct != null ? `${growthPelunasanPct >= 0 ? "+" : ""}${growthPelunasanPct.toFixed(1)}%` : "-"}
+                        </td>
+                        <td className="py-1 text-right">
+                          <StandarisasiIndicator entries={[entry]} compact />
                         </td>
                       </tr>
                     );

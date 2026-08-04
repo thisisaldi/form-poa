@@ -10,19 +10,12 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { PoaDetailTabs } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
 import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
-import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { displayRole } from "@/lib/role";
 import { getMrSalesSummary } from "@/lib/salesSummary";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { EditQuarterControl } from "@/components/poa/EditQuarterControl";
 
 export const metadata = { title: "Detail POA · Form POA" };
-
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
   CREATE: "membuat draft",
@@ -216,25 +209,6 @@ export default async function PoaDetailPage({
     );
   }
 
-  // Estimasi Produk Fokus — same total, filtered to items whose product is tier-0
-  // (focus) for that item's own spesialisasi (a POA can span multiple doctors/spesialisasi).
-  let estimasiFokusTotal = 0, produkFokusCount = 0;
-  const paketCache = new Map<string, string[]>();
-  for (const it of allItems) {
-    const base = toNum(it.rencanaTotalBiaya);
-    if (base <= 0) continue;
-    let pakets = paketCache.get(it.spesialisasi);
-    if (!pakets) {
-      pakets = getPaketsBySpesialisasi(it.spesialisasi);
-      paketCache.set(it.spesialisasi, pakets);
-    }
-    if (pakets.length === 0) continue;
-    if (getProductTier(it.namaProduk, pakets) === 0) {
-      estimasiFokusTotal += base;
-      produkFokusCount++;
-    }
-  }
-
   // Target Value (2026-08-03, widened same day — stakeholder item #11: label
   // "Target Area" → "Target", calculation = SUM dari Personil) — monthly
   // Rupiah sales target per GT, imported from "Target Hospital (in
@@ -285,29 +259,12 @@ export default async function PoaDetailPage({
             )}
           </p>
 
-          {/* Stats bar */}
+          {/* Stats bar — Target/Estimasi/Estimasi Produk Fokus removed (2026-08-04
+              request): duplicated the same figures already shown in the "Ringkasan
+              POA" panel (StatsPanel) further down, this bar now only keeps the two
+              ratio figures that panel doesn't surface. */}
           {allItems.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-              <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Target</p>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                  {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi</p>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                  {estimasiTotal > 0 ? formatRp(estimasiTotal) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Fokus</p>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                  {estimasiFokusTotal > 0
-                    ? <>{formatRp(estimasiFokusTotal)} <span style={{ color: "var(--color-text-faint)", fontWeight: 400 }}>({produkFokusCount})</span></>
-                    : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
-                </p>
-              </div>
               <div>
                 <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Ratio %</p>
                 <p className="text-sm font-semibold"

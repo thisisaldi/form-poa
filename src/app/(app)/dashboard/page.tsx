@@ -319,9 +319,13 @@ async function DashboardContent({
         )}
         {/* SFE is monitoring-only (2026-07-24) — the full team export goes
             well past what /summary shows, so it's hidden here too (see
-            matching block in /api/export/team). */}
+            matching block in /api/export/team). No ?period= here (2026-08-04
+            request) — default export is every quarter the team has data for,
+            not just the one mrProgressPeriod picks out for the panel below;
+            /api/export/team still accepts ?period= for a scoped export, just
+            nothing in the UI links to that variant right now. */}
         {!isMR && session.role !== "SFE" && (
-          <a href={mrProgressPeriod ? `/api/export/team?period=${mrProgressPeriod}` : "/api/export/team"}>
+          <a href="/api/export/team">
             <Button variant="secondary" size="sm">↓ Export Excel</Button>
           </a>
         )}

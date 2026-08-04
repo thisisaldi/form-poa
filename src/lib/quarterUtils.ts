@@ -25,3 +25,17 @@ export function quarterToMonths(quarter: string): string[] {
   const startMonth = (q - 1) * 3 + 1;
   return [0, 1, 2].map((i) => toYYYYMM(year, startMonth + i));
 }
+
+/**
+ * First month of a quarterToMonths()-shaped array (e.g. ["202607","202608","202609"])
+ * -> "Q3", for labeling "Kuartal Q3" instead of the vaguer "Kuartal Ini" (2026-08-04
+ * request). Falls back to "Ini" when months is empty/malformed rather than throwing —
+ * these labels sit in read-only display text, not worth a hard failure over.
+ */
+export function quarterLabelFromMonths(months: string[]): string {
+  const m = months[0];
+  if (!m || m.length !== 6) return "Ini";
+  const month = parseInt(m.slice(4, 6), 10);
+  if (isNaN(month) || month < 1 || month > 12) return "Ini";
+  return `Q${Math.ceil(month / 3)}`;
+}

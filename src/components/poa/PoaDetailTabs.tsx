@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { DraftChecklist, ActivePsspListCard, formatRp } from "@/components/poa/DraftChecklist";
-import { quarterToMonths } from "@/lib/quarterUtils";
+import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
 import type { ActivePsspRow } from "@/app/actions/customer";
 
@@ -53,6 +53,7 @@ export function PoaDetailTabs({
     () => computeActivePsspStats(activePssp, quarterMonths),
     [activePssp, quarterMonths]
   );
+  const qLabel = quarterLabelFromMonths(quarterMonths);
 
   const focusWithTarget = focusProductTargets.filter((p) => p.quarterlyTargetQty > 0);
   const focusTotalQty = focusProductTargets.reduce((s, p) => s + p.quarterlyTargetQty, 0);
@@ -94,7 +95,7 @@ export function PoaDetailTabs({
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                    Target Produk Fokus (Kuartal Ini)
+                    Target Produk Fokus (Kuartal {qLabel})
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
                     {focusWithTarget.length} dari {focusProductTargets.length} produk fokus punya target · total {Math.round(focusTotalQty).toLocaleString("id-ID")} unit ({formatRp(focusTotalValue)}) ·
@@ -145,7 +146,7 @@ export function PoaDetailTabs({
         focusProductTargets.length > 0 ? (
           <Card>
             <CardHeader>
-              <CardTitle>Target Produk Fokus (Kuartal Ini)</CardTitle>
+              <CardTitle>Target Produk Fokus (Kuartal {qLabel})</CardTitle>
             </CardHeader>
             <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
               Target kuantitas &amp; nilai per produk fokus untuk territory SM dari MR ini, {poaPeriod} -
