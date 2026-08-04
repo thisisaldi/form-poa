@@ -175,7 +175,9 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
   if (val == null) return "-";
   const n = parseFloat(val.toString());
   if (isNaN(n)) return "-";
-  return "Rp " + Math.round(n).toLocaleString("id-ID");
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return Math.round(n).toLocaleString("id-ID");
 }
 
 function hargaST(product: Product): number {

@@ -11,7 +11,9 @@ import {
 import type { QuarterlyFocusSummary } from "@/lib/targetCalculation";
 
 function formatRp(n: number) {
-  return "Rp " + Math.round(n).toLocaleString("id-ID");
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return Math.round(n).toLocaleString("id-ID");
 }
 function formatQty(n: number) {
   return Math.round(n).toLocaleString("id-ID");
