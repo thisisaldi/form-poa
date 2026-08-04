@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 
 const isMock = process.env.USE_MOCK_DB === "true";
 
@@ -35,6 +36,35 @@ type Env = z.infer<typeof envSchema>;
 function validateEnv(): Env {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
+    // `next build`'s "Collecting page data" step imports every route module
+    // (via Turbopack) to determine static/dynamic behavior — including this
+    // file, transitively, even from pages that never touch the DB. Real
+    // secrets only exist at container RUNTIME (Vault Agent writes
+    // .env.$NAMESPACE, sourced by scripts/start.sh right before the server
+    // process starts) — the build image itself never has them. Throwing here
+    // broke every production build once a new import chain (customer.ts ->
+    // exodusApi.ts -> env.ts) became reachable from page-data collection
+    // (2026-08-05 incident: "Environment validation failed: DATABASE_URL/
+    // MSSQL_CONNECTION_STRING/SESSION_SECRET ... received undefined" during
+    // "Collecting page data", not at actual server startup). Placeholder
+    // values here are never used for real I/O — no page does real DB/session
+    // work during the build phase, only at request time once the server is
+    // actually running (when NEXT_PHASE is no longer phase-production-build
+    // and this validation is fully enforced again).
+    if (process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD) {
+      return {
+        DATABASE_URL: "build-phase-placeholder",
+        MSSQL_CONNECTION_STRING: "build-phase-placeholder",
+        SESSION_SECRET: "build-phase-placeholder-not-a-real-secret-00",
+        EMAIL_FROM: "noreply@example.com",
+        RESEND_API_KEY: undefined,
+        EXODUS_AUTH_URL: undefined,
+        EXODUS_AUTH_CLIENT_ID: undefined,
+        EXODUS_AUTH_CLIENT_SECRET: undefined,
+        EXODUS_API_BASE_URL: undefined,
+        NODE_ENV: (process.env.NODE_ENV as Env["NODE_ENV"]) ?? "production",
+      };
+    }
     const issues = result.error.issues
       .map((i) => `  • ${i.path.join(".")}: ${i.message}`)
       .join("\n");
