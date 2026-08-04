@@ -398,10 +398,11 @@ export function StatsPanel({
         </span>
       </div>
 
-      {/* ── 1. Estimasi & Nilai PSSP — PSSP Berjalan vs POA, Tercacah vs Bukan Tercacah ──
+      {/* ── 1. Estimasi & Nilai PSSP — PSSP Berjalan vs POA, Bukan Tercacah vs Tercacah ──
           Moved to the top (2026-08-04 request) so it's immediately visible, above
-          the fold. Tercacah = apportioned to just this POA's quarter. Bukan
-          Tercacah = full period as originally planned/contracted. Kept as two
+          the fold. Bukan Tercacah = full period as originally planned/contracted.
+          Tercacah = apportioned to just this POA's quarter. Order corrected
+          2026-08-05: Full Periode first, then Tercacah (was swapped). Kept as two
           clearly-labeled tables (not blended into one number) so it's unambiguous
           which slice of which source a figure represents. */}
       {(tercacahEstimasiWithAktif > 0 || tercacahNilaiPsspWithAktif > 0 ||
@@ -409,19 +410,19 @@ export function StatsPanel({
         <div className="mb-5 space-y-3">
           {[
             {
+              title: "Full Periode",
+              rows: [
+                { label: "PSSP Berjalan", estimasi: aktifPssp.estBarisTotal,          nilai: aktifPssp.nilaiTotal },
+                { label: "POA",           estimasi: s.estimasiTotal,                 nilai: s.psspTotal },
+                { label: "Total",         estimasi: estimasiDisplay,                 nilai: s.psspTotal + aktifPssp.nilaiTotal, bold: true },
+              ],
+            },
+            {
               title: `Tercacah (Kuartal ${qLabel})`,
               rows: [
                 { label: `PSSP Aktif ${qLabel}`, estimasi: aktifPssp.estBarisTercacah, nilai: aktifPssp.nilaiTercacah },
                 { label: `POA ${qLabel}`,        estimasi: tercacah.estimasi,          nilai: tercacah.nilaiPssp },
                 { label: "Total",                estimasi: tercacahEstimasiWithAktif,  nilai: tercacahNilaiPsspWithAktif, bold: true },
-              ],
-            },
-            {
-              title: "Bukan Tercacah (Full Periode)",
-              rows: [
-                { label: "PSSP Berjalan", estimasi: aktifPssp.estBarisTotal,          nilai: aktifPssp.nilaiTotal },
-                { label: "POA",           estimasi: s.estimasiTotal,                 nilai: s.psspTotal },
-                { label: "Total",         estimasi: estimasiDisplay,                 nilai: s.psspTotal + aktifPssp.nilaiTotal, bold: true },
               ],
             },
           ].map(({ title, rows }) => (
@@ -531,20 +532,32 @@ export function StatsPanel({
             </div>
           );
         })}
-        {aktifPssp.kontrakTotal > 0 && (
-          <div>
-            <div className="flex justify-between text-xs mb-1">
-              <span style={{ color: MUTED }}>PSSP Aktif (kontrak berjalan)</span>
-              <span style={{ color: TEXT }}>{formatRp(aktifPssp.nilaiTotal)}</span>
-            </div>
-            <p className="text-xs" style={{ color: FAINT }}>
-              {aktifPssp.kontrakTotal} kontrak · {aktifPssp.dokterCount} user
-            </p>
+        {/* Biaya Aktif vs Biaya Pengajuan (POA Baru), separated instead of blended
+            straight into one "Total Budget" line (2026-08-05, stakeholder item #9:
+            "Biaya Estimasi Tercacah di Ringkasan Draft — breakdown Estimasi Aktif,
+            Biaya Aktif, dan Total Setelah Akumulasi POA Baru"). Biaya Pengajuan is
+            the subtotal of the PSSP/Discount/Entertain bars above (= s.budgetTotal);
+            Biaya Aktif is the still-running PSSP contracts' own budget contribution. */}
+        <div className="pt-2 space-y-1.5" style={{ borderTop: `1px solid ${BORDER}` }}>
+          <div className="flex justify-between text-xs">
+            <span style={{ color: MUTED }}>Biaya Pengajuan (POA Baru)</span>
+            <span style={{ color: TEXT }}>{s.budgetTotal > 0 ? formatRp(s.budgetTotal) : "-"}</span>
           </div>
-        )}
+          {aktifPssp.kontrakTotal > 0 && (
+            <div>
+              <div className="flex justify-between text-xs">
+                <span style={{ color: MUTED }}>Biaya Aktif (PSSP Berjalan)</span>
+                <span style={{ color: TEXT }}>{formatRp(aktifPssp.nilaiTotal)}</span>
+              </div>
+              <p className="text-xs" style={{ color: FAINT }}>
+                {aktifPssp.kontrakTotal} kontrak · {aktifPssp.dokterCount} user
+              </p>
+            </div>
+          )}
+        </div>
         <div className="flex justify-between pt-2 text-sm font-semibold"
           style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
-          <span>Total Budget</span>
+          <span>Total Setelah Akumulasi POA Baru</span>
           <span>{formatRp(budgetTotalWithAktif)}</span>
         </div>
       </div>
