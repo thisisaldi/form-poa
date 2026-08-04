@@ -497,7 +497,7 @@ function periodeAwalFormatError(periodeAwal: string, quarterPeriod: string): str
   return null;
 }
 
-function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, bentukPsspError, showCustomerLevelFields = true }: {
+function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, bentukPsspError, showCustomerLevelFields = true, kodeCustomer, kodePI }: {
   fields: DokterFields;
   onChange: (patch: Partial<DokterFields>) => void;
   poaPeriod: string;
@@ -513,6 +513,11 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
    * Pengali Nilai R is also doctor-level but lives in the "Total Semua
    * Produk" section instead (2026-07-28 request), not here. */
   showCustomerLevelFields?: boolean;
+  /** Feeds the "Histori Visit (3 Bulan Terakhir)" hint under Rencana Visit /
+   * Bulan below — undefined (e.g. brand-new doctor not registered yet in
+   * AddDokterBaruPanel) just hides the hint, see VisitHistoryHint. */
+  kodeCustomer?: string;
+  kodePI?: string;
 }) {
   const lamaPeriodeTooLong = fields.lamaPeriode > 12;
   const lamaPeriodeError = lamaPeriodeTooLong || !!lamaPeriodeRequiredError;
@@ -579,6 +584,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
               value={fields.rencanaVisitMinggu}
               onChange={(v) => onChange({ rencanaVisitMinggu: v })}
               unit="Kali" />
+            <VisitHistoryHint kodeCustomer={kodeCustomer} kodePI={kodePI} />
           </label>
         </div>
       </div>
@@ -1687,13 +1693,15 @@ function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
 
 // Histori Visit Per Outlet Per Customer, akumulasi 3 bulan terakhir
 // (2026-08-04, stakeholder item #7) — sumber dari API eksternal Exodus
-// Activity (src/lib/exodusApi.ts via getVisitHistoryByCustomerOutlet), BEDA
-// dari histori PSSP/Listing Fee di atas (yang dari DB lokal) — jadi return
-// `null`-nya (bukan array kosong) berarti "API-nya gak kekonfigurasi/gak
-// bisa diakses", ditampilin beda dari "API oke tapi datanya nihil" (array
-// dengan totalVisits 0), biar gak kebaca seolah dokter ini genuinely belum
-// pernah dikunjungi padahal cuma API-nya yang lagi bermasalah.
-function VisitHistoryPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodePI?: string }) {
+// Activity (src/lib/exodusApi.ts via getVisitHistoryByCustomerOutlet).
+// Dipasang sebagai info kecil di bawah field "Rencana Visit / Bulan"
+// (DokterFieldsSection) — bukan panel sidebar terpisah, sesuai arahan user
+// "masukkin ke input form-nya". `summary === null` (API belum kekonfigurasi/
+// gak bisa diakses) sengaja gak dibedain dari "belum ada histori" di sini —
+// ini cuma info sekunder/kecil, bukan alur utama, jadi kalau gak ada apa-apa
+// buat ditampilin, hint-nya cukup gak dirender sama sekali (beda dari sidebar
+// Histori PSSP yang emang pusat perhatian sendiri dan butuh state eksplisit).
+function VisitHistoryHint({ kodeCustomer, kodePI }: { kodeCustomer?: string; kodePI?: string }) {
   const [summary, setSummary] = useState<VisitHistorySummary | null>(null);
   const [loading, startLoad] = useTransition();
 
@@ -1703,43 +1711,12 @@ function VisitHistoryPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kod
     });
   }, [kodeCustomer, kodePI]);
 
-  if (loading) {
-    return (
-      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
-        Memuat histori visit…
-      </div>
-    );
-  }
-
-  if (summary === null) {
-    return (
-      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
-        Data visit tidak tersedia.
-      </div>
-    );
-  }
+  if (!kodeCustomer || !kodePI || loading || summary === null) return null;
 
   return (
-    <div className="rounded-lg border px-3 py-2.5 space-y-2"
-      style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Kunjungan</span>
-        <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{summary.totalVisits}</span>
-      </div>
-      {summary.byNip.length > 1 && (
-        <div className="space-y-1">
-          {summary.byNip.map((r) => (
-            <div key={r.nip} className="flex items-center justify-between text-xs">
-              <span className="font-mono" style={{ color: "var(--color-text-muted)" }}>{r.nip}</span>
-              <span style={{ color: "var(--color-text)" }}>{r.total}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-        Periode {summary.periodeAwal} - {summary.periodeAkhir}
-      </p>
-    </div>
+    <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+      Histori Visit ({summary.periodeAwal}-{summary.periodeAkhir}): <strong style={{ color: "var(--color-text-muted)" }}>{summary.totalVisits}× kunjungan</strong>
+    </p>
   );
 }
 
@@ -2198,12 +2175,6 @@ function PsspSidebar({
         ) : (
           <>
             <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
-                Histori Visit (3 Bulan Terakhir)
-              </p>
-              <VisitHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
-            </div>
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
                 Histori Listing Fee
@@ -2805,6 +2776,8 @@ function AddPanel({
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
           bentukPsspError={attempted && !dokterFields.bentukPssp}
+          kodeCustomer={selectedCustomer?.kodeCustomer ?? undefined}
+          kodePI={kodePI || undefined}
         />
 
         {/* Products */}
@@ -3399,6 +3372,8 @@ function AddProductPanel({
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
           bentukPsspError={attempted && !dokterFields.bentukPssp}
           showCustomerLevelFields={false}
+          kodeCustomer={kodeCust ?? undefined}
+          kodePI={kodePI}
         />
 
         <div>
