@@ -16,6 +16,15 @@ const envSchema = z.object({
   // Optional — email provider credentials, added when provider is chosen
   EMAIL_FROM: z.string().optional().default("noreply@example.com"),
   RESEND_API_KEY: z.string().optional(),
+  // Optional — Exodus external API (Pharos), visit history (see
+  // src/lib/exodusApi.ts). Different client_secret/URLs per environment
+  // (develop/staging/production) — set via Vault per deployment, not baked
+  // into the image. Feature degrades to "no data" when unset, same as
+  // RESEND_API_KEY above, rather than failing env validation.
+  EXODUS_AUTH_URL: z.string().optional(),
+  EXODUS_AUTH_CLIENT_ID: z.string().optional(),
+  EXODUS_AUTH_CLIENT_SECRET: z.string().optional(),
+  EXODUS_API_BASE_URL: z.string().optional(),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),

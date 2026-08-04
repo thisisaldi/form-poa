@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow } from "@/app/actions/customer";
+import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
 import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
@@ -1685,6 +1685,64 @@ function ListingFeeHistoryPanel({ kodeCustomer }: { kodeCustomer: string }) {
   );
 }
 
+// Histori Visit Per Outlet Per Customer, akumulasi 3 bulan terakhir
+// (2026-08-04, stakeholder item #7) — sumber dari API eksternal Exodus
+// Activity (src/lib/exodusApi.ts via getVisitHistoryByCustomerOutlet), BEDA
+// dari histori PSSP/Listing Fee di atas (yang dari DB lokal) — jadi return
+// `null`-nya (bukan array kosong) berarti "API-nya gak kekonfigurasi/gak
+// bisa diakses", ditampilin beda dari "API oke tapi datanya nihil" (array
+// dengan totalVisits 0), biar gak kebaca seolah dokter ini genuinely belum
+// pernah dikunjungi padahal cuma API-nya yang lagi bermasalah.
+function VisitHistoryPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodePI?: string }) {
+  const [summary, setSummary] = useState<VisitHistorySummary | null>(null);
+  const [loading, startLoad] = useTransition();
+
+  useEffect(() => {
+    startLoad(async () => {
+      setSummary(kodeCustomer && kodePI ? await getVisitHistoryByCustomerOutlet(kodeCustomer, kodePI) : null);
+    });
+  }, [kodeCustomer, kodePI]);
+
+  if (loading) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Memuat histori visit…
+      </div>
+    );
+  }
+
+  if (summary === null) {
+    return (
+      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+        Data visit tidak tersedia.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border px-3 py-2.5 space-y-2"
+      style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Kunjungan</span>
+        <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{summary.totalVisits}</span>
+      </div>
+      {summary.byNip.length > 1 && (
+        <div className="space-y-1">
+          {summary.byNip.map((r) => (
+            <div key={r.nip} className="flex items-center justify-between text-xs">
+              <span className="font-mono" style={{ color: "var(--color-text-muted)" }}>{r.nip}</span>
+              <span style={{ color: "var(--color-text)" }}>{r.total}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        Periode {summary.periodeAwal} - {summary.periodeAkhir}
+      </p>
+    </div>
+  );
+}
+
 // ─── KriteriaProdukPanel ──────────────────────────────────────────────────────
 // Every product matching one of the 4 product-criteria buckets that used to
 // only show up inline in the picker dropdown (2026-07-24) — Produk Fokus PM,
@@ -2140,6 +2198,12 @@ function PsspSidebar({
         ) : (
           <>
             <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
+                Histori Visit (3 Bulan Terakhir)
+              </p>
+              <VisitHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
+            </div>
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--color-text-faint)", marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--color-border)" }}>
                 Histori Listing Fee

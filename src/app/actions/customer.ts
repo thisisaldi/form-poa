@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -136,6 +137,39 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
     kdOutlet: r.kdOutlet,
     nmOutlet: r.nmOutlet,
   }));
+}
+
+export interface VisitHistorySummary {
+  periodeAwal: string;
+  periodeAkhir: string;
+  totalVisits: number;
+  byNip: { nip: string; total: number }[];
+}
+
+/**
+ * Visit history for a customer at a specific outlet, accumulated over the
+ * last 3 months (2026-08-04, stakeholder item #7 — "Histori Visit Per
+ * Outlet Per Customer (Akumulasi 3 Bulan Terakhir)"). Sourced from the
+ * external Exodus Activity API (see src/lib/exodusApi.ts) — returns null
+ * when that API isn't configured/reachable, same "degrade to no data"
+ * contract as getPsspHospinetSnapshot below for its own external source.
+ */
+export async function getVisitHistoryByCustomerOutlet(
+  kodeCustomer: string,
+  kodePI: string
+): Promise<VisitHistorySummary | null> {
+  if (!kodeCustomer || !kodePI) return null;
+  const { periodeAwal, periodeAkhir } = lastNMonthsRange(3);
+  const rows = await getVisitCountByCustomerOutlet(kodeCustomer, kodePI, periodeAwal, periodeAkhir);
+  if (rows === null) return null;
+
+  const byNip = rows.map((r) => ({
+    nip: r.nip,
+    total: Object.values(r.actualVisitByPeriod).reduce((s, v) => s + v, 0),
+  }));
+  const totalVisits = byNip.reduce((s, r) => s + r.total, 0);
+
+  return { periodeAwal, periodeAkhir, totalVisits, byNip };
 }
 
 export interface PsspHospinetSnapshotSummary {
