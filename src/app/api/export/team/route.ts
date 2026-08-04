@@ -18,7 +18,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
-import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, type PsspKontrakSummary } from "@/app/actions/customer";
+import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown } from "@/lib/poaUtils";
 import { spesLabel } from "@/lib/spesialisasi";
@@ -41,6 +41,27 @@ const BENTUK_PSSP_LABELS: Record<string, string> = {
   BARANG: "Barang",
   JASA: "Jasa",
 };
+
+// "Periode Diskon" — mirrors resolveDiskonPeriodLabel in
+// /api/poa/[id]/export/route.ts exactly (same formula, duplicated per this
+// file's existing convention — see BENTUK_PSSP_LABELS above).
+function resolveDiskonPeriodLabel(
+  diskonList: DiskonByProduct[] | undefined,
+  diskonHistoryList: DiskonHistoryByProduct[] | undefined,
+  kodeProduk: string,
+  periodeAwal: string
+): string {
+  const candidates = (diskonList ?? []).filter((d) =>
+    d.kodeProduk === kodeProduk && d.prdAwal <= periodeAwal && d.prdAkhir >= periodeAwal
+  );
+  if (candidates.length > 0) {
+    const best = candidates.reduce((a, b) => (b.newOnPi > a.newOnPi ? b : a));
+    return `DPL periode ${best.prdAwal}-${best.prdAkhir}`;
+  }
+  const fromHistory = diskonHistoryList?.find((d) => d.kodeProduk === kodeProduk);
+  if (fromHistory) return "Historis (tidak terikat periode kontrak)";
+  return "-";
+}
 
 export async function GET(req: NextRequest) {
   const session = await getCurrentUser();
@@ -118,12 +139,18 @@ export async function GET(req: NextRequest) {
 
   const poaIds = poas.map(p => p.id);
 
+  // No `select:` — full row fetch, the `as` cast below just narrows which
+  // columns TypeScript knows about. Widened 2026-08-05 (itemKode/satuanTerkecil/
+  // hargaSatuanTerkecil/historySales3Bln/rasioEstimasiGrowth/labelCustomer) to
+  // reach full column parity with /api/poa/[id]/export's "Pengisian" sheet —
+  // the data was always there, just not exposed to this file's types before.
   const lineItems = poaIds.length > 0
     ? await prisma.poaLineItem.findMany({ where: { poaId: { in: poaIds } } }) as {
         id: string; poaId: string; kodePI: string | null; namaOutlet: string;
         namaCust: string; kodeCust: string | null; spesialisasi: string; role: string;
         isManualCustomer: boolean;
-        kodeProduk: string; namaProduk: string; periodeAwal: string; lamaPeriode: number;
+        kodeProduk: string; namaProduk: string; itemKode: string; satuanTerkecil: string;
+        periodeAwal: string; lamaPeriode: number;
         statusStandarisasi: string | null; rencanaTotalBiaya: { toString(): string };
         rencanaVisitMinggu: number; hariKerjaBulan: number | null;
         jumlahResepHari: number | null; qtyProdukResep: number | null; jumlahPasienHari: number | null;
@@ -131,6 +158,10 @@ export async function GET(req: NextRequest) {
         persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
         persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
         pengaliNilaiR: { toString(): string } | null;
+        hargaSatuanTerkecil: { toString(): string } | null;
+        historySales3Bln: { toString(): string } | null;
+        rasioEstimasiGrowth: { toString(): string } | null;
+        labelCustomer: string | null;
         produkKompetitor: string | null;
         bentukPssp: string | null;
         kriteriaProduk: string | null;
@@ -151,6 +182,91 @@ export async function GET(req: NextRequest) {
     if (surveyByOutletMap.has(key)) continue;
     const rows = await getSurveyRekomendasiByOutlet(li.kodeCust, li.kodePI);
     surveyByOutletMap.set(key, new Set(rows.map((r) => r.kodeProduk)));
+  }
+
+  // ── Product master (hna/nilaiRPersen) + Hospinet-by-doctor + per-POA audit
+  //    logs — added 2026-08-05 to reach full column parity with the
+  //    single-POA "Pengisian" sheet ("Jumlah Satuan Jual", "Nilai R (%)",
+  //    "% Pelunasan Sebelumnya"/"Estimasi ... Sebelumnya" Hospinet fallback,
+  //    "Approval SM"/"Approval NSM"). One batched query each, not per-row.
+  const productCodesInLineItems = [...new Set(lineItems.map((li) => li.kodeProduk))];
+  const productRowsForPengajuan = productCodesInLineItems.length > 0
+    ? await prisma.product.findMany({
+        where: { kodeProduk: { in: productCodesInLineItems } },
+        select: { kodeProduk: true, hna: true, nilaiRPersen: true },
+      }) as { kodeProduk: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null }[]
+    : [];
+  const productMapForPengajuan = new Map(productRowsForPengajuan.map((p) => [p.kodeProduk, p]));
+
+  const hospinetByDoctor = new Map(
+    hospinetSnapshotsAll.map((s) => [`${s.kodePI}|${s.namaCustomer.trim().toUpperCase()}`, s])
+  );
+
+  const auditLogsAll = poaIds.length > 0
+    ? await prisma.poaAuditLog.findMany({
+        where: { poaId: { in: poaIds } },
+        include: { actor: true },
+        orderBy: { createdAt: "asc" },
+      }) as { poaId: string; action: string; toStatus: string; createdAt: Date; actor: { name: string } }[]
+    : [];
+  const auditLogsByPoa = new Map<string, typeof auditLogsAll>();
+  for (const log of auditLogsAll) {
+    const list = auditLogsByPoa.get(log.poaId) ?? [];
+    list.push(log);
+    auditLogsByPoa.set(log.poaId, list);
+  }
+  function approvalLabel(poaId: string, toStatus: string): string {
+    const log = (auditLogsByPoa.get(poaId) ?? []).find((l) => l.action === "APPROVE" && l.toStatus === toStatus);
+    return log ? `${log.actor.name} (${log.createdAt.toLocaleDateString("id-ID")})` : "-";
+  }
+
+  // "Periode Diskon" column data — one getDiskonByOutlet/getDiskonHistoryByOutlet
+  // call per distinct outlet across every line item in scope (bounded by the
+  // org's outlet count, not per-row).
+  const diskonByOutletMap = new Map<string, DiskonByProduct[]>();
+  const diskonHistoryByOutletMap = new Map<string, DiskonHistoryByProduct[]>();
+  for (const kodePI of new Set(lineItems.map((li) => li.kodePI).filter((k): k is string => !!k))) {
+    diskonByOutletMap.set(kodePI, await getDiskonByOutlet(kodePI));
+    diskonHistoryByOutletMap.set(kodePI, await getDiskonHistoryByOutlet(kodePI));
+  }
+
+  // Mirrors computePelunasanPct/computeOldEstPerMonth in
+  // /api/poa/[id]/export/route.ts exactly (same formulas) — duplicated
+  // rather than imported since neither file shares a lib module for these
+  // yet (matches this codebase's existing per-export-file convention, see
+  // BENTUK_PSSP_LABELS above already being duplicated the same way).
+  function computePelunasanPct(history: PsspKontrakSummary[]): number | null {
+    if (history.length === 0) return null;
+    const now = new Date();
+    const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const byContract = new Map<string, PsspKontrakSummary[]>();
+    for (const row of history) {
+      const bucket = byContract.get(row.cUrut) ?? [];
+      bucket.push(row);
+      byContract.set(row.cUrut, bucket);
+    }
+    let hasActive = false;
+    let activeEst = 0, activeLunas = 0, allEst = 0, allLunas = 0;
+    for (const rows of byContract.values()) {
+      const est = rows.reduce((s, r) => s + r.estBaris, 0);
+      const lunas = rows.reduce((s, r) => s + r.totalLunas, 0);
+      allEst += est; allLunas += lunas;
+      if (rows[0].prdAkhir >= currentPeriod) { hasActive = true; activeEst += est; activeLunas += lunas; }
+    }
+    if (hasActive) return activeEst > 0 ? activeLunas / activeEst : 0;
+    return allEst > 0 ? allLunas / allEst : 0;
+  }
+  function computeOldEstPerMonth(history: PsspKontrakSummary[], namaProduk: string): number | null {
+    const now = new Date();
+    const currentPeriod = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const norm = namaProduk.toLowerCase().trim();
+    const rows = history.filter((r) => r.nmProduk?.toLowerCase().trim() === norm && r.prdAkhir < currentPeriod);
+    if (rows.length === 0) return null;
+    const latest = rows[0];
+    const sy = parseInt(latest.prdAwal.slice(0, 4)), sm = parseInt(latest.prdAwal.slice(4));
+    const ey = parseInt(latest.prdAkhir.slice(0, 4)), em = parseInt(latest.prdAkhir.slice(4));
+    const months = (ey - sy) * 12 + (em - sm) + 1;
+    return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
   }
 
   // ── Build org hierarchy map ─────────────────────────────────────────────────
@@ -516,49 +632,76 @@ export async function GET(req: NextRequest) {
 
   // ── Sheet 3: Semua Pengajuan ─────────────────────────────────────────────────
 
+  // Column structure/headers match /api/poa/[id]/export/route.ts's
+  // "Pengisian" sheet EXACTLY (2026-08-05, stakeholder request: "excelnya ASM
+  // ... headernya samain sama header yang pengajuan versi MR juga") — same
+  // header text, same combined-cell columns (KodePI - Nama Outlet, Nama User,
+  // Item Kode - Nama Produk), same order. Only "Periode POA"/"Status
+  // Approval" are prepended beyond the MR sheet's set: this sheet spans MANY
+  // POAs (multiple MRs × multiple quarters) where the MR sheet covers
+  // exactly one, so those two columns are the minimum needed to tell rows
+  // apart — everything else lines up 1:1.
   const ws3 = wb.addWorksheet("Semua Pengajuan");
+  const PCT_FMT = "0.0%";
+  const RP_FMT = "#,##0";
   ws3.columns = [
     { header: "Periode POA",          key: "periodPoa",        width: 12 },
     { header: "Status Approval",      key: "statusApproval",   width: 22 },
-    { header: "NIP NSM",              key: "nsmNip",           width: 12 },
-    { header: "Nama NSM",             key: "nsmName",          width: 24 },
-    { header: "NIP SM",               key: "smNip",            width: 12 },
-    { header: "Nama SM",              key: "smName",           width: 24 },
-    { header: "NIP ASM",              key: "asmNip",           width: 12 },
-    { header: "Nama ASM",             key: "asmName",          width: 24 },
-    { header: "NIP MR",               key: "nipMR",            width: 12 },
-    { header: "Nama MR",              key: "namaMR",           width: 24 },
-    { header: "Nama Customer",        key: "namaCust",         width: 28 },
-    { header: "Kode Customer",        key: "kodeCust",         width: 14 },
-    { header: "Sumber User",          key: "sumberUser",       width: 16 },
-    { header: "Spesialisasi",         key: "spesialisasi",     width: 18 },
-    { header: "Kode PI",              key: "kodePI",           width: 12 },
-    { header: "Nama Outlet",          key: "namaOutlet",       width: 28 },
-    { header: "Kode Produk",          key: "kodeProduk",       width: 12 },
-    { header: "Nama Produk",          key: "namaProduk",       width: 28 },
-    { header: "Status Produk Fokus",  key: "statusFokus",      width: 16 },
-    { header: "Periode Awal",         key: "periodeAwal",      width: 14 },
-    { header: "Periode Akhir",        key: "periodeAkhir",     width: 14 },
-    { header: "Hari Kerja/Bln",       key: "hariKerja",        width: 14 },
-    { header: "Resep/Hari",           key: "resep",            width: 12 },
-    { header: "Qty/Resep",            key: "qty",              width: 10 },
-    { header: "Estimasi",             key: "estimasi",         width: 18 },
-    { header: "Pengali Nilai R",      key: "pengaliNilaiR",    width: 14 },
-    { header: "% PSSP User",          key: "psspDokter",       width: 16 },
-    { header: "% Discount",           key: "diskon",           width: 12 },
-    { header: "% DP",                 key: "dp",               width: 10 },
-    { header: "% Listing Fee",        key: "listingFee",       width: 14 },
-    { header: "% Entertain",          key: "entertain",        width: 14 },
-    { header: "Total Budget",         key: "totalBudget",      width: 18 },
-    { header: "Ratio Budget",         key: "ratioBudget",      width: 14 },
-    { header: "Warning Budget",       key: "warningBudget",    width: 20 },
-    { header: "Status Listing Corporate", key: "standarisasi", width: 22 },
-    { header: "Produk Kompetitor Utama", key: "kompetitor",    width: 22 },
-    { header: "Total Estimasi (Dokter)", key: "totalEstimasiDokter", width: 20 },
-    { header: "Total Nilai PSSP (Dokter)", key: "totalNilaiPsspDokter", width: 20 },
+    { header: "Nomor Rencana Pengajuan", key: "nomorRencana",  width: 12 },
+    { header: "NIP MR/ SPV",          key: "nipMr",            width: 14 },
+    { header: "Nama MR / SPV",        key: "namaMr",           width: 24 },
+    { header: "Nama ASM",             key: "namaAsm",          width: 24 },
+    { header: "Nama SM",              key: "namaSm",           width: 24 },
+    { header: "Nama NSM",             key: "namaNsm",          width: 24 },
+    { header: "KodePI - Nama Outlet", key: "outlet",           width: 32 },
+    { header: "Spesialisasi",         key: "spesialisasi",     width: 22 },
+    { header: "Nama User",            key: "namaUser",         width: 32 },
+    { header: "Sumber User",          key: "sumberUser",       width: 14 },
+    { header: "Label User",           key: "labelUser",        width: 20 },
+    { header: "Nama Produk Kompetitor Utama", key: "produkKompetitor", width: 22 },
+    { header: "Item Kode - Nama Produk ", key: "produk",       width: 32 },
+    { header: "Kriteria Produk",      key: "kriteriaProduk",   width: 18 },
+    { header: "Kategori/ Status Produk Fokus", key: "statusFokus", width: 16 },
+    { header: "% Pelunasan Sebelumnya", key: "pelunasanSebelumnya", width: 16 },
+    { header: "Estimasi PS/SP Sebelumnya", key: "estimasiSebelumnya", width: 18 },
+    { header: "History Sales \n(B-12)", key: "historySales",  width: 16 },
+    { header: "Status Listing Corporate", key: "statusStandarisasi", width: 20 },
+    { header: "Jumlah Hari Praktek(Bulan)", key: "hariKerjaBulan", width: 14 },
+    { header: "Jumlah R / Hari",      key: "jumlahResepHari",  width: 12 },
+    { header: "Jumlah \nSatuan Terkecil (ST)\n/R", key: "qtyProdukResep", width: 14 },
+    { header: "Satuan Terkecil\n(ST)", key: "satuanTerkecil",  width: 12 },
+    { header: "Harga Satuan Terkecil Produk", key: "hargaSatuanTerkecil", width: 16 },
+    { header: "Jumlah \nSatuan Jual(SJ)", key: "jumlahSJ",     width: 14 },
+    { header: "Estimasi PS/SP Produk\n/Bulan", key: "estimasiBulan", width: 16 },
+    { header: "Growth Estimasi PS/SP per Produk/ Bulan", key: "growthEstimasi", width: 16 },
+    { header: "Total Estimasi PS/SP Produk \n/Bulan", key: "totalEstimasiBulan", width: 18 },
+    { header: "Nilai R (%)",          key: "nilaiR",           width: 12 },
+    { header: "Pengali PS/SP",        key: "pengaliPssp",      width: 12 },
+    { header: "Nilai PS/SP Produk \n/Bulan", key: "nilaiPsspBulan", width: 16 },
+    { header: "Total Nilai PS/SP Produk \n/Bulan", key: "totalNilaiPsspBulan", width: 18 },
+    { header: "Periode PS/SP (Bulan)", key: "periodePssp",     width: 14 },
+    { header: "Periode Awal PS/SP (YYYYMM, contoh: 202601)", key: "periodeAwal", width: 16 },
+    { header: "Periode Akhir PS/SP (YYYYMM, contoh: 202612)", key: "periodeAkhir", width: 16 },
+    { header: "Estimasi PS/SP Produk \n/Periode", key: "estimasiPeriode", width: 18 },
+    { header: "Total Estimasi PS/SP Produk \n/Periode", key: "totalEstimasiPeriode", width: 18 },
+    { header: "Nilai PS/SP Produk \n/Periode", key: "nilaiPsspPeriode", width: 18 },
+    { header: "Total Nilai PS/SP Produk \n/Periode", key: "totalNilaiPsspPeriode", width: 18 },
+    { header: "Rasio Total Biaya(%Estimasi Sales)", key: "rasioTotalBiaya", width: 14 },
+    { header: "Rencana Kunjungan/ Bulan", key: "rencanaKunjungan", width: 14 },
+    { header: "% PS/SP User",         key: "persenPsspUser",   width: 12 },
+    { header: "% Discount (DPL/DPF)", key: "persenDiskon",     width: 14 },
+    { header: "Periode Diskon",       key: "periodeDiskon",    width: 14 },
+    { header: "% DP",                 key: "persenDp",         width: 10 },
+    { header: "% Listing Fee",        key: "persenListingFee", width: 12 },
+    { header: "% Entertaint",         key: "persenEntertain",  width: 12 },
+    { header: "Total % Budget",       key: "totalPersenBudget", width: 14 },
+    { header: "Warning/ Tagging",     key: "warning",          width: 16 },
+    { header: "Approval SM",          key: "approvalSm",       width: 22 },
+    { header: "Approval NSM",         key: "approvalNsm",      width: 22 },
+    { header: "Status User",          key: "statusUser",       width: 12 },
     { header: "Historis PSSP",        key: "historisPssp",     width: 16 },
     { header: "Jenis PSSP",           key: "jenisPsspBentuk",  width: 12 },
-    { header: "Keterangan Produk",    key: "statusProdukRekomendasi", width: 22 },
+    { header: "Keterangan Produk",    key: "statusProdukRekomendasi", width: 26 },
   ];
   styleHeader(ws3);
 
@@ -568,62 +711,81 @@ export async function GET(req: NextRequest) {
     mrRows.filter((r): r is MrRow & { poaId: string } => r.poaId !== null).map(r => [r.poaId, r])
   );
 
-  // Newest quarter first, same as "Per MR" above.
-  const sortedLineItems = [...lineItems].sort((a, b) => {
-    const pa = poaMRMap.get(a.poaId)?.period;
-    const pb = poaMRMap.get(b.poaId)?.period;
-    return periodSortKey(pb ?? "") - periodSortKey(pa ?? "");
-  });
-
-  // Doctor-group totals — same (poaId, kodePI, namaCust) grouping as
-  // LineItemEditor's own doctorKey(), so an MR's multiple products for one
-  // doctor share one total (2026-07-24 request: "harusnya ada [total per
-  // dokter], bukan cuma per produk" — this sheet only ever had per-product
-  // rows before).
+  // Doctor grouping — mirrors doctorKey() in /api/poa/[id]/export/route.ts,
+  // scoped per-POA (poaId is part of the key) so multi-product rows for the
+  // same doctor share one "Nomor Rencana Pengajuan" and the same group
+  // totals, AND numbering restarts at 1 for each POA — same as what an MR
+  // sees downloading their own POA solo, not one long climbing count across
+  // every MR's submissions.
   function doctorKey(li: (typeof lineItems)[number]): string {
     return `${li.poaId}|${li.kodePI ?? ""}|${li.namaCust}`;
   }
-  const doctorTotals = new Map<string, { estimasi: number; nilaiPssp: number }>();
-  for (const li of lineItems) {
-    const base = parseFloat(li.rencanaTotalBiaya.toString());
+  const groupNumberByKey = new Map<string, number>();
+  const nextGroupNumberByPoa = new Map<string, number>();
+  const groupTotals = new Map<string, { estimasiBulan: number; nilaiPsspBulan: number; estimasiPeriode: number; nilaiPsspPeriode: number }>();
+
+  function computeItemValues(li: (typeof lineItems)[number]) {
+    const totalBiaya = toNum(li.rencanaTotalBiaya);
+    const lama = li.lamaPeriode || 1;
+    const persenPsspDokter = toNum(li.persenPsspDokter);
     const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
-    const nilaiPssp = base * toNum(li.persenPsspDokter) * pengaliNilaiR;
-    const key = doctorKey(li);
-    const acc = doctorTotals.get(key) ?? { estimasi: 0, nilaiPssp: 0 };
-    acc.estimasi += base;
-    acc.nilaiPssp += nilaiPssp;
-    doctorTotals.set(key, acc);
+    const nilaiPsspPeriode = totalBiaya * persenPsspDokter * pengaliNilaiR;
+    return {
+      estimasiBulan: totalBiaya / lama,
+      nilaiPsspBulan: nilaiPsspPeriode / lama,
+      estimasiPeriode: totalBiaya,
+      nilaiPsspPeriode,
+    };
   }
+
+  for (const li of lineItems) {
+    const key = doctorKey(li);
+    if (!groupNumberByKey.has(key)) {
+      const next = nextGroupNumberByPoa.get(li.poaId) ?? 1;
+      groupNumberByKey.set(key, next);
+      nextGroupNumberByPoa.set(li.poaId, next + 1);
+    }
+    const v = computeItemValues(li);
+    const totals = groupTotals.get(key) ?? { estimasiBulan: 0, nilaiPsspBulan: 0, estimasiPeriode: 0, nilaiPsspPeriode: 0 };
+    totals.estimasiBulan += v.estimasiBulan;
+    totals.nilaiPsspBulan += v.nilaiPsspBulan;
+    totals.estimasiPeriode += v.estimasiPeriode;
+    totals.nilaiPsspPeriode += v.nilaiPsspPeriode;
+    groupTotals.set(key, totals);
+  }
+
+  // Newest quarter first (same as "Per MR" above), then grouped by POA, then
+  // by doctor group number within that POA — so products for the same
+  // doctor stay adjacent instead of scattered by DB fetch order.
+  const sortedLineItems = [...lineItems].sort((a, b) => {
+    const pa = poaMRMap.get(a.poaId)?.period;
+    const pb = poaMRMap.get(b.poaId)?.period;
+    const periodDiff = periodSortKey(pb ?? "") - periodSortKey(pa ?? "");
+    if (periodDiff !== 0) return periodDiff;
+    if (a.poaId !== b.poaId) return a.poaId.localeCompare(b.poaId);
+    return groupNumberByKey.get(doctorKey(a))! - groupNumberByKey.get(doctorKey(b))!;
+  });
 
   const manualCustomerRows: number[] = [];
   for (const li of sortedLineItems) {
     const mr = poaMRMap.get(li.poaId);
     if (!mr) continue;
 
-    const base     = parseFloat(li.rencanaTotalBiaya.toString());
-    const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
-    const psspPct  = toNum(li.persenPsspDokter) * pengaliNilaiR;
-    const discPct  = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
-    const entPct   = toNum(li.persenEntertain);
-    const rowBudget = base * (psspPct + discPct + entPct);
-    const rowBudgetPct = base > 0 ? (rowBudget / base) * 100 : 0;
-    const warningBudget = rowBudgetPct > 42.5
-      ? "Melebihi batas (>42.5%)"
-      : rowBudgetPct > 38
-        ? "Mendekati batas (38–42.5%)"
-        : rowBudgetPct > 0
-          ? "Aman (<38%)"
-          : "—";
-    const dTotal = doctorTotals.get(doctorKey(li))!;
+    const key = doctorKey(li);
+    const v = computeItemValues(li);
+    const totals = groupTotals.get(key)!;
+    const product = productMapForPengajuan.get(li.kodeProduk) ?? null;
 
-    // "Historis PSSP" / "Jenis PSSP" / "Keterangan Produk" — same logic as
-    // /api/poa/[id]/export's "Pengisian" sheet (historisPssp/jenisPsspBentuk/
-    // statusProdukRekomendasi there), just missing from this team-wide sheet.
     const history = li.kodeCust ? psspHistoryMap.get(li.kodeCust) ?? [] : [];
+    const hospinetPct = hospinetByDoctor.get(`${li.kodePI ?? ""}|${li.namaCust.trim().toUpperCase()}`)?.rr ?? null;
+    const pelunasanPct = history.length > 0 ? computePelunasanPct(history) : hospinetPct;
+    const estimasiSebelumnya = computeOldEstPerMonth(history, li.namaProduk);
+
+    const statusUser = history.length === 0 ? "Baru" : "Retensi";
     const historisPssp = history.length === 0
       ? "Belum Pernah PSSP"
       : `PSSP ke-${new Set(history.map((r) => r.cUrut)).size}`;
-    const jenisPsspBentuk = li.bentukPssp ? BENTUK_PSSP_LABELS[li.bentukPssp] ?? li.bentukPssp : "—";
+    const jenisPsspBentuk = li.bentukPssp ? BENTUK_PSSP_LABELS[li.bentukPssp] ?? li.bentukPssp : "-";
     const namaProdukNorm = li.namaProduk.toLowerCase().trim();
     const surveyKodeProduk = li.kodeCust && li.kodePI ? surveyByOutletMap.get(`${li.kodeCust}|${li.kodePI}`) : undefined;
     const statusProdukRekomendasi = history.some((r) => r.nmProduk?.toLowerCase().trim() === namaProdukNorm)
@@ -635,60 +797,107 @@ export async function GET(req: NextRequest) {
       : li.kriteriaProduk?.startsWith("Produk Sudah Terstandarisasi")
       ? "Corporate Listing"
       : "Lainnya";
+    // Same stale-snapshot fix as /api/poa/[id]/export/route.ts's labelUser
+    // (2026-08-04/05) — li.labelCustomer is set once at line-item creation
+    // and never recomputed, so a customer with no PSSP yet then but a real
+    // contract synced in since keeps showing "Dokter Baru"/blank forever
+    // otherwise.
+    const labelUser = history.length > 0 && (!li.labelCustomer || li.labelCustomer === "Dokter Baru")
+      ? "Pernah PSSP"
+      : li.labelCustomer ?? "-";
+
+    const hna = product ? parseFloat(product.hna.toString()) : 0;
+    const jumlahSJ = hna > 0 ? v.estimasiPeriode / hna : null;
+    // Nilai R (%) — Product.nilaiRPersen ONLY, same fix as the single-POA
+    // export (2026-08-05): PoaLineItem.nilaiR is a different-scale field
+    // (rupiah snapshot, not percent) and must never feed this cell.
+    const nilaiR = product?.nilaiRPersen != null ? parseFloat(product.nilaiRPersen.toString()) : null;
+
+    const periodeDiskon = li.kodePI
+      ? resolveDiskonPeriodLabel(diskonByOutletMap.get(li.kodePI), diskonHistoryByOutletMap.get(li.kodePI), li.kodeProduk, li.periodeAwal)
+      : "-";
+
+    const persenPsspUser = toNum(li.persenPsspDokter);
+    const persenDiskon = toNum(li.persenDiskon);
+    const persenDp = toNum(li.persenDp);
+    const persenListingFee = toNum(li.persenListingFee);
+    const persenEntertain = toNum(li.persenEntertain);
+    const totalPersenBudget = persenPsspUser + persenDiskon + persenDp + persenListingFee + persenEntertain;
 
     const row = ws3.addRow({
-      nsmNip: mr.nsmNip, nsmName: mr.nsmName,
-      smNip: mr.smNip,   smName: mr.smName,
-      asmNip: mr.asmNip, asmName: mr.asmName,
-      nipMR: mr.nip, namaMR: mr.name,
-      periodPoa: mr.period ?? "—",
+      periodPoa: mr.period ?? "-",
       statusApproval: mr.status.replace(/_/g, " "),
-      namaCust: li.namaCust,
-      kodeCust: li.kodeCust ?? "—",
-      sumberUser: li.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
+      nomorRencana: groupNumberByKey.get(key),
+      nipMr: mr.nip,
+      namaMr: mr.name,
+      namaAsm: mr.asmName,
+      namaSm: mr.smName,
+      namaNsm: mr.nsmName,
+      outlet: `${li.kodePI ?? "-"} - ${li.namaOutlet}`,
       spesialisasi: spesLabel(li.spesialisasi),
-      kodePI: li.kodePI ?? "—", namaOutlet: li.namaOutlet,
-      kodeProduk: li.kodeProduk, namaProduk: li.namaProduk,
+      namaUser: `${li.kodeCust ?? "-"} - ${li.namaCust}`,
+      sumberUser: li.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
+      labelUser,
+      produkKompetitor: li.produkKompetitor ?? "-",
+      produk: `${li.itemKode} - ${li.namaProduk}`,
+      kriteriaProduk: li.kriteriaProduk ?? "-",
       statusFokus: getAllPakets(li.namaProduk).length > 0 ? "Y" : "N",
+      pelunasanSebelumnya: pelunasanPct,
+      estimasiSebelumnya,
+      historySales: li.historySales3Bln != null ? parseFloat(li.historySales3Bln.toString()) : null,
+      statusStandarisasi: li.statusStandarisasi?.replace(/_/g, " ") ?? "-",
+      hariKerjaBulan: li.hariKerjaBulan,
+      jumlahResepHari: li.jumlahResepHari,
+      qtyProdukResep: li.qtyProdukResep,
+      satuanTerkecil: li.satuanTerkecil,
+      hargaSatuanTerkecil: li.hargaSatuanTerkecil != null ? parseFloat(li.hargaSatuanTerkecil.toString()) : null,
+      jumlahSJ,
+      estimasiBulan: v.estimasiBulan,
+      growthEstimasi: li.rasioEstimasiGrowth != null ? parseFloat(li.rasioEstimasiGrowth.toString()) : null,
+      totalEstimasiBulan: totals.estimasiBulan,
+      nilaiR,
+      pengaliPssp: li.pengaliNilaiR != null ? parseFloat(li.pengaliNilaiR.toString()) : null,
+      nilaiPsspBulan: v.nilaiPsspBulan,
+      totalNilaiPsspBulan: totals.nilaiPsspBulan,
+      periodePssp: li.lamaPeriode,
       periodeAwal: li.periodeAwal,
       periodeAkhir: computePeriodeAkhir(li.periodeAwal, li.lamaPeriode),
-      hariKerja: li.hariKerjaBulan ?? "—",
-      resep: li.jumlahResepHari ?? "—",
-      qty: li.qtyProdukResep ?? "—",
-      estimasi: Math.round(base),
-      pengaliNilaiR: li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1,
-      psspDokter: toNum(li.persenPsspDokter) * 100,
-      diskon: toNum(li.persenDiskon) * 100,
-      dp: toNum(li.persenDp) * 100,
-      listingFee: toNum(li.persenListingFee) * 100,
-      entertain: toNum(li.persenEntertain) * 100,
-      totalBudget: Math.round(rowBudget),
-      ratioBudget: parseFloat(rowBudgetPct.toFixed(2)),
-      warningBudget,
-      standarisasi: li.statusStandarisasi?.replace(/_/g, " ") ?? "—",
-      kompetitor: li.produkKompetitor ?? "—",
-      totalEstimasiDokter: Math.round(dTotal.estimasi),
-      totalNilaiPsspDokter: Math.round(dTotal.nilaiPssp),
+      estimasiPeriode: v.estimasiPeriode,
+      totalEstimasiPeriode: totals.estimasiPeriode,
+      nilaiPsspPeriode: v.nilaiPsspPeriode,
+      totalNilaiPsspPeriode: totals.nilaiPsspPeriode,
+      rasioTotalBiaya: v.estimasiPeriode > 0 ? v.nilaiPsspPeriode / v.estimasiPeriode : null,
+      rencanaKunjungan: li.rencanaVisitMinggu,
+      persenPsspUser,
+      persenDiskon,
+      periodeDiskon,
+      persenDp,
+      persenListingFee,
+      persenEntertain,
+      totalPersenBudget,
+      warning: totalPersenBudget > 0.425 ? "OVER BUDGET" : totalPersenBudget > 0 ? "SAFE" : "-",
+      approvalSm: approvalLabel(li.poaId, "APPROVED_BY_SM"),
+      approvalNsm: approvalLabel(li.poaId, "APPROVED_BY_NSM"),
+      statusUser,
       historisPssp,
       jenisPsspBentuk,
       statusProdukRekomendasi,
     });
+
+    for (const key2 of ["pelunasanSebelumnya", "nilaiR", "persenPsspUser", "persenDiskon", "persenDp", "persenListingFee", "persenEntertain", "totalPersenBudget"]) {
+      row.getCell(key2).numFmt = PCT_FMT;
+    }
+    for (const key2 of ["estimasiSebelumnya", "historySales", "hargaSatuanTerkecil", "estimasiBulan", "totalEstimasiBulan", "nilaiPsspBulan", "totalNilaiPsspBulan", "estimasiPeriode", "totalEstimasiPeriode", "nilaiPsspPeriode", "totalNilaiPsspPeriode"]) {
+      row.getCell(key2).numFmt = RP_FMT;
+    }
     if (li.isManualCustomer) manualCustomerRows.push(row.number);
   }
 
-  ws3.getColumn("estimasi").numFmt = '#,##0';
-  ws3.getColumn("totalBudget").numFmt = '#,##0';
-  ws3.getColumn("totalEstimasiDokter").numFmt = '#,##0';
-  ws3.getColumn("totalNilaiPsspDokter").numFmt = '#,##0';
-  ws3.getColumn("ratioBudget").numFmt = '0.00"%"';
-  ["psspDokter","diskon","dp","listingFee","entertain"].forEach(k => {
-    ws3.getColumn(k).numFmt = '0.00"%"';
-  });
+  // Applied after the per-cell numFmt loop above so the manual-doctor
+  // highlight isn't overwritten by the alternating-row shading below.
   shadeAlt(ws3, 1);
-  // Applied after shadeAlt so the manual-doctor highlight isn't overwritten by
-  // the alternating-row shading above.
   for (const rowNum of manualCustomerRows) {
-    for (const key of ["namaCust", "sumberUser"]) {
+    for (const key of ["namaUser", "sumberUser"]) {
       const cell = ws3.getRow(rowNum).getCell(key);
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" } };
       cell.font = { color: { argb: "FF856404" }, bold: key === "sumberUser" };

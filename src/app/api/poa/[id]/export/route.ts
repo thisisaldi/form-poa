@@ -551,9 +551,14 @@ export async function GET(
 
     const hna = product ? parseFloat(product.hna.toString()) : 0;
     const jumlahSJ = hna > 0 ? v.estimasiPeriode / hna : null;
-    const nilaiR = item.nilaiR != null
-      ? parseFloat(item.nilaiR.toString())
-      : product?.nilaiRPersen != null ? parseFloat(product.nilaiRPersen.toString()) : null;
+    // Nilai R (%) — must come from Product.nilaiRPersen ONLY, same as the UI
+    // (LineItemEditor.tsx's nilaiRPersen tile). PoaLineItem.nilaiR is a
+    // DIFFERENT field on a completely different scale (Decimal(18,2) rupiah
+    // sync snapshot, not a percent) — this cell is formatted PCT_FMT below,
+    // so preferring item.nilaiR here rendered garbage like "120000000.0%"
+    // whenever that field happened to be populated (2026-08-05 bug report:
+    // "nilai r nya di excel ga sesuai sama yang existing").
+    const nilaiR = product?.nilaiRPersen != null ? parseFloat(product.nilaiRPersen.toString()) : null;
 
     const periodeDiskon = item.kodePI
       ? resolveDiskonPeriodLabel(diskonByOutletMap.get(item.kodePI), diskonHistoryByOutletMap.get(item.kodePI), item.kodeProduk, item.periodeAwal)

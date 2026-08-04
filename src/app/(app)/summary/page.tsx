@@ -184,6 +184,39 @@ function RingkasanBarChart({ groups, legend }: {
   );
 }
 
+// Estimasi per Produk — ranked horizontal bars (2026-08-05 request), own
+// section under Ringkasan instead of a row in the label/level plain-text
+// grid. Single series (magnitude + identity via the row label, not color),
+// so one hue for every bar — this app's own --color-blue, matching the
+// "Estimasi" slot already validated in RINGKASAN_CHART_COLORS above.
+function RingkasanProdukChart({ items }: { items: { kodeProduk: string; name: string; value: number }[] }) {
+  const max = Math.max(...items.map((it) => it.value), 1);
+  return (
+    <div className="space-y-2">
+      {items.map((it) => {
+        const pct = max > 0 ? (it.value / max) * 100 : 0;
+        return (
+          <div key={it.kodeProduk} className="flex items-center gap-3">
+            <span className="text-xs w-36 sm:w-48 truncate shrink-0" style={{ color: "var(--color-text-muted)" }} title={it.name}>
+              {it.name}
+            </span>
+            <div className="flex-1 h-3.5 rounded overflow-hidden" style={{ background: "var(--color-bg-subtle)" }}>
+              <div
+                title={`${it.name}: ${formatRp(it.value)}`}
+                className="h-full rounded transition-all duration-300"
+                style={{ width: `${Math.max(pct, 2)}%`, background: RINGKASAN_CHART_COLORS[0] }}
+              />
+            </div>
+            <span className="text-xs w-20 sm:w-24 text-right shrink-0 font-semibold" style={{ color: "var(--color-text)" }}>
+              {formatRp(it.value)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Same "how far along a contract's own period has run" fraction as
 // elapsedMonthsCount in LineItemEditor.tsx (ContractCard's Running Rate
 // badge) — duplicated here rather than imported since that file is a
@@ -1176,8 +1209,8 @@ async function SummaryContent({
               the tile above is a single number that can quietly span more
               than one quarter (default window = quarterIni + quarterSebelumnya),
               so this spells out which periods/levels it's actually made of. */}
-          {(estimasiByPeriodSorted.length > 0 || estimasiByLevelSorted.length > 0 || estimasiByProductSorted.length > 0) && (
-            <div className="mt-3 pt-3 grid grid-cols-1 lg:grid-cols-3 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+          {(estimasiByPeriodSorted.length > 0 || estimasiByLevelSorted.length > 0) && (
+            <div className="mt-3 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
               {estimasiByPeriodSorted.length > 0 && (
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
@@ -1225,24 +1258,22 @@ async function SummaryContent({
                   </div>
                 </div>
               )}
-              {estimasiByProductSorted.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
-                    Total Estimasi per Produk {estimasiByProduct.size > TOP_PRODUK_COUNT && `(Top ${TOP_PRODUK_COUNT})`}
-                  </p>
-                  <div className="space-y-1">
-                    {estimasiByProductSorted.map(([kodeProduk, { name, value }]) => (
-                      <div key={kodeProduk} className="flex justify-between gap-2 text-xs">
-                        <span className="truncate" style={{ color: "var(--color-text-muted)" }} title={name}>{name}</span>
-                        <span className="shrink-0 whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                          {formatRp(value)}
-                          {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+            </div>
+          )}
+
+          {/* Estimasi per Produk — own section (2026-08-05 request: "bukan
+              tabel tapi ringkasan juga kayak analytics nya"), a ranked
+              horizontal-bar read instead of the label/level plain-text lists
+              above. Single series (one product = one bar, all same hue) —
+              value is what's being compared, not identity, so no per-bar
+              color coding (would be a value-ramp-on-nominal-categories
+              anti-pattern per the dataviz skill). */}
+          {estimasiByProductSorted.length > 0 && (
+            <div className="mt-4 pt-4" style={{ borderTop: "1px solid var(--color-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--color-text-faint)" }}>
+                Estimasi per Produk {estimasiByProduct.size > TOP_PRODUK_COUNT && `(Top ${TOP_PRODUK_COUNT})`}
+              </p>
+              <RingkasanProdukChart items={estimasiByProductSorted.map(([kodeProduk, { name, value }]) => ({ kodeProduk, name, value }))} />
             </div>
           )}
 
