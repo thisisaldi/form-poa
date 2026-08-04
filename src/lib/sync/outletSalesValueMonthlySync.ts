@@ -55,23 +55,29 @@ export async function runOutletSalesValueMonthlySync(
       trustServerCertificate: csMap["trustservercertificate"]?.toLowerCase() === "true",
     },
   });
-  const { recordset } = await pool.request().query<{
-    KodePI: string;
-    Periode: string | number;
-    TotalValue: number;
-  }>(`
-    SELECT
-      KodePI,
-      Periode,
-      SUM([Value Sales]) AS TotalValue
-    FROM mkt_insight.dbo.DIR10001B
-    WHERE Periode >= '${periodeFrom}'
-      AND Periode <= '${periodeTo}'
-      AND KodePI IS NOT NULL
-      AND DIVISI = 'KAM1'
-    GROUP BY KodePI, Periode
-  `);
-  await pool.close();
+  // try/finally (2026-08-04 audit) — see orgStructureSync.ts for why a bare
+  // pool.close() after the query leaks the pool on query failure.
+  let recordset: { KodePI: string; Periode: string | number; TotalValue: number }[];
+  try {
+    ({ recordset } = await pool.request().query<{
+      KodePI: string;
+      Periode: string | number;
+      TotalValue: number;
+    }>(`
+      SELECT
+        KodePI,
+        Periode,
+        SUM([Value Sales]) AS TotalValue
+      FROM mkt_insight.dbo.DIR10001B
+      WHERE Periode >= '${periodeFrom}'
+        AND Periode <= '${periodeTo}'
+        AND KodePI IS NOT NULL
+        AND DIVISI = 'KAM1'
+      GROUP BY KodePI, Periode
+    `));
+  } finally {
+    await pool.close();
+  }
 
   const syncedAt = new Date();
   let upserted = 0;

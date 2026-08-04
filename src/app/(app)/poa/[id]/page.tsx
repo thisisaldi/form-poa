@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { PoaDetailTabs } from "@/components/poa/PoaDetailTabs";
-import { getActivePsspByOutlets } from "@/app/actions/customer";
+import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
 import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
 import { getPaketsBySpesialisasi, getProductTier } from "@/lib/paketProduk";
 import { displayRole } from "@/lib/role";
@@ -143,6 +143,12 @@ export default async function PoaDetailPage({
     });
     activePssp = await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI));
   }
+
+  // Which of this POA's already-matched doctors (kodeCust set) have EVER had a
+  // PSSP contract — see getPsspEverKodeCust's doc comment (stakeholder #11).
+  const everPsspKodeCust = await getPsspEverKodeCust(
+    allItems.map((it: PoaLineItem) => it.kodeCust).filter((k: string | null): k is string => !!k)
+  );
 
   // "Data Sales" card — real figures (mkt_insight.dbo.DIR10001B, synced into
   // OutletSalesValueMonthly), scoped to this MR's own outlets. Same dummy-
@@ -411,6 +417,7 @@ export default async function PoaDetailPage({
         userCanEdit={userCanEdit}
         selectable={isOwner}
         activePssp={activePssp}
+        everPsspKodeCust={everPsspKodeCust}
         focusProductTargets={focusProductTargets}
         salesSummary={salesSummary}
         targetArea={targetValueFromGT ?? undefined}

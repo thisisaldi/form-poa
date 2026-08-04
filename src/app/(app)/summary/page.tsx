@@ -7,6 +7,8 @@ import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
 import { spesLabel } from "@/lib/spesialisasi";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
+import { computeMonthlyBreakdown } from "@/lib/poaUtils";
+import { displayRole } from "@/lib/role";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { TerritoryTable } from "@/components/poa/TerritoryTable";
@@ -29,9 +31,15 @@ export const metadata = { title: "Summary · Form POA" };
 // groups/queries by those 4 keeps doing exactly that, unchanged, by reading
 // the narrower `tab` (GroupingTab) local further down instead of the raw URL
 // param. Only the render switch at the bottom and the tab bar itself need to
-// know about the raw value — see `rawTab` there. (The "ringkasan" tab that
-// used to also need this distinction was removed 2026-07-31.)
-type Tab = "mr" | "outlet" | "customer" | "spesialisasi" | "produk-rekomendasi" | "produk";
+// know about the raw value — see `rawTab` there.
+//
+// "ringkasan" re-added 2026-08-04 (removed 2026-07-31, brought back per
+// request — "tab ringkasan di paling kiri belum ada") as a grand-total card,
+// NOT a real grouping — same pattern as produk-rekomendasi: folds to "mr" for
+// every query/computation below (grand totals = sum of the per-MR groups,
+// cheapest existing grouping to piggyback on), only the render switch and
+// tab bar know it's distinct.
+type Tab = "ringkasan" | "mr" | "outlet" | "customer" | "spesialisasi" | "produk-rekomendasi" | "produk";
 type GroupingTab = "outlet" | "customer" | "spesialisasi" | "produk" | "mr";
 
 interface SalesFigures {
@@ -107,6 +115,75 @@ function formatRp(n: number) {
   return Math.round(n).toLocaleString("id-ID");
 }
 
+// Ringkasan bar chart — grouped by PERIOD (2026-08-04, revised same day per
+// "maksudnya kayak chart periode, q2 (estimasi dan realisasi dua bar dalam
+// q2) dan q3 (estimasi tercacah)"): one cluster per quarter, quarter
+// sebelumnya showing Estimasi+Realisasi side by side, quarter ini showing
+// just Estimasi Tercacah (that quarter isn't over yet — no Realisasi to
+// compare against). Same 3-slot categorical set as before (Estimasi /
+// Realisasi / Estimasi Tercacah are 3 distinct series reused consistently
+// across whichever quarter-groups happen to use them), validated against
+// this app's card surface (#FFFFFF): `node scripts/validate_palette.js
+// "#0063a0,#eb6834,#1baf7a" --mode light --surface "#FFFFFF"` (dataviz skill)
+// — all hard gates PASS; slot 3 (aqua) carries a contrast WARN vs the white
+// surface, mitigated below by always pairing it with a dark-text value label
+// (never the hue itself as text). Slot 1 is this app's own --color-blue, not
+// the skill's default blue, so the chart reads as this app's brand, not a
+// generic one — re-validated as a set, not assumed compatible.
+const RINGKASAN_CHART_COLORS = ["#0063a0", "#eb6834", "#1baf7a"];
+
+interface RingkasanChartBar { key: string; value: number; color: string }
+interface RingkasanChartGroup { periodLabel: string; bars: RingkasanChartBar[] }
+
+function RingkasanBarChart({ groups, legend }: {
+  groups: RingkasanChartGroup[];
+  legend: { key: string; label: string; color: string }[];
+}) {
+  const max = Math.max(...groups.flatMap((g) => g.bars.map((b) => b.value)), 1);
+  const CHART_H = 120;
+  return (
+    <div>
+      {/* One cluster per quarter — bars within a cluster sit close (a period's
+          own Estimasi/Realisasi pair), clusters themselves sit apart (distinct
+          quarters), same "gap separates, never a stroke" spacing rule either way. */}
+      <div className="flex items-end gap-10 overflow-x-auto">
+        {groups.map((g) => (
+          <div key={g.periodLabel} className="flex flex-col items-center shrink-0">
+            <div className="flex items-end gap-1.5" style={{ height: CHART_H, borderBottom: "1px solid var(--color-border)" }}>
+              {g.bars.map((b) => {
+                const barH = b.value > 0 ? Math.max((b.value / max) * CHART_H, 4) : 0;
+                return (
+                  <div key={b.key} className="flex flex-col items-center justify-end" style={{ height: CHART_H, width: 32 }}>
+                    <span className="text-[11px] font-semibold mb-1 whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                      {b.value > 0 ? formatRp(b.value) : "-"}
+                    </span>
+                    <div
+                      title={`${g.periodLabel} — ${legend.find((l) => l.key === b.key)?.label ?? b.key}: ${formatRp(b.value)}`}
+                      style={{ width: 28, height: barH, background: b.color, borderRadius: "4px 4px 0 0" }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <span className="text-xs mt-2 font-medium" style={{ color: "var(--color-text)" }}>{g.periodLabel}</span>
+          </div>
+        ))}
+      </div>
+      {/* Shared legend — the same 3 colors mean the same thing in every
+          cluster, so one legend for the whole chart (not repeated per
+          cluster) is the dependable identity channel here. */}
+      <div className="flex gap-4 mt-3 flex-wrap">
+        {legend.map((l) => (
+          <span key={l.key} className="text-xs flex items-center gap-1.5" style={{ color: "var(--color-text-muted)" }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: l.color, display: "inline-block" }} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Same "how far along a contract's own period has run" fraction as
 // elapsedMonthsCount in LineItemEditor.tsx (ContractCard's Running Rate
 // badge) — duplicated here rather than imported since that file is a
@@ -134,6 +211,7 @@ function previousQuarterPeriod(period: string): string | null {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const TABS: { key: Tab; label: string }[] = [
+  { key: "ringkasan",          label: "Ringkasan" },
   { key: "mr",                 label: "Per Personil" },
   { key: "outlet",             label: "Per Outlet" },
   { key: "customer",           label: "Per Customer" },
@@ -172,17 +250,16 @@ export default async function SummaryPage({
   if (session.role === "MR") redirect("/dashboard");
 
   const params = await searchParams;
-  // Ringkasan tab removed (2026-07-31) — rawTab is just the raw ?tab= param
-  // now, no more "ringkasan"-only redirect-to-"mr" gating needed. "tab"
-  // (GroupingTab) folds "produk-rekomendasi" into "produk" (2026-07-31
+  // "tab" (GroupingTab) folds "produk-rekomendasi" into "produk" (2026-07-31
   // rework — this tab now reuses the exact same per-product rows/columns as
   // "Per Produk", just split into Fokus/Low Hanging Fruit/Blue Ocean/Red
   // Ocean/Standarisasi sections instead of one flat table — see the
   // kategori split further down), so the SAME rich per-product grouping
   // logic below (activePsspByProdName, salesValueByProduk, avgPasienPerUser,
-  // etc.) computes for it too, instead of a separate bespoke aggregate.
-  const rawTab: Tab = (params.tab as Tab) ?? "mr";
-  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab;
+  // etc.) computes for it too, instead of a separate bespoke aggregate. Same
+  // fold for "ringkasan" -> "mr" (see Tab's doc comment above).
+  const rawTab: Tab = (params.tab as Tab) ?? "ringkasan";
+  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab === "ringkasan" ? "mr" : rawTab;
   // Rentang Periode (2026-07-28) — replaces the old single `period` pill
   // selector with an inclusive from/to range over the same "YYYY-QN" period
   // strings; string comparison sorts them chronologically correctly since
@@ -295,13 +372,13 @@ async function SummaryContent({
   isDefaultBounded: boolean;
   defaultPeriodFrom: string;
 }) {
-  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab;
+  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab === "ringkasan" ? "mr" : rawTab;
 
   const mrUsers = mrNips.length > 0
     ? (await prisma.user.findMany({
         where: { nip: { in: mrNips } },
         orderBy: { name: "asc" },
-      })) as { nip: string; name: string }[]
+      })) as { nip: string; name: string; role: string; jabatan: string | null }[]
     : [];
   // O(1) lookup instead of mrUsers.find(...) — the latter was an O(mrUsers)
   // linear scan called once per LINE ITEM inside the grouping loop below
@@ -426,6 +503,8 @@ async function SummaryContent({
           pengaliNilaiR: true,
           jumlahPasienHari: true,
           qtyProdukResep: true,
+          periodeAwal: true,
+          lamaPeriode: true,
         },
       })) as {
         poaId: string;
@@ -445,6 +524,8 @@ async function SummaryContent({
         pengaliNilaiR: { toString(): string } | number | null;
         jumlahPasienHari: number | null;
         qtyProdukResep: number | null;
+        periodeAwal: string | null;
+        lamaPeriode: number | null;
       }[]
     : [];
 
@@ -974,13 +1055,66 @@ async function SummaryContent({
 
   // ── Tab labels ────────────────────────────────────────────────────────────
 
-  const CODE_LABEL: Record<Tab, string> = {
+  const CODE_LABEL: Record<GroupingTab, string> = {
     outlet: "Outlet", customer: "Customer", spesialisasi: "Spesialisasi",
-    produk: "Produk", "produk-rekomendasi": "Produk Rekomendasi", mr: "Personil",
+    produk: "Produk", mr: "Personil",
   };
 
   const estimasiTotal = groups.reduce((s, g) => s + g.estimasi, 0);
   const estimasiAktifTotal = groups.reduce((s, g) => s + g.estimasiAktif, 0);
+
+  // ── Ringkasan (re-added 2026-08-04) ─────────────────────────────────────
+  // Grand totals — just SUM of the per-MR `groups` rows (tab folds to "mr"
+  // for rawTab==="ringkasan", see Tab's doc comment), not a separate query.
+  // targetTotal itself was already computed above (poas.reduce over
+  // poa.target) but had been dead code ever since the original Ringkasan tab
+  // was removed 2026-07-31 — this is the one place that finally reads it
+  // again.
+  const ringkasanBudgetTotal = groups.reduce((s, g) => s + g.budgetTotal, 0);
+  const ringkasanPsspTotal = groups.reduce((s, g) => s + g.psspTotal, 0);
+  const ringkasanDiscountTotal = groups.reduce((s, g) => s + g.discountTotal, 0);
+  const ringkasanEntertainTotal = groups.reduce((s, g) => s + g.entertainTotal, 0);
+  const ringkasanRealisasiSebelumnya = groups.reduce((s, g) => s + g.realisasiQuarterSebelumnya, 0);
+  const ringkasanEstimasiQuarterIni = groups.reduce((s, g) => s + g.estimasiQuarterIni, 0);
+  const ringkasanGrowthPct = ringkasanRealisasiSebelumnya > 0
+    ? ((ringkasanEstimasiQuarterIni - ringkasanRealisasiSebelumnya) / ringkasanRealisasiSebelumnya) * 100
+    : null;
+  const ringkasanRatioTarget = targetTotal > 0 ? (estimasiTotal / targetTotal) * 100 : null;
+  const ringkasanCustomerTotal = new Set(lineItems.map(custIdentity)).size;
+  const ringkasanPersonilAktif = groups.filter((g) => g.pengajuan > 0).length;
+  // Estimasi Tercacah (company-wide) — same month-apportionment
+  // computeMonthlyBreakdown already does for the Excel exports / DraftChecklist's
+  // "Ringkasan POA" panel, just summed across only quarterIni's 3 months here
+  // instead of per-POA. Bar chart below (item request 2026-08-04).
+  const ringkasanMonthlyBreakdown = computeMonthlyBreakdown(lineItems);
+  const ringkasanEstimasiTercacah = quarterToMonths(quarterIni)
+    .reduce((s, m) => s + (ringkasanMonthlyBreakdown.get(m)?.estimasi ?? 0), 0);
+
+  // Rincian Total Estimasi (2026-08-04 request: "itu total estimasi darimana
+  // aja") — estimasiTotal is a SUM across every POA period currently in
+  // scope, not just quarterIni (the default window covers quarterIni +
+  // quarterSebelumnya, "Semua" filter covers more) — broken down two ways so
+  // it's clear what's actually inside that one grand number:
+  //  1. by period (which quarter's submissions it's made of)
+  //  2. by personil level (displayRole-aware — same convention as the
+  //     "Estimasi PSSP per Bulan" export sheet — so SPV shows separately from
+  //     plain MR). In practice this only ever shows MR/SPV here: poaWhere
+  //     above scopes ownerId to mrNips (MR-only, see getSubordinateMRNips),
+  //     so an ASM/SM's own vacant-team POA never reaches this page's dataset
+  //     at all — unlike the export sheet, which has no such restriction.
+  const poaPeriodMap = new Map(poas.map((p) => [p.id, p.period]));
+  const poaOwnerLevelMap = new Map(poas.map((p) => [p.id, displayRole(mrUserByNip.get(p.ownerId)?.role ?? "MR", mrUserByNip.get(p.ownerId)?.jabatan)]));
+  const estimasiByPeriod = new Map<string, number>();
+  const estimasiByLevel = new Map<string, number>();
+  for (const li of lineItems) {
+    const value = toNum(li.rencanaTotalBiaya);
+    const period = poaPeriodMap.get(li.poaId);
+    if (period) estimasiByPeriod.set(period, (estimasiByPeriod.get(period) ?? 0) + value);
+    const level = poaOwnerLevelMap.get(li.poaId);
+    if (level) estimasiByLevel.set(level, (estimasiByLevel.get(level) ?? 0) + value);
+  }
+  const estimasiByPeriodSorted = [...estimasiByPeriod.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const estimasiByLevelSorted = [...estimasiByLevel.entries()].sort((a, b) => b[1] - a[1]);
 
   // Map groups → TerritoryTable shape (monitoringGroups removed with Ringkasan tab).
 
@@ -994,6 +1128,147 @@ async function SummaryContent({
           <span style={{ color: "var(--color-text-faint)" }}> · menampilkan {defaultPeriodFrom} – {quarterIni} (gunakan Filter Periode untuk lihat semua)</span>
         )}
       </p>
+
+      {/* Ringkasan (re-added 2026-08-04) — grand-total card, leftmost tab.
+          Same stat-tile pattern as DraftChecklist's "Ringkasan POA" panel,
+          just company/subtree-wide instead of per-POA. */}
+      {rawTab === "ringkasan" && (
+        <Card>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "Total Estimasi", value: formatRp(estimasiTotal) },
+              { label: "Estimasi Aktif+Pengajuan", value: formatRp(estimasiAktifTotal + estimasiTotal) },
+              { label: "Target", value: targetTotal > 0 ? formatRp(targetTotal) : "-" },
+              { label: "Estimasi % Target", value: ringkasanRatioTarget != null ? `${ringkasanRatioTarget.toFixed(0)}%` : "-" },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-lg p-3 space-y-0.5" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+                <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{label}</p>
+                <p className="text-base font-bold leading-tight" style={{ color: "var(--color-text)" }}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Rincian Total Estimasi (2026-08-04 request: "darimana aja") —
+              the tile above is a single number that can quietly span more
+              than one quarter (default window = quarterIni + quarterSebelumnya),
+              so this spells out which periods/levels it's actually made of. */}
+          {(estimasiByPeriodSorted.length > 0 || estimasiByLevelSorted.length > 0) && (
+            <div className="mt-3 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+              {estimasiByPeriodSorted.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
+                    Total Estimasi per Periode
+                  </p>
+                  <div className="space-y-1">
+                    {estimasiByPeriodSorted.map(([period, value]) => (
+                      <div key={period} className="flex justify-between text-xs">
+                        <span style={{ color: "var(--color-text-muted)" }}>{period}</span>
+                        <span style={{ color: "var(--color-text)" }}>
+                          {formatRp(value)}
+                          {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {estimasiByLevelSorted.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
+                    Total Estimasi per Level
+                  </p>
+                  <div className="space-y-1">
+                    {estimasiByLevelSorted.map(([level, value]) => (
+                      <div key={level} className="flex justify-between text-xs">
+                        <span style={{ color: "var(--color-text-muted)" }}>{level}</span>
+                        <span style={{ color: "var(--color-text)" }}>
+                          {formatRp(value)}
+                          {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4 pt-4" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--color-text-faint)" }}>
+              Estimasi vs Realisasi
+            </p>
+            <RingkasanBarChart
+              groups={[
+                {
+                  periodLabel: quarterSebelumnya ?? "-",
+                  bars: [
+                    { key: "realisasi", value: ringkasanRealisasiSebelumnya, color: RINGKASAN_CHART_COLORS[1] },
+                  ],
+                },
+                {
+                  periodLabel: quarterIni,
+                  bars: [
+                    { key: "tercacah", value: ringkasanEstimasiTercacah, color: RINGKASAN_CHART_COLORS[2] },
+                  ],
+                },
+              ]}
+              legend={[
+                { key: "realisasi", label: "Realisasi", color: RINGKASAN_CHART_COLORS[1] },
+                { key: "tercacah", label: "Estimasi Tercacah", color: RINGKASAN_CHART_COLORS[2] },
+              ]}
+            />
+          </div>
+
+          <div className="mt-3 pt-3 space-y-2.5" style={{ borderTop: "1px solid var(--color-border)" }}>
+            {[
+              { label: "PSSP", value: ringkasanPsspTotal },
+              { label: "Discount + DPL + DPF", value: ringkasanDiscountTotal },
+              { label: "Entertain", value: ringkasanEntertainTotal },
+            ].map(({ label, value }) => {
+              const pct = estimasiTotal > 0 ? (value / estimasiTotal) * 100 : 0;
+              return (
+                <div key={label} className="flex justify-between text-xs">
+                  <span style={{ color: "var(--color-text-muted)" }}>{label}</span>
+                  <span style={{ color: "var(--color-text)" }}>
+                    {value > 0 ? formatRp(value) : "-"}
+                    {pct > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {pct.toFixed(1)}%</span>}
+                  </span>
+                </div>
+              );
+            })}
+            <div className="flex justify-between pt-2 text-sm font-semibold" style={{ borderTop: "1px solid var(--color-border)", color: "var(--color-text)" }}>
+              <span>Total Budget</span>
+              <span>{formatRp(ringkasanBudgetTotal)}</span>
+            </div>
+          </div>
+
+          <div className="mt-3 pt-3 grid grid-cols-2 sm:grid-cols-4 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <div>
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Growth vs Quarter Sebelumnya</p>
+              <p className="text-sm font-semibold" style={{ color: ringkasanGrowthPct == null ? "var(--color-text-faint)" : ringkasanGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+                {ringkasanGrowthPct != null ? `${ringkasanGrowthPct >= 0 ? "+" : ""}${ringkasanGrowthPct.toFixed(1)}%` : "-"}
+              </p>
+              {(ringkasanEstimasiQuarterIni > 0 || ringkasanRealisasiSebelumnya > 0) && (
+                <p className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>
+                  Estimasi {quarterIni} {formatRp(ringkasanEstimasiQuarterIni)} · Realisasi {quarterSebelumnya ?? "-"} {formatRp(ringkasanRealisasiSebelumnya)}
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Customer</p>
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{ringkasanCustomerTotal}</p>
+            </div>
+            <div>
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Personil Sudah Submit</p>
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{ringkasanPersonilAktif} dari {mrUsers.length}</p>
+            </div>
+            <div>
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Pengajuan</p>
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{lineItems.length} baris · {poas.length} POA</p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Per Produk Rekomendasi (reworked 2026-07-31) — flat kategori sections
           instead of one card per paket, each a full per-product table (same

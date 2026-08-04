@@ -55,26 +55,32 @@ export async function runSalesHistoryMonthlySync(
       trustServerCertificate: csMap["trustservercertificate"]?.toLowerCase() === "true",
     },
   });
-  const { recordset } = await pool.request().query<{
-    KodePI: string;
-    ItemKode: string;
-    Periode: string | number;
-    TotalQty: number;
-  }>(`
-    SELECT
-      KodePI,
-      [Item Kode] AS ItemKode,
-      Periode,
-      SUM([Qty Sales]) AS TotalQty
-    FROM mkt_insight.dbo.DIR10001B
-    WHERE Periode >= '${periodeFrom}'
-      AND Periode <= '${periodeTo}'
-      AND KodePI IS NOT NULL
-      AND [Item Kode] IS NOT NULL
-      AND DIVISI = 'KAM1'
-    GROUP BY KodePI, [Item Kode], Periode
-  `);
-  await pool.close();
+  // try/finally (2026-08-04 audit) — see orgStructureSync.ts for why a bare
+  // pool.close() after the query leaks the pool on query failure.
+  let recordset: { KodePI: string; ItemKode: string; Periode: string | number; TotalQty: number }[];
+  try {
+    ({ recordset } = await pool.request().query<{
+      KodePI: string;
+      ItemKode: string;
+      Periode: string | number;
+      TotalQty: number;
+    }>(`
+      SELECT
+        KodePI,
+        [Item Kode] AS ItemKode,
+        Periode,
+        SUM([Qty Sales]) AS TotalQty
+      FROM mkt_insight.dbo.DIR10001B
+      WHERE Periode >= '${periodeFrom}'
+        AND Periode <= '${periodeTo}'
+        AND KodePI IS NOT NULL
+        AND [Item Kode] IS NOT NULL
+        AND DIVISI = 'KAM1'
+      GROUP BY KodePI, [Item Kode], Periode
+    `));
+  } finally {
+    await pool.close();
+  }
 
   const syncedAt = new Date();
   let upserted = 0;

@@ -13,6 +13,7 @@ import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
+import { computeMonthlyBreakdown, formatPeriode } from "@/lib/poaUtils";
 import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -362,6 +363,9 @@ export function StatsPanel({
   const aktifDoctorKeys = new Set(activePssp.map((r) => `${r.kdOutlet ?? ""}|${r.nmCust ?? ""}`));
   const cakupanUserCount = new Set([...draftDoctorKeys, ...aktifDoctorKeys]).size;
 
+  const monthlyBreakdown = useMemo(() => computeMonthlyBreakdown(items), [items]);
+  const monthlyBreakdownSorted = [...monthlyBreakdown.keys()].sort();
+
   const ratioEst     = targetArea > 0 ? (tercacahEstimasiWithAktif / targetArea) * 100 : 0;
   const salesPlusEst = salesFigures.salesYtd + s.estimasiTotal;
   const achievePct   = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
@@ -512,6 +516,38 @@ export function StatsPanel({
         </div>
       )}
 
+      {/* ── 2c. Estimasi & Nilai PSSP per Bulan — same rata-rata spread across
+          periodeAwal..periodeAkhir as the "Estimasi PSSP per Bulan" Excel sheet,
+          shown here too so the monthly breakdown isn't Excel-only (2026-08-04). */}
+      {monthlyBreakdownSorted.length > 0 && (
+        <div className="mb-5">
+          <SectionTitle>Estimasi & Nilai PSSP per Bulan</SectionTitle>
+          <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: `1px solid ${BORDER}` }}>
+            <table className="w-full text-xs">
+              <thead>
+                <tr style={{ color: FAINT, background: BG }}>
+                  <th className="text-left font-medium px-3 py-1.5">Bulan</th>
+                  <th className="text-right font-medium px-3 py-1.5">Estimasi</th>
+                  <th className="text-right font-medium px-3 py-1.5">Nilai PSSP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyBreakdownSorted.map((m) => {
+                  const v = monthlyBreakdown.get(m)!;
+                  return (
+                    <tr key={m} style={{ borderTop: `1px solid ${BORDER}` }}>
+                      <td className="px-3 py-1.5" style={{ color: MUTED }}>{formatPeriode(m)}</td>
+                      <td className="text-right px-3 py-1.5" style={{ color: TEXT }}>{v.estimasi > 0 ? formatRp(v.estimasi) : "-"}</td>
+                      <td className="text-right px-3 py-1.5" style={{ color: TEXT }}>{v.nilaiPssp > 0 ? formatRpPssp(v.nilaiPssp) : "-"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ── 3. Cakupan ── */}
       <SectionTitle>Cakupan</SectionTitle>
       <div className="grid grid-cols-2 gap-3 mb-5">
@@ -625,7 +661,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -635,6 +671,8 @@ function DoctorRow({
   poaId?: string;
   userCanEdit?: boolean;
   quarterMonths: string[];
+  /** kodeCust values with any PSSP history ever — see DraftChecklist's own prop doc. */
+  everPsspKodeCust?: Set<string>;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -684,6 +722,26 @@ function DoctorRow({
     doctorItems.filter((it) => getAllPakets(it.namaProduk).length > 0).map((it) => it.kodeProduk)
   ).size;
   const isDokterBaru = !first.kodeCust;
+  // "No PSSP ever" — either not matched to a Customer record at all (isDokterBaru)
+  // or matched but never actually had a PSSP contract (absent from
+  // everPsspKodeCust). Stakeholder confirmed these are the same concept for
+  // this purpose (2026-08-04, item #11), not two separate conditions.
+  const hasPsspNow = !isDokterBaru && !!everPsspKodeCust?.has(first.kodeCust!);
+  const noPsspHistory = !hasPsspNow;
+  // first.labelCustomer is a SNAPSHOT taken when this line item was created
+  // (computeLabelCustomer in LineItemEditor.tsx, saved once into
+  // PoaLineItem.labelCustomer) — it never gets recomputed afterward. A
+  // customer who had no PSSP yet at that moment (saved as "" or literally
+  // "Dokter Baru") but has since gotten a real PSSP contract synced in keeps
+  // showing that stale label forever otherwise (2026-08-04 bug report: "masih
+  // ada yang udah ada pssp nya tapi gaad label pernah pssp nya"). everPsspKodeCust
+  // is the live check, so it wins whenever the two disagree — but a richer
+  // stored label ("Pernah PSSP, Pelunasan Bagus", "Retensi", ...) that's
+  // already consistent with hasPsspNow is left alone rather than flattened
+  // to the generic fallback.
+  const displayLabelCustomer = hasPsspNow && (!first.labelCustomer || first.labelCustomer === "Dokter Baru")
+    ? "Pernah PSSP"
+    : first.labelCustomer;
   const contribPct = totalEstimasi > 0 ? (rowEst / totalEstimasi) * 100 : 0;
   const [isDeleting, startDelete] = useTransition();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -724,7 +782,7 @@ function DoctorRow({
                 Baru
               </span>
             )}
-            {first.labelCustomer && <LabelCustomerBadge label={first.labelCustomer} />}
+            {displayLabelCustomer && <LabelCustomerBadge label={displayLabelCustomer} />}
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
               {spesLabel(first.spesialisasi)}
             </span>
@@ -747,13 +805,16 @@ function DoctorRow({
             <StatTile label="Pengali Nilai R" value={pengaliAvg != null ? `${pengaliAvg.toFixed(2)}x` : "-"} />
             <StatTile label="Variasi Produk" value={`${variasiFokus}/${variasiTotal}`} sub="fokus/total" />
           </div>
-          {/* Hidden for a brand-new doctor (no kodeCust — never had any PSSP
-              history) — this figure is always this same draft's own line
-              items sliced to the quarter (see computeBiayaTercacah), which
-              for a doctor with zero prior history is indistinguishable from
-              (and reads as a confusing duplicate of) the "Estimasi" tile
-              above (2026-08-03, stakeholder item #12). */}
-          {!isDokterBaru && (rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
+          {/* Hidden for any doctor with zero PSSP history — whether truly new
+              (no kodeCust) or already matched to a Customer record but never
+              actually had a PSSP contract (see noPsspHistory / everPsspKodeCust
+              above). This figure is always this same draft's own line items
+              sliced to the quarter (see computeBiayaTercacah), which for a
+              doctor with zero prior history is indistinguishable from (and
+              reads as a confusing duplicate of) the "Estimasi" tile above
+              (2026-08-03 #12, extended 2026-08-04 #11 to also cover matched
+              customers with no PSSP history). */}
+          {!noPsspHistory && (rowTercacah.estimasi > 0 || rowTercacah.nilaiPssp > 0) && (
             <div className="mt-1.5">
               <StatTile
                 label="Tercacah (Kuartal Ini)"
@@ -852,7 +913,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], salesSummary, targetArea: targetAreaProp }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -871,6 +932,12 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   selectable?: boolean;
   /** Still-active PSSP contracts for the doctors on this POA, for the ringkasan. */
   activePssp?: ActivePsspRow[];
+  /** kodeCust values that have EVER had a PSSP contract (any period, active or
+   * expired — see getPsspEverKodeCust). A doctor matched to a Customer record
+   * (kodeCust set) but absent from this list has never actually had PSSP,
+   * same as a brand-new doctor for the "Tercacah (Kuartal Ini)" tile's
+   * purposes (2026-08-04, stakeholder item #11). */
+  everPsspKodeCust?: string[];
   /** Real "Data Sales" figures from getMrSalesSummary (server-computed, scoped
    * to this POA's own MR) — absent only if the caller genuinely couldn't
    * compute it, in which case the card shows zeros rather than a guess. */
@@ -887,6 +954,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   }, [poaPeriod]);
 
   const canEditNow = !!userCanEdit;
+
+  const everPsspKodeCustSet = useMemo(() => new Set(everPsspKodeCust), [everPsspKodeCust]);
 
   const groups = useMemo(() => {
     const map = new Map<string, PoaLineItem[]>();
@@ -1015,6 +1084,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 poaId={poaId}
                 userCanEdit={canEditNow}
                 quarterMonths={quarterMonths}
+                everPsspKodeCust={everPsspKodeCustSet}
               />
             ))}
           </div>

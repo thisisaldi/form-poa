@@ -58,19 +58,27 @@ async function fetchOrgFromMssql(connectionString: string): Promise<OrgRecord[]>
   const now = new Date();
   const periode = now.getFullYear() * 100 + (now.getMonth() + 1); // e.g. 202607
 
-  const { recordset } = await pool.request().query<RawRow>(`
-    SELECT DISTINCT
-      NSM_NIP, NSM_Nama,
-      SM_NIP,  SM_Nama,
-      ASM_NIP, ASM_Nama,
-      SPV_NIP, SPV_Nama,
-      FF_NIP,  FF_Nama
-    FROM Struktur_Marketing_PI
-    WHERE Periode = ${periode}
-      AND (Divisi = 'KAM1' OR Divisi LIKE 'HPH%')
-  `);
-
-  await pool.close();
+  // try/finally so a query failure (bad SQL, timeout) still closes the pool
+  // instead of leaking its connections for the rest of this server process's
+  // lifetime — this runs inside the long-lived Next.js server (via
+  // /api/sync/org-structure), not a throwaway script process, so a leaked
+  // pool here doesn't just go away on its own (2026-08-04 audit).
+  let recordset: RawRow[];
+  try {
+    ({ recordset } = await pool.request().query<RawRow>(`
+      SELECT DISTINCT
+        NSM_NIP, NSM_Nama,
+        SM_NIP,  SM_Nama,
+        ASM_NIP, ASM_Nama,
+        SPV_NIP, SPV_Nama,
+        FF_NIP,  FF_Nama
+      FROM Struktur_Marketing_PI
+      WHERE Periode = ${periode}
+        AND (Divisi = 'KAM1' OR Divisi LIKE 'HPH%')
+    `));
+  } finally {
+    await pool.close();
+  }
 
   // ── Collect per-user: role + all observed manager NIPs ──────────────────────
   const userMap = new Map<string, { name: string; role: Role; managerNips: string[] }>();

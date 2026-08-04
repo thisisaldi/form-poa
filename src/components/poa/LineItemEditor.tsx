@@ -22,6 +22,34 @@ const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   TIDAK_TAHU: "Tidak Tahu",
 };
 
+// Aggregate Standarisasi indicator for "Total Semua Produk" (worst-status wins:
+// any product not yet listed → Merah, else any still Proses Pengajuan → Kuning,
+// else all Sudah Standarisasi → Hijau). Empty/unset and "Tidak Tahu" count as
+// not-yet-listed since neither confirms the product is actually standarisasi.
+function computeStandarisasiIndicator(entries: { kodeProduk: string; statusStandarisasi: string }[]): { status: "SUDAH" | "PROSES" | "BELUM"; label: string; color: string; bg: string } | null {
+  const statuses = entries.filter((e) => e.kodeProduk).map((e) => e.statusStandarisasi);
+  if (statuses.length === 0) return null;
+  if (statuses.some((s) => s !== "SUDAH_STANDARISASI" && s !== "PROSES_PENGAJUAN")) {
+    return { status: "BELUM", label: "Belum Listing", color: "var(--color-red, #dc2626)", bg: "var(--color-red-bg, #fee2e2)" };
+  }
+  if (statuses.some((s) => s === "PROSES_PENGAJUAN")) {
+    return { status: "PROSES", label: "On-Proses", color: "var(--color-warning, #d97706)", bg: "var(--color-warning-bg, #fef3c7)" };
+  }
+  return { status: "SUDAH", label: "Sudah Listing", color: "var(--color-success, #16a34a)", bg: "var(--color-success-bg, #dcfce7)" };
+}
+
+function StandarisasiIndicator({ entries }: { entries: { kodeProduk: string; statusStandarisasi: string }[] }) {
+  const indicator = computeStandarisasiIndicator(entries);
+  if (!indicator) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full"
+      style={{ background: indicator.bg, color: indicator.color }}>
+      <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: indicator.color }} />
+      {indicator.label}
+    </span>
+  );
+}
+
 // kriteriaBaru rows come verbatim from the ProductPMDatabase.xlsx import (see
 // scripts/seedOutletProductKriteria.ts) and still read "Terstandarisasi" at the
 // source — only the on-screen badge text is renamed to "Listing Corporate"
@@ -100,7 +128,10 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
     hariKerjaBulan: "",
     rencanaVisitMinggu: "4",
     jenisPsSp: "",
-    bentukPssp: "",
+    // Jenis PSSP defaults to Cash, Pihak PSSP defaults to User (2026-08-04
+    // request) — both still editable, just pre-selected instead of forcing
+    // an explicit choice for the common case.
+    bentukPssp: "CASH",
     pengaliNilaiR: "",
     pihakPssp: "USER",
   };
@@ -2841,9 +2872,12 @@ function AddPanel({
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                Total Semua Produk
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                  Total Semua Produk
+                </p>
+                <StandarisasiIndicator entries={produkList} />
+              </div>
               {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
                   fields at the top of the form) — customer-level, shared across
                   every product for this doctor. */}
@@ -3769,9 +3803,12 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                Total Semua Produk
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                  Total Semua Produk
+                </p>
+                <StandarisasiIndicator entries={produkList} />
+              </div>
               {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
                   fields at the top of the form) — customer-level, shared across
                   every product for this doctor. */}

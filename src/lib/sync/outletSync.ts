@@ -43,17 +43,23 @@ export async function runOutletSync(connectionString: string): Promise<OutletSyn
   const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
 
   const pool = await sql.connect(connectionString);
-  const { recordset } = await pool.request().query<OutletRow>(`
-    SELECT DISTINCT
-      KodePI, NamaOutlet, Out_Code, StatusOutlet,
-      Nama_Channel, Sector, Sub_Sektor, Kota, Propinsi,
-      SPV_NIP, FF_NIP
-    FROM Struktur_Marketing_PI
-    WHERE Periode = ${periode}
-      AND (Divisi = 'KAM1' OR Divisi LIKE 'HPH%')
-      AND KodePI IS NOT NULL
-  `);
-  await pool.close();
+  // try/finally (2026-08-04 audit) — see orgStructureSync.ts for why a bare
+  // pool.close() after the query leaks the pool on query failure.
+  let recordset: OutletRow[];
+  try {
+    ({ recordset } = await pool.request().query<OutletRow>(`
+      SELECT DISTINCT
+        KodePI, NamaOutlet, Out_Code, StatusOutlet,
+        Nama_Channel, Sector, Sub_Sektor, Kota, Propinsi,
+        SPV_NIP, FF_NIP
+      FROM Struktur_Marketing_PI
+      WHERE Periode = ${periode}
+        AND (Divisi = 'KAM1' OR Divisi LIKE 'HPH%')
+        AND KodePI IS NOT NULL
+    `));
+  } finally {
+    await pool.close();
+  }
 
   // ── Distinct outlets ─────────────────────────────────────────────────────────
   const outletMap = new Map<string, Omit<OutletRow, "SPV_NIP" | "FF_NIP">>();

@@ -50,3 +50,45 @@ export function expandPeriodeMonths(periodeAwal: string, lamaPeriode: number): s
 
 export const LAMA_PERIODE_OPTIONS = [1, 3, 6, 12] as const;
 export type LamaPeriode = (typeof LAMA_PERIODE_OPTIONS)[number];
+
+function toNumSafe(v: unknown): number {
+  return parseFloat(String(v ?? 0)) || 0;
+}
+
+export interface MonthlyBreakdownInput {
+  rencanaTotalBiaya: unknown;
+  persenPsspDokter: unknown;
+  pengaliNilaiR: unknown;
+  periodeAwal: string | null;
+  lamaPeriode: number | null;
+}
+
+/**
+ * Spreads each line item's Estimasi (rencanaTotalBiaya) and Nilai PSSP evenly
+ * across its periodeAwal..periodeAwal+lamaPeriode-1 months (rata rata — no
+ * other basis available), then sums by calendar month across all items.
+ * Shared by the Excel exports and the "Ringkasan POA" panel so both surfaces
+ * show the same per-bulan breakdown instead of just one grand total.
+ */
+export function computeMonthlyBreakdown(items: MonthlyBreakdownInput[]): Map<string, { estimasi: number; nilaiPssp: number }> {
+  const map = new Map<string, { estimasi: number; nilaiPssp: number }>();
+  for (const it of items) {
+    if (!it.periodeAwal || it.periodeAwal.length !== 6 || !it.lamaPeriode || it.lamaPeriode <= 0) continue;
+    const months = expandPeriodeMonths(it.periodeAwal, it.lamaPeriode);
+    if (months.length === 0) continue;
+
+    const base = toNumSafe(it.rencanaTotalBiaya);
+    const pengaliNilaiR = it.pengaliNilaiR != null ? toNumSafe(it.pengaliNilaiR) : 1;
+    const nilaiPsspTotal = base * toNumSafe(it.persenPsspDokter) * pengaliNilaiR;
+    const estimasiPerBulan = base / months.length;
+    const nilaiPsspPerBulan = nilaiPsspTotal / months.length;
+
+    for (const m of months) {
+      const cur = map.get(m) ?? { estimasi: 0, nilaiPssp: 0 };
+      cur.estimasi += estimasiPerBulan;
+      cur.nilaiPssp += nilaiPsspPerBulan;
+      map.set(m, cur);
+    }
+  }
+  return map;
+}

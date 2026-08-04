@@ -25,7 +25,7 @@ interface FocusProductTarget {
 // full detail on every page load; now only their summary shows in Drafting.
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
-  selectable = true, activePssp = [], focusProductTargets, salesSummary, targetArea,
+  selectable = true, activePssp = [], everPsspKodeCust = [], focusProductTargets, salesSummary, targetArea,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -36,6 +36,8 @@ export function PoaDetailTabs({
   userCanEdit?: boolean;
   selectable?: boolean;
   activePssp?: ActivePsspRow[];
+  /** kodeCust values that have EVER had a PSSP contract (see getPsspEverKodeCust) — passed through to DraftChecklist. */
+  everPsspKodeCust?: string[];
   focusProductTargets: FocusProductTarget[];
   salesSummary?: { historisTahunLalu: number; historisTahunLaluLabel: string; salesYtd: number; growthPct: number };
   /** Real Target Value for this POA's MR (see poa/[id]/page.tsx's targetValueFromGT) — undefined falls back to DraftChecklist's dummy placeholder. */
@@ -130,6 +132,7 @@ export function PoaDetailTabs({
               userCanEdit={userCanEdit}
               selectable={selectable}
               activePssp={activePssp}
+              everPsspKodeCust={everPsspKodeCust}
               salesSummary={salesSummary}
               targetArea={targetArea}
             />

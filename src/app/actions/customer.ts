@@ -365,6 +365,28 @@ export async function getActivePsspByCustomers(kodeCustomers: string[]): Promise
   }));
 }
 
+/**
+ * Which of the given kodeCustomer values have EVER had a PSSP contract (any
+ * period, active or expired — the full PsspKontrak history, not just
+ * still-running ones). Used to decide whether DraftChecklist's "Tercacah
+ * (Kuartal Ini)" tile is a meaningful figure or just a confusing duplicate of
+ * the doctor's own fresh Estimasi — same treatment as a brand-new doctor
+ * (2026-08-04, stakeholder item #11: confirmed "dokter baru" and "tanpa
+ * riwayat PSSP" mean the same thing here, so a doctor already matched to a
+ * Customer record but who's never actually had a PSSP contract should be
+ * hidden too, not just ones with no kodeCust at all).
+ */
+export async function getPsspEverKodeCust(kodeCustomers: string[]): Promise<string[]> {
+  const distinct = [...new Set(kodeCustomers.filter(Boolean))];
+  if (distinct.length === 0) return [];
+  const rows = await prisma.psspKontrak.findMany({
+    where: { kdCust: { in: distinct } },
+    select: { kdCust: true },
+    distinct: ["kdCust"],
+  });
+  return rows.map((r: { kdCust: string }) => r.kdCust);
+}
+
 export interface PsspStatusByCustomer {
   kdCust: string;
   everPssp: boolean;

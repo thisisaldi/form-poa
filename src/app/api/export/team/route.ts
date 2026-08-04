@@ -20,7 +20,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, type PsspKontrakSummary } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
-import { computePeriodeAkhir, expandPeriodeMonths, formatPeriode } from "@/lib/poaUtils";
+import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown } from "@/lib/poaUtils";
 import { spesLabel } from "@/lib/spesialisasi";
 import { displayRole } from "@/lib/role";
 
@@ -462,47 +462,53 @@ export async function GET(req: NextRequest) {
   shadeAlt(ws2, 1);
 
   // ── Sheet: Estimasi PSSP per Bulan ────────────────────────────────────────
-  // Breaks each line item's Nilai PSSP (rencanaTotalBiaya × %PSSP dokter ×
-  // pengaliNilaiR — same formula as the "PSSP" column on "Per MR" above,
-  // just not yet summed across the whole lamaPeriode) evenly across every
-  // month in its periodeAwal–periodeAkhir span, then rolls up by the
-  // owning POA's personnel level (MR/SPV/ASM/SM — jabatan-aware via
-  // displayRole, see src/lib/role.ts). No other basis exists to distribute
-  // non-uniformly (2026-08-03, confirmed with business: rata rata per bulan
-  // is the accepted approximation, not a real monthly run-rate).
+  // Breaks each line item's Estimasi (rencanaTotalBiaya) and Nilai PSSP
+  // (rencanaTotalBiaya × %PSSP dokter × pengaliNilaiR — same formula as the
+  // "PSSP" column on "Per MR" above, just not yet summed across the whole
+  // lamaPeriode) evenly across every month in its periodeAwal–periodeAkhir
+  // span, then rolls up by the owning POA's personnel level (MR/SPV/ASM/SM —
+  // jabatan-aware via displayRole, see src/lib/role.ts). No other basis
+  // exists to distribute non-uniformly (2026-08-03, confirmed with business:
+  // rata rata per bulan is the accepted approximation, not a real monthly
+  // run-rate). Shared computeMonthlyBreakdown() also backs the same table in
+  // the app's "Ringkasan POA" panel (StatsPanel) so this isn't Excel-only.
   const poaIdToLevel = new Map(poas.map((p) => [p.id, displayRole(p.owner.role, p.owner.jabatan)]));
-  const psspByLevelMonth = new Map<string, Map<string, number>>();
-  const allPsspMonths = new Set<string>();
+  const itemsByLevel = new Map<string, typeof lineItems>();
   for (const li of lineItems) {
     const level = poaIdToLevel.get(li.poaId);
     if (!level) continue;
-    const base = toNum(li.rencanaTotalBiaya);
-    const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
-    const nilaiPssp = base * toNum(li.persenPsspDokter) * pengaliNilaiR;
-    if (nilaiPssp === 0) continue;
-    const months = expandPeriodeMonths(li.periodeAwal, li.lamaPeriode);
-    const perBulan = nilaiPssp / months.length;
-    const monthMap = psspByLevelMonth.get(level) ?? new Map<string, number>();
-    for (const m of months) {
-      monthMap.set(m, (monthMap.get(m) ?? 0) + perBulan);
-      allPsspMonths.add(m);
-    }
-    psspByLevelMonth.set(level, monthMap);
+    const arr = itemsByLevel.get(level) ?? [];
+    arr.push(li);
+    itemsByLevel.set(level, arr);
+  }
+  const breakdownByLevel = new Map<string, Map<string, { estimasi: number; nilaiPssp: number }>>();
+  const allPsspMonths = new Set<string>();
+  for (const [level, items] of itemsByLevel) {
+    const monthMap = computeMonthlyBreakdown(items);
+    breakdownByLevel.set(level, monthMap);
+    for (const m of monthMap.keys()) allPsspMonths.add(m);
   }
   const psspMonthsSorted = [...allPsspMonths].sort();
-  const psspLevelsPresent = PSSP_LEVEL_ORDER.filter((lv) => psspByLevelMonth.has(lv));
+  const psspLevelsPresent = PSSP_LEVEL_ORDER.filter((lv) => breakdownByLevel.has(lv));
 
   const wsPssp = wb.addWorksheet("Estimasi PSSP per Bulan");
   wsPssp.columns = [
     { header: "Level", key: "level", width: 14 },
+    { header: "Metrik", key: "metrik", width: 14 },
     ...psspMonthsSorted.map((m) => ({ header: formatPeriode(m), key: m, width: 16 })),
   ];
   styleHeader(wsPssp);
   for (const level of psspLevelsPresent) {
-    const monthMap = psspByLevelMonth.get(level)!;
-    const row: Record<string, string | number> = { level };
-    for (const m of psspMonthsSorted) row[m] = Math.round(monthMap.get(m) ?? 0);
-    wsPssp.addRow(row);
+    const monthMap = breakdownByLevel.get(level)!;
+    const estimasiRow: Record<string, string | number> = { level, metrik: "Estimasi" };
+    const nilaiPsspRow: Record<string, string | number> = { level, metrik: "Nilai PSSP" };
+    for (const m of psspMonthsSorted) {
+      const v = monthMap.get(m) ?? { estimasi: 0, nilaiPssp: 0 };
+      estimasiRow[m] = Math.round(v.estimasi);
+      nilaiPsspRow[m] = Math.round(v.nilaiPssp);
+    }
+    wsPssp.addRow(estimasiRow);
+    wsPssp.addRow(nilaiPsspRow);
   }
   psspMonthsSorted.forEach((m) => { wsPssp.getColumn(m).numFmt = '#,##0'; });
   shadeAlt(wsPssp, 1);
