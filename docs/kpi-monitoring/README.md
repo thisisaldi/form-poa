@@ -1,27 +1,31 @@
 # KPI Monitoring — Spec Index
 
-*(Ditulis 2026-07-30, mengikuti pendekatan spec-driven development: spec ditulis & disetujui dulu sebelum ada kode. Sumber requirement: Memo Internal `NO.SM/ETH-II/PI/08.2026` — "KPI Personil Kinerja, Kontrak & Kaderisasi FF Hospital", berlaku efektif 01 Agustus 2026, menggantikan memo lama `SM/ETH-I/PI/05.2026`.)*
+*(Ditulis 2026-07-30, mengikuti pendekatan spec-driven development: spesifikasi ditulis dan disetujui terlebih dahulu, sebelum kode ditulis. Sumber requirement: Memo Internal `NO.SM/ETH-II/PI/08.2026` — "KPI Personil Kinerja, Kontrak & Kaderisasi FF Hospital", berlaku efektif 01 Agustus 2026, menggantikan memo lama `SM/ETH-I/PI/05.2026`.)*
 
 ## Dokumen
 
-1. [`01-business-rules.md`](./01-business-rules.md) — requirement dari memo, definisi indikator, formula scoring, band nilai, keputusan kontrak, dan open questions yang butuh klarifikasi stakeholder sebelum implementasi bisa mulai.
-2. [`02-data-model.md`](./02-data-model.md) — model Prisma yang diusulkan, sumber data per indikator (existing vs baru), dan rencana integrasi/placeholder untuk 2 indikator yang belum punya data source.
-3. [`03-ui-and-access.md`](./03-ui-and-access.md) — halaman, role/akses, dan pola UI yang di-reuse dari fitur Monitoring/Summary yang sudah ada.
+1. [`01-business-rules.md`](./01-business-rules.md) — requirement dari memo, definisi indikator, formula scoring, band nilai, keputusan kontrak, dan open questions yang membutuhkan klarifikasi stakeholder sebelum implementasi dapat dimulai.
+2. [`02-data-model.md`](./02-data-model.md) — model Prisma yang diusulkan, sumber data per indikator (existing vs baru), invariant model, dan rencana integrasi/placeholder untuk dua indikator yang belum memiliki sumber data.
+3. [`03-ui-and-access.md`](./03-ui-and-access.md) — halaman, role/akses, dan pola UI yang digunakan ulang dari fitur Monitoring/Summary yang sudah ada.
 
 ## Status
 
-🟢 **v1 diimplementasi 2026-07-30** — halaman `/kpi-perpanjangan` ("Monitoring KPI Perpanjangan" di sidebar), **ADMIN-only**. Tracked di `docs/TODO.md` #67.
+🟢 **v1 diimplementasikan 2026-07-30** — halaman `/kpi-perpanjangan` ("Monitoring KPI Perpanjangan" di sidebar), **ADMIN-only**. Tercatat di `docs/TODO.md` #67.
 
-Yang sudah jalan: scorecard bulanan 4 pilar (Sales Achievement & Customer Expansion otomatis, Call Activity & Absensi input manual ADMIN), scoring engine (`src/lib/kpiScoring.ts`, cocok persis sama contoh perhitungan memo), tabel sortable dengan rekomendasi kontrak per baris.
+Yang sudah berjalan (diverifikasi ulang terhadap kode 2026-08-05): scorecard bulanan 4 pilar (Sales Achievement & Customer Expansion dihitung otomatis, Call Activity & Absensi berupa input manual oleh ADMIN), model `KpiMonthlyEntry`/`KpiContractEvaluation` (migration `20260730115119_add_kpi_monitoring_models`, `prisma/schema.prisma:912-997`), scoring engine (`src/lib/kpiScoring.ts`, hasilnya sesuai persis dengan contoh perhitungan pada memo — lihat `01-business-rules.md` §3), server actions `src/app/actions/kpi.ts`, dan tabel sortable dengan rekomendasi kontrak per baris (`src/components/kpi/KpiTable.tsx`).
 
-Yang **belum** dibangun: halaman/form Evaluasi Kontrak (`KpiContractEvaluation` — agregasi per periode kontrak + keputusan atasan + rencana pengembangan personil), dan role matrix akhir (SM/NSM sebagai evaluator — masih ADMIN-only untuk v1).
+Yang **belum** dibangun: halaman/form Evaluasi Kontrak (`KpiContractEvaluation` — agregasi per periode kontrak, keputusan atasan, dan rencana pengembangan personil), dan role matrix akhir (SM/NSM sebagai evaluator — untuk v1 akses masih ADMIN-only, lihat `src/app/actions/kpi.ts:31-37`).
 
-⚠️ Beberapa formula pakai **asumsi kerja** (dipilih user 2026-07-30 supaya implementasi bisa jalan, "adjust belakangan"), bukan klarifikasi asli stakeholder — lihat `01-business-rules.md` §7 sebelum mengandalkan angka-angka spesifik untuk keputusan kontrak yang nyata.
+⚠️ Beberapa formula menggunakan **asumsi kerja** (dipilih pengguna pada 2026-07-30 agar implementasi dapat langsung berjalan, dengan rencana "disesuaikan kemudian"), bukan hasil klarifikasi asli dari pemegang memo — lihat `01-business-rules.md` §7 sebelum mengandalkan angka-angka spesifik ini untuk keputusan kontrak yang sesungguhnya.
+
+⚠️ **Koreksi status terhadap desain snapshot di `02-data-model.md`**: field snapshot pada `KpiMonthlyEntry` (`salesTargetRp`, `salesActualRp`, `salesAchievementPct`, `customerAktifCount`, serta seluruh field skor `*Score`/`totalScore`) **tidak pernah ditulis oleh kode v1** — `saveKpiManualInputAction` (`src/app/actions/kpi.ts:232-277`) hanya menulis field manual (`callActivityRealisasi`, `absensiValue`, dan metadata input-nya). Listing `/kpi-perpanjangan` menghitung seluruh nilai ini secara live setiap render (`getKpiMonitoringData`, `src/app/actions/kpi.ts:74-224`), bukan membaca snapshot dari tabel. Job bulanan untuk mengisi snapshot yang disebut di `02-data-model.md` **belum dibangun**. Lihat detail di `02-data-model.md` §"Catatan desain — status implementasi snapshot".
+
+⚠️ **Update status 2026-08-04 (belum tercermin di v1 kode)**: klaim "tidak ada data sama sekali" untuk pilar Call Activity di bawah ini sebagian sudah usang. Stakeholder memberikan akses API eksternal **Exodus Activity** (`docs/TODO.md` #73, `src/lib/exodusApi.ts`) yang menyediakan data kunjungan riil — namun endpoint yang sudah diimplementasikan dan dipakai (`getVisitCountByCustomerOutlet`, `src/lib/exodusApi.ts:62-94`) berbasis "by customer+outlet", bukan agregat bulanan per NIP yang dibutuhkan pilar Call Activity KPI Monitoring. Endpoint "Get Count Visit By NIP" yang kemungkinan cocok untuk kebutuhan ini **belum diimplementasikan/dipakai** (lihat `docs/TODO.md` #38). Sampai integrasi ini dikerjakan, pilar Call Activity KPI Monitoring tetap memakai input manual sesuai desain v1 di bawah — bukan salah, hanya belum diperbarui untuk memanfaatkan sumber data yang sekarang sudah tersedia.
 
 ## Ringkasan cepat
 
-Memo mendefinisikan scorecard bulanan untuk level **MR, SPV, ASM, SM Hospital** (4 pilar berbobot, skor 0-100) yang jadi dasar rekomendasi perpanjangan kontrak. Riset kode (2026-07-30) menemukan:
+Memo mendefinisikan scorecard bulanan untuk level **MR, SPV, ASM, SM Hospital** (4 pilar berbobot, skor 0-100) yang menjadi dasar rekomendasi perpanjangan kontrak. Riset kode (2026-07-30) menemukan hal berikut:
 
-- **Business Result (Sales Achievement, 50%)** — data sudah ada penuh, sama persis dengan yang sudah dihitung Monitoring page (`PoaForm.target` vs `OutletSalesValueMonthly`).
-- **Market Development (Customer Expansion, 15%)** — data proxy sudah ada (`PsspKontrak` aktif via `getActivePsspByOutlets`), tapi ini basis kontrak PSSP aktif, bukan hitungan customer/dokter mentah — butuh konfirmasi apakah proxy ini diterima.
-- **Activity & Coverage (Call Activity, 25%)** dan **Attitude (Kepatuhan Absensi, 10%)** — **tidak ada data sama sekali** di sistem manapun (bukan bug, memang belum pernah dibangun). Ini juga bukan barang baru — overlap langsung sama 2 item yang sudah lama nge-hang di tracker: `docs/TODO.md` **#38** (Historis Kunjungan By MR by Customer, NEED CONFIRMATION) dan **#25** (History Visit sebelumnya, ON-PROSES). Keputusan: kedua indikator ini dibangun sebagai **input manual oleh atasan + placeholder untuk sync eksternal di masa depan** (lihat `02-data-model.md`).
+- **Business Result (Sales Achievement, 50%)** — data sudah tersedia sepenuhnya, identik dengan yang sudah dihitung di halaman Monitoring (`PoaForm.target` vs `OutletSalesValueMonthly`).
+- **Market Development (Customer Expansion, 15%)** — data proxy sudah tersedia (`PsspKontrak` aktif via `getActivePsspByOutlets`), tetapi ini merupakan basis kontrak PSSP aktif, bukan hitungan customer/dokter mentah — membutuhkan konfirmasi apakah proxy ini dapat diterima.
+- **Activity & Coverage (Call Activity, 25%)** dan **Attitude (Kepatuhan Absensi, 10%)** — **tidak ada data sama sekali** di sistem manapun pada saat spesifikasi ini ditulis (bukan bug, memang belum pernah dibangun). Ini juga bukan gap baru — beririsan langsung dengan dua item yang sudah lama belum terselesaikan di tracker: `docs/TODO.md` **#38** (Historis Kunjungan By MR by Customer, NEED CONFIRMATION — lihat catatan update status di atas) dan **#25** (History Visit sebelumnya, ON-PROSES). Keputusan: kedua indikator ini dibangun sebagai **input manual oleh atasan, dengan field yang dirancang agar mudah disambungkan ke sync eksternal di masa depan** (lihat `02-data-model.md`).

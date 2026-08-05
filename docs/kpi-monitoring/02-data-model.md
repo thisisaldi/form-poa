@@ -1,59 +1,66 @@
 # KPI Monitoring — Data Model
 
-*(Proposal, belum diimplementasi. Field/tipe di sini adalah usulan awal — final setelah open questions di `01-business-rules.md` §7 terjawab.)*
+*(Model diimplementasikan 2026-07-30 — migration `20260730115119_add_kpi_monitoring_models`, `prisma/schema.prisma:912-997`. Field/tipe di bawah ini mengikuti skema yang benar-benar berjalan di production; perbedaan terhadap proposal awal dicatat eksplisit di masing-masing bagian. Open questions yang masih terbuka dari `01-business-rules.md` §7 tetap berlaku dan dapat memicu perubahan skema di masa depan.)*
 
-## 1. Sumber data existing yang di-reuse (tidak ada perubahan skema)
+## 1. Sumber data existing yang digunakan ulang (tidak ada perubahan skema)
 
 | Indikator | Sumber | Fungsi/model existing |
 |---|---|---|
-| Sales Achievement | `PoaForm.target` (Rupiah, per periode) vs `OutletSalesValueMonthly` (real sales, hasil sync DIR10001B) | Logika sama seperti tab "Per MR" di `src/app/(app)/monitoring/page.tsx` — reuse `buildOrgMaps()` (`src/lib/targetCalculation.ts`) untuk rollup per role. |
-| Customer Expansion (terkonfirmasi 2026-07-30) | `PsspKontrak` aktif (`prdAkhir >= periode berjalan`) per outlet yang di-cover MR — PSSP yang sudah habis TIDAK terhitung | `getActivePsspByOutlets()` (`src/app/actions/customer.ts`), sudah dipakai Summary page untuk `activeCustKeys`. |
+| Sales Achievement | `PoaForm.target` (Rupiah, per periode) dibandingkan `OutletSalesValueMonthly` (real sales, hasil sync DIR10001B) | Logika sama dengan tab "Per MR" di `src/app/(app)/monitoring/page.tsx` — menggunakan ulang `buildOrgMaps()` (`src/lib/targetCalculation.ts`) untuk rollup per role. |
+| Customer Expansion (terkonfirmasi 2026-07-30) | `PsspKontrak` aktif (`prdAkhir >= periode berjalan`) per outlet yang dicakup MR — PSSP yang sudah habis TIDAK dihitung | `getActivePsspByOutlets()` (`src/app/actions/customer.ts`), sudah dipakai halaman Summary untuk `activeCustKeys`. |
 
-Kedua sumber ini **read-only derive on demand** — tidak perlu tabel snapshot terpisah kecuali performa jadi masalah (Summary page tab "Per Outlet" sempat 58-74 detik untuk scope ADMIN company-wide, lihat `docs/TODO.md` #47 — pola query yang sama harus diwaspadai di sini, terutama kalau KPI Monitoring dibuka company-wide oleh ADMIN/GM).
+Kedua sumber ini bersifat **read-only, diturunkan (derive) sesuai permintaan (on demand)** — verifikasi 2026-08-05 mengonfirmasi ini masih menjadi cara kerja v1 yang sebenarnya (lihat §"Catatan desain — status implementasi snapshot" di bawah untuk detailnya), bukan hanya rencana. Tidak dibutuhkan tabel snapshot terpisah kecuali performa menjadi masalah (halaman Summary tab "Per Outlet" pernah membutuhkan 58-74 detik untuk scope ADMIN company-wide, lihat `docs/TODO.md` #47 — pola query yang sama harus diwaspadai di sini, terutama apabila KPI Monitoring dibuka company-wide untuk ADMIN/GM). Lihat juga cross-reference eksplisit ke `docs/PERFORMANCE.md` §5, yang menjadikan hal ini constraint wajib begitu akses diperluas melebihi ADMIN-only.
 
-## 2. Data baru yang perlu dibangun (tidak ada sama sekali di sistem hari ini)
+## 2. Data baru yang perlu dibangun (tidak ada sama sekali di sistem sebelum v1)
 
-Call Activity dan Kepatuhan Absensi **tidak punya data source apapun** — bukan cuma "belum di-expose", tapi genuinely tidak ada model/sync yang menyimpannya. Keputusan (dari klarifikasi user 2026-07-30): **input manual oleh atasan untuk kedua indikator ini, dirancang agar gampang diganti/disambungkan ke sync eksternal nanti** — pola yang sama seperti field manual lain di app ini yang kelak digantikan sync (contoh: `ProductTargetInput` yang manual, vs `OutletSalesMonthly` yang di-sync — dua pola ini sudah hidup berdampingan di kode yang sama, lihat `targetCalculation.ts`).
+Call Activity dan Kepatuhan Absensi **tidak memiliki sumber data apa pun** — bukan sekadar "belum di-expose", melainkan memang tidak ada model/sync yang menyimpannya. Keputusan (hasil klarifikasi pengguna 2026-07-30): **input manual oleh atasan untuk kedua indikator ini, dirancang agar mudah diganti/disambungkan ke sync eksternal nanti** — pola yang sama seperti field manual lain di aplikasi ini yang kelak digantikan sync (contoh: `ProductTargetInput` yang manual, versus `OutletSalesMonthly` yang sudah di-sync — kedua pola ini sudah hidup berdampingan pada kode yang sama, lihat `targetCalculation.ts`).
 
-### Model baru: `KpiMonthlyEntry`
+### Model: `KpiMonthlyEntry`
 
-Satu baris = satu personil (MR/SPV/ASM/SM) × satu periode bulanan (`"YYYY-MM"`, sama format dengan `PoaForm.period` varian bulanan).
+Satu baris = satu personil (MR/SPV/ASM/SM) × satu periode bulanan (`"YYYY-MM"`, format sama dengan varian bulanan `PoaForm.period`).
 
 ```prisma
 model KpiMonthlyEntry {
-  id        String   @id @default(cuid())
-  nip       String
-  user      User     @relation(fields: [nip], references: [nip])
-  period    String   // "YYYY-MM"
+  id     String @id @default(uuid())
+  nip    String
+  user   User   @relation(fields: [nip], references: [nip], onDelete: Cascade)
+  period String // "YYYY-MM"
 
-  // --- Business Result: Sales Achievement (auto-derive, snapshot di sini biar
-  //     histori gak berubah kalau target/actual di-edit belakangan) ---
-  salesTargetRp   Decimal?
-  salesActualRp   Decimal?
-  salesAchievementPct Decimal? // salesActualRp / salesTargetRp * 100
+  // Business Result: Sales Achievement (50%) — auto-derived snapshot, same
+  // source as Monitoring page's "Per MR" tab (PoaForm.target vs
+  // OutletSalesValueMonthly).
+  salesTargetRp       Decimal? @db.Decimal(18, 2)
+  salesActualRp       Decimal? @db.Decimal(18, 2)
+  salesAchievementPct Decimal? @db.Decimal(7, 2)
 
-  // --- Activity & Coverage: Call Activity (manual input, placeholder utk sync) ---
-  callActivityRealisasi Int?     // realisasi kunjungan bulan ini
-  callActivityStandar   Int?     // standar kunjungan personil ini (dari role, lihat 01-business-rules §2b)
-  callActivitySource     String  @default("MANUAL") // "MANUAL" | "SYNC" -- ganti begitu integrasi eksternal ada
+  // Activity & Coverage: Call Activity (25%) — manual input by atasan for v1,
+  // no realized-visit data source exists anywhere else in this app (overlaps
+  // docs/TODO.md #38/#25, both still unresolved).
+  callActivityRealisasi  Int?
+  callActivityStandar    Int? // working assumption: MR/SPV=10, ASM=5, SM=3 (§2b)
+  callActivitySource     String    @default("MANUAL") // "MANUAL" | future sync source key
   callActivityInputByNip String?
   callActivityInputAt    DateTime?
 
-  // --- Market Development: Customer Expansion (auto-derive dari PsspKontrak aktif) ---
+  // Market Development: Customer Expansion (15%) — auto-derived from active
+  // PSSP contracts (getActivePsspByOutlets), working assumption per §2c.
   customerAktifCount Int?
 
-  // --- Attitude: Kepatuhan Absensi (manual input, placeholder utk sync) ---
-  absensiValue      Decimal? // unit TBD, lihat open question 01-business-rules §2d
-  absensiSource     String  @default("MANUAL")
+  // Attitude: Kepatuhan Absensi (10%) — manual input by atasan for v1, no
+  // attendance data source exists anywhere in this app.
+  absensiValue      Decimal?  @db.Decimal(6, 2) // working assumption: avg jam keterlambatan/bulan (§2d)
+  absensiSource     String    @default("MANUAL")
   absensiInputByNip String?
   absensiInputAt    DateTime?
 
-  // --- Score per pilar (hasil band-mapping, dihitung ulang tiap kali entry berubah) ---
-  salesScore    Int? // 40/55/70/85/100
+  // Cached band scores (0/40/55/70/85/100) + weighted total, recomputed
+  // whenever an input above changes — avoids re-running band logic on every
+  // listing render.
+  salesScore    Int?
   activityScore Int?
   customerScore Int?
   absensiScore  Int?
-  totalScore    Decimal? // weighted sum, maks 100
+  totalScore    Decimal? @db.Decimal(5, 2)
 
   computedAt DateTime @updatedAt
   createdAt  DateTime @default(now())
@@ -64,51 +71,77 @@ model KpiMonthlyEntry {
 ```
 
 Catatan desain:
-- `salesTargetRp`/`salesActualRp`/`customerAktifCount` **di-snapshot**, bukan dihitung on-the-fly setiap render — supaya histori bulan lalu tidak berubah kalau ada koreksi data sync belakangan (pola sama seperti `PoaAuditLog` menyimpan snapshot, bukan hanya referensi live). Proses isi snapshot ini butuh job bulanan (mis. dijalankan awal bulan berikutnya, mirip `scripts/sync*.ts` yang sudah ada) — bukan dihitung realtime tiap kali halaman dibuka.
-- `callActivitySource`/`absensiSource` sengaja string enum-like (bukan hardcode boolean) supaya gampang nambah sumber baru (mis. `"HRIS_SYNC"`) tanpa migration lagi saat integrasi eksternal akhirnya ada.
-- Field score (`salesScore` dst) di-cache di row yang sama supaya query listing KPI Monitoring gak perlu re-run scoring logic tiap kali (band-mapping murah, tapi tetap — biar konsisten sama pola snapshot di atas).
+- `salesTargetRp`/`salesActualRp`/`customerAktifCount` **dirancang untuk di-snapshot**, bukan dihitung on-the-fly setiap render — supaya histori bulan lalu tidak berubah apabila ada koreksi data sync belakangan (pola yang sama seperti `PoaAuditLog` menyimpan snapshot, bukan sekadar referensi live). Proses pengisian snapshot ini membutuhkan job bulanan (misalnya dijalankan pada awal bulan berikutnya, mirip `scripts/sync*.ts` yang sudah ada) — bukan dihitung realtime setiap kali halaman dibuka.
+- `callActivitySource`/`absensiSource` sengaja berbentuk string enum-like (bukan boolean hardcode) supaya mudah menambah sumber baru (misalnya `"HRIS_SYNC"` atau `"EXODUS_SYNC"`) tanpa migration lagi ketika integrasi eksternal akhirnya tersedia.
+- Field score (`salesScore` dan seterusnya) dirancang untuk di-cache pada row yang sama supaya query listing KPI Monitoring tidak perlu menjalankan ulang scoring logic setiap kali (band-mapping murah secara komputasi, tetapi tetap — agar konsisten dengan pola snapshot di atas).
 
-### Model baru: `KpiContractEvaluation`
+⚠️ **Catatan desain — status implementasi snapshot (diverifikasi 2026-08-05, koreksi terhadap desain di atas)**: field snapshot (`salesTargetRp`, `salesActualRp`, `salesAchievementPct`, `customerAktifCount`) dan seluruh field skor (`salesScore`, `activityScore`, `customerScore`, `absensiScore`, `totalScore`) **tidak pernah ditulis oleh kode v1**. Satu-satunya tempat `KpiMonthlyEntry` di-upsert adalah `saveKpiManualInputAction` (`src/app/actions/kpi.ts:232-277`), dan `upsert` tersebut hanya menyentuh `callActivityRealisasi`/`callActivityStandar`/`callActivityInputByNip`/`callActivityInputAt`/`absensiValue`/`absensiInputByNip`/`absensiInputAt` — field manual saja. Listing `/kpi-perpanjangan` (`getKpiMonitoringData`, `src/app/actions/kpi.ts:74-224`) menghitung Sales Achievement, Customer Expansion, dan seluruh skor **secara live setiap render**, langsung dari `PoaForm`/`OutletSalesValueMonthly`/`getActivePsspByOutlets`, tanpa pernah membaca atau menulis kolom snapshot di atas. Konsekuensinya: di database production hari ini, kolom-kolom snapshot tersebut selalu `null` untuk setiap baris `KpiMonthlyEntry` yang ada. Job bulanan yang disebut pada poin pertama di atas **belum dibangun sama sekali**. Ini bukan berarti desain snapshot salah — cross-reference `docs/PERFORMANCE.md` §5 tetap merekomendasikan pola ini begitu akses diperluas melampaui ADMIN-only — tetapi klaim "sudah di-snapshot" pada dokumen versi sebelumnya tidak akurat untuk keadaan kode v1 saat ini. Perlakukan sebagai item implementasi yang masih terbuka, bukan sebagai constraint yang sudah terpenuhi.
 
-Agregasi di titik evaluasi kontrak (lihat `01-business-rules.md` §5 — window = periode kontrak berjalan, bukan kalender tetap).
+### Invariant `KpiMonthlyEntry` (`docs/sdd/04-quality-checklist.md` §12)
+
+- **Satu entry per personil per bulan**: `@@unique([nip, period])` (`prisma/schema.prisma:957`) menjamin tidak mungkin ada lebih dari satu `KpiMonthlyEntry` untuk kombinasi `nip` + `period` yang sama. `saveKpiManualInputAction` menggunakan `upsert` dengan key komposit ini (`src/app/actions/kpi.ts:244-246`), sehingga panggilan berulang untuk personil dan bulan yang sama selalu memperbarui baris yang sama, bukan membuat duplikat.
+- **Bukan append-only**: berbeda dari `PoaAuditLog`, `KpiMonthlyEntry` bersifat mutable — `saveKpiManualInputAction` melakukan `update` in-place pada field manual (`src/app/actions/kpi.ts:257-273`), dan `computedAt` (`@updatedAt`) berubah setiap kali baris disentuh. Tidak ada jejak riwayat perubahan input manual (nilai lama tertimpa tanpa audit trail terpisah) — apabila audit trail dibutuhkan di masa depan, ini adalah gap yang perlu ditangani, bukan sesuatu yang sudah ada.
+- `nip` selalu merujuk `User` yang valid (`onDelete: Cascade` pada relasi, `prisma/schema.prisma:915`) — entry ikut terhapus apabila `User`-nya dihapus, bukan menjadi baris yatim.
+
+## 3. Model: `KpiContractEvaluation`
+
+Agregasi pada titik evaluasi kontrak (lihat `01-business-rules.md` §5 — window = periode kontrak berjalan, bukan kalender tetap).
 
 ```prisma
 model KpiContractEvaluation {
-  id       String @id @default(cuid())
-  nip      String
-  user     User   @relation(fields: [nip], references: [nip])
+  id   String @id @default(uuid())
+  nip  String
+  user User   @relation("KpiEvaluatee", fields: [nip], references: [nip], onDelete: Cascade)
 
-  periodeMulai String // "YYYY-MM", awal window kontrak yang dievaluasi
-  periodeAkhir String // "YYYY-MM", akhir window (biasanya bulan evaluasi ini)
+  periodeMulai String // "YYYY-MM"
+  periodeAkhir String // "YYYY-MM"
 
-  avgSalesScore    Decimal
-  avgActivityScore Decimal
-  avgCustomerScore Decimal
-  avgAbsensiScore  Decimal
-  totalScore       Decimal // rata2 weighted-total dari seluruh KpiMonthlyEntry di window ini
+  avgSalesScore    Decimal @db.Decimal(5, 2)
+  avgActivityScore Decimal @db.Decimal(5, 2)
+  avgCustomerScore Decimal @db.Decimal(5, 2)
+  avgAbsensiScore  Decimal @db.Decimal(5, 2)
+  totalScore       Decimal @db.Decimal(5, 2)
 
-  systemRecommendationMonths Int // hasil band §4: 12/9/6/0
+  systemRecommendationMonths Int // band result: 12/9/6/0
 
-  // Keputusan atasan -- boleh beda dari rekomendasi sistem, wajib alasan kalau beda
+  // Atasan's actual decision — may differ from the system recommendation
+  // ("keputusan diusulkan atasan, tidak harus mengikuti rekomendasi asal ada
+  // penjelasan jelas dan logis"). decisionReason is required at the
+  // server-action layer whenever decisionMonths != systemRecommendationMonths.
   decisionMonths Int
-  decisionReason String? // wajib diisi kalau decisionMonths != systemRecommendationMonths
+  decisionReason String?
 
-  // Wajib per memo: "Evaluasi Rencana Pengembangan Personil" + rasionalisasi ke direksi
+  // Wajib per memo: "Evaluasi Rencana Pengembangan Personil" + rasionalisasi ke direksi.
   developmentPlanNotes String
 
-  evaluatedByNip String // SM (untuk ASM/SPV/MR) atau NSM (untuk SM)
-  evaluatedBy    User   @relation("KpiEvaluator", fields: [evaluatedByNip], references: [nip])
+  evaluatedByNip String
+  evaluatedBy    User     @relation("KpiEvaluator", fields: [evaluatedByNip], references: [nip])
   evaluatedAt    DateTime @default(now())
 
   @@index([nip])
+  @@index([evaluatedByNip])
 }
 ```
 
 Catatan desain:
-- `decisionMonths` terpisah dari `systemRecommendationMonths` supaya override atasan (memo eksplisit bilang "keputusan diusulkan atasan, tidak harus mengikuti rekomendasi asal ada penjelasan jelas dan logis") tercatat sebagai keputusan resmi, bukan menimpa angka sistem.
-- Belum ada relasi eksplisit ke `PoaForm`/kontrak kerja HR — repo ini tidak punya model "kontrak kerja" (`User` tidak punya field masa kontrak/tanggal mulai). **Perlu diklarifikasi**: apakah tanggal mulai/akhir kontrak personil akan ditambahkan ke `User`, atau cukup dihitung manual oleh atasan tiap kali mengisi evaluasi (isi `periodeMulai`/`periodeAkhir` manual saat itu juga)? v1 disarankan opsi kedua (manual) supaya tidak butuh sumber data HR baru sekaligus.
+- `decisionMonths` dipisahkan dari `systemRecommendationMonths` supaya override atasan (memo secara eksplisit menyatakan "keputusan diusulkan atasan, tidak harus mengikuti rekomendasi asal ada penjelasan jelas dan logis") tercatat sebagai keputusan resmi, bukan menimpa angka sistem.
+- Belum ada relasi eksplisit ke `PoaForm`/kontrak kerja HR — repositori ini tidak memiliki model "kontrak kerja" (`User` tidak memiliki field masa kontrak/tanggal mulai). **Masih perlu diklarifikasi**: apakah tanggal mulai/akhir kontrak personil akan ditambahkan ke `User`, atau cukup diisi manual oleh atasan setiap kali mengisi evaluasi (`periodeMulai`/`periodeAkhir` diisi manual saat itu juga)? v1 disarankan memakai opsi kedua (manual) supaya tidak membutuhkan sumber data HR baru sekaligus.
+- **Model ini sudah ada di schema (migration `20260730115119_add_kpi_monitoring_models`) tetapi belum ada satu pun kode yang menulis atau membacanya** — tidak ada server action, tidak ada halaman/form yang memakainya (dikonfirmasi via pencarian `KpiContractEvaluation` di `src/`, satu-satunya kemunculan di luar `schema.prisma` ada di komentar `src/app/actions/kpi.ts:6`). Lihat `03-ui-and-access.md` §2 "Form Evaluasi Kontrak" untuk desain yang diusulkan, dan `01-business-rules.md` §5 "Tahapan siklus evaluasi kontrak" untuk urutan tahapan yang perlu diimplementasikan.
 
-## 3. Yang sengaja TIDAK dibangun di v1
+### Invariant `KpiContractEvaluation`
 
-- Sync otomatis untuk Call Activity/Absensi — menunggu keputusan integrasi eksternal (HRIS atau sistem lain). `callActivitySource`/`absensiSource` disiapkan supaya migrasi ke sync nanti tidak perlu ubah struktur tabel, cukup ganti nilai source + isi field via job baru.
+- `nip` (personil yang dievaluasi) selalu merujuk `User` yang valid, `onDelete: Cascade` (`prisma/schema.prisma:968`).
+- `evaluatedByNip` (evaluator) selalu merujuk `User` yang valid, tanpa `onDelete: Cascade` (`prisma/schema.prisma:992`) — evaluasi tetap tersimpan meski record evaluator dihapus/diubah di kemudian hari.
+- ❓ **Belum ada invariant keunikan** — tidak ada `@@unique` pada kombinasi `nip` + `periodeMulai` + `periodeAkhir` (atau `nip` + `evaluatedAt`). Secara skema, dimungkinkan membuat lebih dari satu `KpiContractEvaluation` yang saling tumpang tindih untuk personil dan window yang sama. Karena belum ada kode yang menulis ke model ini (lihat di atas), belum bisa diverifikasi apakah ini disengaja (evaluasi dapat diulang/dikoreksi) atau kelalaian yang perlu ditambal saat form Evaluasi Kontrak dibangun — perlu diputuskan pada saat itu, bukan diasumsikan sekarang.
+
+## 4. Perilaku kegagalan — input manual tidak lengkap (`docs/sdd/04-quality-checklist.md` §13)
+
+**Pada level listing bulanan (`KpiMonthlyEntry`, sudah terverifikasi di kode)**: apabila `callActivityRealisasi` atau `absensiValue` belum diisi (`null`) untuk suatu personil pada periode terpilih, `getKpiMonitoringData` **tidak** memberi nilai default atau memperlakukannya sebagai skor terendah. Pillar score terkait tetap `null` (`src/app/actions/kpi.ts:183`, `:186`), `totalScore` ikut menjadi `null` karena guard `allScored` mensyaratkan keempat skor terisi (`src/app/actions/kpi.ts:188-191`), dan UI menampilkan "Belum diisi" pada kolom terkait serta "Data belum lengkap" pada kolom Rekomendasi, alih-alih angka yang salah (`src/components/kpi/KpiTable.tsx:160`, `:170`, `:179`). Ini pola yang sama dengan degradasi eksplisit-ke-`null` pada integrasi Exodus Activity (`docs/form-poa/03-ui-and-access.md` §6, `src/lib/exodusApi.ts`) — kegagalan/data-kosong tidak pernah disamarkan menjadi angka yang tampak valid.
+
+**Pada level evaluasi kontrak (`KpiContractEvaluation`, agregasi rata-rata beberapa bulan)**: ❓ **belum dapat diverifikasi terhadap kode** — belum ada implementasi agregasi (lihat §3 di atas). Pertanyaan yang masih terbuka dan perlu dijawab saat form Evaluasi Kontrak dibangun: apabila satu atau lebih bulan dalam window evaluasi memiliki `KpiMonthlyEntry` yang `null`/tidak ada untuk Call Activity atau Absensi, apakah (a) bulan tersebut dikecualikan dari rata-rata (rata-rata dihitung hanya dari bulan yang lengkap), (b) evaluasi diblokir sampai seluruh bulan dalam window terisi lengkap, atau (c) bulan yang tidak lengkap dihitung sebagai skor tertentu (misalnya 0)? Jangan mengasumsikan salah satu dari ketiganya sebelum dikonfirmasi — dicatat juga sebagai bagian dari edge case §5 "Tahapan siklus evaluasi kontrak" pada `01-business-rules.md`.
+
+## 5. Yang sengaja TIDAK dibangun di v1
+
+- Sync otomatis untuk Call Activity/Absensi — menunggu keputusan integrasi eksternal (lihat catatan status Exodus Activity API di `README.md` dan `01-business-rules.md` §2b — sudah ada API yang berpotensi relevan, tetapi endpoint yang cocok belum diimplementasikan/dipakai). `callActivitySource`/`absensiSource` disiapkan supaya migrasi ke sync nanti tidak membutuhkan perubahan struktur tabel, cukup mengganti nilai source dan mengisi field melalui job baru.
 - Perhitungan otomatis tanggal kontrak — lihat catatan `KpiContractEvaluation` di atas.
+- Job bulanan pengisi snapshot `KpiMonthlyEntry` — lihat catatan status implementasi snapshot di §2 di atas; ini bukan keputusan scope yang disengaja, melainkan pekerjaan yang belum sempat dikerjakan pada v1.
