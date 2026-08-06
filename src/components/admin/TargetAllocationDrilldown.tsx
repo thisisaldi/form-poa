@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
-  listFocusProductsAction,
+  listKontesProductsAction,
   getTargetChildrenAction,
   setTargetAllocationsAction,
   deleteTargetAllocationAction,
@@ -46,11 +46,11 @@ export function TargetAllocationDrilldown() {
   const level: Level = LEVELS[path.length];
 
   useEffect(() => {
-    listFocusProductsAction().then(setProducts).catch(() => setProducts([]));
+    listKontesProductsAction().then(setProducts).catch(() => setProducts([]));
   }, []);
 
   function loadLevel(nextPath: Crumb[]) {
-    if (!kodeProduk) { setError("Pilih produk fokus dulu."); return; }
+    if (!kodeProduk) { setError("Pilih produk kontes dulu."); return; }
     setError(null); setNotice(null);
     const parentNip = nextPath.length > 0 ? nextPath[nextPath.length - 1].nip : null;
     const lvl = LEVELS[nextPath.length];
@@ -139,7 +139,7 @@ export function TargetAllocationDrilldown() {
           </div>
         </div>
         <div className="flex flex-col gap-1 flex-1 min-w-[220px]">
-          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Fokus</span>
+          <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Produk Kontes</span>
           <select value={kodeProduk} onChange={(e) => handleProductOrQuarterChange(e.target.value)} className="input-field">
             <option value="">- Pilih produk -</option>
             {products.map((p) => <option key={p.kodeProduk} value={p.kodeProduk}>{p.namaProduk}</option>)}

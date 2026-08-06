@@ -784,7 +784,7 @@ model OutletSalesValueMonthly {
 // (namaGT, periode); the source sheet is wide (one column per month), this
 // table is long like OutletSalesValueMonthly above. Distinct from
 // ProductTargetAllocation — this is a territory-level Rupiah VALUE target
-// ("target value"), not a per-product quantity ("target produk fokus").
+// ("target value"), not a per-product quantity ("target produk kontes").
 //
 // namaGT is the unit of assignment (source confirms 1 GT = 1 MR/SPV), so
 // nipMR/namaMR is that GT's own person; nipASM/SM/NSM + names come directly
@@ -865,7 +865,7 @@ model ProductTargetAllocation {
 }
 
 // Criteria tag per product per outlet — from ProductPMDatabase Unpivot sheets.
-// Drives "produk fokus per outlet" logic in the POA form and stats panel.
+// Drives "produk kontes per outlet" logic in the POA form and stats panel.
 model OutletProductKriteria {
   id              String @id @default(uuid())
   kodePI          String

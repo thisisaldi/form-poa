@@ -1,7 +1,8 @@
 /**
  * Mapping from namaProduk (uppercase) to the paket(s) it belongs to.
  * Keys must match exact namaProduk values in the Product table (uppercased).
- * Derived from excel/ProductPMDatabase.xlsx Unpivot sheets.
+ * Derived from excel/ProductPMDatabase.xlsx Unpivot sheets, updated against
+ * internal/Paket Produk Kontes PM.xlsx (PM's latest official list, 2026-08-06).
  */
 export const PAKET_BY_PRODUK: Record<string, string[]> = {
   // NARFOZ — sirup (015942, 008870)
@@ -19,8 +20,17 @@ export const PAKET_BY_PRODUK: Record<string, string[]> = {
   "HUMAN ALBUMIN GRIFOLS 20 % INFUSION 100":    ["PAKET PENCERNAAN", "PAKET ONKOLOGI"],
   // PRORIS (006064)
   "PRORIS SUPPOSITORIA":                        ["PAKET PEDIATRIC", "PAKET PENCERNAAN"],
-  // PRAXION (007550)
+  // PRAXION (007550, 007538, 007549)
   "PRAXION 100MG/ML DROPS SUSPENSI":            ["PAKET PEDIATRIC", "PAKET PENCERNAAN"],
+  "PRAXION 120MG/5ML SUSPENSI":                 ["PAKET PEDIATRIC"],
+  "PRAXION 250MG/5ML SUSPENSI":                 ["PAKET PEDIATRIC"],
+  // PRORIS (003259, 011014, in addition to 006064 below)
+  "PRORIS SUSPENSI 60 ML":                      ["PAKET PEDIATRIC"],
+  "PRORIS FORTE SUSPENSION 50 ML":              ["PAKET PEDIATRIC"],
+  // CALTONAL — kode produk "NEW" di internal/Paket Produk Kontes PM.xlsx,
+  // belum ada di Product table; mapping disiapkan duluan supaya aktif begitu disync.
+  "CALTONAL 50":                                ["PAKET PAIN"],
+  "CALTONAL 100":                               ["PAKET PAIN"],
   // OZEN (006119)
   "OZEN DROPS 12 ML":                           ["PAKET PEDIATRIC"],
   // INTRIX (004865)
@@ -48,7 +58,7 @@ export const PAKET_BY_PRODUK: Record<string, string[]> = {
   "IMDROS 100 MG FC TABLET":                    ["PAKET ONKOLOGI"],
 };
 
-/** Returns the primary paket label for a product name, or null if not a focus product. */
+/** Returns the primary paket label for a product name, or null if not a kontes product. */
 export function getPaketLabel(namaProduk: string): string | null {
   const pakets = PAKET_BY_PRODUK[namaProduk.toUpperCase()];
   if (!pakets || pakets.length === 0) return null;
@@ -63,7 +73,7 @@ export function getAllPakets(namaProduk: string): string[] {
 /**
  * Maps DB spesialisasi (uppercased) to pakets recommended for that specialty.
  * Source: excel/Rekomendasi Paket Produk Per Spesialisasi.xlsx, Sheet2,
- * columns SPESIALISASI2 and REKOMENDASI PAKET PRODUK FOKUS.
+ * columns SPESIALISASI2 and REKOMENDASI PAKET PRODUK KONTES.
  */
 export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   // Pediatric
@@ -120,7 +130,7 @@ export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
   // Onkologi & Hematologi
   "HAEMATOLOGY-ONCOLOGY":                   ["PAKET ONKOLOGI"],
 
-  // Tidak ada paket fokus yang relevan
+  // Tidak ada paket kontes yang relevan
   "HEMATOLOGI":                             [],
   "KANDUNGAN (OBSGYN)":                     [],
   "OBSGYN":                                 [],
@@ -205,7 +215,7 @@ export function sortProductsBySpesialisasi<T extends { namaProduk: string }>(
  * "Recommendation" — see Product.spesialisasiRekomendasi). Source: same
  * workbook, Sheet2, columns SPESIALISASI2 and "REKOMENDASI PAKET DATA PAK
  * LEEMAN". Distinct from SPESIALISASI_TO_PAKET above — that one maps to the
- * 6 broad "Produk Fokus PM" pakets, this one to the 13 finer-grained
+ * 6 broad "Produk Kontes PM" pakets, this one to the 13 finer-grained
  * specialty columns covering the wider "Listing Corporate" product set.
  */
 export const SPESIALISASI_TO_KOLOM_REKOMENDASI: Record<string, string[]> = {

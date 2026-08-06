@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/Card";
 import { TargetProdukForm } from "@/components/admin/TargetProdukForm";
 import { TargetAllocationDrilldown } from "@/components/admin/TargetAllocationDrilldown";
 
-export const metadata = { title: "Target Produk Fokus · Form POA" };
+export const metadata = { title: "Target Produk Kontes · Form POA" };
 
 export default async function TargetProdukPage() {
   const session = await getCurrentUser();
@@ -14,9 +14,9 @@ export default async function TargetProdukPage() {
   return (
     <div className="max-w-4xl space-y-5">
       <div>
-        <h1>Target Produk Fokus per Kuartal</h1>
+        <h1>Target Produk Kontes per Kuartal</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Atur target quantity per produk fokus secara manual, bertingkat: NSM → Area (SM) → ASM → MR.
+          Atur target quantity per produk kontes secara manual, bertingkat: NSM → Area (SM) → ASM → MR.
           Set total NSM dulu, lalu alokasikan ke Area di bawahnya, lalu ke ASM, lalu ke MR - baru terapkan ke draft POA.
         </p>
       </div>

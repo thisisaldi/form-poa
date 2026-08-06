@@ -50,13 +50,13 @@
 
 | Model | Baris | Fungsi | Field kunci | Index |
 |---|---|---|---|---|
-| `Outlet` | 378 | Master outlet/RS, disinkronisasi dari Struktur_Marketing_PI | Hierarki teritori (GT/Sub/Area/Reg, 392-399), `coveredByNip`/`coveredByRole` (cascade tim vacant, men-drive exception `canCreatePoa`, dihitung ulang `importStrukturVerifiedKAM.ts`) | `[statusOutlet]`, `[sector]` |
+| `Outlet` | 378 | Master outlet/RS — sebagian field (kodePI, nama, sector, kota, propinsi, hierarki teritori) disinkronisasi dari Nexus API `get_outlet_by_nip` (bermigrasi dari MSSQL 2026-08-06, lihat `docs/outlet-nexus-migration/`); sebagian lain (`statusOutlet`, `kategori`, `namaChannel`, `coveredByNip`/`coveredByRole`) tetap dari `importStrukturVerifiedKAM.ts` | Hierarki teritori (GT/Sub/Area/Reg, 392-399), `coveredByNip`/`coveredByRole` (cascade tim vacant, men-drive exception `canCreatePoa`, dihitung ulang `importStrukturVerifiedKAM.ts`) | `[statusOutlet]`, `[sector]` |
 | `OutletStrukturBaru` | 565 | Staging DRAFT restrukturisasi org 2026, TIDAK terhubung ke `Outlet`/`MrOutletAssignment`/approval — review saja | `gmNip..psrNip` (nullable, match berdasarkan nama) | beberapa index `[xxxNip]` |
 | `MrOutletAssignment` | 884 | Junction MR × outlet per periode | unique `[nipMR,kodePI,periode]` | `[nipMR]`, `[kodePI]`, `[periode]` |
 | `OutletSalesValueMonthly` | 767 | Sales value Rupiah bulanan level-outlet (bukan per-produk), dari `mkt_insight.dbo.DIR10001B`, feed kartu "Data Sales" Detail POA | `valueSales` | unique `[kodePI,periode]`, `[kodePI]`, `[periode]` |
 | `OutletSalesHistory` | 727 | Jumlah sales 12 bulan rolling per (kodePI×itemKode), dari `DIR10001B` | `totalSales12Bln`, `periodeFrom`/`periodeTo` | unique `[kodePI,itemKode]` |
 | `OutletSalesMonthly` | 746 | Quantity sales bulanan per outlet+produk, feed engine `targetCalculation.ts` | `qty` (unit, bukan Rupiah) | unique `[kodePI,itemKode,periode]` |
-| `OutletProductKriteria` | 869 | Tag kriteria per produk per outlet (dari sheet Unpivot ProductPMDatabase), men-drive "produk fokus per outlet" | `kategori` (Low Hanging Fruit/Blue Ocean/Red Ocean), `kriteriaBaru`, `statusTransaksi` | unique `[kodePI,kodeProduk,paket]` |
+| `OutletProductKriteria` | 869 | Tag kriteria per produk per outlet (dari sheet Unpivot ProductPMDatabase), men-drive "produk kontes per outlet" | `kategori` (Low Hanging Fruit/Blue Ocean/Red Ocean), `kriteriaBaru`, `statusTransaksi` | unique `[kodePI,kodeProduk,paket]` |
 | `OrgStrukturMeta` | 601 | Singleton — tracking bulan CSV struktur org yang sedang dipakai | `periode`, `sourceFile` | — |
 
 **Catatan desain — invariant:** `Outlet.kodePI` (`:379`) adalah primary key alami (bukan UUID surrogate), dipakai langsung sebagai FK oleh `CustomerOutlet`, `MrOutletAssignment`, `SurveyRekomendasi`, dst. `MrOutletAssignment` (`:884`) unik per `(nipMR, kodePI, periode)` — 1 MR hanya bisa memiliki 1 assignment aktif per outlet per periode, mencegah duplikasi baris sinkronisasi yang berjalan berulang.
@@ -113,7 +113,7 @@ Enum lengkap: `Role`, `PoaStatus`, `AuditAction`, `StatusStandarisasi`, `JenisPs
 | Model / data | Sumber | Mekanisme | Cadence |
 |---|---|---|---|
 | `User` + hierarki org | MSSQL `Struktur_Marketing_PI` | `scripts/syncOrg.ts` → `runOrgSync`; juga `POST /api/sync/org-structure` | Recurring, cron-triggerable |
-| `Outlet` + `MrOutletAssignment` | MSSQL `Struktur_Marketing_PI` | `scripts/syncOrg.ts` → `runOutletSync` (step 2, membutuhkan User sudah ada) | Recurring |
+| `Outlet` (sebagian field) + `MrOutletAssignment` | Nexus API `get_outlet_by_nip` (per NIP `role=MR` aktif dari `User`) — **bermigrasi dari MSSQL 2026-08-06**, lihat `docs/outlet-nexus-migration/` | `scripts/syncOrg.ts` → `runOutletSync` (step 2, membutuhkan User sudah ada) | Recurring |
 | `Outlet.coveredByNip/coveredByRole` | Excel struktur org "Verified" | `scripts/importStrukturVerifiedKAM.ts` | Manual periodik |
 | `OutletStrukturBaru` (draft 2026) | Excel "Simulasi Hospital Struktur 2026 New.xlsx" | `scripts/importStrukturBaru.ts` | One-time draft/review |
 | `Customer`/`CustomerOutlet` (+`isFokus`) | Excel Customer_Database + sheet "Dokter RS NON CHAIN" | `scripts/syncCustomers.ts` (2-pass) | Recurring manual |
@@ -139,7 +139,9 @@ Enum lengkap: `Role`, `PoaStatus`, `AuditAction`, `StatusStandarisasi`, `JenisPs
 
 **Penamaan script**: `sync*` = dimaksudkan untuk berjalan berulang (refresh Excel/pull MSSQL, sebagian cron-triggerable via `/api/sync/*`); `import*` = load ad-hoc/manual data pada titik waktu tertentu, sebagian eksplisit menggantikan versi `import*` lama yang sama.
 
-**MSSQL (`mkt_insight`)**: read-only satu arah — package npm `mssql` melalui `MSSQL_CONNECTION_STRING`. Hanya membaca 2 tabel: `Struktur_Marketing_PI` (org/outlet) dan `mkt_insight.dbo.DIR10001B` (sales). Tidak ada `INSERT`/`UPDATE`/`DELETE` ke MSSQL di manapun pada `src/lib/sync/*.ts` — semua tulisan mendarat di Postgres (Prisma) milik aplikasi ini sendiri.
+**MSSQL (`mkt_insight`)**: read-only satu arah — package npm `mssql` melalui `MSSQL_CONNECTION_STRING`. Hanya membaca 2 tabel: `Struktur_Marketing_PI` (org, bukan lagi outlet — lihat catatan migrasi di bawah) dan `mkt_insight.dbo.DIR10001B` (sales). Tidak ada `INSERT`/`UPDATE`/`DELETE` ke MSSQL di manapun pada `src/lib/sync/*.ts` — semua tulisan mendarat di Postgres (Prisma) milik aplikasi ini sendiri.
+
+**Nexus (`api-nexus.pharos.id`)**: API eksternal publik (tanpa auth, dikonfirmasi 2026-07-23). Selain `get_customer_by_outlet` (live-merge di `getCustomersByOutlet`, lihat §"Customer" di atas), sejak 2026-08-06 `get_outlet_by_nip` menjadi sumber sebagian field `Outlet` + `MrOutletAssignment` (`runOutletSync`, dipanggil per NIP `role=MR` aktif) — lihat `docs/outlet-nexus-migration/` untuk field mapping lengkap dan alasan migrasinya.
 
 **Perilaku kegagalan sinkronisasi MSSQL** (`src/app/api/sync/org-structure/route.ts:30-39`, `sales-history/route.ts:26-36`, `sales-value-monthly/route.ts:26-36` — pola identik di ketiganya): berbeda dari integrasi Nexus/Exodus (§6 `03-ui-and-access.md`) yang mendegradasi UI secara silent ke `null`, ketiga route sync ini **gagal secara eksplisit (fail loud)** — exception ditangkap, di-log ke `console.error`, dan direspons dengan HTTP 500 berisi pesan error (`{ error: "Sync failed", detail: String(err) }`). Route ini dipanggil oleh cron eksternal (bukan diakses langsung dari UI), sehingga kegagalannya tidak pernah membuat halaman aplikasi crash — dampaknya adalah data sync yang stale sampai retry cron berikutnya berhasil, bukan gangguan pada request pengguna yang sedang berjalan. Ketiganya juga menolak jalan apabila `MSSQL_CONNECTION_STRING` tidak di-set (500, `"MSSQL_CONNECTION_STRING not configured"`) dan membutuhkan header `X-Sync-Secret` yang cocok dengan env `SYNC_SECRET` apabila env tersebut di-set (401 jika tidak cocok).
 

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { PoaDetailTabs } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
-import { computeFocusProductTargetsSummary } from "@/lib/targetCalculation";
+import { computeKontesProductTargetsSummary } from "@/lib/targetCalculation";
 import { displayRole } from "@/lib/role";
 import { getMrSalesSummary } from "@/lib/salesSummary";
 import { quarterToMonths } from "@/lib/quarterUtils";
@@ -150,10 +150,10 @@ export default async function PoaDetailPage({
     ? { historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0 }
     : await getMrSalesSummary(poa.ownerId);
 
-  // Quarterly unit-quantity target per focus product for the MR's SM territory
+  // Quarterly unit-quantity target per kontes product for the MR's SM territory
   // (from the same engine the NSM/Admin "Simulasi Target Produk" page uses) —
   // only meaningful for a real "YYYY-Q#" period and a resolvable SM in the org chain.
-  let focusProductTargets: {
+  let kontesProductTargets: {
     kodeProduk: string;
     namaProduk: string;
     quarterlyTargetQty: number;
@@ -178,8 +178,8 @@ export default async function PoaDetailPage({
         estimasiByProduk.set(it.kodeProduk, cur);
       }
 
-      const summary = await computeFocusProductTargetsSummary(poa.period);
-      focusProductTargets = summary.products
+      const summary = await computeKontesProductTargetsSummary(poa.period);
+      kontesProductTargets = summary.products
         .map((p) => {
           const territory = p.territories.find((t) => t.smNip === smNip);
           const estimasi = estimasiByProduk.get(p.kodeProduk);
@@ -259,7 +259,7 @@ export default async function PoaDetailPage({
             )}
           </p>
 
-          {/* Stats bar — Target/Estimasi/Estimasi Produk Fokus removed (2026-08-04
+          {/* Stats bar — Target/Estimasi/Estimasi Produk Kontes removed (2026-08-04
               request): duplicated the same figures already shown in the "Ringkasan
               POA" panel (StatsPanel) further down, this bar now only keeps the two
               ratio figures that panel doesn't surface. */}
@@ -363,7 +363,7 @@ export default async function PoaDetailPage({
         </Card>
       )}
 
-      {/* Drafting / Produk Fokus / History PSSP Aktif tabs */}
+      {/* Drafting / Produk Kontes / History PSSP Aktif tabs */}
       <PoaDetailTabs
         items={allItems}
         poaId={id}
@@ -375,7 +375,7 @@ export default async function PoaDetailPage({
         selectable={isOwner}
         activePssp={activePssp}
         everPsspKodeCust={everPsspKodeCust}
-        focusProductTargets={focusProductTargets}
+        kontesProductTargets={kontesProductTargets}
         salesSummary={salesSummary}
         targetArea={targetValueFromGT ?? undefined}
       />

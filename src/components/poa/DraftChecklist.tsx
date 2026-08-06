@@ -573,7 +573,7 @@ export function StatsPanel({
             danger: false,
           },
           {
-            label: "Target Produk Fokus ★",
+            label: "Target Produk Kontes ★",
             value: `${s.productCount}/22`,
             sub: s.productCount >= 22 ? "terpenuhi ✓" : `kurang ${22 - s.productCount}`,
             danger: s.productCount < 22,
@@ -729,10 +729,10 @@ function DoctorRow({
     }
     return total > 0 ? (weighted / total) * 100 : null;
   })();
-  // Jumlah Variasi (& Produk Fokus) — distinct products this doctor is planned
-  // for, split by whether the product belongs to a Fokus paket.
+  // Jumlah Variasi (& Produk Kontes) — distinct products this doctor is planned
+  // for, split by whether the product belongs to a Kontes paket.
   const variasiTotal = new Set(doctorItems.map((it) => it.kodeProduk)).size;
-  const variasiFokus = new Set(
+  const variasiKontes = new Set(
     doctorItems.filter((it) => getAllPakets(it.namaProduk).length > 0).map((it) => it.kodeProduk)
   ).size;
   const isDokterBaru = !first.kodeCust;
@@ -818,7 +818,7 @@ function DoctorRow({
             <StatTile label="Nilai PSSP" value={rowNilaiPssp > 0 ? formatRpPssp(rowNilaiPssp) : "-"}
               sub={nilaiRFinal != null ? `Nilai R Final ${nilaiRFinal.toFixed(2)}%` : undefined} emphasize />
             <StatTile label="Pengali Nilai R" value={pengaliAvg != null ? `${pengaliAvg.toFixed(2)}x` : "-"} />
-            <StatTile label="Variasi Produk" value={`${variasiFokus}/${variasiTotal}`} sub="fokus/total" />
+            <StatTile label="Variasi Produk" value={`${variasiKontes}/${variasiTotal}`} sub="kontes/total" />
           </div>
           {/* Hidden for any doctor with zero PSSP history — whether truly new
               (no kodeCust) or already matched to a Customer record but never

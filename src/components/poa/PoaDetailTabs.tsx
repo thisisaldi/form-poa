@@ -8,9 +8,9 @@ import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
 import type { ActivePsspRow } from "@/app/actions/customer";
 
-type TabKey = "drafting" | "produkFokus" | "pssp";
+type TabKey = "drafting" | "produkKontes" | "pssp";
 
-interface FocusProductTarget {
+interface KontesProductTarget {
   kodeProduk: string;
   namaProduk: string;
   quarterlyTargetQty: number;
@@ -20,12 +20,12 @@ interface FocusProductTarget {
 }
 
 // Splits the Detail POA page into 3 tabs: Drafting (checklist + light summaries),
-// Produk Fokus (full per-product quarterly target breakdown), History PSSP Aktif
+// Produk Kontes (full per-product quarterly target breakdown), History PSSP Aktif
 // (full per-doctor/per-contract breakdown) — the last two used to sit inline as
 // full detail on every page load; now only their summary shows in Drafting.
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
-  selectable = true, activePssp = [], everPsspKodeCust = [], focusProductTargets, salesSummary, targetArea,
+  selectable = true, activePssp = [], everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -38,7 +38,7 @@ export function PoaDetailTabs({
   activePssp?: ActivePsspRow[];
   /** kodeCust values that have EVER had a PSSP contract (see getPsspEverKodeCust) — passed through to DraftChecklist. */
   everPsspKodeCust?: string[];
-  focusProductTargets: FocusProductTarget[];
+  kontesProductTargets: KontesProductTarget[];
   salesSummary?: { historisTahunLalu: number; historisTahunLaluLabel: string; salesYtd: number; growthPct: number };
   /** Real Target Value for this POA's MR (see poa/[id]/page.tsx's targetValueFromGT) — undefined falls back to DraftChecklist's dummy placeholder. */
   targetArea?: number;
@@ -55,15 +55,15 @@ export function PoaDetailTabs({
   );
   const qLabel = quarterLabelFromMonths(quarterMonths);
 
-  const focusWithTarget = focusProductTargets.filter((p) => p.quarterlyTargetQty > 0);
-  const focusTotalQty = focusProductTargets.reduce((s, p) => s + p.quarterlyTargetQty, 0);
-  const focusTotalValue = focusProductTargets.reduce((s, p) => s + p.quarterlyTargetValue, 0);
-  const focusTotalEstimasiQty = focusProductTargets.reduce((s, p) => s + p.estimasiQty, 0);
-  const focusTotalEstimasiValue = focusProductTargets.reduce((s, p) => s + p.estimasiValue, 0);
+  const kontesWithTarget = kontesProductTargets.filter((p) => p.quarterlyTargetQty > 0);
+  const kontesTotalQty = kontesProductTargets.reduce((s, p) => s + p.quarterlyTargetQty, 0);
+  const kontesTotalValue = kontesProductTargets.reduce((s, p) => s + p.quarterlyTargetValue, 0);
+  const kontesTotalEstimasiQty = kontesProductTargets.reduce((s, p) => s + p.estimasiQty, 0);
+  const kontesTotalEstimasiValue = kontesProductTargets.reduce((s, p) => s + p.estimasiValue, 0);
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "drafting", label: "Drafting" },
-    { key: "produkFokus", label: focusProductTargets.length > 0 ? `Produk Fokus (${focusProductTargets.length})` : "Produk Fokus" },
+    { key: "produkKontes", label: kontesProductTargets.length > 0 ? `Produk Kontes (${kontesProductTargets.length})` : "Produk Kontes" },
     { key: "pssp", label: aktifPsspStats.kontrakTotal > 0 ? `History PSSP Aktif (${aktifPsspStats.kontrakTotal})` : "History PSSP Aktif" },
   ];
 
@@ -90,21 +90,21 @@ export function PoaDetailTabs({
       {/* Drafting — checklist + light summaries of the other two tabs */}
       {tab === "drafting" && (
         <div className="space-y-4">
-          {focusProductTargets.length > 0 && (
+          {kontesProductTargets.length > 0 && (
             <Card>
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                    Target Produk Fokus (Kuartal {qLabel})
+                    Target Produk Kontes (Kuartal {qLabel})
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-                    {focusWithTarget.length} dari {focusProductTargets.length} produk fokus punya target · total {Math.round(focusTotalQty).toLocaleString("id-ID")} unit ({formatRp(focusTotalValue)}) ·
-                    estimasi draft ini {Math.round(focusTotalEstimasiQty).toLocaleString("id-ID")} unit ({formatRp(focusTotalEstimasiValue)})
+                    {kontesWithTarget.length} dari {kontesProductTargets.length} produk kontes punya target · total {Math.round(kontesTotalQty).toLocaleString("id-ID")} unit ({formatRp(kontesTotalValue)}) ·
+                    estimasi draft ini {Math.round(kontesTotalEstimasiQty).toLocaleString("id-ID")} unit ({formatRp(kontesTotalEstimasiValue)})
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setTab("produkFokus")}
+                  onClick={() => setTab("produkKontes")}
                   className="text-xs font-medium shrink-0"
                   style={{ color: "var(--color-blue)" }}
                 >
@@ -141,15 +141,15 @@ export function PoaDetailTabs({
         </div>
       )}
 
-      {/* Produk Fokus — full per-product quarterly target detail */}
-      {tab === "produkFokus" && (
-        focusProductTargets.length > 0 ? (
+      {/* Produk Kontes — full per-product quarterly target detail */}
+      {tab === "produkKontes" && (
+        kontesProductTargets.length > 0 ? (
           <Card>
             <CardHeader>
-              <CardTitle>Target Produk Fokus (Kuartal {qLabel})</CardTitle>
+              <CardTitle>Target Produk Kontes (Kuartal {qLabel})</CardTitle>
             </CardHeader>
             <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
-              Target kuantitas &amp; nilai per produk fokus untuk territory SM dari MR ini, {poaPeriod} -
+              Target kuantitas &amp; nilai per produk kontes untuk territory SM dari MR ini, {poaPeriod} -
               dari mesin simulasi target yang sama dengan halaman Admin, dibandingkan dengan estimasi
               yang sudah direncanakan MR ini di draft POA.
             </p>
@@ -157,7 +157,7 @@ export function PoaDetailTabs({
               <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-                    <th className="text-left py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Produk Fokus</th>
+                    <th className="text-left py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Produk Kontes</th>
                     <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Target Unit (Kuartal)</th>
                     <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Nilai Target</th>
                     <th className="text-right py-1.5 pr-3 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi Unit (Draft Ini)</th>
@@ -165,7 +165,7 @@ export function PoaDetailTabs({
                   </tr>
                 </thead>
                 <tbody>
-                  {focusProductTargets.map((p) => (
+                  {kontesProductTargets.map((p) => (
                     <tr key={p.kodeProduk} style={{ borderBottom: "1px solid var(--color-border)" }}>
                       <td className="py-1.5 pr-3" style={{ color: "var(--color-text)" }}>{p.namaProduk}</td>
                       <td className="py-1.5 pr-3 text-right" style={{ color: "var(--color-text)" }}>
@@ -189,7 +189,7 @@ export function PoaDetailTabs({
         ) : (
           <Card>
             <p className="text-sm py-2" style={{ color: "var(--color-text-muted)" }}>
-              Tidak ada data target produk fokus untuk periode ini.
+              Tidak ada data target produk kontes untuk periode ini.
             </p>
           </Card>
         )

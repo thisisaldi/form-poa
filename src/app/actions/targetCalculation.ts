@@ -5,12 +5,12 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { assertWritable } from "@/lib/maintenance";
 import {
-  computeFocusProductTargetsSummary,
+  computeKontesProductTargetsSummary,
   setProductTargetInput,
-  listFocusProducts,
+  listKontesProducts,
   buildOrgMaps,
   getOrgChildren,
-  type QuarterlyFocusSummary,
+  type QuarterlyKontesSummary,
   type OrgLevel,
   type OrgUnit,
 } from "@/lib/targetCalculation";
@@ -24,17 +24,17 @@ async function requireNsmOrAdmin() {
   return session;
 }
 
-export async function listFocusProductsAction(): Promise<{ kodeProduk: string; namaProduk: string }[]> {
+export async function listKontesProductsAction(): Promise<{ kodeProduk: string; namaProduk: string }[]> {
   await requireNsmOrAdmin();
-  return listFocusProducts();
+  return listKontesProducts();
 }
 
-/** Focus products plus any Tambahan Target already set for this quarter (for pre-filling the form). */
-export async function getFocusProductsWithRampAction(
+/** Kontes products plus any Tambahan Target already set for this quarter (for pre-filling the form). */
+export async function getKontesProductsWithRampAction(
   quarter: string
 ): Promise<{ kodeProduk: string; namaProduk: string; monthlyRamp: string }[]> {
   await requireNsmOrAdmin();
-  const products = await listFocusProducts();
+  const products = await listKontesProducts();
   const inputs = await prisma.productTargetInput.findMany({
     where: { quarter, kodeProduk: { in: products.map((p) => p.kodeProduk) } },
   });
@@ -62,12 +62,12 @@ export async function setTambahanTargetBulkAction(
   }
 }
 
-export async function getFocusProductsSummaryAction(
+export async function getKontesProductsSummaryAction(
   quarter: string
-): Promise<{ ok: boolean; result?: QuarterlyFocusSummary; error?: string }> {
+): Promise<{ ok: boolean; result?: QuarterlyKontesSummary; error?: string }> {
   try {
     await requireNsmOrAdmin();
-    const result = await computeFocusProductTargetsSummary(quarter);
+    const result = await computeKontesProductTargetsSummary(quarter);
     return { ok: true, result };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Gagal menghitung." };
@@ -75,7 +75,7 @@ export async function getFocusProductsSummaryAction(
 }
 
 /**
- * Applies computed per-MR target VALUE (summed across all focus products) to
+ * Applies computed per-MR target VALUE (summed across all kontes products) to
  * their DRAFT POA for the given quarter. Only touches DRAFT POAs (still fully
  * owned/mutable by the MR) — MRs without a draft yet are skipped and reported
  * back so the caller can follow up.
@@ -86,10 +86,10 @@ export async function applyQuarterlyTargetsAction(
   try {
     const session = await requireNsmOrAdmin();
     await assertWritable(session.role);
-    const summary = await computeFocusProductTargetsSummary(quarter);
+    const summary = await computeKontesProductTargetsSummary(quarter);
     const org = await buildOrgMaps();
 
-    // Sum each MR's share of every focus product's per-MR target value.
+    // Sum each MR's share of every kontes product's per-MR target value.
     const valueByMr = new Map<string, number>();
     for (const product of summary.products) {
       for (const territory of product.territories) {
@@ -207,7 +207,7 @@ export async function setTargetAllocationsAction(
 
 /**
  * Applies manual MR-level allocations to their DRAFT POA for the quarter —
- * sums each MR's qty across every focus product (qty × HNA = value), same
+ * sums each MR's qty across every kontes product (qty × HNA = value), same
  * PoaForm.target destination applyQuarterlyTargetsAction (the algorithmic
  * path) writes to. NSM/SM/ASM rows are cascading subtotals only, not applied
  * directly — only leaf MR rows represent an actual person's POA target.

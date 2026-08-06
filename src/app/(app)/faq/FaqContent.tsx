@@ -135,11 +135,11 @@ const SECTIONS: DefSection[] = [
         ),
       },
       {
-        name: "Produk Fokus",
-        keywords: "target 22 variasi fokus pm",
+        name: "Produk Kontes",
+        keywords: "target 22 variasi kontes pm",
         body: (
           <>
-            <p>Jumlah kode produk unik yang termasuk paket fokus PM, dari target 22 variasi. Merah kalau belum tercapai.</p>
+            <p>Jumlah kode produk unik yang termasuk paket kontes PM, dari target 22 variasi. Merah kalau belum tercapai.</p>
             <Formula>unique(kodeProduk) WHERE getAllPakets(namaProduk).length &gt; 0</Formula>
           </>
         ),

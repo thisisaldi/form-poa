@@ -37,7 +37,7 @@ export interface TerritoryTableGroup {
   userPsspAktif: number;
   userPsspAktifEstimasi: number;
   variasiProduk: number;
-  variasiProdukFokus: number;
+  variasiProdukKontes: number;
   pengajuan: number;
   terstandarisasi: number;
   salesAktif: number;
@@ -107,6 +107,8 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
   const isOutlet = variant === "outlet";
   const isProduk = variant === "produk";
   const isSpes = variant === "spesialisasi";
+  const isMr = variant === "mr";
+  const isCustomer = variant === "customer";
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -141,7 +143,7 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
       case "gap": return g.growthVsQuarterSebelumnyaPct != null ? g.estimasiQuarterIni - g.realisasiQuarterSebelumnya : null;
       case "growthCustomer": return g.growthCustomerPct;
       case "user": return row.userCount;
-      case "variasi": return g.variasiProdukFokus;
+      case "variasi": return g.variasiProdukKontes;
       case "pengajuan": return g.pengajuan;
       case "biaya": return isOutlet || isProduk ? row.biayaAktifPengajuan : g.budgetTotal;
       case "costRatio": return isOutlet || isProduk ? row.costRatioTotal : row.budgetPct;
@@ -186,11 +188,15 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                 <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                   <span className="inline-flex items-center gap-1">
                     Status
-                    <HeaderInfo text="Fokus jika produk ini termasuk daftar Produk Fokus perusahaan, Non-Fokus jika bukan." />
+                    <HeaderInfo text="Kontes jika produk ini termasuk daftar Produk Kontes perusahaan, Non-Kontes jika bukan." />
                   </span>
                 </th>
               )}
-              {!isProduk && (
+              {/* PIC hidden for "mr" (setiap baris SUDAH mewakili satu MR,
+                  jadi PIC-nya redundan — 2026-08-06: "di tab Per personil
+                  hapus kolom PIC") dan "customer" (2026-08-06: "di tab per
+                  Customer hapus kolom Customer dan kolom PIC"). */}
+              {!isProduk && !isMr && !isCustomer && (
                 <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                   <span className="inline-flex items-center gap-1">
                     PIC
@@ -219,19 +225,27 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                   title={quarterIni && quarterSebelumnya ? `Customer ${quarterIni} vs Customer ${quarterSebelumnya}` : undefined}
                   info="Persentase perbandingan JUMLAH customer unik (bukan Rupiah) yang punya realisasi/pengajuan kuartal ini terhadap kuartal sebelumnya, untuk spesialisasi ini. Pelengkap kolom Growth (by value) di sebelah kiri." />
               )}
-              <SortableTh label={isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"} sortKey="user" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
-                info={isOutlet
-                  ? "Jumlah customer unik yang punya PSSP aktif dan/atau diajukan di outlet ini (gabungan, tidak dobel hitung)."
-                  : isProduk
-                  ? "Jumlah customer unik yang punya PSSP aktif untuk produk ini."
-                  : "Jumlah customer unik yang diajukan."} />
+              {/* "Customer" hidden for the "customer" tab itself — setiap
+                  baris SUDAH mewakili satu customer, jadi kolom hitungan
+                  customer redundan (2026-08-06: "di tab per Customer hapus
+                  kolom Customer dan kolom PIC"). Tetap tampil untuk variant
+                  lain (mr/outlet/produk/spesialisasi), yang labelnya juga
+                  beda-beda ("User PSSP"/"User Aktif PSSP"/"Customer"). */}
+              {!isCustomer && (
+                <SortableTh label={isOutlet ? "User PSSP (Aktif+Estimasi)" : isProduk ? "User Aktif PSSP" : "Customer"} sortKey="user" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info={isOutlet
+                    ? "Jumlah customer unik yang punya PSSP aktif dan/atau diajukan di outlet ini (gabungan, tidak dobel hitung)."
+                    : isProduk
+                    ? "Jumlah customer unik yang punya PSSP aktif untuk produk ini."
+                    : "Jumlah customer unik yang diajukan."} />
+              )}
               {isOutlet && (
-                <SortableTh label="Variasi Produk (Fokus/Non-Fokus)" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
-                  info="Jumlah variasi produk yang diajukan di outlet ini, dipecah jadi Fokus dan Non-Fokus." />
+                <SortableTh label="Variasi Produk (Kontes/Non-Kontes)" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info="Jumlah variasi produk yang diajukan di outlet ini, dipecah jadi Kontes dan Non-Kontes." />
               )}
               {!isOutlet && !isProduk && (
-                <SortableTh label="Produk Fokus" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
-                  info="Jumlah variasi Produk Fokus yang diajukan." />
+                <SortableTh label="Produk Kontes" sortKey="variasi" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
+                  info="Jumlah variasi Produk Kontes yang diajukan." />
               )}
               <SortableTh label="Pengajuan" sortKey="pengajuan" currentKey={sortKey} currentDir={sortDir} onSort={handleSort}
                 info="Jumlah baris pengajuan (kombinasi produk × customer) yang sudah disubmit, bukan draft." />
@@ -280,11 +294,11 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                     <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{g.code}</p>
                   </td>
                   {isProduk && (
-                    <td className="py-2 px-3 whitespace-nowrap" style={{ color: g.variasiProdukFokus > 0 ? "var(--color-blue)" : "var(--color-text-muted)" }}>
-                      {g.variasiProdukFokus > 0 ? "Fokus" : "Non-Fokus"}
+                    <td className="py-2 px-3 whitespace-nowrap" style={{ color: g.variasiProdukKontes > 0 ? "var(--color-blue)" : "var(--color-text-muted)" }}>
+                      {g.variasiProdukKontes > 0 ? "Kontes" : "Non-Kontes"}
                     </td>
                   )}
-                  {!isProduk && (
+                  {!isProduk && !isMr && !isCustomer && (
                     <td className="py-2 px-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{g.pic}</td>
                   )}
                   <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
@@ -345,14 +359,16 @@ export function TerritoryTable({ groups, codeLabel, showRealisasi = false, varia
                       )}
                     </td>
                   )}
-                  <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{userCount}</td>
+                  {!isCustomer && (
+                    <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{userCount}</td>
+                  )}
                   {isOutlet && (
                     <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      {g.variasiProdukFokus}/{g.variasiProduk - g.variasiProdukFokus}
+                      {g.variasiProdukKontes}/{g.variasiProduk - g.variasiProdukKontes}
                     </td>
                   )}
                   {!isOutlet && !isProduk && (
-                    <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.variasiProdukFokus}</td>
+                    <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.variasiProdukKontes}</td>
                   )}
                   <td className="py-2 px-3 text-right" style={{ color: "var(--color-text)" }}>{g.pengajuan}</td>
                   {(isOutlet || isProduk) && (

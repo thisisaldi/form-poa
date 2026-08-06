@@ -5,7 +5,7 @@
  * quarter rollup was a one-off hack tied to its mid-2026 data gap).
  *
  * Targets are unit-QUANTITY based (not Rupiah) — Rupiah value is qty × HNA,
- * derived for display only. Computed once per focus product, at SM-territory
+ * derived for display only. Computed once per kontes product, at SM-territory
  * level (a "territory" = one SM's group of active MRs, across all their ASMs);
  * NSM totals are a simple sum of their SMs' quarterly quantity/value.
  *
@@ -251,7 +251,7 @@ export async function computeProductQuarterlyTarget(
   };
 }
 
-// ─── Batch summary across all focus products ───────────────────────────────
+// ─── Batch summary across all kontes products ──────────────────────────────
 
 export interface SmSummaryRow {
   smNip: string;
@@ -269,7 +269,7 @@ export interface NsmSummaryRow {
   totalValue: number;
 }
 
-export interface QuarterlyFocusSummary {
+export interface QuarterlyKontesSummary {
   quarter: string;
   targetMonths: string[];
   products: ProductTargetResult[];
@@ -278,23 +278,23 @@ export interface QuarterlyFocusSummary {
   productsMissingRamp: { kodeProduk: string; namaProduk: string }[];
 }
 
-/** Runs the per-product SM-territory simulation for every focus product, then rolls up to SM and NSM totals. */
-export async function computeFocusProductTargetsSummary(quarter: string): Promise<QuarterlyFocusSummary> {
+/** Runs the per-product SM-territory simulation for every kontes product, then rolls up to SM and NSM totals. */
+export async function computeKontesProductTargetsSummary(quarter: string): Promise<QuarterlyKontesSummary> {
   const { getProducts } = await import("@/lib/masterData");
   const allProducts = await getProducts();
-  const focusProducts = allProducts.filter((p) => getAllPakets(p.namaProduk).length > 0);
+  const kontesProducts = allProducts.filter((p) => getAllPakets(p.namaProduk).length > 0);
 
   const org = await buildOrgMaps();
 
   const rampInputs = await prisma.productTargetInput.findMany({
-    where: { quarter, kodeProduk: { in: focusProducts.map((p) => p.kodeProduk) } },
+    where: { quarter, kodeProduk: { in: kontesProducts.map((p) => p.kodeProduk) } },
   });
   const rampByKode = new Map<string, number>();
   for (const r of rampInputs) rampByKode.set(r.kodeProduk, parseFloat(r.monthlyRamp.toString()) || 0);
 
   const products: ProductTargetResult[] = [];
   const productsMissingRamp: { kodeProduk: string; namaProduk: string }[] = [];
-  for (const p of focusProducts) {
+  for (const p of kontesProducts) {
     const hasRampInput = rampByKode.has(p.kodeProduk);
     if (!hasRampInput) productsMissingRamp.push({ kodeProduk: p.kodeProduk, namaProduk: p.namaProduk });
     const result = await computeProductQuarterlyTarget(
@@ -309,7 +309,7 @@ export async function computeFocusProductTargetsSummary(quarter: string): Promis
     products.push(result);
   }
 
-  // Roll up to SM level (sum across all focus products).
+  // Roll up to SM level (sum across all kontes products).
   const smAgg = new Map<string, SmSummaryRow>();
   for (const product of products) {
     for (const t of product.territories) {
@@ -365,7 +365,7 @@ export async function getProductTargetInput(kodeProduk: string, quarter: string)
   return row ? parseFloat(row.monthlyRamp.toString()) || 0 : null;
 }
 
-export async function listFocusProducts(): Promise<{ kodeProduk: string; namaProduk: string }[]> {
+export async function listKontesProducts(): Promise<{ kodeProduk: string; namaProduk: string }[]> {
   const { getProducts } = await import("@/lib/masterData");
   const allProducts = await getProducts();
   return allProducts

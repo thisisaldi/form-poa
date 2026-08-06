@@ -178,7 +178,7 @@ src/
 │   ├── poaWorkflow.ts             # State machine — every PoaForm.status mutation goes through here
 │   ├── poaUtils.ts                # Period helpers (formatPeriode, computePeriodeAkhir)
 │   ├── masterData.ts              # Product & outlet master data, getOutletsByUser
-│   ├── paketProduk.ts             # Fokus-product "paket" lookup by spesialisasi
+│   ├── paketProduk.ts             # Kontes-product "paket" lookup by spesialisasi
 │   ├── spesialisasi.ts            # Doctor specialization label mapping
 │   ├── targetCalculation.ts       # Sales target math (OutletSalesMonthly-driven)
 │   ├── notifications.ts           # Email abstraction (mock → swap provider)
@@ -216,7 +216,7 @@ every way a line item gets created or edited:
   the CDB) inline, feeding into manual-customer creation.
 - **`EditDoctorPanel`** — edit every product for one doctor at once.
 - **`ProdukEntryRow`** — the per-product widget: product picker (grouped
-  Pernah PSSP → Produk Fokus → Produk Survey → Lainnya), resep/qty inputs,
+  Pernah PSSP → Produk Kontes → Produk Survey → Lainnya), resep/qty inputs,
   the auto-filled "grey calculator" fields (discount %, kriteria, PSSP-ever
   flag).
 - **Sidebar panels**, switched via three color-coded pill tabs — **Data

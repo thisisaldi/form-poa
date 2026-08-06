@@ -742,14 +742,14 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
 }
 
 // ─── buildProductOptions ────────────────────────────────────────────────────
-// Shared product-picker options builder — tiers by spesialisasi match, tags paket fokus.
+// Shared product-picker options builder — tiers by spesialisasi match, tags paket kontes.
 
 function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, { kriteriaBaru: string; kategori: string }>, psspHistory?: PsspKontrakSummary[], surveyRows?: SurveyRekomendasiRow[]): ComboboxOption[] {
   const tierSorted = spesialisasi
     ? sortProductsBySpesialisasi(products, spesialisasi)
     : products;
   const matchedPakets = spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [];
-  const TIER_LABEL = ["Produk Fokus Sesuai Spesialisasi", "Produk Fokus Lainnya", "Produk Lainnya"];
+  const TIER_LABEL = ["Produk Kontes Sesuai Spesialisasi", "Produk Kontes Lainnya", "Produk Lainnya"];
 
   // Same "Produk Survey" grouping as the sidebar's Kriteria Produk panel
   // (KriteriaProdukPanel) — products recommended by SurveyRekomendasi for this
@@ -775,8 +775,8 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
     const bHasPssp = pelunasanByProduk.has(b.kodeProduk) ? 0 : 1;
     if (aHasPssp !== bHasPssp) return aHasPssp - bHasPssp;
     if (aHasPssp === 1) {
-      // Among non-PSSP items, keep focus products first (tier order already
-      // does that), then survey-recommended non-focus products, then the rest.
+      // Among non-PSSP items, keep kontes products first (tier order already
+      // does that), then survey-recommended non-kontes products, then the rest.
       const aSub = getProductTier(a.namaProduk, matchedPakets) !== 2 ? 0 : surveyPotensiByKode.has(a.kodeProduk) ? 1 : 2;
       const bSub = getProductTier(b.namaProduk, matchedPakets) !== 2 ? 0 : surveyPotensiByKode.has(b.kodeProduk) ? 1 : 2;
       if (aSub !== bSub) return aSub - bSub;
@@ -831,7 +831,7 @@ function buildProductOptions(products: Product[], spesialisasi: string | undefin
         ? "Pernah di PSSP"
         : isSurveyOnly
         ? "Produk Survey"
-        : (spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Fokus" : "Produk Lainnya"),
+        : (spesialisasi ? TIER_LABEL[tier] : allPakets.length > 0 ? "Produk Kontes" : "Produk Lainnya"),
       accent: tier === 0,
       tag,
       tagColor,
@@ -898,7 +898,7 @@ function ProdukEntryRow({
   // Full outlet survey list — same getSurveyRekomendasiByOutlet data as the
   // "Produk Survey" section of KriteriaProdukPanel (sidebar), fetched here too
   // so the product picker dropdown can show the same "Produk Survey" group
-  // right after "Produk Fokus" (2026-07-28 request).
+  // right after "Produk Kontes" (2026-07-28 request).
   const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiRow[]>([]);
   const [, startLoadSurveyRows] = useTransition();
   useEffect(() => {
@@ -1763,7 +1763,7 @@ function VisitHistoryHint({ kodeCustomer, kodePI }: { kodeCustomer?: string; kod
 
 // ─── KriteriaProdukPanel ──────────────────────────────────────────────────────
 // Every product matching one of the 4 product-criteria buckets that used to
-// only show up inline in the picker dropdown (2026-07-24) — Produk Fokus PM,
+// only show up inline in the picker dropdown (2026-07-24) — Produk Kontes PM,
 // Pernah PSSP, Listing Corporate - Ada Sales, Listing Corporate - Tidak Ada
 // Sales (the general "Low Hanging Fruit" bucket, same kriteriaBaru prefix,
 // see formatKriteriaLabel) — always in that order. Sections aren't mutually
@@ -1771,9 +1771,9 @@ function VisitHistoryHint({ kodeCustomer, kodePI }: { kodeCustomer?: string; kod
 
 function KriteriaSectionList({ items }: {
   items: {
-    key: string; label: string; added?: boolean; isFokus?: boolean;
+    key: string; label: string; added?: boolean; isKontes?: boolean;
     badge?: string; badgeColor?: keyof typeof TAG_COLORS;
-    /** Second badge — used by "Produk Fokus PM" to show kriteria AND Pernah
+    /** Second badge — used by "Produk Kontes PM" to show kriteria AND Pernah
      * PSSP status together (merged from the old separate "Belum Diajukan"
      * panel, 2026-07-31), while every other section still only ever sets one. */
     badge2?: string; badge2Color?: keyof typeof TAG_COLORS;
@@ -1790,8 +1790,8 @@ function KriteriaSectionList({ items }: {
                 ✓
               </span>
             )}
-            {it.isFokus && (
-              <span title="Produk Fokus PM" style={{ color: "var(--color-blue)", flexShrink: 0, fontSize: 15, fontWeight: 700 }}>
+            {it.isKontes && (
+              <span title="Produk Kontes PM" style={{ color: "var(--color-blue)", flexShrink: 0, fontSize: 15, fontWeight: 700 }}>
                 ★
               </span>
             )}
@@ -1822,15 +1822,15 @@ function KriteriaSectionList({ items }: {
 // Shared by SurveyDataPanel and the "Produk Survey" section of
 // KriteriaProdukPanel — both render the same getSurveyRekomendasiByOutlet
 // rows, so the sort must stay consistent between them. Order requested
-// 2026-07-27: Produk Fokus PM first (same getAllPakets() check used
-// everywhere else for a product-level, non-doctor-specific "Fokus" flag —
+// 2026-07-27: Produk Kontes PM first (same getAllPakets() check used
+// everywhere else for a product-level, non-doctor-specific "Kontes" flag —
 // see Matriks Summary Per Produk), then within each bucket by Potensi
 // Terbesar (potensiBulan descending, null sinks to the bottom).
 function sortSurveyRows(rows: SurveyRekomendasiRow[]): SurveyRekomendasiRow[] {
   return [...rows].sort((a, b) => {
-    const aFokus = getAllPakets(a.namaProdukRekomendasi).length > 0;
-    const bFokus = getAllPakets(b.namaProdukRekomendasi).length > 0;
-    if (aFokus !== bFokus) return aFokus ? -1 : 1;
+    const aKontes = getAllPakets(a.namaProdukRekomendasi).length > 0;
+    const bKontes = getAllPakets(b.namaProdukRekomendasi).length > 0;
+    if (aKontes !== bKontes) return aKontes ? -1 : 1;
     return (b.potensiBulan ?? -1) - (a.potensiBulan ?? -1);
   });
 }
@@ -1882,7 +1882,7 @@ function KriteriaProdukPanel({
   // Two distinct kodeProduk SKUs (e.g. different pack sizes) can share the
   // same namaProduk — Product.namaProduk has no unique constraint. Left
   // undeduped, that made every name-keyed section below (starting with
-  // "Produk Fokus PM") show what looked like the same product listed twice
+  // "Produk Kontes PM") show what looked like the same product listed twice
   // (2026-07-28 bug report). Dedupe by normalized name, keeping the first
   // occurrence — `products` is already tier/name-sorted by the caller.
   const seenNames = new Set<string>();
@@ -1895,13 +1895,13 @@ function KriteriaProdukPanel({
     });
   }
 
-  const fokusPMRaw: Product[] = [];
+  const kontesPMRaw: Product[] = [];
   const pernahPsspRaw: { p: Product; pct: number }[] = [];
   const listingSalesRaw: Product[] = [];
   const listingNoSalesRaw: Product[] = [];
 
   for (const p of products) {
-    if (matchedPakets.length > 0 && getProductTier(p.namaProduk, matchedPakets) === 0) fokusPMRaw.push(p);
+    if (matchedPakets.length > 0 && getProductTier(p.namaProduk, matchedPakets) === 0) kontesPMRaw.push(p);
 
     const pct = psspHistory ? computePelunasanAllPeriode(psspHistory, p.namaProduk) : null;
     if (pct != null) pernahPsspRaw.push({ p, pct });
@@ -1913,7 +1913,7 @@ function KriteriaProdukPanel({
   }
 
   // Dedupe in the same priority order sections render (Pernah PSSP first, so
-  // a name that qualifies for both "Pernah PSSP" and "Produk Fokus PM" keeps
+  // a name that qualifies for both "Pernah PSSP" and "Produk Kontes PM" keeps
   // its higher-priority slot and doesn't also duplicate into the next section).
   const pernahPsspSeen = new Set<string>();
   const pernahPssp = pernahPsspRaw
@@ -1925,14 +1925,14 @@ function KriteriaProdukPanel({
       seenNames.add(norm);
       return true;
     });
-  const fokusPM = dedupeByNamaProduk(fokusPMRaw);
+  const kontesPM = dedupeByNamaProduk(kontesPMRaw);
   const listingSales = dedupeByNamaProduk(listingSalesRaw);
   const listingNoSales = dedupeByNamaProduk(listingNoSalesRaw);
 
   // Order requested 2026-07-27: Pernah PSSP (sort pelunasan terbaik) -> Produk
-  // Fokus PM -> Produk Survey, then the two Listing Corporate sections kept
+  // Kontes PM -> Produk Survey, then the two Listing Corporate sections kept
   // after (not part of the requested 3, but not removed either).
-  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; isFokus?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS; badge2?: string; badge2Color?: keyof typeof TAG_COLORS }[] };
+  type Section = { title: string; color: keyof typeof TAG_COLORS; items: { key: string; label: string; added?: boolean; isKontes?: boolean; badge?: string; badgeColor?: keyof typeof TAG_COLORS; badge2?: string; badge2Color?: keyof typeof TAG_COLORS }[] };
   const allSections: Section[] = [
     {
       title: "Pernah PSSP", color: "green",
@@ -1942,14 +1942,14 @@ function KriteriaProdukPanel({
       })),
     },
     {
-      // Merged with the old separate "Produk Fokus PM Belum Diajukan" panel
+      // Merged with the old separate "Produk Kontes PM Belum Diajukan" panel
       // (2026-07-31 — they used to render as two same-titled sections, one
-      // ✓-only, one enriched-but-missing-only) — every matched focus product
+      // ✓-only, one enriched-but-missing-only) — every matched kontes product
       // now gets both: the ✓ if already added, AND the kriteria + Pernah PSSP
       // badges the "Belum Diajukan" version used to show (same source as the
       // product picker dropdown's own badges).
-      title: "Produk Fokus PM", color: "blue",
-      items: fokusPM.map((p) => {
+      title: "Produk Kontes PM", color: "blue",
+      items: kontesPM.map((p) => {
         const kriteria = kriteriaMap.get(p.kodeProduk);
         const isStandarisasi = kriteria?.startsWith("Produk Sudah Terstandarisasi") ?? false;
         const kriteriaColor: keyof typeof TAG_COLORS | undefined = isStandarisasi
@@ -1970,7 +1970,7 @@ function KriteriaProdukPanel({
       title: "Produk Survey", color: "orange",
       items: sortSurveyRows(surveyRows ?? []).map((r) => ({
         key: r.kodeProduk, label: r.namaProdukRekomendasi, added: addedKodeProduk.has(r.kodeProduk),
-        isFokus: getAllPakets(r.namaProdukRekomendasi).length > 0,
+        isKontes: getAllPakets(r.namaProdukRekomendasi).length > 0,
         badge: r.potensiBulan != null ? `${r.potensiBulan}/bln` : undefined, badgeColor: "orange" as const,
       })),
     },
@@ -2069,7 +2069,7 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
 // ─── PsspSidebar ─────────────────────────────────────────────────────────────
 // Three independent fixed right-side panels — "Data Survey" (orange), "Produk
 // Rekomendasi" (green, 2026-07-24, renamed from "Kriteria Produk" 2026-07-27 —
-// Pernah PSSP / Produk Fokus PM / Produk Survey sections, plus the 2 Listing
+// Pernah PSSP / Produk Kontes PM / Produk Survey sections, plus the 2 Listing
 // Corporate buckets kept after), and "Histori PSSP" (blue). Only one
 // is open at a time: collapsed, all three show as a stacked set of thin vertical
 // tabs; opening any fills the same 300px slot on the right and freezes on
@@ -2141,7 +2141,7 @@ function PsspSidebar({
   spesialisasi?: string;
   produkList?: ProdukEntry[];
   products?: Product[];
-  /** Forwarded into ProdukFokusPanel — same kriteria + PSSP badges as the product picker. */
+  /** Forwarded into ProdukKontesPanel — same kriteria + PSSP badges as the product picker. */
   kriteriaList?: KriteriaByOutlet[];
   psspHistory?: PsspKontrakSummary[];
 }) {
@@ -2206,10 +2206,10 @@ function PsspSidebar({
         {activeTab === "survey" ? (
           <SurveyDataPanel kodeCustomer={kodeCustomer} kodePI={kodePI} />
         ) : activeTab === "kriteria" ? (
-          // "Produk Fokus PM Belum Diajukan" merged into KriteriaProdukPanel's
-          // own "Produk Fokus PM" section (2026-07-31 — the two used to render
+          // "Produk Kontes PM Belum Diajukan" merged into KriteriaProdukPanel's
+          // own "Produk Kontes PM" section (2026-07-31 — the two used to render
           // as separate blocks with the same title, reading as a duplicate).
-          // That section now covers every matched focus product (not just the
+          // That section now covers every matched kontes product (not just the
           // missing ones) with a ✓ for already-added ones AND the kriteria +
           // Pernah PSSP badges the old "Belum Diajukan" panel used to show.
           <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
@@ -2379,23 +2379,23 @@ function AddPanel({
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
-  const matchedPaketsForFokus = useMemo(
+  const matchedPaketsForKontes = useMemo(
     () => spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [],
     [spesialisasi]
   );
 
-  // Same total, filtered to products that are tier-0 (focus) for this doctor's spesialisasi.
-  const totalEstimasiFokus = useMemo(() => {
-    if (matchedPaketsForFokus.length === 0) return { total: 0, count: 0 };
+  // Same total, filtered to products that are tier-0 (kontes) for this doctor's spesialisasi.
+  const totalEstimasiKontes = useMemo(() => {
+    if (matchedPaketsForKontes.length === 0) return { total: 0, count: 0 };
     let total = 0, count = 0;
     for (const e of produkList) {
       const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
-      if (!p || getProductTier(p.namaProduk, matchedPaketsForFokus) !== 0) continue;
+      if (!p || getProductTier(p.namaProduk, matchedPaketsForKontes) !== 0) continue;
       total += computeEstimasi(e, dokterFields, p);
       count++;
     }
     return { total, count };
-  }, [produkList, dokterFields, products, matchedPaketsForFokus]);
+  }, [produkList, dokterFields, products, matchedPaketsForKontes]);
 
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
@@ -2826,7 +2826,7 @@ function AddPanel({
           <div className="flex items-center justify-between gap-2 mb-2">
             <SectionLabel>Produk yang Dipromosikan</SectionLabel>
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Fokus
+              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Kontes
             </span>
           </div>
           <div className="space-y-2">
@@ -2906,11 +2906,11 @@ function AddPanel({
                 <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEstimasi)}</div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{formatRp(Math.round(newPerMonth))}/bln</div>
               </div>
-              {totalEstimasiFokus.count > 0 && (
+              {totalEstimasiKontes.count > 0 && (
                 <div>
-                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Fokus</div>
-                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalEstimasiFokus.total)}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{totalEstimasiFokus.count} produk fokus</div>
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Kontes</div>
+                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalEstimasiKontes.total)}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{totalEstimasiKontes.count} produk kontes</div>
                 </div>
               )}
               {totalNilaiPSSP > 0 && (
@@ -2958,7 +2958,7 @@ function AddPanel({
             </div>
             <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
-                Estimasi Qty & Growth vs PSSP per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
+                Estimasi Qty & Growth vs PSSP per Produk {matchedPaketsForKontes.length > 0 && "(★ = Produk Kontes)"}
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
@@ -2988,7 +2988,7 @@ function AddPanel({
                     const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
                     if (!p) return null;
                     const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
-                    const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
+                    const isKontes = getProductTier(p.namaProduk, matchedPaketsForKontes) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
                     const pengaliNilaiRProduk = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
@@ -3017,7 +3017,7 @@ function AddPanel({
                     return (
                       <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
-                          {isFokus && <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★ </span>}
+                          {isKontes && <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★ </span>}
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>
@@ -3426,7 +3426,7 @@ function AddProductPanel({
           <div className="flex items-center justify-between gap-2 mb-2">
             <SectionLabel>Produk yang Dipromosikan</SectionLabel>
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Fokus
+              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Kontes
             </span>
           </div>
           <div className="space-y-2">
@@ -3502,9 +3502,8 @@ interface EditableProdukEntry extends ProdukEntry {
 }
 
 function produkEntryFromItem(
-  item: PoaLineItem, products: Product[], doctorDefaultHariKerja: string
+  item: PoaLineItem, doctorDefaultHariKerja: string
 ): EditableProdukEntry {
-  const p = products.find((pr) => pr.kodeProduk === item.kodeProduk);
   const itemHari = item.hariKerjaBulan?.toString() ?? "";
   return {
     uid: item.id,
@@ -3515,9 +3514,16 @@ function produkEntryFromItem(
     produkKompetitor: item.produkKompetitor ?? "",
     statusStandarisasi: item.statusStandarisasi ?? "",
     jenisPssp: item.jenisPssp ?? "",
-    persenPsspDokter: p?.nilaiRPersen
-      ? (parseFloat(p.nilaiRPersen) * 100).toFixed(2)
-      : item.persenPsspDokter ? (parseFloat(item.persenPsspDokter.toString()) * 100).toFixed(2) : "",
+    // Must read the SAVED value first, never the live Product.nilaiRPersen —
+    // persenPsspDokter is frozen at whatever it was when this line item was
+    // created (see the read-only "% PSSP User" field at product-add time),
+    // same snapshot convention as every other saved field here. Preferring
+    // the live master value made "Total Nilai PSSP" in this edit panel's
+    // "Total Semua Produk" card silently diverge from the real saved total
+    // shown on the draft detail page whenever Product.nilaiRPersen changed
+    // after this line item was created (2026-08-05 bug report: "total nilai
+    // PSSP nya ga match sama yang ditampilkan di total semua produk").
+    persenPsspDokter: item.persenPsspDokter ? (parseFloat(item.persenPsspDokter.toString()) * 100).toFixed(2) : "",
     persenPsspKpdm: item.persenPsspKpdm ? (parseFloat(item.persenPsspKpdm.toString()) * 100).toFixed(2) : "",
     persenDiskon: item.persenDiskon ? (parseFloat(item.persenDiskon.toString()) * 100).toFixed(2) : "",
     persenDp: item.persenDp ? (parseFloat(item.persenDp.toString()) * 100).toFixed(2) : "",
@@ -3555,7 +3561,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     pihakPssp: first.pihakPssp ?? "USER",
   });
   const [produkList, setProdukList] = useState<EditableProdukEntry[]>(
-    () => items.map((it) => produkEntryFromItem(it, products, first.hariKerjaBulan?.toString() ?? ""))
+    () => items.map((it) => produkEntryFromItem(it, first.hariKerjaBulan?.toString() ?? ""))
   );
   const [labelCustomer, setLabelCustomer] = useState(first.labelCustomer ?? "");
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
@@ -3580,23 +3586,23 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
-  const matchedPaketsForFokus = useMemo(
+  const matchedPaketsForKontes = useMemo(
     () => spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [],
     [spesialisasi]
   );
 
-  // Same total, filtered to products that are tier-0 (focus) for this doctor's spesialisasi.
-  const totalEstimasiFokus = useMemo(() => {
-    if (matchedPaketsForFokus.length === 0) return { total: 0, count: 0 };
+  // Same total, filtered to products that are tier-0 (kontes) for this doctor's spesialisasi.
+  const totalEstimasiKontes = useMemo(() => {
+    if (matchedPaketsForKontes.length === 0) return { total: 0, count: 0 };
     let total = 0, count = 0;
     for (const e of produkList) {
       const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
-      if (!p || getProductTier(p.namaProduk, matchedPaketsForFokus) !== 0) continue;
+      if (!p || getProductTier(p.namaProduk, matchedPaketsForKontes) !== 0) continue;
       total += computeEstimasi(e, dokterFields, p);
       count++;
     }
     return { total, count };
-  }, [produkList, dokterFields, products, matchedPaketsForFokus]);
+  }, [produkList, dokterFields, products, matchedPaketsForKontes]);
 
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
@@ -3759,7 +3765,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
           <div className="flex items-center justify-between gap-2 mb-2">
             <SectionLabel>Produk yang Dipromosikan</SectionLabel>
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Fokus
+              <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Kontes
             </span>
           </div>
           <div className="space-y-2">
@@ -3839,11 +3845,11 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                 <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>{formatRp(totalEstimasi)}</div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{formatRp(Math.round(newPerMonth))}/bln</div>
               </div>
-              {totalEstimasiFokus.count > 0 && (
+              {totalEstimasiKontes.count > 0 && (
                 <div>
-                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Fokus</div>
-                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalEstimasiFokus.total)}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{totalEstimasiFokus.count} produk fokus</div>
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Produk Kontes</div>
+                  <div className="text-xl font-bold" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(totalEstimasiKontes.total)}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{totalEstimasiKontes.count} produk kontes</div>
                 </div>
               )}
               {totalNilaiPSSP > 0 && (
@@ -3891,7 +3897,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
             </div>
             <div className="pt-2 border-t" style={{ borderColor: "var(--color-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
-                Estimasi Qty & Growth vs PSSP per Produk {matchedPaketsForFokus.length > 0 && "(★ = Produk Fokus)"}
+                Estimasi Qty & Growth vs PSSP per Produk {matchedPaketsForKontes.length > 0 && "(★ = Produk Kontes)"}
               </p>
               <table className="w-full text-xs table-fixed">
                 <colgroup>
@@ -3921,7 +3927,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                     const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
                     if (!p) return null;
                     const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
-                    const isFokus = getProductTier(p.namaProduk, matchedPaketsForFokus) === 0;
+                    const isKontes = getProductTier(p.namaProduk, matchedPaketsForKontes) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
                     const pengaliNilaiRProduk = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
@@ -3950,7 +3956,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                     return (
                       <tr key={entry.uid} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="py-1 pr-2 truncate" style={{ color: "var(--color-text-muted)" }}>
-                          {isFokus && <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★ </span>}
+                          {isKontes && <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★ </span>}
                           {p.namaProduk}
                         </td>
                         <td className="py-1 text-right tabular-nums" style={{ color: "var(--color-text-faint)" }}>

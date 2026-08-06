@@ -252,7 +252,7 @@ export async function GET(
   let estimasiTotal = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
   let sudahStandar = 0, prosesStandar = 0;
   const doctorKeys = new Set<string>();
-  const fokusProdukSet = new Set<string>();
+  const kontesProdukSet = new Set<string>();
 
   for (const it of allItems) {
     const base = toNum(it.rencanaTotalBiaya);
@@ -262,7 +262,7 @@ export async function GET(
     discountTotal  += base * (toNum(it.persenDiskon) + toNum(it.persenDp) + toNum(it.persenListingFee));
     entertainTotal += base * toNum(it.persenEntertain);
     doctorKeys.add(`${it.kodePI ?? ""}|${it.namaCust}`);
-    if (getAllPakets(it.namaProduk).length > 0) fokusProdukSet.add(it.kodeProduk);
+    if (getAllPakets(it.namaProduk).length > 0) kontesProdukSet.add(it.kodeProduk);
     if (it.statusStandarisasi === "SUDAH_STANDARISASI") sudahStandar++;
     if (it.statusStandarisasi === "PROSES_PENGAJUAN") prosesStandar++;
   }
@@ -332,7 +332,7 @@ export async function GET(
   // — Cakupan —
   addSectionHeader(summary, "Cakupan");
   addDataRow(summary, "Jumlah User",             doctorKeys.size);
-  addDataRow(summary, "Produk Fokus",            fokusProdukSet.size, true);
+  addDataRow(summary, "Produk Kontes",           kontesProdukSet.size, true);
   addDataRow(summary, "Total Pengajuan (baris)", allItems.length);
 
   summary.addRow([]);
@@ -404,7 +404,7 @@ export async function GET(
     { header: "Nama Produk Kompetitor Utama", key: "produkKompetitor", width: 22 },
     { header: "Item Kode - Nama Produk ", key: "produk", width: 32 },
     { header: "Kriteria Produk", key: "kriteriaProduk", width: 18 },
-    { header: "Kategori/ Status Produk Fokus", key: "statusFokus", width: 16 },
+    { header: "Kategori/ Status Produk Kontes", key: "statusKontes", width: 16 },
     { header: "% Pelunasan Sebelumnya", key: "pelunasanSebelumnya", width: 16 },
     { header: "Estimasi PS/SP Sebelumnya", key: "estimasiSebelumnya", width: 18 },
     { header: "History Sales \n(B-12)", key: "historySales", width: 16 },
@@ -519,7 +519,7 @@ export async function GET(
       ? "Belum Pernah PSSP"
       : `PSSP ke-${new Set(history.map((r) => r.cUrut)).size}`;
     // Keterangan Produk — same priority order as the sidebar's Kriteria
-    // Produk panel (Pernah PSSP -> Produk Fokus PM -> Produk Survey ->
+    // Produk panel (Pernah PSSP -> Produk Kontes PM -> Produk Survey ->
     // Corporate Listing -> Lainnya). "Corporate Listing" mirrors the
     // KriteriaProdukPanel's own "Listing Corporate - Ada/Tidak Ada Sales"
     // sections — same kriteriaProduk prefix check.
@@ -586,7 +586,7 @@ export async function GET(
       produkKompetitor: item.produkKompetitor ?? "-",
       produk: `${item.itemKode} - ${item.namaProduk}`,
       kriteriaProduk: item.kriteriaProduk ?? "-",
-      statusFokus: getAllPakets(item.namaProduk).length > 0 ? "Y" : "N",
+      statusKontes: getAllPakets(item.namaProduk).length > 0 ? "Y" : "N",
       pelunasanSebelumnya: pelunasanPct,
       estimasiSebelumnya,
       historySales: item.historySales3Bln != null ? parseFloat(item.historySales3Bln.toString()) : null,

@@ -51,7 +51,7 @@ Komentar (`authz.ts:233-243`): *"Lock Edit Logic (2026-07-27, business decision)
 | `/login` | `(auth)/login/page.tsx` | Login NIP-only | — (halaman pre-auth) |
 | `/dashboard` | `(app)/dashboard/page.tsx` | List POA (scope by role), progress submit MR, banner pending approval, tombol Export Excel team | Semua role (visibility difilter `getVisiblePoaFilter`/`getPendingActionFilter`) |
 | `/poa/new` | `(app)/poa/new/page.tsx` | Pilih periode (tahun+kuartal), buat draft POA | Gate di action-level (`canCreatePoa`) — MR, ASM/SM/NSM tim vacant, ADMIN (testing) |
-| `/poa/[id]` | `(app)/poa/[id]/page.tsx` | Detail POA: stats, tab drafting/produk fokus/histori PSSP, aksi approve/reject/fast-track, alur ajukan-edit, audit log, Export Excel per-POA | `canView(actor, poa)` — `page.tsx:76-77` |
+| `/poa/[id]` | `(app)/poa/[id]/page.tsx` | Detail POA: stats, tab drafting/produk kontes/histori PSSP, aksi approve/reject/fast-track, alur ajukan-edit, audit log, Export Excel per-POA | `canView(actor, poa)` — `page.tsx:76-77` |
 | `/poa/[id]/edit` | `(app)/poa/[id]/edit/page.tsx` | Tambah line item baru ke POA draft/revisi | `canEdit` — `page.tsx:37` |
 | `/poa/[id]/finalize` | `(app)/poa/[id]/finalize/page.tsx` | Halaman review/checklist sebelum submit (validasi masih stub/TODO) | `canEdit` + status DRAFT/REVISI — `page.tsx:32-33` |
 | `/poa/[id]/doctor/[itemId]/edit` | `(app)/poa/[id]/doctor/[itemId]/edit/page.tsx` | Edit (atau lihat read-only) 1 grup line item dokter | `canEdit` ATAU `canView` — `page.tsx:36`, editor mendapat form penuh, viewer read-only (field disabled) |
@@ -62,7 +62,7 @@ Komentar (`authz.ts:233-243`): *"Lock Edit Logic (2026-07-27, business decision)
 | `/pm-dashboard` | `(app)/pm-dashboard/page.tsx` | Rollup per-produk (detail §4) | NSM/ADMIN — `page.tsx:58`, **TETAPI hilang dari Sidebar**, hanya bisa diakses via URL langsung |
 | `/customers/new` | `(app)/customers/new/page.tsx` | Placeholder "Coming soon" untuk "Daftar Dokter Baru" | Tidak ada gate; tidak ada di Sidebar, dipanggil ad hoc dari tombol Dashboard MR |
 | `/admin` | `(app)/admin/page.tsx` | Hub admin master data: user/staff, outlet, dokter+spesialisasi, produk (`AdminTabs`), toggle Maintenance Mode | ADMIN-only — `page.tsx:26` |
-| `/admin/target-produk` | `(app)/admin/target-produk/page.tsx` | Alokasi target qty cascading per produk fokus (NSM→Area/SM→ASM→MR) + "Simulasi Algoritma" legacy | NSM+ADMIN di page, ADMIN-only di Sidebar — `page.tsx:12` |
+| `/admin/target-produk` | `(app)/admin/target-produk/page.tsx` | Alokasi target qty cascading per produk kontes (NSM→Area/SM→ASM→MR) + "Simulasi Algoritma" legacy | NSM+ADMIN di page, ADMIN-only di Sidebar — `page.tsx:12` |
 | `/admin/target-value` | `(app)/admin/target-value/page.tsx` | Target sales Rupiah bulanan per GT/RS, import dari Excel | NSM+ADMIN di page, ADMIN-only di Sidebar — `page.tsx:11` |
 | `/faq` | `(app)/faq/page.tsx` | Glosarium istilah non-obvious & formula (bukan glosarium lengkap tiap kolom) | Hanya butuh login, semua role — `page.tsx:9` |
 
@@ -86,22 +86,25 @@ Komentar (`authz.ts:233-243`): *"Lock Edit Logic (2026-07-27, business decision)
 
 Akses: role apa pun kecuali MR (`:283`).
 
-**Tab** (`:246-254`):
+**Tab** (`:217-224`):
 - **Ringkasan** — kartu grand-total (bukan grouping asli, fold ke query "mr" internal)
-- **Per Personil** (`mr`) — breakdown per-MR
+- **Per Personil** (`mr`) — breakdown per-MR. Kolom PIC dihilangkan (2026-08-06) — tiap baris SUDAH mewakili satu MR, jadi PIC-nya redundan.
 - **Per Outlet** — breakdown per-outlet, ada kolom Realisasi
-- **Per Customer** — breakdown per-dokter, ada kolom Realisasi
+- **Per Customer** — breakdown per-dokter, ada kolom Realisasi. Kolom Customer dan PIC dihilangkan (2026-08-06) — tiap baris SUDAH mewakili satu customer.
 - **Per Spesialisasi** — breakdown per-spesialisasi, ada growth berdasarkan jumlah customer (`:98-104`, item #13 2026-08-03)
-- **Per Produk Rekomendasi** — data sama seperti "Per Produk" tetapi dipecah menjadi 5 kategori: Produk Fokus, Low Hanging Fruit, Blue Ocean, Red Ocean, Standarisasi
 - **Per Produk** — tabel flat per-produk
 
-Semua tab (kecuali Ringkasan/produk-rekomendasi) di-render melalui `TerritoryTable` — kolom estimasi, variasi produk, jumlah customer, pengajuan, status standarisasi, breakdown budget, sales/realisasi.
+~~**Per Produk Rekomendasi**~~ — **DIHAPUS (2026-08-06, "tab per produk rekomendasi di summary dihapus aja")**: tab dan seluruh computation-nya (query `outletProductKriteriaRows`, kategori-split `produkKontesGroups`/`lowHangingFruitGroups`/`blueOceanGroups`/`redOceanGroups`/`standarisasiGroups`) dihapus dari `summary/page.tsx`. Sebelumnya: data sama seperti "Per Produk" tetapi dipecah menjadi 5 kategori (Produk Kontes, Low Hanging Fruit, Blue Ocean, Red Ocean, Standarisasi). **Beda dari sidebar "Produk Rekomendasi" di halaman POA form** (`KriteriaProdukPanel`, `docs/TODO.md` #16/#17/#52) — itu fitur terpisah, TIDAK terdampak/TIDAK dihapus, cuma kebetulan nama mirip.
+
+Semua tab (kecuali Ringkasan) di-render melalui `TerritoryTable` — kolom estimasi, variasi produk, jumlah customer, pengajuan, status standarisasi, breakdown budget, sales/realisasi.
 
 **"Growth vs Quarter Sebelumnya"** (`:89-104`): Estimasi kuartal INI (rencana POA disubmit) versus Realisasi kuartal SEBELUMNYA (pelunasan PSSP aktual di bulan-bulan itu) — sengaja BUKAN rencana-vs-rencana ("comparing plan-to-plan told you nothing about whether either plan was realistic; plan-vs-actual does"). Berlaku seragam di semua tab grouping.
 
 **Window periode default** (`:306-323`): tanpa filter eksplisit, default **kuartal ini + 1 kuartal sebelumnya**. Diperketat dari yang awalnya unbounded demi performa (relevan dengan `docs/PERFORMANCE.md`). "Semua periode" 1 klik melalui filter modal.
 
 **Isi kartu Ringkasan** (`:1192-1359`): 4 stat tile (Total Estimasi, Estimasi Aktif+Pengajuan, Target, Estimasi % Target) → breakdown "Total Estimasi per Periode" (+ sub-baris Tercacah) & "per Level" → section "Estimasi per Produk" (bar chart horizontal top-8) → bar chart "Estimasi vs Realisasi" (grouped per periode) → breakdown budget (PSSP/Discount/Entertain + Total Budget) → 4 tile bawah (Growth, Customer, Personil Sudah Submit, Pengajuan).
+
+🟢 **Redesain diimplementasikan 2026-08-05, direvisi berkali-kali sejak itu (terakhir 2026-08-06)** — lihat `docs/summary-ringkasan/` untuk spec lengkap dan status detail per section. Kartu grand-total di atas (4 stat tile → breakdown per Periode/Level → Estimasi per Produk → chart Estimasi vs Realisasi → breakdown budget lama PSSP/Discount/Entertain → 4 tile bawah) **TETAP ADA persis seperti dideskripsikan di atas, tidak diubah/dihapus** — redesain menambahkan beberapa Card baru DI BAWAHNYA, urutan final (2026-08-06): Target/Estimasi/Sales/Pelunasan metric group + varian Produk Kontes → Estimasi PSSP per Bulan → Pencapaian Target (horizontal stacked bar) → Breakdown Historis 5 kelompok. ("Kesesuaian POA", kartu terpisah di versi awal, sudah dihapus — isinya digabung ke metric group di atas.) Filter periode tab Ringkasan (khusus tab ini) diganti dari rentang periode jadi satu kuartal ("Q-Berjalan", `RingkasanQuarterFilter`, dua dropdown Kuartal+Tahun). Beberapa sub-metrik (Breakdown User/KPDM dimensi Aktif, sebagian breakdown Biaya dimensi Aktif, Target varian Produk Kontes) genuinely tidak tersedia karena keterbatasan data model `PsspKontrak` — lihat `docs/summary-ringkasan/README.md` §"Status" untuk daftar lengkap.
 
 ## 4. Dashboard, Monitoring, PM Dashboard
 

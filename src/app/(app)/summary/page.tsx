@@ -7,12 +7,13 @@ import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
 import { spesLabel } from "@/lib/spesialisasi";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
-import { computeMonthlyBreakdown } from "@/lib/poaUtils";
-import { displayRole } from "@/lib/role";
+import { computeMonthlyBreakdown, formatPeriode } from "@/lib/poaUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
+import { HeaderInfo } from "@/components/ui/HeaderInfo";
 import { TerritoryTable } from "@/components/poa/TerritoryTable";
-import { SummaryFilterModal } from "@/components/poa/SummaryFilterModal";
+import { SummaryFilterModal, RingkasanQuarterFilter } from "@/components/poa/SummaryFilterModal";
+import { RingkasanBarPair, RingkasanCompareLegend, RingkasanSplitBarPair, RingkasanTargetStackedBar } from "@/components/poa/RingkasanCharts";
 
 // PSSP contract rows key products by name only (Procode ≠ Item Kode across
 // systems — see computeOldEstPerMonth in LineItemEditor.tsx for the same
@@ -26,20 +27,18 @@ export const metadata = { title: "Summary · Form POA" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// "produk-rekomendasi" has its own bespoke data fetch (not a real
-// outlet/customer/produk/mr grouping) — everywhere below that already
-// groups/queries by those 4 keeps doing exactly that, unchanged, by reading
-// the narrower `tab` (GroupingTab) local further down instead of the raw URL
-// param. Only the render switch at the bottom and the tab bar itself need to
-// know about the raw value — see `rawTab` there.
-//
 // "ringkasan" re-added 2026-08-04 (removed 2026-07-31, brought back per
 // request — "tab ringkasan di paling kiri belum ada") as a grand-total card,
-// NOT a real grouping — same pattern as produk-rekomendasi: folds to "mr" for
-// every query/computation below (grand totals = sum of the per-MR groups,
-// cheapest existing grouping to piggyback on), only the render switch and
-// tab bar know it's distinct.
-type Tab = "ringkasan" | "mr" | "outlet" | "customer" | "spesialisasi" | "produk-rekomendasi" | "produk";
+// NOT a real grouping — folds to "mr" for every query/computation below
+// (grand totals = sum of the per-MR groups, cheapest existing grouping to
+// piggyback on), only the render switch and tab bar know it's distinct. See
+// `rawTab` further down for where the raw URL value is still needed.
+//
+// "produk-rekomendasi" (its own bespoke data fetch, not a real
+// outlet/customer/produk/mr grouping) was removed as a tab entirely
+// (2026-08-06: "tab per produk rekomendasi di summary dihapus aja") — no
+// folding logic needed for it anymore.
+type Tab = "ringkasan" | "mr" | "outlet" | "customer" | "spesialisasi" | "produk";
 type GroupingTab = "outlet" | "customer" | "spesialisasi" | "produk" | "mr";
 
 interface SalesFigures {
@@ -63,7 +62,7 @@ interface TerritoryGroup {
   pic: string;
   estimasi: number;
   variasiProduk: number;
-  variasiProdukFokus: number;
+  variasiProdukKontes: number;
   produkPssp: number;
   customer: number;
   pengajuan: number;
@@ -115,106 +114,45 @@ function formatRp(n: number) {
   return Math.round(n).toLocaleString("id-ID");
 }
 
-// Ringkasan bar chart — grouped by PERIOD (2026-08-04, revised same day per
-// "maksudnya kayak chart periode, q2 (estimasi dan realisasi dua bar dalam
-// q2) dan q3 (estimasi tercacah)"): one cluster per quarter, quarter
-// sebelumnya showing Estimasi+Realisasi side by side, quarter ini showing
-// just Estimasi Tercacah (that quarter isn't over yet — no Realisasi to
-// compare against). Same 3-slot categorical set as before (Estimasi /
-// Realisasi / Estimasi Tercacah are 3 distinct series reused consistently
-// across whichever quarter-groups happen to use them), validated against
-// this app's card surface (#FFFFFF): `node scripts/validate_palette.js
-// "#0063a0,#eb6834,#1baf7a" --mode light --surface "#FFFFFF"` (dataviz skill)
-// — all hard gates PASS; slot 3 (aqua) carries a contrast WARN vs the white
-// surface, mitigated below by always pairing it with a dark-text value label
-// (never the hue itself as text). Slot 1 is this app's own --color-blue, not
-// the skill's default blue, so the chart reads as this app's brand, not a
-// generic one — re-validated as a set, not assumed compatible.
-const RINGKASAN_CHART_COLORS = ["#0063a0", "#eb6834", "#1baf7a"];
-
-interface RingkasanChartBar { key: string; value: number; color: string }
-interface RingkasanChartGroup { periodLabel: string; bars: RingkasanChartBar[] }
-
-function RingkasanBarChart({ groups, legend }: {
-  groups: RingkasanChartGroup[];
-  legend: { key: string; label: string; color: string }[];
-}) {
-  const max = Math.max(...groups.flatMap((g) => g.bars.map((b) => b.value)), 1);
-  const CHART_H = 120;
-  return (
-    <div>
-      {/* One cluster per quarter — bars within a cluster sit close (a period's
-          own Estimasi/Realisasi pair), clusters themselves sit apart (distinct
-          quarters), same "gap separates, never a stroke" spacing rule either way. */}
-      <div className="flex items-end gap-10 overflow-x-auto">
-        {groups.map((g) => (
-          <div key={g.periodLabel} className="flex flex-col items-center shrink-0">
-            <div className="flex items-end gap-1.5" style={{ height: CHART_H, borderBottom: "1px solid var(--color-border)" }}>
-              {g.bars.map((b) => {
-                const barH = b.value > 0 ? Math.max((b.value / max) * CHART_H, 4) : 0;
-                return (
-                  <div key={b.key} className="flex flex-col items-center justify-end" style={{ height: CHART_H, width: 32 }}>
-                    <span className="text-[11px] font-semibold mb-1 whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      {b.value > 0 ? formatRp(b.value) : "-"}
-                    </span>
-                    <div
-                      title={`${g.periodLabel} — ${legend.find((l) => l.key === b.key)?.label ?? b.key}: ${formatRp(b.value)}`}
-                      style={{ width: 28, height: barH, background: b.color, borderRadius: "4px 4px 0 0" }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-            <span className="text-xs mt-2 font-medium" style={{ color: "var(--color-text)" }}>{g.periodLabel}</span>
-          </div>
-        ))}
-      </div>
-      {/* Shared legend — the same 3 colors mean the same thing in every
-          cluster, so one legend for the whole chart (not repeated per
-          cluster) is the dependable identity channel here. */}
-      <div className="flex gap-4 mt-3 flex-wrap">
-        {legend.map((l) => (
-          <span key={l.key} className="text-xs flex items-center gap-1.5" style={{ color: "var(--color-text-muted)" }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: l.color, display: "inline-block" }} />
-            {l.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+// "2026-Q3" -> "Q-3" — short column-header form for §2's table (2026-08-05
+// follow-up: "PSSP Aktif Q-3", "PSSP Aktif (Q-2)").
+function qLabel(period: string | null): string {
+  if (!period) return "-";
+  const m = period.match(/-Q(\d)$/);
+  return m ? `Q-${m[1]}` : period;
 }
 
-// Estimasi per Produk — ranked horizontal bars (2026-08-05 request), own
-// section under Ringkasan instead of a row in the label/level plain-text
-// grid. Single series (magnitude + identity via the row label, not color),
-// so one hue for every bar — this app's own --color-blue, matching the
-// "Estimasi" slot already validated in RINGKASAN_CHART_COLORS above.
-function RingkasanProdukChart({ items }: { items: { kodeProduk: string; name: string; value: number }[] }) {
-  const max = Math.max(...items.map((it) => it.value), 1);
-  return (
-    <div className="space-y-2">
-      {items.map((it) => {
-        const pct = max > 0 ? (it.value / max) * 100 : 0;
-        return (
-          <div key={it.kodeProduk} className="flex items-center gap-3">
-            <span className="text-xs w-36 sm:w-48 truncate shrink-0" style={{ color: "var(--color-text-muted)" }} title={it.name}>
-              {it.name}
-            </span>
-            <div className="flex-1 h-3.5 rounded overflow-hidden" style={{ background: "var(--color-bg-subtle)" }}>
-              <div
-                title={`${it.name}: ${formatRp(it.value)}`}
-                className="h-full rounded transition-all duration-300"
-                style={{ width: `${Math.max(pct, 2)}%`, background: RINGKASAN_CHART_COLORS[0] }}
-              />
-            </div>
-            <span className="text-xs w-20 sm:w-24 text-right shrink-0 font-semibold" style={{ color: "var(--color-text)" }}>
-              {formatRp(it.value)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
+// Same 3-tier percentage threshold already used elsewhere in this app for
+// "is this number good or bad at a glance" (LineItemEditor.tsx's Pelunasan/
+// Running Rate badges: ≥80% success, 40-79% warning, <40% red) — reused here
+// for Ringkasan §3 Pencapaian Target and §4 Pelunasan instead of a new scale,
+// so the same color always means the same thing across this app.
+function pctColor(pct: number | null): string {
+  if (pct == null) return "var(--color-text-faint)";
+  if (pct >= 80) return "var(--color-success, #16a34a)";
+  if (pct >= 40) return "var(--color-warning, #f59e0b)";
+  return "var(--color-red)";
+}
+
+// Row shape for Ringkasan §5 Breakdown Historis — declared explicitly (rather
+// than left to be inferred from 5 separate array literals with different
+// optional fields) so TS doesn't widen rencanaVal/aktifVal to `number |
+// undefined` on rows that always provide them. Non-composite rows render
+// via `RingkasanBarPair` (RingkasanCharts.tsx) reused from §2, in compact
+// mode. The 2 composite rows (Breakdown User/KPDM, Baru vs Retensi) carry
+// `splitRencana`/`splitAktif` instead — each a small N-value breakdown
+// (User+KPDM, or Baru+Retensi) rendered via `RingkasanSplitBarPair`
+// (2026-08-05 follow-up: "rencana ada dua bar, yang aktif ada dua bar").
+interface BreakdownRow {
+  label: string;
+  rencana: string;
+  aktif: string;
+  composite?: boolean;
+  rencanaVal?: number;
+  aktifVal?: number;
+  aktifUnavailable?: boolean;
+  splitRencana?: { subLabel: string; value: number; display: string }[];
+  splitAktif?: { subLabel: string; value: number; display: string }[] | null;
 }
 
 // Same "how far along a contract's own period has run" fraction as
@@ -234,6 +172,37 @@ function elapsedFraction(prdAwal: string, prdAkhir: string): number {
   return elapsed / total;
 }
 
+// Contract length in whole months (inclusive of both ends), same "count of
+// YYYYMM steps" arithmetic elapsedFraction above uses for its own `total` —
+// used by Ringkasan §5a "Rata-rata Lama Periode" (Aktif dimension) since
+// PsspKontrak has no separate duration field, only prdAwal/prdAkhir.
+function contractLengthMonths(prdAwal: string, prdAkhir: string): number {
+  const sy = parseInt(prdAwal.slice(0, 4), 10), sm = parseInt(prdAwal.slice(4), 10);
+  const ey = parseInt(prdAkhir.slice(0, 4), 10), em = parseInt(prdAkhir.slice(4), 10);
+  return Math.max(0, (ey - sy) * 12 + (em - sm) + 1);
+}
+
+// Every "YYYYMM" month from prdAwal to prdAkhir inclusive — the PsspKontrak
+// counterpart to poaUtils.ts's expandPeriodeMonths (which works off
+// periodeAwal+lamaPeriode instead of an explicit end period). Used by
+// Ringkasan §5a "Breakdown Nilai Estimasi by Bulan" (Aktif dimension) to
+// apportion each active contract's estBaris evenly across its own running
+// months, same spirit as computeMonthlyBreakdown for the Rencana side.
+// Guarded against malformed/inverted ranges with a hard cap, same defensive
+// posture as elapsedFraction's `total <= 0` check.
+function monthsInRange(prdAwal: string, prdAkhir: string): string[] {
+  const months: string[] = [];
+  let y = parseInt(prdAwal.slice(0, 4), 10), m = parseInt(prdAwal.slice(4), 10);
+  const ey = parseInt(prdAkhir.slice(0, 4), 10), em = parseInt(prdAkhir.slice(4), 10);
+  let guard = 0;
+  while ((y < ey || (y === ey && m <= em)) && guard < 240) {
+    months.push(`${y}${String(m).padStart(2, "0")}`);
+    m++; if (m > 12) { m = 1; y++; }
+    guard++;
+  }
+  return months;
+}
+
 function previousQuarterPeriod(period: string): string | null {
   const m = period.match(/^(\d{4})-Q([1-4])$/);
   if (!m) return null;
@@ -244,13 +213,12 @@ function previousQuarterPeriod(period: string): string | null {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 const TABS: { key: Tab; label: string }[] = [
-  { key: "ringkasan",          label: "Ringkasan" },
-  { key: "mr",                 label: "Per Personil" },
-  { key: "outlet",             label: "Per Outlet" },
-  { key: "customer",           label: "Per Customer" },
-  { key: "spesialisasi",       label: "Per Spesialisasi" },
-  { key: "produk-rekomendasi", label: "Per Produk Rekomendasi" },
-  { key: "produk",             label: "Per Produk" },
+  { key: "ringkasan",    label: "Ringkasan" },
+  { key: "mr",           label: "Per Personil" },
+  { key: "outlet",       label: "Per Outlet" },
+  { key: "customer",     label: "Per Customer" },
+  { key: "spesialisasi", label: "Per Spesialisasi" },
+  { key: "produk",       label: "Per Produk" },
 ];
 
 // Lightweight placeholder shown while SummaryContent streams in (2026-08-03
@@ -283,16 +251,9 @@ export default async function SummaryPage({
   if (session.role === "MR") redirect("/dashboard");
 
   const params = await searchParams;
-  // "tab" (GroupingTab) folds "produk-rekomendasi" into "produk" (2026-07-31
-  // rework — this tab now reuses the exact same per-product rows/columns as
-  // "Per Produk", just split into Fokus/Low Hanging Fruit/Blue Ocean/Red
-  // Ocean/Standarisasi sections instead of one flat table — see the
-  // kategori split further down), so the SAME rich per-product grouping
-  // logic below (activePsspByProdName, salesValueByProduk, avgPasienPerUser,
-  // etc.) computes for it too, instead of a separate bespoke aggregate. Same
-  // fold for "ringkasan" -> "mr" (see Tab's doc comment above).
+  // "tab" (GroupingTab) folds "ringkasan" -> "mr" (see Tab's doc comment above).
   const rawTab: Tab = (params.tab as Tab) ?? "ringkasan";
-  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab === "ringkasan" ? "mr" : rawTab;
+  const tab: GroupingTab = rawTab === "ringkasan" ? "mr" : rawTab;
   // Rentang Periode (2026-07-28) — replaces the old single `period` pill
   // selector with an inclusive from/to range over the same "YYYY-QN" period
   // strings; string comparison sorts them chronologically correctly since
@@ -302,6 +263,18 @@ export default async function SummaryPage({
   const periodTo = params.periodTo ?? null;
   const hasPeriodFilter = !!periodFrom || !!periodTo;
   const periodQuery = `${periodFrom ? `&periodFrom=${periodFrom}` : ""}${periodTo ? `&periodTo=${periodTo}` : ""}`;
+
+  // Ringkasan tab's own single-quarter filter (docs/summary-ringkasan spec
+  // §1/§3, "Q-Berjalan") — deliberately a SEPARATE query param (`quarter`,
+  // not periodFrom/periodTo) so it doesn't interact with the range filter
+  // every other tab still uses. Defaults to the real calendar current
+  // quarter when unset/malformed, same default currentQuarter() already
+  // used elsewhere on this page for growth-vs-quarter-sebelumnya.
+  const ringkasanYearParam = params.qYear && /^\d{4}$/.test(params.qYear) ? params.qYear : null;
+  const ringkasanQuarterNumParam = params.qQuarter && /^[1-4]$/.test(params.qQuarter) ? params.qQuarter : null;
+  const ringkasanQuarter = ringkasanYearParam && ringkasanQuarterNumParam
+    ? `${ringkasanYearParam}-Q${ringkasanQuarterNumParam}`
+    : currentQuarter();
 
   // Default period window (2026-07-31 perf fix: "performance starts to slow
   // down... bound the unbounded queries") — with no explicit filter, this
@@ -345,6 +318,8 @@ export default async function SummaryPage({
       })) as { period: string }[]
     : [];
   const allPeriods = [...new Set(allPoasForPeriods.map((p) => p.period))].sort();
+  const ringkasanYears = [...new Set(allPeriods.map((p) => p.slice(0, 4)))].sort();
+  if (ringkasanYears.length === 0) ringkasanYears.push(ringkasanQuarter.slice(0, 4));
 
   return (
     <div className="space-y-5">
@@ -370,14 +345,16 @@ export default async function SummaryPage({
       </Card>
 
       <div className="flex justify-end">
-        <SummaryFilterModal tab={rawTab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />
+        {rawTab === "ringkasan"
+          ? <RingkasanQuarterFilter years={ringkasanYears} year={ringkasanYearParam ?? ringkasanQuarter.slice(0, 4)} quarterNum={ringkasanQuarterNumParam ?? ringkasanQuarter.slice(6)} quarterLabel={ringkasanQuarter} />
+          : <SummaryFilterModal tab={rawTab} periods={allPeriods} periodFrom={periodFrom} periodTo={periodTo} />}
       </div>
 
       {/* Everything below needs the heavy line-item fetch/aggregation — streamed
           in separately (2026-08-03) so it doesn't block the shell above from
           showing up. key= forces a fresh Suspense fallback on tab/filter change
           instead of showing stale content while the new data loads. */}
-      <Suspense key={`${rawTab}|${periodFrom ?? ""}|${periodTo ?? ""}`} fallback={<SummarySkeleton />}>
+      <Suspense key={`${rawTab}|${periodFrom ?? ""}|${periodTo ?? ""}|${ringkasanQuarter}`} fallback={<SummarySkeleton />}>
         <SummaryContent
           mrNips={mrNips}
           rawTab={rawTab}
@@ -387,6 +364,8 @@ export default async function SummaryPage({
           periodQuery={periodQuery}
           isDefaultBounded={isDefaultBounded}
           defaultPeriodFrom={defaultPeriodFrom}
+          ringkasanQuarter={ringkasanQuarter}
+          isAdminTestView={session.role === "ADMIN"}
         />
       </Suspense>
     </div>
@@ -394,7 +373,7 @@ export default async function SummaryPage({
 }
 
 async function SummaryContent({
-  mrNips, rawTab, periodFrom, periodTo, hasPeriodFilter, isDefaultBounded, defaultPeriodFrom,
+  mrNips, rawTab, periodFrom, periodTo, hasPeriodFilter, isDefaultBounded, defaultPeriodFrom, ringkasanQuarter, isAdminTestView,
 }: {
   mrNips: string[];
   rawTab: Tab;
@@ -404,8 +383,30 @@ async function SummaryContent({
   periodQuery: string;
   isDefaultBounded: boolean;
   defaultPeriodFrom: string;
+  ringkasanQuarter: string;
+  // Per-product Target dummy data gate (2026-08-05: "buat dummynya dulu
+  // kalau viewnya admin, soalnya untuk testing saja") — per-product Target
+  // doesn't exist in the data model yet (confirmed earlier by user), so a
+  // deterministic dummy value is generated ONLY for ADMIN so the ratio UI
+  // can be visually checked before real data lands. Every other role still
+  // sees "Tidak tersedia", same as before this flag existed.
+  isAdminTestView: boolean;
 }) {
-  const tab: GroupingTab = rawTab === "produk-rekomendasi" ? "produk" : rawTab === "ringkasan" ? "mr" : rawTab;
+  const tab: GroupingTab = rawTab === "ringkasan" ? "mr" : rawTab;
+
+  // Ringkasan tab forces the whole component's underlying dataset (poas,
+  // lineItems, groups, targetTotal, ...) to exactly ONE quarter ("Q-Berjalan",
+  // docs/summary-ringkasan §1) instead of the range/default-window every
+  // other tab uses — periodFrom/periodTo from the URL are ignored for this
+  // tab, `ringkasanQuarter` (single-quarter filter, see RingkasanQuarterFilter)
+  // wins outright. This is what makes `lineItems` the right INPUT for §2-§4's
+  // tercacah (apportioned) Rencana figures below (`rencanaMonthlyBreakdownQ`
+  // etc.) — those are no longer just `estimasiTotal`/`estimasiAktifTotal`
+  // (the raw, un-apportioned sums those two vars still are for every other
+  // tab) since the 2026-08-06 "semua estimasi... dibuat tercacah" fix.
+  const effPeriodFrom = rawTab === "ringkasan" ? ringkasanQuarter : periodFrom;
+  const effPeriodTo = rawTab === "ringkasan" ? ringkasanQuarter : periodTo;
+  const effHasPeriodFilter = rawTab === "ringkasan" ? true : hasPeriodFilter;
 
   const mrUsers = mrNips.length > 0
     ? (await prisma.user.findMany({
@@ -430,10 +431,10 @@ async function SummaryContent({
   const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips }, status: { in: NON_DRAFT } };
   // String gte/lte on "YYYY-QN" is safe — fixed-width format, lexicographic
   // order matches chronological order.
-  if (hasPeriodFilter) {
+  if (effHasPeriodFilter) {
     poaWhere.period = {
-      ...(periodFrom ? { gte: periodFrom } : {}),
-      ...(periodTo ? { lte: periodTo } : {}),
+      ...(effPeriodFrom ? { gte: effPeriodFrom } : {}),
+      ...(effPeriodTo ? { lte: effPeriodTo } : {}),
     };
   } else {
     // No explicit filter — bound to the rolling default window instead of
@@ -538,6 +539,12 @@ async function SummaryContent({
           qtyProdukResep: true,
           periodeAwal: true,
           lamaPeriode: true,
+          // pihakPssp/labelCustomer only needed by Ringkasan §5b (Breakdown
+          // User/KPDM, Jumlah Customer Baru vs Retention) — added to the
+          // shared select rather than a second query since it's a free
+          // column read on a row set already being fetched for every tab.
+          pihakPssp: true,
+          labelCustomer: true,
         },
       })) as {
         poaId: string;
@@ -559,6 +566,8 @@ async function SummaryContent({
         qtyProdukResep: number | null;
         periodeAwal: string | null;
         lamaPeriode: number | null;
+        pihakPssp: "USER" | "KPDM";
+        labelCustomer: string | null;
       }[]
     : [];
 
@@ -740,23 +749,6 @@ async function SummaryContent({
   // relative to the lineItems query above.
   const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
   const SALES_2026_FROM = "202601";
-
-  // ── Per Produk Rekomendasi tab (reworked 2026-07-31) ───────────────────────
-  // Flat kategori sections (Produk Fokus / Low Hanging Fruit / Blue Ocean /
-  // Red Ocean / Standarisasi), each a full per-product table — was one card
-  // per Produk Fokus paket with aggregate coverage bars, replaced per
-  // request. Just needs the per-product kategori classification here; the
-  // actual per-product rows/columns are the SAME ones "Per Produk" computes
-  // (tab folds "produk-rekomendasi" → "produk" above), split by kategori
-  // further down once `groups` exists. Gated behind rawTab (only fetched
-  // when this tab is actually open) — same "don't pay for what isn't
-  // rendered" principle as the Data Sales query below.
-  const outletProductKriteriaRows = rawTab === "produk-rekomendasi" && outletKodesForMR.length > 0
-    ? (await prisma.outletProductKriteria.findMany({
-        where: { kodePI: { in: outletKodesForMR } },
-        select: { kodeProduk: true, kategori: true, kriteriaBaru: true },
-      })) as { kodeProduk: string; kategori: string; kriteriaBaru: string }[]
-    : [];
 
   const [activePssp, listingFeeRows, salesValueRaw, salesQtyRaw] = await Promise.all([
     outletKodesForMR.length > 0 ? getActivePsspByOutlets(outletKodesForMR) : Promise.resolve([] as ActivePsspRow[]),
@@ -1011,7 +1003,7 @@ async function SummaryContent({
         pic: findPic(key.code),
         estimasi,
         variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
-        variasiProdukFokus: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
+        variasiProdukKontes: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
         produkPssp: produkPsspSet.size,
         customer: new Set(items.map(custIdentity)).size,
         pengajuan: items.length,
@@ -1063,29 +1055,6 @@ async function SummaryContent({
       return aHas ? b.gapVsRealisasi - a.gapVsRealisasi : b.estimasi - a.estimasi;
     });
 
-  // Per Produk Rekomendasi kategori split (2026-07-31 rework — was one card
-  // per Produk Fokus paket with aggregate coverage bars; request was flat
-  // sections instead, each a full per-product table with the same columns as
-  // "Per Produk": Produk Fokus, Low Hanging Fruit, Blue Ocean, Red Ocean,
-  // Standarisasi). Classifies each already-computed produk group by
-  // kodeProduk against OutletProductKriteria (deduped across outlets/pakets,
-  // first-seen wins — same simplification the old paket view used) plus
-  // getAllPakets() for Fokus, same definition as the Status Fokus/Non-Fokus
-  // column on "Per Produk" itself. A product can land in more than one
-  // section (Fokus and Low Hanging Fruit aren't mutually exclusive axes).
-  const kriteriaByKodeProduk = new Map<string, { kategori: string | null; kriteriaBaru: string | null }>();
-  if (rawTab === "produk-rekomendasi") {
-    for (const row of outletProductKriteriaRows) {
-      if (kriteriaByKodeProduk.has(row.kodeProduk)) continue;
-      kriteriaByKodeProduk.set(row.kodeProduk, { kategori: row.kategori, kriteriaBaru: row.kriteriaBaru });
-    }
-  }
-  const produkFokusGroups = groups.filter((g) => getAllPakets(g.name).length > 0);
-  const lowHangingFruitGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kategori === "Low Hanging Fruit");
-  const blueOceanGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kategori === "Blue Ocean");
-  const redOceanGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kategori === "Red Ocean");
-  const standarisasiGroups = groups.filter((g) => kriteriaByKodeProduk.get(g.code)?.kriteriaBaru?.startsWith("Produk Sudah Terstandarisasi"));
-
   // ── Tab labels ────────────────────────────────────────────────────────────
 
   const CODE_LABEL: Record<GroupingTab, string> = {
@@ -1096,290 +1065,934 @@ async function SummaryContent({
   const estimasiTotal = groups.reduce((s, g) => s + g.estimasi, 0);
   const estimasiAktifTotal = groups.reduce((s, g) => s + g.estimasiAktif, 0);
 
-  // ── Ringkasan (re-added 2026-08-04) ─────────────────────────────────────
-  // Grand totals — just SUM of the per-MR `groups` rows (tab folds to "mr"
-  // for rawTab==="ringkasan", see Tab's doc comment), not a separate query.
-  // targetTotal itself was already computed above (poas.reduce over
-  // poa.target) but had been dead code ever since the original Ringkasan tab
-  // was removed 2026-07-31 — this is the one place that finally reads it
-  // again.
-  const ringkasanBudgetTotal = groups.reduce((s, g) => s + g.budgetTotal, 0);
+  // ── Ringkasan totals ─────────────────────────────────────────────────────
+  // Company/subtree-wide sums — just SUM of the per-MR `groups` rows (tab
+  // folds to "mr" for rawTab==="ringkasan", see Tab's doc comment), not a
+  // separate query. Feeds §2-§5 below (docs/summary-ringkasan).
   const ringkasanPsspTotal = groups.reduce((s, g) => s + g.psspTotal, 0);
-  const ringkasanDiscountTotal = groups.reduce((s, g) => s + g.discountTotal, 0);
   const ringkasanEntertainTotal = groups.reduce((s, g) => s + g.entertainTotal, 0);
-  const ringkasanRealisasiSebelumnya = groups.reduce((s, g) => s + g.realisasiQuarterSebelumnya, 0);
-  const ringkasanEstimasiQuarterIni = groups.reduce((s, g) => s + g.estimasiQuarterIni, 0);
-  const ringkasanGrowthPct = ringkasanRealisasiSebelumnya > 0
-    ? ((ringkasanEstimasiQuarterIni - ringkasanRealisasiSebelumnya) / ringkasanRealisasiSebelumnya) * 100
-    : null;
-  const ringkasanRatioTarget = targetTotal > 0 ? (estimasiTotal / targetTotal) * 100 : null;
   const ringkasanCustomerTotal = new Set(lineItems.map(custIdentity)).size;
   const ringkasanPersonilAktif = groups.filter((g) => g.pengajuan > 0).length;
-  // Estimasi Tercacah (company-wide) — same month-apportionment
-  // computeMonthlyBreakdown already does for the Excel exports / DraftChecklist's
-  // "Ringkasan POA" panel, just summed across only quarterIni's 3 months here
-  // instead of per-POA. Bar chart below (item request 2026-08-04).
+  // Month-apportionment (§5a "Breakdown Nilai Estimasi by Bulan" and other
+  // per-bulan metrics below) — same computeMonthlyBreakdown already used for
+  // the Excel exports / DraftChecklist's "Ringkasan POA" panel.
   const ringkasanMonthlyBreakdown = computeMonthlyBreakdown(lineItems);
-  const ringkasanEstimasiTercacah = quarterToMonths(quarterIni)
-    .reduce((s, m) => s + (ringkasanMonthlyBreakdown.get(m)?.estimasi ?? 0), 0);
 
-  // Rincian Total Estimasi (2026-08-04 request: "itu total estimasi darimana
-  // aja") — estimasiTotal is a SUM across every POA period currently in
-  // scope, not just quarterIni (the default window covers quarterIni +
-  // quarterSebelumnya, "Semua" filter covers more) — broken down two ways so
-  // it's clear what's actually inside that one grand number:
-  //  1. by period (which quarter's submissions it's made of)
-  //  2. by personil level (displayRole-aware — same convention as the
-  //     "Estimasi PSSP per Bulan" export sheet — so SPV shows separately from
-  //     plain MR). In practice this only ever shows MR/SPV here: poaWhere
-  //     above scopes ownerId to mrNips (MR-only, see getSubordinateMRNips),
-  //     so an ASM/SM's own vacant-team POA never reaches this page's dataset
-  //     at all — unlike the export sheet, which has no such restriction.
-  //  3. by produk (top contributors — same "darimana aja" spirit)
-  const poaPeriodMap = new Map(poas.map((p) => [p.id, p.period]));
-  const poaOwnerLevelMap = new Map(poas.map((p) => [p.id, displayRole(mrUserByNip.get(p.ownerId)?.role ?? "MR", mrUserByNip.get(p.ownerId)?.jabatan)]));
-  const estimasiByPeriod = new Map<string, number>();
-  const estimasiByLevel = new Map<string, number>();
-  const estimasiByProduct = new Map<string, { name: string; value: number }>();
-  for (const li of lineItems) {
-    const value = toNum(li.rencanaTotalBiaya);
-    const period = poaPeriodMap.get(li.poaId);
-    if (period) estimasiByPeriod.set(period, (estimasiByPeriod.get(period) ?? 0) + value);
-    const level = poaOwnerLevelMap.get(li.poaId);
-    if (level) estimasiByLevel.set(level, (estimasiByLevel.get(level) ?? 0) + value);
-    const prod = estimasiByProduct.get(li.kodeProduk) ?? { name: li.namaProduk, value: 0 };
-    prod.value += value;
-    estimasiByProduct.set(li.kodeProduk, prod);
+  // ── Ringkasan tab redesign (docs/summary-ringkasan, implemented 2026-08-05) ─
+  // Everything below is gated to rawTab === "ringkasan" for the two extra
+  // QUERIES (targetSebelumnyaPoas, psspFullHistoryRows) — the actual
+  // computation over already-fetched arrays (lineItems/activePssp/poas) runs
+  // unconditionally since it's cheap in-memory work, same "no extra DB round
+  // trip for other tabs" principle as everything above.
+  const ringkasanQMonths = quarterToMonths(ringkasanQuarter);
+  const ringkasanQSebelumnya = previousQuarterPeriod(ringkasanQuarter);
+  const ringkasanQSebelumnyaMonths = ringkasanQSebelumnya ? quarterToMonths(ringkasanQSebelumnya) : [];
+
+  // PSSP Rencana, genuinely tercacah (apportioned) to Q-Berjalan's own months
+  // (2026-08-06: "semua estimasi... PSSP rencana... dibuat tercacah sesuai
+  // filter quarter nya") — moved up from §5a so §2/§3/§4 below can all read
+  // this SAME tercacah figure instead of the raw un-apportioned `estimasiTotal`
+  // (a line item's rencanaTotalBiaya spread across its own periodeAwal.. run,
+  // which can extend past this single quarter's 3 months).
+  const rencanaMonthlyBreakdownQ = ringkasanQMonths.reduce((s, m) => s + (ringkasanMonthlyBreakdown.get(m)?.estimasi ?? 0), 0);
+
+  // §3 Pencapaian Target needs Target for Q-Sebelumnya too (targetTotal above
+  // is already Q-Berjalan-only, since the whole poaWhere is forced to
+  // ringkasanQuarter for this tab) — same poa.target-only resolution
+  // targetTotal itself uses (NOT the fuller poa.target-vs-TargetHospitalValue
+  // fallback documented in docs/form-poa/01-business-rules.md §3 "Resolusi
+  // Target" — that fallback was never actually wired into THIS component,
+  // only into poa/[id]/page.tsx's per-POA view; reusing targetTotal's
+  // existing behavior as-is per instructions, not adding a fallback this
+  // component didn't already have).
+  const targetSebelumnyaPoas = rawTab === "ringkasan" && mrNips.length > 0 && ringkasanQSebelumnya
+    ? (await prisma.poaForm.findMany({
+        where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT }, period: ringkasanQSebelumnya },
+        select: { id: true, target: true },
+      })) as { id: string; target: { toString(): string } | null }[]
+    : [];
+  const targetSebelumnyaTotal = targetSebelumnyaPoas.reduce((s, p) => s + toNum(p.target), 0);
+
+  // §3 also needs PSSP Rencana (not just Aktif) for Q-Sebelumnya, genuinely
+  // TERCACAH to Q-Sebelumnya's own months (2026-08-06: "semua estimasi...
+  // dibuat tercacah sesuai filter quarter nya") — a plain `_sum` aggregate
+  // over rencanaTotalBiaya (the first version of this fix) summed each line
+  // item's FULL periodeAwal..periodeAkhir value, not just the slice that
+  // actually falls in Q-Sebelumnya's 3 months, so it wasn't really tercacah.
+  // Needs the actual line items (periodeAwal/lamaPeriode), not just an
+  // aggregate, to run through the same `computeMonthlyBreakdown` apportionment
+  // as Q-Berjalan's `ringkasanMonthlyBreakdown` above.
+  const lineItemsSebelumnya = targetSebelumnyaPoas.length > 0
+    ? (await prisma.poaLineItem.findMany({
+        where: { poaId: { in: targetSebelumnyaPoas.map((p) => p.id) } },
+        select: { rencanaTotalBiaya: true, persenPsspDokter: true, pengaliNilaiR: true, periodeAwal: true, lamaPeriode: true },
+      })) as {
+        rencanaTotalBiaya: { toString(): string } | number;
+        persenPsspDokter: { toString(): string } | number | null;
+        pengaliNilaiR: { toString(): string } | number | null;
+        periodeAwal: string | null;
+        lamaPeriode: number | null;
+      }[]
+    : [];
+  const sebelumnyaMonthlyBreakdown = computeMonthlyBreakdown(lineItemsSebelumnya);
+  const rencanaSebelumnyaTotal = ringkasanQSebelumnyaMonths.reduce((s, m) => s + (sebelumnyaMonthlyBreakdown.get(m)?.estimasi ?? 0), 0);
+
+  // §2 "PSSP Aktif Q-3"/"PSSP Aktif Q-2" — 2026-08-05 correction: these two
+  // columns are NOT both "currently active right now" (that was the earlier,
+  // wrong reading) — each is "PSSP tercacah (apportioned) yang BERJALAN pada
+  // kuartal itu sendiri". `activePssp` (`getActivePsspByOutlets`) only
+  // returns contracts active AS OF TODAY (`prdAkhir >= real current period`),
+  // so a contract that ran during Q-sebelumnya but already ended before
+  // today would be wrongly excluded — needs its own query over the WIDER
+  // [Q-sebelumnya start, Q-berjalan end] window instead of reusing
+  // `activePssp`. Same apportionment (`monthsInRange` + evenly split
+  // `estBaris`) `tercacahAktifForQuarter` below runs, just scoped per quarter
+  // instead of summed into one total.
+  const kesesuaianWindowMonths = [...ringkasanQSebelumnyaMonths, ...ringkasanQMonths].sort();
+  const kesesuaianMinMonth = kesesuaianWindowMonths[0] ?? ringkasanQMonths[0];
+  const kesesuaianMaxMonth = kesesuaianWindowMonths[kesesuaianWindowMonths.length - 1] ?? ringkasanQMonths[ringkasanQMonths.length - 1];
+  const kesesuaianAktifRows = rawTab === "ringkasan" && outletKodesForMR.length > 0
+    ? (await prisma.psspKontrak.findMany({
+        where: { kdOutlet: { in: outletKodesForMR }, prdAwal: { lte: kesesuaianMaxMonth }, prdAkhir: { gte: kesesuaianMinMonth } },
+        // kdProduk/nmProduk (2026-08-06 follow-up: "semua estimasi... PSSP
+        // aktif... dibuat tercacah sesuai filter quarter nya") — needed so
+        // §4's Varian Produk Kontes tile can derive its OWN genuinely
+        // per-quarter tercacah Aktif figure (kontesAktifRows below) instead
+        // of reusing kontesActivePssp's "active today" estBaris sum.
+        select: { kdCust: true, cUrut: true, prdAwal: true, prdAkhir: true, estBaris: true, kdProduk: true, nmProduk: true },
+      })) as { kdCust: string; cUrut: string; prdAwal: string; prdAkhir: string; estBaris: { toString(): string } | null; kdProduk: string | null; nmProduk: string | null }[]
+    : [];
+  // Generalized "tercacah per kuartal" reducer over any PsspKontrak-shaped row
+  // set (2026-08-06) — was two separate pieces (a cached monthly Map + a
+  // closure reading it) written only for the full outlet-scoped set; unified
+  // here so the SAME apportionment logic can also run over a Kontes-filtered
+  // SUBSET of kesesuaianAktifRows (see kontesAktifRows below) without a
+  // second bespoke cache. Row counts here are bounded by outletKodesForMR ×
+  // a ~2-quarter window (same scope docs/PERFORMANCE.md already accepts for
+  // this query), so recomputing months per row per call is cheap — no need
+  // for the extra cache this replaces.
+  function tercacahAktifForQuarter(
+    rows: { kdCust: string; cUrut: string; prdAwal: string; prdAkhir: string; estBaris: { toString(): string } | null }[],
+    months: string[]
+  ): { jumlah: number; value: number } {
+    const monthSet = new Set(months);
+    const contractKeys = new Set<string>();
+    let value = 0;
+    for (const r of rows) {
+      const rMonths = monthsInRange(r.prdAwal, r.prdAkhir);
+      if (rMonths.length === 0) continue;
+      if (rMonths.some((m) => monthSet.has(m))) contractKeys.add(`${r.kdCust}|${r.cUrut}`);
+      const perMonth = toNum(r.estBaris) / rMonths.length;
+      for (const m of rMonths) if (monthSet.has(m)) value += perMonth;
+    }
+    return { jumlah: contractKeys.size, value };
   }
-  const estimasiByPeriodSorted = [...estimasiByPeriod.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const estimasiByLevelSorted = [...estimasiByLevel.entries()].sort((a, b) => b[1] - a[1]);
-  // Top 8 products by Estimasi — same spirit as "Per Produk" tab but
-  // condensed for the Ringkasan card (2026-08-04 request: "harusnya ada
-  // section produk juga"), not the full sortable table (that's what the
-  // "Per Produk" tab itself is for).
-  const TOP_PRODUK_COUNT = 8;
-  const estimasiByProductSorted = [...estimasiByProduct.entries()]
-    .sort((a, b) => b[1].value - a[1].value)
-    .slice(0, TOP_PRODUK_COUNT);
-  // Estimasi Tercacah per periode (2026-08-04 request: "ada estimasi
-  // tercacah per quartal juga") — same month-apportionment as
-  // ringkasanEstimasiTercacah above, just computed for EVERY period in
-  // estimasiByPeriodSorted instead of only quarterIni, so the "per Periode"
-  // breakdown can show both the full and the apportioned figure side by side.
-  const estimasiTercacahByPeriod = new Map(
-    estimasiByPeriodSorted.map(([period]) => [
-      period,
-      quarterToMonths(period).reduce((s, m) => s + (ringkasanMonthlyBreakdown.get(m)?.estimasi ?? 0), 0),
-    ])
-  );
+  const kesesuaianAktifQBerjalan = tercacahAktifForQuarter(kesesuaianAktifRows, ringkasanQMonths);
+  const kesesuaianAktifQSebelumnya = tercacahAktifForQuarter(kesesuaianAktifRows, ringkasanQSebelumnyaMonths);
+
+  // Per-BULAN monthly map (2026-08-06: "aku mau ada yang breakdown by bulan
+  // di ringkasan summary juga kayak yang ada di ringkasan draft POA" — same
+  // "Estimasi & Nilai PSSP per Bulan" table already on the per-POA draft
+  // panel, `DraftChecklist.tsx`, reused here at the aggregate Ringkasan
+  // level). Separate from `tercacahAktifForQuarter` above (which only needs
+  // a quarter-level SUM + distinct-contract count) — this keeps a value per
+  // individual month so the table below can render one row per bulan.
+  const kesesuaianAktifMonthlyMap = new Map<string, number>();
+  for (const r of kesesuaianAktifRows) {
+    const rMonths = monthsInRange(r.prdAwal, r.prdAkhir);
+    if (rMonths.length === 0) continue;
+    const perMonth = toNum(r.estBaris) / rMonths.length;
+    for (const m of rMonths) kesesuaianAktifMonthlyMap.set(m, (kesesuaianAktifMonthlyMap.get(m) ?? 0) + perMonth);
+  }
+  // Rencana side merges Q-Berjalan's `ringkasanMonthlyBreakdown` (from
+  // `lineItems`) with Q-Sebelumnya's `sebelumnyaMonthlyBreakdown` (from
+  // `lineItemsSebelumnya`, fetched above for §3's Rencana-vs-Target).
+  function kesesuaianRencanaMonthlyValue(m: string): number {
+    return (ringkasanMonthlyBreakdown.get(m)?.estimasi ?? 0) + (sebelumnyaMonthlyBreakdown.get(m)?.estimasi ?? 0);
+  }
+
+  // Full (all-time, not just active) PSSP contract history for every
+  // customer touched by either dimension — Q-Berjalan's planned customers
+  // (custCodes, already fetched above) union currently-active customers
+  // (activePssp) — needed for §5b "Rata-Rata PSSP ke Berapa" (ordinal of a
+  // customer's Nth contract) and its "Baru vs Retensi" proxy. Bounded by
+  // custCodes/activePssp's own customer set (same size class as the
+  // realisasiPsspRows query above), gated to the Ringkasan tab only.
+  const activeCustCodesSet = new Set(activePssp.map((r) => r.kdCust));
+  const psspHistoryCustCodes = rawTab === "ringkasan"
+    ? [...new Set([...custCodes, ...activeCustCodesSet])]
+    : [];
+  const psspFullHistoryRows = psspHistoryCustCodes.length > 0
+    ? (await prisma.psspKontrak.findMany({
+        where: { kdCust: { in: psspHistoryCustCodes } },
+        select: { kdCust: true, cUrut: true, prdAwal: true },
+      })) as { kdCust: string; cUrut: string; prdAwal: string }[]
+    : [];
+  // kdCust -> distinct cUrut sorted by each contract's earliest prdAwal —
+  // ordinal position N (1-based) in this array = "this customer's Nth PSSP".
+  const custContractsByCust = new Map<string, Map<string, string>>();
+  for (const r of psspFullHistoryRows) {
+    const m = custContractsByCust.get(r.kdCust) ?? new Map<string, string>();
+    const earliest = m.get(r.cUrut);
+    if (!earliest || r.prdAwal < earliest) m.set(r.cUrut, r.prdAwal);
+    custContractsByCust.set(r.kdCust, m);
+  }
+  const custContractsSorted = new Map<string, string[]>();
+  for (const [kdCust, m] of custContractsByCust) {
+    custContractsSorted.set(kdCust, [...m.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([cUrut]) => cUrut));
+  }
+
+  const contractRepMap = new Map<string, ActivePsspRow>();
+  for (const r of activePssp) {
+    const key = `${r.kdCust}|${r.cUrut}`;
+    if (!contractRepMap.has(key)) contractRepMap.set(key, r);
+  }
+
+  // ── §2 Kesesuaian POA — PSSP Rencana vs PSSP Aktif, Q-Berjalan, no ratio
+  // (docs/summary-ringkasan/01-business-rules.md §2: "kedua angka ditampilkan
+  // berdampingan apa adanya"). By Jumlah = row/contract COUNT (line items for
+  // Rencana, distinct contracts for Aktif) — chosen over customer-count to
+  // stay consistent with how "pengajuan"/"By Jumlah" already counts ROWS
+  // elsewhere in this file (TerritoryGroup.pengajuan = items.length), not
+  // distinct customers (non-blocking assumption, docs/summary-ringkasan
+  // README non-blocking item #... "count vs value for Jumlah dimension").
+  const kesesuaianJumlahRencana = lineItems.length;
+  // Tercacah to Q-Berjalan's own months (2026-08-06 fix), not the raw
+  // un-apportioned `estimasiTotal` this used to read.
+  const kesesuaianValueRencana = rencanaMonthlyBreakdownQ;
+
+  // ── §3 Pencapaian Target — direct %, no proyeksi/ekstrapolasi. Rendered as
+  // a horizontal STACKED bar per quarter (2026-08-06 follow-up: "target itu
+  // 100%, PSSP rencananya kontribusi ke target berapa persen, dan PSSP
+  // Aktifnya kontribusi ke target berapa persen") — Rencana% and Aktif% are
+  // each computed against the SAME quarter's Target and stacked, rather than
+  // one combined "Aktif only" ratio. This also fixes the earlier limitation
+  // where both quarters reused the same "aktif sekarang" figure: Aktif now
+  // uses the genuinely per-quarter tercacah figures from §2
+  // (kesesuaianAktifQBerjalan/kesesuaianAktifQSebelumnya, fixed 2026-08-05),
+  // and Rencana now uses a genuinely per-quarter figure too
+  // (kesesuaianValueRencana for Q-Berjalan, rencanaSebelumnyaTotal — new
+  // query above — for Q-Sebelumnya) instead of one reused across both.
+  // ADMIN-only dummy Target when the real `poa.target` is unset (2026-08-06
+  // follow-up: "di admin tolong pakai target dummy dulu" — same scaffolding
+  // convention already used for §4's per-produk dummy Target, deterministic
+  // per seed string so it doesn't reshuffle every render, clearly suffixed
+  // "(dummy)" and gated to isAdminTestView). Only kicks in when the real
+  // target is genuinely 0/unset — a real target of any size always wins.
+  function dummyTargetMultiplier(seed: string): number {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    return 0.7 + (hash % 700) / 1000; // 0.7 .. 1.4
+  }
+  const targetBerjalanIsDummy = isAdminTestView && targetTotal <= 0;
+  const targetBerjalanForCalc = targetTotal > 0
+    ? targetTotal
+    : (isAdminTestView ? (kesesuaianValueRencana + kesesuaianAktifQBerjalan.value) * dummyTargetMultiplier(ringkasanQuarter) : 0);
+  const targetSebelumnyaIsDummy = isAdminTestView && targetSebelumnyaTotal <= 0;
+  const targetSebelumnyaForCalc = targetSebelumnyaTotal > 0
+    ? targetSebelumnyaTotal
+    : (isAdminTestView ? (rencanaSebelumnyaTotal + kesesuaianAktifQSebelumnya.value) * dummyTargetMultiplier(ringkasanQSebelumnya ?? "-") : 0);
+
+  const rencanaPctSebelumnya = targetSebelumnyaForCalc > 0 ? (rencanaSebelumnyaTotal / targetSebelumnyaForCalc) * 100 : null;
+  const aktifPctSebelumnya = targetSebelumnyaForCalc > 0 ? (kesesuaianAktifQSebelumnya.value / targetSebelumnyaForCalc) * 100 : null;
+  const rencanaPctBerjalan = targetBerjalanForCalc > 0 ? (kesesuaianValueRencana / targetBerjalanForCalc) * 100 : null;
+  const aktifPctBerjalan = targetBerjalanForCalc > 0 ? (kesesuaianAktifQBerjalan.value / targetBerjalanForCalc) * 100 : null;
+
+  // ── §4 Kelompok metrik Value + Unit. "Unit" wasn't specified per-metric by
+  // the spec ("belum eksplisit disebutkan per metrik") — working assumption:
+  // reuse whichever count/quantity concept already exists for that metric
+  // elsewhere in this file, rather than inventing a new one. Sales is the one
+  // metric with a REAL unit figure (OutletSalesMonthly qty), everything else
+  // pairs Value with the nearest existing row/contract count.
+  const ringkasanSalesValueTotal = salesValueRaw.reduce((s, r) => s + toNum(r._sum.valueSales), 0);
+  const ringkasanSalesQtyTotal = salesQtyRaw.reduce((s, r) => s + toNum(r._sum.qty), 0);
+
+  // Pelunasan (%) company-wide — same Running Rate formula as the "outlet"
+  // tab's per-outlet pelunasanRunningRate (expected = estBaris × elapsed
+  // fraction of the contract's own period, summed across EVERY active
+  // contract across all of mrNips's outlets instead of one outlet at a time).
+  // Single grouping pass (not a filter-per-contract loop) — company-wide
+  // ADMIN scope can have thousands of active PSSP rows, so this stays O(n)
+  // instead of O(contracts × rows), same "batch then map in memory" pattern
+  // docs/PERFORMANCE.md §2 requires.
+  const contractRowsMap = new Map<string, ActivePsspRow[]>();
+  for (const r of activePssp) {
+    const key = `${r.kdCust}|${r.cUrut}`;
+    const list = contractRowsMap.get(key) ?? [];
+    list.push(r);
+    contractRowsMap.set(key, list);
+  }
+  let ringkasanExpectedLunas = 0, ringkasanActualLunas = 0;
+  for (const [key, r] of contractRepMap) {
+    const contractRows = contractRowsMap.get(key) ?? [];
+    const sumEst = contractRows.reduce((s, x) => s + x.estBaris, 0);
+    const sumLunas = contractRows.reduce((s, x) => s + x.totalLunas, 0);
+    ringkasanExpectedLunas += sumEst * elapsedFraction(r.prdAwal, r.prdAkhir);
+    ringkasanActualLunas += sumLunas;
+  }
+  const ringkasanPelunasanPct = ringkasanExpectedLunas > 0 ? (ringkasanActualLunas / ringkasanExpectedLunas) * 100 : null;
+
+  const value4Group = {
+    target: { value: targetTotal },
+    // Tercacah to Q-Berjalan (2026-08-06 fix) — was `estimasiTotal`/
+    // `estimasiAktifTotal`, the raw full-value/"active today" figures.
+    estimasiRencana: { value: kesesuaianValueRencana, unit: kesesuaianJumlahRencana },
+    estimasiAktif: { value: kesesuaianAktifQBerjalan.value, unit: kesesuaianAktifQBerjalan.jumlah },
+    sales: { value: ringkasanSalesValueTotal, unit: ringkasanSalesQtyTotal },
+    // Pelunasan's "Value" IS the percentage (not Rupiah) — Unit here is the
+    // Rupiah nominal actually paid, same %+nominal pairing pelunasanRunningRate
+    // already uses per-outlet elsewhere on this page.
+    pelunasan: { value: ringkasanPelunasanPct, unit: ringkasanActualLunas },
+  };
+
+  // Produk Kontes variant (§4, 4 of 5 metrics, Pelunasan excluded) — scoped
+  // via getAllPakets(namaProduk), NOT OutletProductKriteria.kategori — that
+  // field's actual values in this codebase are "Low Hanging Fruit"/"Blue
+  // Ocean"/"Red Ocean" (verified against the now-removed "Per Produk
+  // Rekomendasi" tab, which classified by that same field — see
+  // docs/summary-ringkasan for the removal note), it has no "Produk Kontes"
+  // kategori row at all, so the spec's literal wording
+  // ("OutletProductKriteria.kategori = Produk Kontes") doesn't match what the
+  // running code actually does — reusing the real, working classification
+  // (getAllPakets) instead of the spec's inaccurate description of it.
+  const kontesLineItems = lineItems.filter((li) => getAllPakets(li.namaProduk).length > 0);
+  const kontesActivePssp = activePssp.filter((r) => r.nmProduk && getAllPakets(r.nmProduk).length > 0);
+  // Tercacah to Q-Berjalan (2026-08-06: "semua estimasi... dibuat tercacah
+  // sesuai filter quarter nya") — Rencana re-runs computeMonthlyBreakdown
+  // scoped to kontesLineItems (already Q-Berjalan-only, no new query); Aktif
+  // reuses kesesuaianAktifRows (the correctly per-quarter-scoped query §2
+  // already runs, NOT kontesActivePssp's "active today" estBaris sum),
+  // filtered down to Kontes products via the same getAllPakets predicate.
+  const kontesMonthlyBreakdown = computeMonthlyBreakdown(kontesLineItems);
+  const kontesEstimasiRencanaTercacah = ringkasanQMonths.reduce((s, m) => s + (kontesMonthlyBreakdown.get(m)?.estimasi ?? 0), 0);
+  const kontesAktifRows = kesesuaianAktifRows.filter((r) => r.nmProduk && getAllPakets(r.nmProduk).length > 0);
+  const kontesAktifQBerjalan = tercacahAktifForQuarter(kontesAktifRows, ringkasanQMonths);
+  // Sales-Kontes has no direct "isKontes" master lookup wired into this
+  // component (salesValueByProduk is keyed by itemKode/kodeProduk, with no
+  // product-name-based paket classification joined in) — approximated via
+  // the set of kodeProduk that appear as Produk Kontes in THIS quarter's own
+  // planned line items, not a static company-wide Produk Kontes product list.
+  // Working assumption, flagged rather than silently approximated.
+  const kontesKodeProdukSet = new Set(kontesLineItems.map((li) => li.kodeProduk));
+  let kontesSalesValueTotal = 0;
+  for (const [itemKode, val] of salesValueByProduk) {
+    if (kontesKodeProdukSet.has(itemKode)) kontesSalesValueTotal += val;
+  }
+  const value4GroupKontes = {
+    // Target has no per-product breakdown anywhere in this data model (it's
+    // a single company/GT-level Rupiah quota) — genuinely not computable, not
+    // just unimplemented. Left null rather than fabricating a proportional
+    // allocation the spec never asked for.
+    target: null as number | null,
+    estimasiRencana: { value: kontesEstimasiRencanaTercacah, unit: kontesLineItems.length },
+    estimasiAktif: { value: kontesAktifQBerjalan.value, unit: kontesAktifQBerjalan.jumlah },
+    sales: { value: kontesSalesValueTotal, unit: null as number | null },
+  };
+
+  // Per-produk-kontes breakdown (2026-08-05 follow-up: "by variasi juga per
+  // produk kontesnya" — confirmed via clarification to mean a breakdown per
+  // INDIVIDUAL kontes product, not one more aggregate number). Same in-memory
+  // regroup-by-kodeProduk pattern `getTerritoryKey`/`groups` already use
+  // elsewhere on this page for the "produk" tab — no new query, just
+  // regrouping `kontesLineItems`/`kontesActivePssp` (already filtered above)
+  // by product instead of summing them into one total.
+  // 2026-08-05 follow-up: card's bottom % changed from "Aktif tercapai dari
+  // Rencana" to "% Estimasi Tercacah dari Target" + "% Sales dari Target" —
+  // per-product Target confirmed by user as NOT YET in the data model
+  // ("nanti akan ada target per produk kontes"), so both ratios are wired up
+  // and ready but show "Tidak tersedia" until that field exists — not
+  // fabricated. Estimasi Tercacah per product IS computable now: same
+  // `computeMonthlyBreakdown` apportionment already used for the aggregate
+  // `rencanaMonthlyBreakdownQ` above, just scoped to each product's own
+  // line items instead of all of them combined (confirmed via clarifying
+  // question — "per produk individual").
+  const kontesByProduk = new Map<string, { namaProduk: string; rencana: number; aktif: number; items: typeof kontesLineItems }>();
+  for (const li of kontesLineItems) {
+    const row = kontesByProduk.get(li.kodeProduk) ?? { namaProduk: li.namaProduk, rencana: 0, aktif: 0, items: [] };
+    row.rencana += toNum(li.rencanaTotalBiaya);
+    row.items.push(li);
+    kontesByProduk.set(li.kodeProduk, row);
+  }
+  for (const r of kontesActivePssp) {
+    if (!r.kdProduk) continue;
+    const row = kontesByProduk.get(r.kdProduk) ?? { namaProduk: r.nmProduk ?? r.kdProduk, rencana: 0, aktif: 0, items: [] };
+    row.aktif += r.estBaris;
+    kontesByProduk.set(r.kdProduk, row);
+  }
+  // Sales per produk kontes (2026-08-05 follow-up: "mana salesnya" — card
+  // needs this labeled too, same source `salesValueByProduk` already used
+  // for the aggregate `kontesSalesValueTotal` above, keyed by itemKode which
+  // matches Product.kodeProduk directly (same join already relied on
+  // elsewhere on this page) — no new query, just also read per-product
+  // instead of only summing into one total.
+  const kontesProdukRows = [...kontesByProduk.entries()]
+    .map(([kodeProduk, row]) => {
+      const breakdown = computeMonthlyBreakdown(row.items);
+      const tercacah = ringkasanQMonths.reduce((s, m) => s + (breakdown.get(m)?.estimasi ?? 0), 0);
+      // ADMIN-only dummy Target (2026-08-05: "buat dummynya dulu... untuk
+      // testing saja") — deterministic per kodeProduk (not Math.random(),
+      // which would reshuffle every render and make it useless for actually
+      // checking the ratio UI) so the same product shows the same dummy
+      // number across refreshes. Delete this block once real per-product
+      // Target data exists — `target: null` for every other role already
+      // falls back to "Tidak tersedia" correctly.
+      let target: number | null = null;
+      if (isAdminTestView) {
+        let hash = 0;
+        for (let i = 0; i < kodeProduk.length; i++) hash = (hash * 31 + kodeProduk.charCodeAt(i)) >>> 0;
+        const multiplier = 0.7 + (hash % 700) / 1000; // 0.7 .. 1.4, stable per product
+        target = Math.round(row.rencana * multiplier) || null;
+      }
+      return { ...row, sales: salesValueByProduk.get(kodeProduk) ?? 0, tercacah, target };
+    })
+    .sort((a, b) => (b.rencana + b.aktif) - (a.rencana + a.aktif));
+
+  // ── §5 Breakdown historis — 5 kelompok × 13 metrik, 2 dimensi (Rencana /
+  // Aktif) only; Q-Sebelumnya/Realisasi deliberately deferred per spec.
+
+  // 5a. Manajemen Risiko
+  const lamaPeriodeRencanaRows = lineItems.filter((li) => li.lamaPeriode != null && li.lamaPeriode > 0);
+  const avgLamaPeriodeRencana = lamaPeriodeRencanaRows.length > 0
+    ? lamaPeriodeRencanaRows.reduce((s, li) => s + (li.lamaPeriode as number), 0) / lamaPeriodeRencanaRows.length
+    : null;
+  const avgLamaPeriodeAktif = contractRepMap.size > 0
+    ? [...contractRepMap.values()].reduce((s, r) => s + contractLengthMonths(r.prdAwal, r.prdAkhir), 0) / contractRepMap.size
+    : null;
+
+  // aktifMonthlyBreakdownQ used to be built from `activePssp` here — that's
+  // "active as of TODAY" (getActivePsspByOutlets), not genuinely tercacah for
+  // THIS quarter (2026-08-06 fix, same class of bug §2 already fixed
+  // 2026-08-05) — replaced by `kesesuaianAktifQBerjalan.value` everywhere
+  // below, the correctly per-quarter-scoped figure §2 already computes.
+
+  // 5b. Customer
+  // Breakdown User/KPDM — counted by LINE ITEM (pihakPssp is a per-product
+  // row field, "hanya switch label tampilan" per docs/form-poa/01-business-
+  // rules.md §3), same row-count convention §2's "By Jumlah" already uses,
+  // rather than by distinct customer (a customer could mix USER/KPDM across
+  // products). No PsspKontrak equivalent exists at all — Aktif dimension is
+  // genuinely unavailable, not just unimplemented.
+  const pihakBreakdownRencana = {
+    USER: lineItems.filter((li) => li.pihakPssp === "USER").length,
+    KPDM: lineItems.filter((li) => li.pihakPssp === "KPDM").length,
+  };
+  const custBaruRencana = new Map<string, string | null>(); // custIdentity -> labelCustomer
+  for (const li of lineItems) custBaruRencana.set(custIdentity(li), li.labelCustomer);
+  const jumlahBaruRencana = [...custBaruRencana.values()].filter((l) => !l || l === "Dokter Baru").length;
+  const jumlahRetensiRencana = custBaruRencana.size - jumlahBaruRencana;
+  // Aktif "Baru vs Retensi" proxy: a currently-active customer whose full
+  // history has exactly 1 contract (the one that's active now) is "Baru"
+  // (this is literally their first PSSP); ≥2 distinct contracts = "Retensi".
+  // No stored label equivalent to PoaLineItem.labelCustomer exists on
+  // PsspKontrak, so this is derived rather than reused — working assumption.
+  let jumlahBaruAktif = 0, jumlahRetensiAktif = 0;
+  for (const kdCust of activeCustCodesSet) {
+    const n = custContractsSorted.get(kdCust)?.length ?? 1;
+    if (n <= 1) jumlahBaruAktif++; else jumlahRetensiAktif++;
+  }
+
+  // Rata-Rata PSSP ke Berapa — Aktif = ordinal of the currently-active
+  // contract; Rencana = ordinal the Q-Berjalan planned one WOULD be
+  // (historical distinct contract count + 1).
+  const aktifOrdinals: number[] = [];
+  const activeCustContractSet = new Map<string, Set<string>>();
+  for (const r of activePssp) {
+    const s = activeCustContractSet.get(r.kdCust) ?? new Set<string>();
+    s.add(r.cUrut);
+    activeCustContractSet.set(r.kdCust, s);
+  }
+  for (const [kdCust, cUruts] of activeCustContractSet) {
+    const sorted = custContractsSorted.get(kdCust) ?? [];
+    let maxOrdinal = 0;
+    for (const cUrut of cUruts) {
+      const idx = sorted.indexOf(cUrut);
+      if (idx >= 0) maxOrdinal = Math.max(maxOrdinal, idx + 1);
+    }
+    if (maxOrdinal > 0) aktifOrdinals.push(maxOrdinal);
+  }
+  const avgPsspKeAktif = aktifOrdinals.length > 0 ? aktifOrdinals.reduce((s, v) => s + v, 0) / aktifOrdinals.length : null;
+
+  const rencanaCustCodes = [...new Set(lineItems.map((li) => li.kodeCust).filter(Boolean) as string[])];
+  const rencanaOrdinals = rencanaCustCodes.map((kc) => (custContractsSorted.get(kc)?.length ?? 0) + 1);
+  const avgPsspKeRencana = rencanaOrdinals.length > 0 ? rencanaOrdinals.reduce((s, v) => s + v, 0) / rencanaOrdinals.length : null;
+
+  // 5c. Produk — "Rata-Rata Variasi per Estimasi PSSP" shown as TWO separate
+  // rows (2026-08-06, "jadi ada rata-rata variasi produk kontes dan all
+  // produk, itu dipisah") — one for the full product catalog (all produk,
+  // original scope), one for Produk Kontes specifically (2026-08-06 earlier
+  // clarification: "itu kan rata-rata variasi produk kontes per estimasi
+  // PSSP"). Both computed with the same formula (distinct produk count per
+  // estimasi PSSP), just over a different item set — lineItems/activePssp
+  // for "All Produk", kontesLineItems/kontesActivePssp (defined above for
+  // §4) for "Produk Kontes".
+  function variasiFor(
+    liItems: typeof lineItems, aktifRows: typeof activePssp
+  ): { rencana: number | null; aktif: number | null } {
+    const byPoa = new Map<string, Set<string>>();
+    for (const li of liItems) {
+      const s = byPoa.get(li.poaId) ?? new Set<string>();
+      s.add(li.kodeProduk);
+      byPoa.set(li.poaId, s);
+    }
+    const rencana = byPoa.size > 0
+      ? [...byPoa.values()].reduce((s, set) => s + set.size, 0) / byPoa.size
+      : null;
+    const byContract = new Map<string, Set<string>>();
+    for (const r of aktifRows) {
+      const key = `${r.kdCust}|${r.cUrut}`;
+      const s = byContract.get(key) ?? new Set<string>();
+      s.add(r.kdProduk ?? r.nmProduk ?? "-");
+      byContract.set(key, s);
+    }
+    const aktif = byContract.size > 0
+      ? [...byContract.values()].reduce((s, set) => s + set.size, 0) / byContract.size
+      : null;
+    return { rencana, aktif };
+  }
+  const variasiAllProduk = variasiFor(lineItems, activePssp);
+  const variasiKontes = variasiFor(kontesLineItems, kontesActivePssp);
+  const avgVariasiRencana = variasiAllProduk.rencana;
+  const avgVariasiAktif = variasiAllProduk.aktif;
+  const avgVariasiKontesRencana = variasiKontes.rencana;
+  const avgVariasiKontesAktif = variasiKontes.aktif;
+  const avgBarisRencana = poaIds.length > 0 ? lineItems.length / poaIds.length : null;
+  const avgBarisAktif = contractRepMap.size > 0 ? activePssp.length / contractRepMap.size : null;
+
+  // 5d. Produktifitas — "per MR" here = per MR who actually submitted this
+  // quarter (ringkasanPersonilAktif, computed above) for Rencana, and per MR
+  // whose OUTLET currently carries ≥1 active PSSP contract for Aktif — this
+  // is deliberately distinct from the existing "Estimasi Per User" concept
+  // elsewhere on this page, which means per-CUSTOMER, not per-MR (flagged in
+  // spec business-rules §5d as something to confirm isn't the same thing —
+  // confirmed here it is not, by construction).
+  const mrNipsByOutlet = new Map<string, string[]>();
+  for (const row of mrOutletRows) {
+    const list = mrNipsByOutlet.get(row.kodePI) ?? [];
+    list.push(row.nipMR);
+    mrNipsByOutlet.set(row.kodePI, list);
+  }
+  const mrWithActivePssp = new Set<string>();
+  for (const r of activePssp) {
+    if (!r.kdOutlet) continue;
+    for (const nip of mrNipsByOutlet.get(r.kdOutlet) ?? []) mrWithActivePssp.add(nip);
+  }
+  // Tercacah to Q-Berjalan (2026-08-06 fix) — was `estimasiTotal`/
+  // `estimasiAktifTotal`.
+  const produktifitasRencana = ringkasanPersonilAktif > 0 ? rencanaMonthlyBreakdownQ / ringkasanPersonilAktif : null;
+  const produktifitasAktif = mrWithActivePssp.size > 0 ? kesesuaianAktifQBerjalan.value / mrWithActivePssp.size : null;
+
+  // 5e. Biaya — PSSP/DPL-DPF/DP/Listing Fee/Entertain. DPL and DPF cannot be
+  // split apart on the Rencana side either: PoaLineItem has exactly ONE
+  // combined `persenDiskon` field (schema.prisma), no separate dpl/dpf
+  // columns — so "DPL/DPF" stays one combined bucket, same as the existing
+  // "Discount + DPL + DPF" line this replaces, just now separated from DP
+  // (persenDp IS its own distinct field) and Listing Fee (persenListingFee).
+  // On the Aktif side, PsspKontrak has only a single lump `biaya`/`estBaris`
+  // per contract-product row — no equivalent %-based component split exists
+  // at all — so DPL/DPF, DP, and Entertain Aktif are genuinely not
+  // computable (null, not "0"), EXCEPT Listing Fee, which has its own real
+  // contract source (ListingFeeKontrak, already aggregated as
+  // listingFeeByOutlet above) and PSSP, which reuses the tercacah
+  // kesesuaianAktifQBerjalan.value (estBaris, apportioned to Q-Berjalan,
+  // 2026-08-06 fix — was the raw "active today" estimasiAktifTotal) as the
+  // closest analog to "Nilai PSSP" on the Aktif side, same assumption
+  // §4/§5b already make for that figure.
+  let dplDpfRencana = 0, dpRencana = 0, listingFeeRencanaCalc = 0;
+  for (const li of lineItems) {
+    const base = toNum(li.rencanaTotalBiaya);
+    dplDpfRencana += base * toNum(li.persenDiskon);
+    dpRencana += base * toNum(li.persenDp);
+    listingFeeRencanaCalc += base * toNum(li.persenListingFee);
+  }
+  const listingFeeAktifTotal = [...listingFeeByOutlet.values()].reduce((s, v) => s + v, 0);
+  const biayaBreakdown = {
+    pssp: { rencana: ringkasanPsspTotal, aktif: kesesuaianAktifQBerjalan.value },
+    dplDpf: { rencana: dplDpfRencana, aktif: null as number | null },
+    dp: { rencana: dpRencana, aktif: null as number | null },
+    listingFee: { rencana: listingFeeRencanaCalc, aktif: listingFeeAktifTotal },
+    entertain: { rencana: ringkasanEntertainTotal, aktif: null as number | null },
+  };
+
+  // Ratio Biaya (2026-08-06: "tetap tambahkan ratio biaya") — total biaya
+  // (semua 5 komponen di atas) dibagi Estimasi (tercacah), sama konsep dengan
+  // "Cost Ratio"/"% Budget" yang sudah ada per-baris di `TerritoryTable`
+  // (`biayaAktifPengajuan / estimasiAktifPengajuan`), diterapkan di level
+  // agregat Ringkasan. Aktif cuma menjumlah komponen yang genuinely
+  // computable (PSSP + Listing Fee) — DPL/DPF, DP, Entertain Aktif tidak
+  // tersedia (lihat komentar di atas), jadi ratio Aktif ini SEBAGIAN, bukan
+  // total biaya Aktif yang lengkap — sama keterbatasan yang sudah didokumentasikan
+  // untuk baris-baris itu.
+  const biayaRencanaTotal = ringkasanPsspTotal + dplDpfRencana + dpRencana + listingFeeRencanaCalc + ringkasanEntertainTotal;
+  const biayaAktifTotalPartial = biayaBreakdown.pssp.aktif + biayaBreakdown.listingFee.aktif;
+  const ratioBiayaRencana = kesesuaianValueRencana > 0 ? (biayaRencanaTotal / kesesuaianValueRencana) * 100 : null;
+  const ratioBiayaAktif = kesesuaianAktifQBerjalan.value > 0 ? (biayaAktifTotalPartial / kesesuaianAktifQBerjalan.value) * 100 : null;
 
   // Map groups → TerritoryTable shape (monitoringGroups removed with Ringkasan tab).
 
   return (
     <div className="space-y-5">
       {/* Counts line — was part of the static header in SummaryPage's shell;
-          moved here since it needs the heavy-fetched mrUsers/poas/lineItems. */}
+          moved here since it needs the heavy-fetched mrUsers/poas/lineItems.
+          Briefly lived inside the Kesesuaian POA card instead, moved back
+          here (2026-08-06 follow-up: that card was dropped down to just this
+          same line — "section kesesuaian POA itu isinya yang kayak [...]
+          aja" — so it no longer needs its own dedicated home). */}
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
         {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
-        {isDefaultBounded && (
+        {rawTab === "ringkasan" ? (
+          <span style={{ color: "var(--color-text-faint)" }}> · Q-Berjalan {ringkasanQuarter} (gunakan Filter Kuartal untuk ganti)</span>
+        ) : isDefaultBounded && (
           <span style={{ color: "var(--color-text-faint)" }}> · menampilkan {defaultPeriodFrom} – {quarterIni} (gunakan Filter Periode untuk lihat semua)</span>
         )}
       </p>
 
-      {/* Ringkasan (re-added 2026-08-04) — grand-total card, leftmost tab.
-          Same stat-tile pattern as DraftChecklist's "Ringkasan POA" panel,
-          just company/subtree-wide instead of per-POA. */}
+      {/* Ringkasan redesign (docs/summary-ringkasan, implemented 2026-08-05) —
+          §2-§5 below, all scoped to the single Q-Berjalan quarter selected via
+          RingkasanQuarterFilter (see effPeriodFrom/effPeriodTo above). Same
+          rounded-tile visual language as the grand-total card above, just
+          organized into its own Cards per section instead of extending the
+          one card further. */}
       {rawTab === "ringkasan" && (
-        <Card>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: "Total Estimasi", value: formatRp(estimasiTotal) },
-              { label: "Estimasi Aktif+Pengajuan", value: formatRp(estimasiAktifTotal + estimasiTotal) },
-              { label: "Target", value: targetTotal > 0 ? formatRp(targetTotal) : "-" },
-              { label: "Estimasi % Target", value: ringkasanRatioTarget != null ? `${ringkasanRatioTarget.toFixed(0)}%` : "-" },
-            ].map(({ label, value }) => (
-              <div key={label} className="rounded-lg p-3 space-y-0.5" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-                <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{label}</p>
-                <p className="text-base font-bold leading-tight" style={{ color: "var(--color-text)" }}>{value}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Rincian Total Estimasi (2026-08-04 request: "darimana aja") —
-              the tile above is a single number that can quietly span more
-              than one quarter (default window = quarterIni + quarterSebelumnya),
-              so this spells out which periods/levels it's actually made of. */}
-          {(estimasiByPeriodSorted.length > 0 || estimasiByLevelSorted.length > 0) && (
-            <div className="mt-3 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
-              {estimasiByPeriodSorted.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
-                    Total Estimasi per Periode
-                  </p>
-                  <div className="space-y-1.5">
-                    {estimasiByPeriodSorted.map(([period, value]) => {
-                      const tercacah = estimasiTercacahByPeriod.get(period) ?? 0;
-                      return (
-                        <div key={period} className="text-xs">
-                          <div className="flex justify-between">
-                            <span style={{ color: "var(--color-text-muted)" }}>{period}</span>
-                            <span style={{ color: "var(--color-text)" }}>
-                              {formatRp(value)}
-                              {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
-                            </span>
-                          </div>
-                          {tercacah > 0 && (
-                            <div className="flex justify-between" style={{ color: "var(--color-text-faint)" }}>
-                              <span>Tercacah</span>
-                              <span>{formatRp(tercacah)}</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+        <>
+          {/* §4 Kelompok metrik Value + Unit — dipindah ke paling atas
+              (2026-08-06 follow-up: "section 'Target / Estimasi / Sales /
+              Pelunasan' taro paling atas jadinya"), setelah §2 Kesesuaian POA
+              digabung ke sini (tabelnya dianggap redundan dengan tile-tile
+              ini — "kayaknya redundan deh" — cuma kolom Jumlah/Value PSSP
+              Aktif Q-Sebelumnya yang belum ada tile-nya, ditambahkan sebagai
+              tile baru di bawah). */}
+          <Card>
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+                Target / Estimasi / Sales / Pelunasan
+                <HeaderInfo text={`PSSP Aktif ${qLabel(ringkasanQuarter)}/${qLabel(ringkasanQSebelumnya)} = PSSP tercacah (apportioned) yang benar-benar berjalan pada bulan-bulan kuartal itu masing-masing (bukan "aktif sekarang saja") — dihitung dari kontrak PSSP mana pun yang irisan periodenya menyentuh kuartal tersebut, bukan dibatasi ke kontrak yang masih berjalan hari ini.`} />
+              </p>
+              <p className="text-xs text-right shrink-0" style={{ color: "var(--color-text-muted)" }}>
+                {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
+                <span style={{ color: "var(--color-text-faint)" }}> · Q-Berjalan {ringkasanQuarter} (gunakan Filter Kuartal untuk ganti)</span>
+              </p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { label: "Target", value: formatRp(value4Group.target.value), unit: "", accent: "var(--color-blue)" },
+                { label: "Estimasi PSSP Rencana", value: formatRp(value4Group.estimasiRencana.value), unit: `${value4Group.estimasiRencana.unit} baris`, accent: "var(--color-blue)" },
+                { label: "Estimasi PSSP Aktif", value: formatRp(value4Group.estimasiAktif.value), unit: `${value4Group.estimasiAktif.unit} kontrak`, accent: "var(--color-blue)" },
+                // Q-Sebelumnya Aktif — dulunya kolom terpisah di tabel §2
+                // Kesesuaian POA, dipindah ke sini sebagai tile ke-4
+                // (2026-08-06 follow-up).
+                { label: `Estimasi PSSP Aktif (${qLabel(ringkasanQSebelumnya)})`, value: formatRp(kesesuaianAktifQSebelumnya.value), unit: `${kesesuaianAktifQSebelumnya.jumlah} kontrak`, accent: "var(--color-blue)" },
+                { label: "Sales", value: formatRp(value4Group.sales.value), unit: `${value4Group.sales.unit.toLocaleString("id-ID")} unit`, accent: "var(--color-blue)" },
+                // Pelunasan: status color stays on the left accent bar (the
+                // "mark beside the text"), not on the number itself — same
+                // fix as RingkasanTargetGauge (marks-and-anatomy.md: "text
+                // never wears the data color"), and avoids the amber step's
+                // 2.57:1 contrast failing WCAG AA for text.
+                { label: "Pelunasan", value: value4Group.pelunasan.value != null ? `${value4Group.pelunasan.value.toFixed(0)}%` : "-", unit: formatRp(value4Group.pelunasan.unit), accent: pctColor(value4Group.pelunasan.value) },
+              ].map(({ label, value, unit, accent }) => (
+                <div key={label} className="rounded-lg p-3 space-y-0.5" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)", borderLeft: `3px solid ${accent}` }}>
+                  <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{label}</p>
+                  <p className="text-base font-bold leading-tight" style={{ color: "var(--color-text)" }}>{value}</p>
+                  <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>{unit}</p>
                 </div>
-              )}
-              {estimasiByLevelSorted.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
-                    Total Estimasi per Level
+              ))}
+            </div>
+
+            {/* Estimasi PSSP per Bulan — sama seperti panel "Ringkasan POA" di
+                draft POA (DraftChecklist.tsx, "Estimasi & Nilai PSSP per
+                Bulan"), dipakai lagi di sini di level agregat Ringkasan
+                (2026-08-06: "aku mau ada yang breakdown by bulan di ringkasan
+                summary juga kayak yang ada di ringkasan draft POA" — lalu
+                diklarifikasi taruh di bawah tile Target/Estimasi/Sales/
+                Pelunasan TAPI di atas Varian Produk Kontes, bukan jadi kartu
+                terpisah di luar §4). Cakupan bulan = window Q-Sebelumnya +
+                Q-Berjalan (kesesuaianWindowMonths, 6 bulan) — sama window
+                yang §2 sudah pakai untuk Aktif. Kedua kolom genuinely
+                tercacah (apportioned). */}
+            {kesesuaianWindowMonths.length > 0 && (
+              <div className="mt-4 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+                <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>
+                  Estimasi PSSP per Bulan
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+                        <th className="text-left py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Bulan</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-blue)" }}>PSSP Rencana</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-green)" }}>PSSP Aktif</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {kesesuaianWindowMonths.map((m) => {
+                        const rencanaVal = kesesuaianRencanaMonthlyValue(m);
+                        const aktifVal = kesesuaianAktifMonthlyMap.get(m) ?? 0;
+                        return (
+                          <tr key={m} style={{ borderTop: "1px solid var(--color-border)" }}>
+                            <td className="py-1.5 px-2" style={{ color: "var(--color-text-muted)" }}>{formatPeriode(m)}</td>
+                            <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{rencanaVal > 0 ? formatRp(rencanaVal) : "-"}</td>
+                            <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{aktifVal > 0 ? formatRp(aktifVal) : "-"}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr style={{ borderTop: "1px solid var(--color-border)", fontWeight: 600 }}>
+                        <td className="py-1.5 px-2" style={{ color: "var(--color-text)" }}>Total</td>
+                        <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(kesesuaianWindowMonths.reduce((s, m) => s + kesesuaianRencanaMonthlyValue(m), 0))}</td>
+                        <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(kesesuaianWindowMonths.reduce((s, m) => s + (kesesuaianAktifMonthlyMap.get(m) ?? 0), 0))}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Varian Produk Kontes — visual demotion (background lebih muted,
+                tanpa aksen kiri) supaya kebaca sebagai rincian dari section
+                di atas, bukan section yang setara pentingnya. */}
+            <p className="text-xs font-semibold uppercase tracking-wider mt-4 mb-2 pt-3" style={{ color: "var(--color-text-faint)", borderTop: "1px solid var(--color-border)" }}>
+              Varian Produk Kontes
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-lg p-3 space-y-0.5" style={{ background: "var(--color-bg)", border: "1px dashed var(--color-border)" }}>
+                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Target</p>
+                <p className="text-base font-bold leading-tight" style={{ color: "var(--color-text-faint)" }}>Tidak tersedia</p>
+                <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>Tidak ada breakdown target per produk</p>
+              </div>
+              {[
+                { label: "Estimasi PSSP Rencana", value: formatRp(value4GroupKontes.estimasiRencana.value), unit: `${value4GroupKontes.estimasiRencana.unit} baris` },
+                { label: "Estimasi PSSP Aktif", value: formatRp(value4GroupKontes.estimasiAktif.value), unit: `${value4GroupKontes.estimasiAktif.unit} kontrak` },
+                { label: "Sales", value: formatRp(value4GroupKontes.sales.value), unit: "-" },
+              ].map(({ label, value, unit }) => (
+                <div key={label} className="rounded-lg p-3 space-y-0.5" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                  <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{label}</p>
+                  <p className="text-sm font-semibold leading-tight" style={{ color: "var(--color-text)" }}>{value}</p>
+                  <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>{unit}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Breakdown per produk kontes individual (2026-08-05 follow-up)
+                — tile di atas ini tetap AGREGAT (total gabungan semua produk
+                kontes); di bawah ini tiap produk kontes dapat baris sendiri
+                (Estimasi Rencana vs Aktif), bukan cuma 1 angka gabungan. */}
+            {kontesProdukRows.length > 0 && (
+              <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+                <p className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>
+                  Per Produk Kontes ({kontesProdukRows.length})
+                </p>
+                {isAdminTestView && (
+                  <p className="text-[10px] mb-2 px-2 py-1 rounded" style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #92400e)" }}>
+                    ⚠ Target per produk memakai data dummy (khusus ADMIN, untuk testing tampilan) — belum ada data Target per produk kontes yang asli.
                   </p>
-                  <div className="space-y-1">
-                    {estimasiByLevelSorted.map(([level, value]) => (
-                      <div key={level} className="flex justify-between text-xs">
-                        <span style={{ color: "var(--color-text-muted)" }}>{level}</span>
-                        <span style={{ color: "var(--color-text)" }}>
-                          {formatRp(value)}
-                          {estimasiTotal > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {((value / estimasiTotal) * 100).toFixed(0)}%</span>}
-                        </span>
+                )}
+                {/* Table, not cards (2026-08-05 follow-up: "section produk
+                    kontes di ringkasan jadinya dibuat tabel aja jangan
+                    chart") — 27 rows scan faster as a table than as cards in
+                    a grid, same reasoning as TerritoryTable elsewhere on
+                    this page. */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
+                        <th className="text-left py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Produk</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Target</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi Tercacah</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi PSSP Rencana</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi PSSP Aktif</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Sales {ringkasanQuarter}</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>% Tercacah/Target</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>% Sales/Target</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {kontesProdukRows.map((r) => {
+                        const tercacahPct = r.target != null && r.target > 0 ? (r.tercacah / r.target) * 100 : null;
+                        const salesPct = r.target != null && r.target > 0 ? (r.sales / r.target) * 100 : null;
+                        return (
+                          <tr key={r.namaProduk} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                            <td className="py-1.5 px-2 truncate max-w-[220px]" style={{ color: "var(--color-text)" }} title={r.namaProduk}>{r.namaProduk}</td>
+                            <td className="text-right py-1.5 px-2" style={{ color: r.target != null ? "var(--color-text)" : "var(--color-text-faint)" }}>
+                              {r.target != null ? `${formatRp(r.target)} (dummy)` : "Tidak tersedia"}
+                            </td>
+                            <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(r.tercacah)}</td>
+                            <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(r.rencana)}</td>
+                            <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(r.aktif)}</td>
+                            <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(r.sales)}</td>
+                            <td className="text-right py-1.5 px-2" style={{ color: tercacahPct != null ? "var(--color-text)" : "var(--color-text-faint)" }}>
+                              {tercacahPct != null ? `${tercacahPct.toFixed(0)}%` : "-"}
+                            </td>
+                            <td className="text-right py-1.5 px-2" style={{ color: salesPct != null ? "var(--color-text)" : "var(--color-text-faint)" }}>
+                              {salesPct != null ? `${salesPct.toFixed(0)}%` : "-"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </Card>
+
+          {/* §3 Pencapaian Target — horizontal stacked bar per kuartal:
+              Target = 100%, PSSP Rencana dan PSSP Aktif masing-masing
+              kontribusi berapa persen ke Target, ditumpuk dalam satu bar
+              (2026-08-06 follow-up). */}
+          <Card>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Pencapaian Target</p>
+              <RingkasanCompareLegend />
+            </div>
+            <p className="text-xs mb-4" style={{ color: "var(--color-text-faint)" }}>
+              PSSP Rencana + PSSP Aktif, ditumpuk sebagai kontribusi terhadap Target (garis putus-putus = Target 100%).
+            </p>
+            {(targetBerjalanIsDummy || targetSebelumnyaIsDummy) && (
+              <p className="text-[10px] mb-3 px-2 py-1 rounded" style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #92400e)" }}>
+                ⚠ Target memakai data dummy (khusus ADMIN, untuk testing tampilan) — belum ada Target asli untuk kuartal ini.
+              </p>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                { label: `Q-Sebelumnya (${ringkasanQSebelumnya ?? "-"}) vs Target`, rencanaPct: rencanaPctSebelumnya, aktifPct: aktifPctSebelumnya, rencanaVal: rencanaSebelumnyaTotal, aktifVal: kesesuaianAktifQSebelumnya.value, target: targetSebelumnyaForCalc, isDummy: targetSebelumnyaIsDummy },
+                { label: `Q-Berjalan (${ringkasanQuarter}) vs Target`, rencanaPct: rencanaPctBerjalan, aktifPct: aktifPctBerjalan, rencanaVal: kesesuaianValueRencana, aktifVal: kesesuaianAktifQBerjalan.value, target: targetBerjalanForCalc, isDummy: targetBerjalanIsDummy },
+              ].map(({ label, rencanaPct, aktifPct, rencanaVal, aktifVal, target, isDummy }) => (
+                <div key={label} className="rounded-lg p-4" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+                  <p className="text-xs mb-2" style={{ color: "var(--color-text-muted)" }}>{label}</p>
+                  <RingkasanTargetStackedBar
+                    rencanaPct={rencanaPct}
+                    aktifPct={aktifPct}
+                    rencanaLabel={`${formatRp(rencanaVal)} (${rencanaPct != null ? `${rencanaPct.toFixed(0)}%` : "-"})`}
+                    aktifLabel={`${formatRp(aktifVal)} (${aktifPct != null ? `${aktifPct.toFixed(0)}%` : "-"})`}
+                  />
+                  <p className="text-[11px] mt-2" style={{ color: "var(--color-text-faint)" }}>
+                    Target {target > 0 ? `${formatRp(target)}${isDummy ? " (dummy)" : ""}` : "-"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* §5 Breakdown historis — 5 kelompok × 13 metrik, dimensi Rencana/Aktif
+              only (Q-Sebelumnya/Realisasi ditunda, docs/summary-ringkasan §5).
+              Baris dengan satu angka yang bisa dibandingkan langsung pakai
+              RingkasanBarPair compact (sama komponen dengan §2, dipakai ulang
+              di sini); baris komposit (Breakdown User/KPDM, Baru vs Retensi —
+              dua sub-nilai dalam satu dimensi) tetap teks berdampingan
+              sebagai dua chip, bukan bar chart (bukan perbandingan
+              satu-angka). */}
+          <Card>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Breakdown Historis</p>
+              <RingkasanCompareLegend />
+            </div>
+            <div className="space-y-6">
+              {([
+                {
+                  title: "Manajemen Risiko",
+                  rows: [
+                    { label: "Rata-rata Lama Periode", rencanaVal: avgLamaPeriodeRencana ?? 0, rencana: avgLamaPeriodeRencana != null ? `${avgLamaPeriodeRencana.toFixed(1)} bln` : "-", aktifVal: avgLamaPeriodeAktif ?? 0, aktif: avgLamaPeriodeAktif != null ? `${avgLamaPeriodeAktif.toFixed(1)} bln` : "-" },
+                    { label: `Breakdown Nilai Estimasi ${ringkasanQuarter}`, rencanaVal: rencanaMonthlyBreakdownQ, rencana: formatRp(rencanaMonthlyBreakdownQ), aktifVal: kesesuaianAktifQBerjalan.value, aktif: formatRp(kesesuaianAktifQBerjalan.value) },
+                  ],
+                },
+                {
+                  title: "Customer",
+                  rows: [
+                    { label: "Jumlah Customer", rencanaVal: ringkasanCustomerTotal, rencana: ringkasanCustomerTotal.toLocaleString("id-ID"), aktifVal: activeCustCodesSet.size, aktif: activeCustCodesSet.size.toLocaleString("id-ID") },
+                    {
+                      label: "Breakdown User / KPDM", composite: true,
+                      rencana: `User ${pihakBreakdownRencana.USER} · KPDM ${pihakBreakdownRencana.KPDM}`, aktif: "Tidak tersedia",
+                      splitRencana: [
+                        { subLabel: "User", value: pihakBreakdownRencana.USER, display: pihakBreakdownRencana.USER.toLocaleString("id-ID") },
+                        { subLabel: "KPDM", value: pihakBreakdownRencana.KPDM, display: pihakBreakdownRencana.KPDM.toLocaleString("id-ID") },
+                      ],
+                      // Aktif genuinely has no User/KPDM breakdown — PsspKontrak
+                      // has no pihakPssp-equivalent field at all (see
+                      // docs/summary-ringkasan/01-business-rules.md §5b) —
+                      // null (not two zero-value bars), matches aktifUnavailable
+                      // convention used elsewhere on this row's non-composite
+                      // siblings.
+                      splitAktif: null,
+                    },
+                    { label: "Rata-rata Nilai PSSP per Customer", rencanaVal: ringkasanCustomerTotal > 0 ? ringkasanPsspTotal / ringkasanCustomerTotal : 0, rencana: ringkasanCustomerTotal > 0 ? formatRp(ringkasanPsspTotal / ringkasanCustomerTotal) : "-", aktifVal: activeCustCodesSet.size > 0 ? kesesuaianAktifQBerjalan.value / activeCustCodesSet.size : 0, aktif: activeCustCodesSet.size > 0 ? formatRp(kesesuaianAktifQBerjalan.value / activeCustCodesSet.size) : "-" },
+                    { label: "Rata-rata Estimasi Bulanan per Customer", rencanaVal: ringkasanCustomerTotal > 0 ? rencanaMonthlyBreakdownQ / ringkasanCustomerTotal : 0, rencana: ringkasanCustomerTotal > 0 ? formatRp(rencanaMonthlyBreakdownQ / ringkasanCustomerTotal) : "-", aktifVal: activeCustCodesSet.size > 0 ? kesesuaianAktifQBerjalan.value / activeCustCodesSet.size : 0, aktif: activeCustCodesSet.size > 0 ? formatRp(kesesuaianAktifQBerjalan.value / activeCustCodesSet.size) : "-" },
+                    {
+                      label: "Jumlah Customer Baru vs Retensi", composite: true,
+                      rencana: `Baru ${jumlahBaruRencana} · Retensi ${jumlahRetensiRencana}`, aktif: `Baru ${jumlahBaruAktif} · Retensi ${jumlahRetensiAktif}`,
+                      splitRencana: [
+                        { subLabel: "Baru", value: jumlahBaruRencana, display: jumlahBaruRencana.toLocaleString("id-ID") },
+                        { subLabel: "Retensi", value: jumlahRetensiRencana, display: jumlahRetensiRencana.toLocaleString("id-ID") },
+                      ],
+                      splitAktif: [
+                        { subLabel: "Baru", value: jumlahBaruAktif, display: jumlahBaruAktif.toLocaleString("id-ID") },
+                        { subLabel: "Retensi", value: jumlahRetensiAktif, display: jumlahRetensiAktif.toLocaleString("id-ID") },
+                      ],
+                    },
+                    { label: "Rata-Rata PSSP ke Berapa", rencanaVal: avgPsspKeRencana ?? 0, rencana: avgPsspKeRencana != null ? `ke-${avgPsspKeRencana.toFixed(1)}` : "-", aktifVal: avgPsspKeAktif ?? 0, aktif: avgPsspKeAktif != null ? `ke-${avgPsspKeAktif.toFixed(1)}` : "-" },
+                  ],
+                },
+                {
+                  title: "Produk",
+                  rows: [
+                    { label: "Rata-Rata Variasi Produk per Estimasi PSSP", rencanaVal: avgVariasiRencana ?? 0, rencana: avgVariasiRencana != null ? avgVariasiRencana.toFixed(1) : "-", aktifVal: avgVariasiAktif ?? 0, aktif: avgVariasiAktif != null ? avgVariasiAktif.toFixed(1) : "-" },
+                    { label: "Rata-Rata Variasi Produk Kontes per Estimasi PSSP", rencanaVal: avgVariasiKontesRencana ?? 0, rencana: avgVariasiKontesRencana != null ? avgVariasiKontesRencana.toFixed(1) : "-", aktifVal: avgVariasiKontesAktif ?? 0, aktif: avgVariasiKontesAktif != null ? avgVariasiKontesAktif.toFixed(1) : "-" },
+                    { label: "Jumlah Baris per Estimasi PSSP", rencanaVal: avgBarisRencana ?? 0, rencana: avgBarisRencana != null ? avgBarisRencana.toFixed(1) : "-", aktifVal: avgBarisAktif ?? 0, aktif: avgBarisAktif != null ? avgBarisAktif.toFixed(1) : "-" },
+                  ],
+                },
+                {
+                  title: "Produktifitas",
+                  rows: [
+                    { label: "Estimasi PSSP per MR", rencanaVal: produktifitasRencana ?? 0, rencana: produktifitasRencana != null ? formatRp(produktifitasRencana) : "-", aktifVal: produktifitasAktif ?? 0, aktif: produktifitasAktif != null ? formatRp(produktifitasAktif) : "-" },
+                  ],
+                },
+                {
+                  title: "Biaya",
+                  rows: [
+                    { label: "Ratio Biaya", rencanaVal: ratioBiayaRencana ?? 0, rencana: ratioBiayaRencana != null ? `${ratioBiayaRencana.toFixed(0)}%` : "-", aktifVal: ratioBiayaAktif ?? 0, aktif: ratioBiayaAktif != null ? `${ratioBiayaAktif.toFixed(0)}%` : "-" },
+                    { label: "PSSP", rencanaVal: biayaBreakdown.pssp.rencana, rencana: formatRp(biayaBreakdown.pssp.rencana), aktifVal: biayaBreakdown.pssp.aktif, aktif: formatRp(biayaBreakdown.pssp.aktif) },
+                    { label: "DPL/DPF", rencanaVal: biayaBreakdown.dplDpf.rencana, rencana: formatRp(biayaBreakdown.dplDpf.rencana), aktifVal: 0, aktif: "Tidak tersedia", aktifUnavailable: true },
+                    { label: "DP", rencanaVal: biayaBreakdown.dp.rencana, rencana: formatRp(biayaBreakdown.dp.rencana), aktifVal: 0, aktif: "Tidak tersedia", aktifUnavailable: true },
+                    { label: "Listing Fee", rencanaVal: biayaBreakdown.listingFee.rencana, rencana: formatRp(biayaBreakdown.listingFee.rencana), aktifVal: biayaBreakdown.listingFee.aktif, aktif: formatRp(biayaBreakdown.listingFee.aktif) },
+                    { label: "Entertain", rencanaVal: biayaBreakdown.entertain.rencana, rencana: formatRp(biayaBreakdown.entertain.rencana), aktifVal: 0, aktif: "Tidak tersedia", aktifUnavailable: true },
+                  ],
+                },
+              ] as { title: string; rows: BreakdownRow[] }[]).map(({ title, rows }) => (
+                <div key={title}>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: "var(--color-text-faint)" }}>{title}</p>
+                  {/* Grid, not a single-column stack — 5 groups × up to 6
+                      rows each as full-width single-column rows made this
+                      section scroll very long (2026-08-05 feedback). Rows
+                      sit side by side up to 3 per row instead. */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {rows.map((r) => (
+                      <div key={r.label} className="rounded-md px-3 py-2.5" style={{ background: "var(--color-bg-subtle)" }}>
+                        {/* Fixed 2-line height (not just mb-1.5) so labels of
+                            different lengths ("PSSP" vs "Rata-rata Estimasi
+                            Bulanan per Customer") don't push charts in the
+                            same grid row to different vertical positions
+                            (2026-08-05 feedback: "dibuat lebih align"). */}
+                        <p className="text-xs mb-1.5 line-clamp-2" style={{ color: "var(--color-text-muted)", minHeight: "2.4em" }}>{r.label}</p>
+                        {r.composite ? (
+                          <RingkasanSplitBarPair
+                            rencanaParts={r.splitRencana ?? []}
+                            aktifParts={r.splitAktif ?? null}
+                          />
+                        ) : (
+                          <RingkasanBarPair
+                            rencanaVal={r.rencanaVal ?? 0}
+                            rencanaLabel={r.rencana}
+                            aktifVal={r.aktifVal ?? 0}
+                            aktifLabel={r.aktif}
+                            aktifUnavailable={r.aktifUnavailable ?? false}
+                            compact
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
-              )}
+              ))}
             </div>
-          )}
-
-          {/* Estimasi per Produk — own section (2026-08-05 request: "bukan
-              tabel tapi ringkasan juga kayak analytics nya"), a ranked
-              horizontal-bar read instead of the label/level plain-text lists
-              above. Single series (one product = one bar, all same hue) —
-              value is what's being compared, not identity, so no per-bar
-              color coding (would be a value-ramp-on-nominal-categories
-              anti-pattern per the dataviz skill). */}
-          {estimasiByProductSorted.length > 0 && (
-            <div className="mt-4 pt-4" style={{ borderTop: "1px solid var(--color-border)" }}>
-              <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--color-text-faint)" }}>
-                Estimasi per Produk {estimasiByProduct.size > TOP_PRODUK_COUNT && `(Top ${TOP_PRODUK_COUNT})`}
-              </p>
-              <RingkasanProdukChart items={estimasiByProductSorted.map(([kodeProduk, { name, value }]) => ({ kodeProduk, name, value }))} />
-            </div>
-          )}
-
-          <div className="mt-4 pt-4" style={{ borderTop: "1px solid var(--color-border)" }}>
-            <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--color-text-faint)" }}>
-              Estimasi vs Realisasi
-            </p>
-            <RingkasanBarChart
-              groups={[
-                {
-                  periodLabel: quarterSebelumnya ?? "-",
-                  bars: [
-                    { key: "realisasi", value: ringkasanRealisasiSebelumnya, color: RINGKASAN_CHART_COLORS[1] },
-                  ],
-                },
-                {
-                  periodLabel: quarterIni,
-                  bars: [
-                    { key: "tercacah", value: ringkasanEstimasiTercacah, color: RINGKASAN_CHART_COLORS[2] },
-                  ],
-                },
-              ]}
-              legend={[
-                { key: "realisasi", label: "Realisasi", color: RINGKASAN_CHART_COLORS[1] },
-                { key: "tercacah", label: "Estimasi Tercacah", color: RINGKASAN_CHART_COLORS[2] },
-              ]}
-            />
-          </div>
-
-          <div className="mt-3 pt-3 space-y-2.5" style={{ borderTop: "1px solid var(--color-border)" }}>
-            {[
-              { label: "PSSP", value: ringkasanPsspTotal },
-              { label: "Discount + DPL + DPF", value: ringkasanDiscountTotal },
-              { label: "Entertain", value: ringkasanEntertainTotal },
-            ].map(({ label, value }) => {
-              const pct = estimasiTotal > 0 ? (value / estimasiTotal) * 100 : 0;
-              return (
-                <div key={label} className="flex justify-between text-xs">
-                  <span style={{ color: "var(--color-text-muted)" }}>{label}</span>
-                  <span style={{ color: "var(--color-text)" }}>
-                    {value > 0 ? formatRp(value) : "-"}
-                    {pct > 0 && <span style={{ color: "var(--color-text-faint)" }}> · {pct.toFixed(1)}%</span>}
-                  </span>
-                </div>
-              );
-            })}
-            <div className="flex justify-between pt-2 text-sm font-semibold" style={{ borderTop: "1px solid var(--color-border)", color: "var(--color-text)" }}>
-              <span>Total Budget</span>
-              <span>
-                {formatRp(ringkasanBudgetTotal)}
-                {estimasiTotal > 0 && (
-                  <span className="font-normal text-xs" style={{ color: "var(--color-text-faint)" }}> · {((ringkasanBudgetTotal / estimasiTotal) * 100).toFixed(1)}%</span>
-                )}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-3 pt-3 grid grid-cols-2 sm:grid-cols-4 gap-3" style={{ borderTop: "1px solid var(--color-border)" }}>
-            <div>
-              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Growth vs Quarter Sebelumnya</p>
-              <p className="text-sm font-semibold" style={{ color: ringkasanGrowthPct == null ? "var(--color-text-faint)" : ringkasanGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
-                {ringkasanGrowthPct != null ? `${ringkasanGrowthPct >= 0 ? "+" : ""}${ringkasanGrowthPct.toFixed(1)}%` : "-"}
-              </p>
-              {(ringkasanEstimasiQuarterIni > 0 || ringkasanRealisasiSebelumnya > 0) && (
-                <p className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>
-                  Estimasi {quarterIni} {formatRp(ringkasanEstimasiQuarterIni)} · Realisasi {quarterSebelumnya ?? "-"} {formatRp(ringkasanRealisasiSebelumnya)}
-                </p>
-              )}
-            </div>
-            <div>
-              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Customer</p>
-              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{ringkasanCustomerTotal}</p>
-            </div>
-            <div>
-              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Personil Sudah Submit</p>
-              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{ringkasanPersonilAktif} dari {mrUsers.length}</p>
-            </div>
-            <div>
-              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Pengajuan</p>
-              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{lineItems.length} baris · {poas.length} POA</p>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* Per Produk Rekomendasi (reworked 2026-07-31) — flat kategori sections
-          instead of one card per paket, each a full per-product table (same
-          columns as "Per Produk" below) filtered to that kategori. */}
-      {rawTab === "produk-rekomendasi" && (
-        <div className="space-y-6">
-          {[
-            { title: "Produk Fokus", rows: produkFokusGroups },
-            { title: "Produk Low Hanging Fruit", rows: lowHangingFruitGroups },
-            { title: "Produk Blue Ocean", rows: blueOceanGroups },
-            { title: "Produk Red Ocean", rows: redOceanGroups },
-            { title: "Produk Standarisasi", rows: standarisasiGroups },
-          ].map(({ title, rows }) => (
-            <div key={title}>
-              <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-text)" }}>
-                {title} <span style={{ color: "var(--color-text-faint)", fontWeight: 400 }}>({rows.length})</span>
-              </p>
-              <TerritoryTable groups={rows} codeLabel="Produk" variant="produk"
-                quarterIni={quarterIni} quarterSebelumnya={quarterSebelumnya} />
-            </div>
-          ))}
-        </div>
+          </Card>
+        </>
       )}
 
       {(rawTab === "outlet" || rawTab === "customer" || rawTab === "spesialisasi" || rawTab === "produk" || rawTab === "mr") && (

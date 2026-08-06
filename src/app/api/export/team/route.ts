@@ -372,7 +372,7 @@ export async function GET(req: NextRequest) {
     period: string | null; status: string;
     estimasi: number; psspTotal: number; discountTotal: number; entertainTotal: number; budgetTotal: number;
     budgetPct: number;
-    customerCount: number; variasiProdukFokus: number; totalPengajuan: number;
+    customerCount: number; variasiProdukKontes: number; totalPengajuan: number;
     sudahStandar: number; prosesStandar: number; belumStandar: number;
     items: typeof lineItems;
   }
@@ -382,7 +382,7 @@ export async function GET(req: NextRequest) {
     const anc   = getAncestors(mr.nipAtasan, mr.nip);
 
     let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
-    const fokusProduk = new Set<string>();
+    const kontesProduk = new Set<string>();
     let sudah = 0, proses = 0;
 
     for (const it of items) {
@@ -395,7 +395,7 @@ export async function GET(req: NextRequest) {
       psspTotal     += base * psspp;
       discountTotal += base * disc;
       entertainTotal += base * ent;
-      if (getAllPakets(it.namaProduk).length > 0) fokusProduk.add(it.kodeProduk);
+      if (getAllPakets(it.namaProduk).length > 0) kontesProduk.add(it.kodeProduk);
       if (it.statusStandarisasi === "SUDAH_STANDARISASI") sudah++;
       if (it.statusStandarisasi === "PROSES_PENGAJUAN") proses++;
     }
@@ -410,7 +410,7 @@ export async function GET(req: NextRequest) {
       estimasi, psspTotal, discountTotal, entertainTotal, budgetTotal,
       budgetPct: estimasi > 0 ? (budgetTotal / estimasi) * 100 : 0,
       customerCount: new Set(items.map(i => i.namaCust)).size,
-      variasiProdukFokus: fokusProduk.size,
+      variasiProdukKontes: kontesProduk.size,
       totalPengajuan: items.length,
       sudahStandar: sudah, prosesStandar: proses, belumStandar: items.length - sudah,
       items,
@@ -463,7 +463,7 @@ export async function GET(req: NextRequest) {
   const totalEnt     = mrRows.reduce((s, r) => s + r.entertainTotal, 0);
   const totalBudget  = mrRows.reduce((s, r) => s + r.budgetTotal, 0);
   const totalCust    = new Set(lineItems.map(li => li.namaCust)).size;
-  const totalFokus   = new Set(lineItems.filter(li => getAllPakets(li.namaProduk).length > 0).map(li => li.kodeProduk)).size;
+  const totalKontes  = new Set(lineItems.filter(li => getAllPakets(li.namaProduk).length > 0).map(li => li.kodeProduk)).size;
   const totalPengaj  = lineItems.length;
   const totalSudah   = mrRows.reduce((s, r) => s + r.sudahStandar, 0);
   const totalProses  = mrRows.reduce((s, r) => s + r.prosesStandar, 0);
@@ -517,7 +517,7 @@ export async function GET(req: NextRequest) {
 
   addDivider("Cakupan");
   addKv("Total Customer (unik)",     totalCust);
-  addKv("Variasi Produk Fokus (unik)", totalFokus);
+  addKv("Variasi Produk Kontes (unik)", totalKontes);
   addKv("Total Baris Pengajuan",    totalPengaj);
 
   addDivider("Listing Produk");
@@ -546,7 +546,7 @@ export async function GET(req: NextRequest) {
     { header: "Total Budget",     key: "budget",         width: 18 },
     { header: "% Budget",         key: "budgetPct",      width: 12 },
     { header: "Customer",         key: "customer",       width: 12 },
-    { header: "Produk Fokus",     key: "fokus",          width: 14 },
+    { header: "Produk Kontes",    key: "kontes",         width: 14 },
     { header: "Total Pengajuan",  key: "pengajuan",      width: 16 },
     { header: "Sudah Listing",    key: "sudah",          width: 14 },
     { header: "Proses",           key: "proses",         width: 12 },
@@ -564,7 +564,7 @@ export async function GET(req: NextRequest) {
       estimasi: Math.round(r.estimasi),
       pssp: Math.round(r.psspTotal), discount: Math.round(r.discountTotal), entertain: Math.round(r.entertainTotal),
       budget: Math.round(r.budgetTotal), budgetPct: parseFloat(r.budgetPct.toFixed(1)),
-      customer: r.customerCount, fokus: r.variasiProdukFokus, pengajuan: r.totalPengajuan,
+      customer: r.customerCount, kontes: r.variasiProdukKontes, pengajuan: r.totalPengajuan,
       sudah: r.sudahStandar, proses: r.prosesStandar, belum: r.belumStandar,
     });
   }
@@ -661,7 +661,7 @@ export async function GET(req: NextRequest) {
     { header: "Nama Produk Kompetitor Utama", key: "produkKompetitor", width: 22 },
     { header: "Item Kode - Nama Produk ", key: "produk",       width: 32 },
     { header: "Kriteria Produk",      key: "kriteriaProduk",   width: 18 },
-    { header: "Kategori/ Status Produk Fokus", key: "statusFokus", width: 16 },
+    { header: "Kategori/ Status Produk Kontes", key: "statusKontes", width: 16 },
     { header: "% Pelunasan Sebelumnya", key: "pelunasanSebelumnya", width: 16 },
     { header: "Estimasi PS/SP Sebelumnya", key: "estimasiSebelumnya", width: 18 },
     { header: "History Sales \n(B-12)", key: "historySales",  width: 16 },
@@ -841,7 +841,7 @@ export async function GET(req: NextRequest) {
       produkKompetitor: li.produkKompetitor ?? "-",
       produk: `${li.itemKode} - ${li.namaProduk}`,
       kriteriaProduk: li.kriteriaProduk ?? "-",
-      statusFokus: getAllPakets(li.namaProduk).length > 0 ? "Y" : "N",
+      statusKontes: getAllPakets(li.namaProduk).length > 0 ? "Y" : "N",
       pelunasanSebelumnya: pelunasanPct,
       estimasiSebelumnya,
       historySales: li.historySales3Bln != null ? parseFloat(li.historySales3Bln.toString()) : null,
@@ -1003,7 +1003,7 @@ export async function GET(req: NextRequest) {
   // Same metrics as the /summary "Per Outlet" tab (src/app/(app)/summary/page.tsx,
   // #47 2026-07-27) — reused here scoped to THIS export's team instead of
   // globally: Estimasi Aktif+Pengajuan, Jumlah User PSSP (Aktif+Estimasi),
-  // Variasi Produk (Fokus/Non-Fokus), Budget, Cost Ratio, Sales Aktif (2026),
+  // Variasi Produk (Kontes/Non-Kontes), Budget, Cost Ratio, Sales Aktif (2026),
   // Estimasi Per User, Listing Fee. Uses lineItems/activePsspAll/assignedOutlets
   // already fetched above for the other sheets — no new per-line-item queries,
   // just two new groupBy calls (Listing Fee, Sales Value) scoped to
@@ -1052,7 +1052,7 @@ export async function GET(req: NextRequest) {
   interface OutletSummaryRow {
     kodePI: string; namaOutlet: string;
     estimasi: number; estimasiAktif: number; userCount: number;
-    variasiProduk: number; variasiProdukFokus: number;
+    variasiProduk: number; variasiProdukKontes: number;
     budgetTotal: number; biayaAktif: number; salesAktif: number; listingFeeTotal: number;
   }
   const outletSummaryRows: OutletSummaryRow[] = [...outletGroups.entries()].map(([kodePI, { namaOutlet, items }]) => {
@@ -1092,7 +1092,7 @@ export async function GET(req: NextRequest) {
       kodePI, namaOutlet,
       estimasi, estimasiAktif, userCount,
       variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
-      variasiProdukFokus: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
+      variasiProdukKontes: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
       budgetTotal: psspTotal + discountTotal + entertainTotal,
       biayaAktif,
       salesAktif: kodePI !== "—" ? (salesValueByOutlet.get(kodePI) ?? 0) : 0,
@@ -1106,8 +1106,8 @@ export async function GET(req: NextRequest) {
     { header: "Nama Outlet",                  key: "namaOutlet",            width: 28 },
     { header: "Estimasi Aktif+Pengajuan",     key: "estimasiAktifPengajuan", width: 22 },
     { header: "User PSSP (Aktif+Estimasi)",   key: "userCount",             width: 20 },
-    { header: "Variasi Produk Fokus",         key: "variasiProdukFokus",    width: 16 },
-    { header: "Variasi Produk Non-Fokus",     key: "variasiProdukNonFokus", width: 18 },
+    { header: "Variasi Produk Kontes",        key: "variasiProdukKontes",    width: 16 },
+    { header: "Variasi Produk Non-Kontes",    key: "variasiProdukNonKontes", width: 18 },
     { header: "Budget",                       key: "budget",                width: 18 },
     { header: "Cost Ratio",                   key: "costRatio",             width: 12 },
     { header: "Sales Aktif (2026)",           key: "salesAktif",            width: 18 },
@@ -1124,8 +1124,8 @@ export async function GET(req: NextRequest) {
       kodePI: r.kodePI, namaOutlet: r.namaOutlet,
       estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
       userCount: r.userCount,
-      variasiProdukFokus: r.variasiProdukFokus,
-      variasiProdukNonFokus: r.variasiProduk - r.variasiProdukFokus,
+      variasiProdukKontes: r.variasiProdukKontes,
+      variasiProdukNonKontes: r.variasiProduk - r.variasiProdukKontes,
       budget: Math.round(r.budgetTotal),
       costRatio: parseFloat(costRatio.toFixed(1)),
       salesAktif: Math.round(r.salesAktif),

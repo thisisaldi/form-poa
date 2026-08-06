@@ -15,7 +15,7 @@ export interface MonitoringGroup {
   pic: string;
   estimasi: number;
   variasiProduk: number;
-  variasiProdukFokus: number;
+  variasiProdukKontes: number;
   produkPssp: number;
   customer: number;
   pengajuan: number;
@@ -71,7 +71,7 @@ export interface MonitoringGroup {
 /** Global unique counts — computed from all lineItems server-side to avoid double-counting */
 export interface MonitoringTotals {
   customer: number;
-  variasiProdukFokus: number;
+  variasiProdukKontes: number;
   produkPssp: number;
   sudahStandar: number;
   prosesStandar: number;
@@ -242,7 +242,7 @@ export function MonitoringChecklist({
 
   // Unique counts — use server-computed totals to avoid cross-group double-counting
   const customer         = totals?.customer         ?? groups.reduce((s, g) => s + g.customer, 0);
-  const variasiProdukFok = totals?.variasiProdukFokus ?? groups.reduce((s, g) => s + g.variasiProdukFokus, 0);
+  const variasiProdukKontes = totals?.variasiProdukKontes ?? groups.reduce((s, g) => s + g.variasiProdukKontes, 0);
   const produkPssp       = totals?.produkPssp       ?? groups.reduce((s, g) => s + g.produkPssp, 0);
   const terstandar       = totals?.sudahStandar      ?? groups.reduce((s, g) => s + g.terstandarisasi, 0);
   const proses           = totals?.prosesStandar     ?? groups.reduce((s, g) => s + g.prosesStandar, 0);
@@ -308,7 +308,7 @@ export function MonitoringChecklist({
 
       {/* ── KPI tiles — Variasi Produk + Cakupan, same figures as before ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Meter label="Produk Fokus" value={variasiProdukFok} target={22} unitLabel="variasi" />
+        <Meter label="Produk Kontes" value={variasiProdukKontes} target={22} unitLabel="variasi" />
         <StatTile label="Produk PSSP" value={String(produkPssp)} sub="variasi ada PSSP" />
         <Meter label="Customer per MR" value={customer} target={30} unitLabel="customer" />
         <StatTile label="Total Pengajuan" value={String(pengajuan)} sub="produk × customer" />

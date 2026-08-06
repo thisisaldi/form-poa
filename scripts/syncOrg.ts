@@ -1,9 +1,9 @@
 /**
  * Standalone sync script — run via: npx tsx scripts/syncOrg.ts
  *
- * Syncs org structure (users + hierarchy) then outlet master data + MR assignments.
- * Reads env vars from .env file via dotenv.
- * Run order matters: outlet sync needs users to already exist.
+ * Syncs org structure (users + hierarchy, MSSQL) then outlet master data + MR assignments
+ * (Nexus API, see docs/outlet-nexus-migration/). Reads env vars from .env file via dotenv.
+ * Run order matters: outlet sync reads the NIP list from `User`, so org sync must run first.
  */
 
 import "dotenv/config";
@@ -26,10 +26,13 @@ async function main() {
     console.warn(`  ⚠ Errors (${orgResult.errors.length}):`, orgResult.errors.slice(0, 5));
   }
 
-  // Step 2: outlets + MR assignments (requires users to exist)
-  console.log("\n[2/2] Syncing outlets + MR assignments...");
-  const outletResult = await runOutletSync(connectionString);
-  console.log(`  ✓ Outlets upserted: ${outletResult.outletsUpserted}, assignments: ${outletResult.assignmentsReplaced}`);
+  // Step 2: outlets + MR assignments, from Nexus API (requires users to exist)
+  console.log("\n[2/2] Syncing outlets + MR assignments from Nexus...");
+  const outletResult = await runOutletSync();
+  console.log(
+    `  ✓ NIPs iterated: ${outletResult.nipsIterated} (${outletResult.nipsFailed} failed), ` +
+      `outlets upserted: ${outletResult.outletsUpserted}, assignments: ${outletResult.assignmentsReplaced}`
+  );
   if (outletResult.errors.length > 0) {
     console.warn(`  ⚠ Errors (${outletResult.errors.length}):`, outletResult.errors.slice(0, 5));
   }

@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import {
-  getFocusProductsWithRampAction,
+  getKontesProductsWithRampAction,
   setTambahanTargetBulkAction,
-  getFocusProductsSummaryAction,
+  getKontesProductsSummaryAction,
   applyQuarterlyTargetsAction,
 } from "@/app/actions/targetCalculation";
-import type { QuarterlyFocusSummary } from "@/lib/targetCalculation";
+import type { QuarterlyKontesSummary } from "@/lib/targetCalculation";
 
 function formatRp(n: number) {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
@@ -23,7 +23,7 @@ export function TargetProdukForm() {
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [quarterNum, setQuarterNum] = useState("3");
   const [products, setProducts] = useState<{ kodeProduk: string; namaProduk: string; monthlyRamp: string }[] | null>(null);
-  const [summary, setSummary] = useState<QuarterlyFocusSummary | null>(null);
+  const [summary, setSummary] = useState<QuarterlyKontesSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -35,10 +35,10 @@ export function TargetProdukForm() {
     setError(null); setMsg(null); setSummary(null);
     setIsPending(true);
     try {
-      const rows = await getFocusProductsWithRampAction(quarter);
+      const rows = await getKontesProductsWithRampAction(quarter);
       setProducts(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memuat produk fokus.");
+      setError(err instanceof Error ? err.message : "Gagal memuat produk kontes.");
     } finally {
       setIsPending(false);
     }
@@ -59,7 +59,7 @@ export function TargetProdukForm() {
       const saveRes = await setTambahanTargetBulkAction(quarter, entries);
       if (!saveRes.ok) { setError(saveRes.error ?? "Gagal menyimpan."); return; }
 
-      const calc = await getFocusProductsSummaryAction(quarter);
+      const calc = await getKontesProductsSummaryAction(quarter);
       if (!calc.ok || !calc.result) { setError(calc.error ?? "Gagal menghitung."); return; }
       setSummary(calc.result);
     } finally {
@@ -97,7 +97,7 @@ export function TargetProdukForm() {
           </div>
         </div>
         <Button type="button" size="sm" variant="secondary" onClick={loadProducts} disabled={isPending}>
-          {isPending && !products ? "Memuat…" : "Muat Produk Fokus"}
+          {isPending && !products ? "Memuat…" : "Muat Produk Kontes"}
         </Button>
       </div>
 
@@ -108,7 +108,7 @@ export function TargetProdukForm() {
       {products && (
         <div className="space-y-3">
           <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-            {products.length} produk fokus. Isi &ldquo;Tambahan Target&rdquo; (kenaikan qty per bulan) untuk tiap produk, lalu hitung.
+            {products.length} produk kontes. Isi &ldquo;Tambahan Target&rdquo; (kenaikan qty per bulan) untuk tiap produk, lalu hitung.
           </p>
           <div className="overflow-x-auto max-h-96 overflow-y-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
             <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>

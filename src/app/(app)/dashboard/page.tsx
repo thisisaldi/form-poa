@@ -14,10 +14,11 @@ import { displayRole } from "@/lib/role";
 
 export const metadata = { title: "Dashboard · Form POA" };
 
-function buildPageHref(page: number, size: string) {
+function buildPageHref(page: number, size: string, q?: string) {
   const sp = new URLSearchParams();
   sp.set("page", String(page));
   sp.set("size", size);
+  if (q) sp.set("q", q);
   return `/dashboard?${sp.toString()}`;
 }
 
@@ -96,7 +97,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           refactor made for its counts line. key= forces a fresh Suspense
           fallback on page/size change instead of showing stale content while
           the new page loads. */}
-      <Suspense key={`${params.page ?? ""}|${params.size ?? ""}`} fallback={<DashboardSkeleton />}>
+      <Suspense key={`${params.page ?? ""}|${params.size ?? ""}|${params.q ?? ""}`} fallback={<DashboardSkeleton />}>
         <DashboardContent session={session} actor={actor} isMR={isMR} params={params} />
       </Suspense>
     </div>
@@ -123,13 +124,22 @@ async function DashboardContent({
   const pageSize = pageSizeParam === "all" ? null : (Number(pageSizeParam) || 25);
   const requestedPage = Math.max(1, Number(params.page) || 1);
 
-  const totalPoaCount = await prisma.poaForm.count({ where: visibleFilter });
+  // "Cari POA siapa" — atasan search by owner name/NIP, layered as an extra AND
+  // on top of getVisiblePoaFilter so the existing role-scoping is untouched
+  // (2026-08-06). MR-only view has no use for this (they only ever see their
+  // own POA), so the input is hidden for isMR — see render below.
+  const q = params.q?.trim();
+  const where = q
+    ? { AND: [visibleFilter, { owner: { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { nip: { contains: q, mode: "insensitive" as const } }] } }] }
+    : visibleFilter;
+
+  const totalPoaCount = await prisma.poaForm.count({ where });
   const totalPages = pageSize ? Math.max(1, Math.ceil(totalPoaCount / pageSize)) : 1;
   const page = Math.min(requestedPage, totalPages);
 
   const [recentRaw, pendingCount] = await Promise.all([
     prisma.poaForm.findMany({
-      where: visibleFilter,
+      where,
       include: {
         owner: true,
         items: {
@@ -423,8 +433,35 @@ async function DashboardContent({
         <CardHeader>
           <CardTitle>{isMR ? "POA Saya" : "Semua POA"}</CardTitle>
         </CardHeader>
+
+        {!isMR && (
+          <form method="GET" className="mb-4 flex items-center gap-2">
+            <input type="hidden" name="size" value={pageSizeParam} />
+            <input
+              type="search"
+              name="q"
+              defaultValue={q ?? ""}
+              placeholder="Cari nama atau NIP MR..."
+              className="w-full max-w-xs rounded-md px-3 py-1.5 text-sm"
+              style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)", color: "var(--color-text)" }}
+            />
+            <Button type="submit" size="sm" variant="secondary">Cari</Button>
+            {q && (
+              <Link href={buildPageHref(1, pageSizeParam)} className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                Reset
+              </Link>
+            )}
+          </form>
+        )}
+
         {recentPoas.length === 0 ? (
-          <EmptyState eligible={eligible} role={displayRole(session.role, session.jabatan)} />
+          q ? (
+            <p className="py-10 text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
+              Tidak ada POA untuk pencarian &quot;{q}&quot;.
+            </p>
+          ) : (
+            <EmptyState eligible={eligible} role={displayRole(session.role, session.jabatan)} />
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -506,7 +543,7 @@ async function DashboardContent({
               <div className="flex items-center gap-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
                 <span>Tampilkan:</span>
                 {(["25", "50", "100", "all"] as const).map((s) => (
-                  <Link key={s} href={buildPageHref(1, s)}
+                  <Link key={s} href={buildPageHref(1, s, q)}
                     className="rounded px-1.5 py-0.5"
                     style={{
                       background: pageSizeParam === s ? "var(--color-blue-light)" : "transparent",
@@ -519,7 +556,7 @@ async function DashboardContent({
               </div>
               {pageSize && totalPages > 1 && (
                 <div className="flex items-center gap-1 text-xs">
-                  <Link href={buildPageHref(Math.max(1, page - 1), pageSizeParam)}
+                  <Link href={buildPageHref(Math.max(1, page - 1), pageSizeParam, q)}
                     className="rounded px-2 py-1"
                     style={{
                       color: page <= 1 ? "var(--color-text-faint)" : "var(--color-text-muted)",
@@ -529,7 +566,7 @@ async function DashboardContent({
                     ← Prev
                   </Link>
                   <span style={{ color: "var(--color-text-muted)" }}>Hal {page} / {totalPages}</span>
-                  <Link href={buildPageHref(Math.min(totalPages, page + 1), pageSizeParam)}
+                  <Link href={buildPageHref(Math.min(totalPages, page + 1), pageSizeParam, q)}
                     className="rounded px-2 py-1"
                     style={{
                       color: page >= totalPages ? "var(--color-text-faint)" : "var(--color-text-muted)",

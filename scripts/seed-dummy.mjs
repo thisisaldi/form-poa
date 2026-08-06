@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 
 const prisma = new PrismaClient();
 
-// ─── Fokus products (all namaGroupBrand = ETHICAL, satuan = "—") ─────────────
+// ─── Kontes products (all namaGroupBrand = ETHICAL, satuan = "—") ────────────
 const PRODUCTS = [
   { kodeProduk: "005327", namaProduk: "NARFOZ 4 INJEKSI",                      hna: 165000,   nilaiR: 0.15  },
   { kodeProduk: "015942", namaProduk: "NARFOZ 4 MG/5 ML SYRUP 30 ML",          hna: 64062,    nilaiR: 0.144 },
