@@ -244,16 +244,6 @@ export function RingkasanMetricsTables({
       render: (r) => formatRp(r.psspRencanaQBerjalan.value),
     },
     {
-      key: "aktifSebJumlah", group: `PSSP Aktif dari ${qS}`, label: "Jumlah",
-      sortValue: (r) => r.psspAktifQSebelumnya.jumlah,
-      render: (r) => fmtInt(r.psspAktifQSebelumnya.jumlah),
-    },
-    {
-      key: "aktifSebValue", group: `PSSP Aktif dari ${qS}`, label: "Value",
-      sortValue: (r) => r.psspAktifQSebelumnya.value,
-      render: (r) => formatRp(r.psspAktifQSebelumnya.value),
-    },
-    {
       key: "aktifBerJumlah", group: `PSSP Aktif dari ${quarterLabel}`, label: "Jumlah",
       sortValue: (r) => r.psspAktifQBerjalan.jumlah,
       render: (r) => fmtInt(r.psspAktifQBerjalan.jumlah),
@@ -262,6 +252,16 @@ export function RingkasanMetricsTables({
       key: "aktifBerValue", group: `PSSP Aktif dari ${quarterLabel}`, label: "Value",
       sortValue: (r) => r.psspAktifQBerjalan.value,
       render: (r) => formatRp(r.psspAktifQBerjalan.value),
+    },
+    {
+      key: "aktifSebJumlah", group: `PSSP Aktif dari ${qS}`, label: "Jumlah",
+      sortValue: (r) => r.psspAktifQSebelumnya.jumlah,
+      render: (r) => fmtInt(r.psspAktifQSebelumnya.jumlah),
+    },
+    {
+      key: "aktifSebValue", group: `PSSP Aktif dari ${qS}`, label: "Value",
+      sortValue: (r) => r.psspAktifQSebelumnya.value,
+      render: (r) => formatRp(r.psspAktifQSebelumnya.value),
     },
   ];
 
