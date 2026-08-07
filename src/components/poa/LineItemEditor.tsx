@@ -3135,7 +3135,7 @@ function AddPanel({
           </div>
         )}
 
-        <div className="flex items-center gap-3 pt-1">
+        <div className="flex items-center gap-3 pt-1" style={{ marginTop: "2rem" }}>
           <Button type="submit" size="sm" disabled={isPending}>
             {isPending
               ? (progress ? `Menyimpan ${progress.done}/${progress.total}…` : "Menyimpan…")
@@ -4141,7 +4141,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
         )}
         </fieldset>
 
-        <div className="flex items-center gap-3 pt-1">
+        <div className="flex items-center gap-3 pt-1" style={{ marginTop: "2rem" }}>
           {readOnly ? (
             <Button type="button" size="sm" variant="ghost" onClick={() => router.push(redirectTo)}>← Kembali</Button>
           ) : (
