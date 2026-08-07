@@ -8,7 +8,7 @@ import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
 import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
-import { computePeriodeAkhir, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
+import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier, isRelevantToSpesialisasi } from "@/lib/paketProduk";
@@ -185,6 +185,14 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
   if (isNaN(n)) return "-";
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
+  return Math.round(n).toLocaleString("id-ID");
+}
+
+// Same "Rb" unit as DraftChecklist's formatRpPssp (duplicated rather than
+// imported — DraftChecklist itself imports from this file, so importing back
+// would be circular).
+function formatRpPssp(n: number) {
+  if (n >= 1_000_000) return `${Math.round(n / 1_000_000).toLocaleString("id-ID")} Rb`;
   return Math.round(n).toLocaleString("id-ID");
 }
 
@@ -2379,6 +2387,33 @@ function AddPanel({
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
+  // Same "Estimasi & Nilai PSSP per Bulan" table as Ringkasan POA
+  // (DraftChecklist.tsx) — built from the in-progress form state (not yet
+  // saved PoaLineItem rows) since this panel is for adding a new doctor's
+  // rencana, spread across periodeAwal..periodeAwal+lamaPeriode-1 the same
+  // way computeMonthlyBreakdown works off saved rows. persenPsspDokter is
+  // entered as 0-100 in this form but computeMonthlyBreakdown expects the
+  // 0-1 fraction actually stored in the DB (see addLineItemAction's
+  // parsePct) — divided by 100 here to match.
+  const pengaliNilaiRResolved = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
+  const monthlyBreakdown = useMemo(() => computeMonthlyBreakdown(
+    produkList.filter((e) => !!e.kodeProduk).map((e) => {
+      const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
+      return {
+        rencanaTotalBiaya: computeEstimasi(e, dokterFields, p),
+        persenPsspDokter: (parseFloat(e.persenPsspDokter) || 0) / 100,
+        pengaliNilaiR: pengaliNilaiRResolved,
+        periodeAwal: dokterFields.periodeAwal,
+        lamaPeriode: dokterFields.lamaPeriode,
+      };
+    })
+  ), [produkList, dokterFields, products, pengaliNilaiRResolved]);
+  const monthlyBreakdownSorted = [...monthlyBreakdown.keys()].sort();
+  const monthlyBreakdownTotal = [...monthlyBreakdown.values()].reduce(
+    (acc, v) => ({ estimasi: acc.estimasi + v.estimasi, nilaiPssp: acc.nilaiPssp + v.nilaiPssp }),
+    { estimasi: 0, nilaiPssp: 0 }
+  );
+
   const matchedPaketsForKontes = useMemo(
     () => spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [],
     [spesialisasi]
@@ -3063,6 +3098,46 @@ function AddPanel({
           </div>
         );
         })()}
+
+        {/* Estimasi & Nilai PSSP per Bulan — same table as "Ringkasan POA"
+            (DraftChecklist.tsx), shown here too so the monthly spread is
+            visible before Simpan instead of only after the POA is saved
+            (2026-08-08 request). */}
+        {monthlyBreakdownSorted.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
+              Estimasi & Nilai PSSP per Bulan
+            </p>
+            <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+                    <th className="text-left font-medium px-3 py-1.5">Bulan</th>
+                    <th className="text-right font-medium px-3 py-1.5">Estimasi</th>
+                    <th className="text-right font-medium px-3 py-1.5">Nilai PSSP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyBreakdownSorted.map((m) => {
+                    const v = monthlyBreakdown.get(m)!;
+                    return (
+                      <tr key={m} style={{ borderTop: "1px solid var(--color-border)" }}>
+                        <td className="px-3 py-1.5" style={{ color: "var(--color-text-muted)" }}>{formatPeriode(m)}</td>
+                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.estimasi > 0 ? formatRp(v.estimasi) : "-"}</td>
+                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.nilaiPssp > 0 ? formatRpPssp(v.nilaiPssp) : "-"}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ borderTop: "1px solid var(--color-border)", fontWeight: 600 }}>
+                    <td className="px-3 py-1.5" style={{ color: "var(--color-text)" }}>Total</td>
+                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRp(monthlyBreakdownTotal.estimasi)}</td>
+                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRpPssp(monthlyBreakdownTotal.nilaiPssp)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 pt-1">
           <Button type="submit" size="sm" disabled={isPending}>

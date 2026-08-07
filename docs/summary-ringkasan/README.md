@@ -11,6 +11,8 @@ Tidak ada `02-data-model.md` terpisah — seluruh section ini murni reorganisasi
 
 ## Status
 
+🟢 **Diperluas ke SELURUH tab `/summary` (2026-08-07)** — metrik di spec ini tidak lagi eksklusif tab Ringkasan. Kelima tab lain (`Per Personil`/`Per Outlet`/`Per Customer`/`Per Spesialisasi`/`Per Produk`) menampilkan metrik yang SAMA per baris lewat `src/components/poa/RingkasanMetricsTables.tsx` (3 tabel bertumpuk: PSSP Rencana/Aktif · Value+Unit · Breakdown Historis), menggantikan `TerritoryTable` yang dihapus beserta seluruh kolom lamanya (Estimasi/Growth/Budget/Cost Ratio/Realisasi). Formula-nya dipakai ulang persis, cuma di-scope ke satu grup — detail di [`01-business-rules.md`](./01-business-rules.md) §1 "Metrik di dokumen ini TIDAK lagi eksklusif tab Ringkasan". Filter rentang periode (`SummaryFilterModal`) dihapus; filter satu kuartal berlaku untuk keenam tab.
+
 🟢 **v1 diimplementasikan 2026-08-05, direvisi berkali-kali di hari yang sama** — tab Ringkasan di `/summary` (`src/app/(app)/summary/page.tsx` + `src/components/poa/RingkasanCharts.tsx`). Menggantikan isi section "Isi kartu Ringkasan" yang sebelumnya didokumentasikan sebagai LIVE di `docs/form-poa/03-ui-and-access.md` §3 (cross-reference ⬜→🟢 sudah diberikan di sana).
 
 **Urutan section di tab (2026-08-06, direvisi)**: §4 (tile → Estimasi PSSP per Bulan → Varian Produk Kontes → per-produk-kontes) → §3 → §5. §2 Kesesuaian POA **DIHAPUS sebagai kartu terpisah** (isinya digabung ke §4 dan ke counts-line generik di atas tab — lihat `01-business-rules.md` §2).
@@ -35,7 +37,7 @@ Tidak ada `02-data-model.md` terpisah — seluruh section ini murni reorganisasi
 
 ⚠️ **Formula non-blocking yang masih berupa asumsi kerja** (dicatat eksplisit di komentar kode, bukan konfirmasi kata-demi-kata) — detail lengkap di `01-business-rules.md` §"Open questions":
 1. Rename "Pengajuan" → "PSSP Rencana" — hanya di section §2-§5 tab Ringkasan, tempat lain di aplikasi tidak disentuh.
-2. Filter satu kuartal — tab-scoped (khusus tab Ringkasan), tab lain tetap pakai filter rentang lama.
+2. ~~Filter satu kuartal — tab-scoped (khusus tab Ringkasan), tab lain tetap pakai filter rentang lama.~~ — **tidak lagi asumsi (2026-08-07): berlaku ke seluruh halaman `/summary`**, filter rentang dihapus.
 3. Operator Pencapaian Target (§3) — %, `(PSSP Rencana + PSSP Aktif) ÷ Target × 100`, ditumpuk sebagai stacked bar (direvisi 2026-08-06, lihat `01-business-rules.md` §3).
 4. Skop "Jumlah Customer"/"Rata-rata Lama Periode" (§5a-§5b) — company-wide (subtree `mrNips` viewer).
 5. Dimensi `Q-Sebelumnya`/`Realisasi` di §5 (13-metrik breakdown, BEDA dari kolom Q-sebelumnya di §2) — masih belum diaktifkan, tetap kandidat perluasan versi berikutnya.

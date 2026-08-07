@@ -505,7 +505,7 @@ export function FaqContent() {
 
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
         Dibuat dari pembacaan langsung <InlineCode>summary/page.tsx</InlineCode>, <InlineCode>MonitoringChecklist.tsx</InlineCode>,
-        <InlineCode>TerritoryTable.tsx</InlineCode>, dan <InlineCode>LineItemEditor.tsx</InlineCode>. Kalau rumusnya
+        <InlineCode>RingkasanMetricsTables.tsx</InlineCode>, dan <InlineCode>LineItemEditor.tsx</InlineCode>. Kalau rumusnya
         berubah di kode, halaman ini perlu diperbarui juga.
       </p>
     </div>

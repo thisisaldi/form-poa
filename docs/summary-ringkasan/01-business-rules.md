@@ -15,6 +15,16 @@
 
 Istilah "Pengajuan" saat ini dipakai di banyak tempat di luar tab Ringkasan — contoh: kolom "Estimasi Aktif+Pengajuan" di tab Per Outlet/Per Produk (`docs/form-poa/03-ui-and-access.md` §3), sheet export "Semua Pengajuan" (`docs/form-poa/03-ui-and-access.md` §5). Requirement ini HANYA menyebut perubahan istilah di section Ringkasan — **belum jelas apakah rename ini dimaksudkan berlaku global (semua tempat yang menyebut "Pengajuan") atau lokal ke tab Ringkasan saja**. Lihat Open Questions.
 
+### Metrik di dokumen ini TIDAK lagi eksklusif tab Ringkasan (2026-08-07)
+
+Dikonfirmasi pengguna: *"tab agregat itu versi detailnya"* — seluruh metrik di §2/§4/§5 sekarang juga ditampilkan **per baris** di lima tab lain (`Per Personil`/`Per Outlet`/`Per Customer`/`Per Spesialisasi`/`Per Produk`), menggantikan kolom lama `TerritoryTable` (Estimasi/Growth/Budget/Cost Ratio/Realisasi — dibuang seluruhnya, bukan dipertahankan berdampingan). Komponen: `src/components/poa/RingkasanMetricsTables.tsx` (3 tabel bertumpuk per tab: PSSP Rencana/Aktif · Value+Unit · Breakdown Historis), data-nya dihitung di `summary/page.tsx` sebagai `metricRows`.
+
+**Formula-nya identik**, bukan versi turunan/aproksimasi: tiap baris memanggil fungsi yang SAMA (`tercacahAktifForQuarter`, `computeMonthlyBreakdown`, `contractLengthMonths`, `elapsedFraction`, `variasiFor`, lookup `custContractsSorted`), cuma di-parameterisasi ke `items`/`kesesuaianRows`/`groupActivePssp` milik grup itu sendiri, bukan array global. Konsekuensinya: setiap koreksi formula di dokumen ini otomatis berlaku ke enam tab sekaligus — jangan mengubah satu sisi saja.
+
+Metrik yang tidak berlaku untuk sebuah tab bernilai `null` (kolomnya tidak dirender), dan metrik yang datanya genuinely tidak ada (DPL/DPF, DP, Entertain dimensi Aktif — lihat §5e) tetap ditampilkan "Tidak tersedia", bukan 0, sama seperti di tab Ringkasan.
+
+**Dampak ke filter**: karena kelima tab itu sekarang menampilkan angka yang tercacah ke satu kuartal, filter rentang periode (`SummaryFilterModal`, from/to) **dihapus** dan `RingkasanQuarterFilter` (satu kuartal) berlaku untuk SELURUH halaman `/summary` — menjawab non-blocking open question #2 di bawah. Window default jadi lebih ketat (1 kuartal, sebelumnya kuartal berjalan + 1 sebelumnya).
+
 ## 2. Kesesuaian POA — DIHAPUS sebagai section terpisah (2026-08-06)
 
 *(Riwayat: awalnya tabel 3 kelompok kolom × 2 sub-kolom — PSSP Rencana / PSSP Aktif Q-berjalan / PSSP Aktif Q-sebelumnya — implementasi 2026-08-05.)*
@@ -186,7 +196,7 @@ Kelima baris ini kemungkinan besar sama persis dengan breakdown budget yang SUDA
 
 **Non-blocking — bisa diasumsikan sementara, tapi wajib dicatat di kode kalau nanti diimplementasikan:**
 1. Scope rename "Pengajuan" → "PSSP Rencana" (§1) — global vs lokal ke tab Ringkasan.
-2. Apakah pembatasan filter "hanya satu quarter" berlaku ke seluruh halaman `/summary` atau khusus tab Ringkasan.
+2. ~~Apakah pembatasan filter "hanya satu quarter" berlaku ke seluruh halaman `/summary` atau khusus tab Ringkasan.~~ — **TERJAWAB 2026-08-07: seluruh halaman.** Filter rentang periode dihapus, `RingkasanQuarterFilter` berlaku untuk keenam tab (lihat §1 "Metrik di dokumen ini TIDAK lagi eksklusif tab Ringkasan").
 3. Alasan Pelunasan dikecualikan dari varian Produk Kontes (§4) — sengaja atau belum lengkap.
 4. Operator persis "Pencapaian Target" (§3) — asumsi kerja: persentase (`PSSP Aktif ÷ Target × 100`), mengikuti pola "Estimasi % Target" yang sudah ada.
 5. Skop "Jumlah Customer"/"Rata-rata Lama Periode" (§5a-§5b) — per POA, per periode, atau company-wide.
