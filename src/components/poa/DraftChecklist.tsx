@@ -55,14 +55,15 @@ export function doctorKey(item: PoaLineItem): string {
 }
 
 /**
- * "Biaya Tercacah" — apportions a line item's total Estimasi / Nilai PSSP to
- * however many of its plan months fall inside the POA's own quarter. E.g. a
- * 6-month plan starting 202607 overlaps 3 months of a 2026-Q3 POA (Jul-Sep) →
- * counts 3/6 of the total; starting 202608 overlaps only Aug-Sep → 2/6.
+ * "Biaya Tercacah" — apportions a line item's total Estimasi / Nilai PSSP /
+ * DP / Listing Fee to however many of its plan months fall inside the POA's
+ * own quarter. E.g. a 6-month plan starting 202607 overlaps 3 months of a
+ * 2026-Q3 POA (Jul-Sep) → counts 3/6 of the total; starting 202608 overlaps
+ * only Aug-Sep → 2/6.
  */
-function computeBiayaTercacah(item: PoaLineItem, quarterMonths: string[]): { estimasi: number; nilaiPssp: number } {
+function computeBiayaTercacah(item: PoaLineItem, quarterMonths: string[]): { estimasi: number; nilaiPssp: number; dp: number; listingFee: number } {
   const lama = item.lamaPeriode || 0;
-  if (lama <= 0 || !item.periodeAwal || item.periodeAwal.length !== 6) return { estimasi: 0, nilaiPssp: 0 };
+  if (lama <= 0 || !item.periodeAwal || item.periodeAwal.length !== 6) return { estimasi: 0, nilaiPssp: 0, dp: 0, listingFee: 0 };
 
   const startYear = parseInt(item.periodeAwal.slice(0, 4), 10);
   const startMonth = parseInt(item.periodeAwal.slice(4, 6), 10);
@@ -72,7 +73,7 @@ function computeBiayaTercacah(item: PoaLineItem, quarterMonths: string[]): { est
     const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
     if (quarterMonths.includes(yyyymm)) overlapCount++;
   }
-  if (overlapCount === 0) return { estimasi: 0, nilaiPssp: 0 };
+  if (overlapCount === 0) return { estimasi: 0, nilaiPssp: 0, dp: 0, listingFee: 0 };
 
   const totalBiaya = toNum(item.rencanaTotalBiaya);
   const estimasi = (totalBiaya / lama) * overlapCount;
@@ -82,7 +83,12 @@ function computeBiayaTercacah(item: PoaLineItem, quarterMonths: string[]): { est
   const nilaiPsspTotal = totalBiaya * persenPsspDokter * pengaliNilaiR;
   const nilaiPssp = (nilaiPsspTotal / lama) * overlapCount;
 
-  return { estimasi, nilaiPssp };
+  const dpTotal = totalBiaya * toNum(item.persenDp);
+  const dp = (dpTotal / lama) * overlapCount;
+  const listingFeeTotal = totalBiaya * toNum(item.persenListingFee);
+  const listingFee = (listingFeeTotal / lama) * overlapCount;
+
+  return { estimasi, nilaiPssp, dp, listingFee };
 }
 
 // ─── Dummy data (deterministik, ganti saat data aktual tersedia) ──────────────
@@ -335,8 +341,11 @@ export function StatsPanel({
   const s = computeStats(items);
   const tercacah = items.reduce((acc, it) => {
     const t = computeBiayaTercacah(it, quarterMonths);
-    return { estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp };
-  }, { estimasi: 0, nilaiPssp: 0 });
+    return {
+      estimasi: acc.estimasi + t.estimasi, nilaiPssp: acc.nilaiPssp + t.nilaiPssp,
+      dp: acc.dp + t.dp, listingFee: acc.listingFee + t.listingFee,
+    };
+  }, { estimasi: 0, nilaiPssp: 0, dp: 0, listingFee: 0 });
   const aktifPssp = computeActivePsspStats(activePssp, quarterMonths);
   const budgetTotalWithAktif = s.budgetTotal + aktifPssp.nilaiTotal;
   // Full-period estimasi (not apportioned to the quarter) — only feeds the
@@ -525,6 +534,31 @@ export function StatsPanel({
                 <span style={{ color: MUTED }}>{label}</span>
                 <span style={{ color: TEXT }}>
                   {value > 0 ? fmt(value) : "-"}
+                  {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
+                </span>
+              </div>
+              <Bar pct={pct * 5} color={PRIMARY} />
+            </div>
+          );
+        })}
+        {/* DP & Listing Fee (Tercacah Kuartal Ini) — split out from the
+            "Discount + DPL + DPF" full-period bucket above (2026-08-08
+            request), apportioned to just this quarter the same way
+            "Estimasi POA (Tercacah)" is (computeBiayaTercacah), not blended
+            full-period like the 3 bars above. Denominator is tercacah.estimasi
+            (not s.estimasiTotal) so the % stays internally consistent — both
+            numerator and denominator are the same tercacah scope. */}
+        {[
+          { label: "DP (Tercacah Kuartal Ini)",          value: tercacah.dp },
+          { label: "Listing Fee (Tercacah Kuartal Ini)", value: tercacah.listingFee },
+        ].map(({ label, value }) => {
+          const pct = tercacah.estimasi > 0 ? (value / tercacah.estimasi) * 100 : 0;
+          return (
+            <div key={label}>
+              <div className="flex justify-between text-xs mb-1">
+                <span style={{ color: MUTED }}>{label}</span>
+                <span style={{ color: TEXT }}>
+                  {value > 0 ? formatRp(value) : "-"}
                   {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
                 </span>
               </div>
