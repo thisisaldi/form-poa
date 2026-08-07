@@ -621,7 +621,7 @@ export function StatsPanel({
         ))}
         <div className="col-span-2 flex justify-between items-center rounded-lg px-3 py-2"
           style={{ background: BG, border: `1px solid ${BORDER}` }}>
-          <p className="text-xs" style={{ color: MUTED }}>Total baris pengajuan</p>
+          <p className="text-xs" style={{ color: MUTED }}>Jumlah Produk X Estimasi</p>
           <p className="text-sm font-bold" style={{ color: TEXT }}>{s.totalPengajuan}</p>
         </div>
       </div>
