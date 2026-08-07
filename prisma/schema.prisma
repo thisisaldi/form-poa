@@ -317,6 +317,11 @@ model PoaLineItem {
 
   rencanaTotalBiaya  Decimal @db.Decimal(18, 2)
   rencanaVisitMinggu Int
+  // Doctor-level, same duplication pattern as rencanaVisitMinggu above — MR's
+  // own survey count of daily patients, shown as a "Referensi PM" hint next
+  // to the per-product jumlahResepHari ("Pasien Baru / Hari") input in the
+  // form (see ProdukEntryRow in LineItemEditor.tsx).
+  surveyPasienHarian Int @default(0)
 
   // ── Master data (auto from sync) ─────────────────────────────────────────
   nilaiR           Decimal? @db.Decimal(18, 2)

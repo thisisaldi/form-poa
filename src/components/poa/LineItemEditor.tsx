@@ -118,6 +118,13 @@ interface DokterFields {
   lamaPeriode: number;
   hariKerjaBulan: string;
   rencanaVisitMinggu: string;
+  // Doctor-level survey result (2026-08-08 request) — MR's own count of daily
+  // patients from a physical survey, shown as a "Referensi PM"-style hint
+  // next to the per-product "Pasien Baru / Hari" field below (see
+  // ProdukEntryRow) so the MR can compare their manual estimate against it.
+  // Same duplication pattern as hariKerjaBulan/rencanaVisitMinggu — copied
+  // into every product row for this doctor, not a per-product value itself.
+  surveyPasienHarian: string;
   jenisPsSp: string;  // "PS" | "SP" | "" (unselected — optional)
   // "Jenis PSSP" shown next to PS/SP (2026-07-28 request) — "CASH" | "BARANG" | "JASA" | "".
   bentukPssp: string;
@@ -135,6 +142,7 @@ function emptyDokterFields(periodeAwal = ""): DokterFields {
     periodeAwal, lamaPeriode: 3,
     hariKerjaBulan: "",
     rencanaVisitMinggu: "4",
+    surveyPasienHarian: "",
     jenisPsSp: "",
     // Jenis PSSP defaults to Cash, Pihak PSSP defaults to User (2026-08-04
     // request) — both still editable, just pre-selected instead of forcing
@@ -538,12 +546,13 @@ function periodeAwalFormatError(periodeAwal: string, quarterPeriod: string): str
   return null;
 }
 
-function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, lamaPeriodeRequiredError, jenisPsSpError, bentukPsspError, showCustomerLevelFields = true, kodeCustomer, kodePI }: {
+function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, hariKerjaBulanError, surveyPasienHarianError, lamaPeriodeRequiredError, jenisPsSpError, bentukPsspError, showCustomerLevelFields = true, kodeCustomer, kodePI }: {
   fields: DokterFields;
   onChange: (patch: Partial<DokterFields>) => void;
   poaPeriod: string;
   periodeAwalError?: boolean;
   hariKerjaBulanError?: boolean;
+  surveyPasienHarianError?: boolean;
   lamaPeriodeRequiredError?: boolean;
   jenisPsSpError?: boolean;
   bentukPsspError?: boolean;
@@ -552,7 +561,8 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
    * there, so it's not surfaced at all; it can only be changed via "Edit
    * Rencana POA" (EditDoctorPanel), which edits every product at once.
    * Pengali Nilai R is also doctor-level but lives in the "Total Semua
-   * Produk" section instead (2026-07-28 request), not here. */
+   * Produk" section instead (2026-07-28 request), not here. Survey Pasien
+   * Harian follows the same rule — silently inherited, not re-collected. */
   showCustomerLevelFields?: boolean;
   /** Feeds the "Histori Visit (3 Bulan Terakhir)" hint under Rencana Visit /
    * Bulan below — undefined (e.g. brand-new doctor not registered yet in
@@ -627,6 +637,22 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
               unit="Kali" />
             <VisitHistoryHint kodeCustomer={kodeCustomer} kodePI={kodePI} />
           </label>
+          {/* Doctor-level, silently inherited (not re-collected) when just
+              adding one more product to an existing doctor — same rule as
+              Pihak PSSP above. */}
+          {showCustomerLevelFields && (
+            <label className="flex flex-col gap-1" {...(surveyPasienHarianError ? { "data-field-err": "true" } : {})}>
+              <span className="text-xs" style={{ color: surveyPasienHarianError ? "var(--color-red)" : "var(--color-text-muted)" }}>Survey Pasien Harian<Req /></span>
+              <div style={surveyPasienHarianError ? ERR_RING : undefined}>
+                <UnitInput
+                  value={fields.surveyPasienHarian}
+                  onChange={(v) => onChange({ surveyPasienHarian: v })}
+                  unit="Pasien"
+                  placeholder="Hasil survey pasien harian" />
+              </div>
+              {surveyPasienHarianError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+            </label>
+          )}
         </div>
       </div>
 
@@ -1086,6 +1112,15 @@ function ProdukEntryRow({
               placeholder="Masukan jumlah pasien" />
           </div>
           {resepErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+          {/* Referensi PM (2026-08-08 request) — echoes the doctor-level
+              "Survey Pasien Harian" value here so the MR can compare their
+              own manual estimate against the survey result. */}
+          {dokterFields.surveyPasienHarian && (
+            <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
+              <div className="font-medium">Referensi PM</div>
+              <div>Survey Pasien Per Hari = {dokterFields.surveyPasienHarian} orang</div>
+            </div>
+          )}
         </label>
         <label className="flex flex-col gap-1" {...(qtyErr ? { "data-field-err": "true" } : {})}>
           <span className="text-xs block min-h-8" style={{ color: qtyErr ? "var(--color-red)" : "var(--color-text-muted)" }}>
@@ -2641,6 +2676,7 @@ function AddPanel({
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
+    fd.set("surveyPasienHarian", dokterFields.surveyPasienHarian);
     fd.set("produkKompetitor", entry.produkKompetitor);
     fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
@@ -2669,6 +2705,7 @@ function AddPanel({
     const hasErrors = !kodePI || !spesialisasi || !customerId || !dokterFields.periodeAwal
       || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12
+      || !dokterFields.surveyPasienHarian
       || !dokterFields.jenisPsSp || !dokterFields.bentukPssp
       || produkList.some((p) => !p.kodeProduk || !p.jumlahResepHari || !p.qtyProdukResep || !p.produkKompetitor);
     if (hasErrors) {
@@ -2841,6 +2878,7 @@ function AddPanel({
           poaPeriod={poaPeriod}
           periodeAwalError={attempted && !dokterFields.periodeAwal}
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
+          surveyPasienHarianError={attempted && !dokterFields.surveyPasienHarian}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
           bentukPsspError={attempted && !dokterFields.bentukPssp}
@@ -3331,7 +3369,7 @@ function AddDokterBaruPanel({
 // ─── AddProductPanel (tambah produk ke dokter existing) ───────────────────────
 
 function AddProductPanel({
-  poaId, poaPeriod, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, existingPengaliNilaiR, existingPihakPssp, onCancel,
+  poaId, poaPeriod, products, kodePI, namaOutlet, kodeCust, namaCust, spesialisasi, defaultPeriode, existingPengaliNilaiR, existingPihakPssp, existingSurveyPasienHarian, onCancel,
 }: {
   poaId: string; poaPeriod: string; products: Product[];
   kodePI: string; namaOutlet: string;
@@ -3342,12 +3380,16 @@ function AddProductPanel({
   existingPengaliNilaiR: string;
   /** Same idea as existingPengaliNilaiR — this doctor's existing Pihak PSSP. */
   existingPihakPssp: string;
+  /** Same idea again — this doctor's existing Survey Pasien Harian, silently
+   * carried over rather than re-collected (see DokterFieldsSection). */
+  existingSurveyPasienHarian: string;
   onCancel: () => void;
 }) {
   const [dokterFields, setDokterFields] = useState<DokterFields>({
     ...emptyDokterFields(defaultPeriode),
     pengaliNilaiR: existingPengaliNilaiR,
     pihakPssp: existingPihakPssp,
+    surveyPasienHarian: existingSurveyPasienHarian,
   });
   const [produkList, setProdukList] = useState<ProdukEntry[]>([emptyProdukEntry()]);
   const [labelCustomer, setLabelCustomer] = useState("");
@@ -3392,6 +3434,7 @@ function AddProductPanel({
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
+    fd.set("surveyPasienHarian", dokterFields.surveyPasienHarian);
     fd.set("produkKompetitor", entry.produkKompetitor);
     fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
@@ -3626,6 +3669,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     lamaPeriode: first.lamaPeriode,
     hariKerjaBulan: first.hariKerjaBulan?.toString() ?? "",
     rencanaVisitMinggu: first.rencanaVisitMinggu.toString(),
+    surveyPasienHarian: first.surveyPasienHarian.toString(),
     jenisPsSp: first.jenisPsSp ?? "",
     bentukPssp: first.bentukPssp ?? "",
     pengaliNilaiR: first.pengaliNilaiR?.toString() ?? "",
@@ -3744,6 +3788,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     fd.set("jumlahResepHari", entry.jumlahResepHari);
     fd.set("qtyProdukResep", entry.qtyProdukResep);
     fd.set("rencanaVisitMinggu", dokterFields.rencanaVisitMinggu);
+    fd.set("surveyPasienHarian", dokterFields.surveyPasienHarian);
     fd.set("produkKompetitor", entry.produkKompetitor);
     fd.set("labelCustomer", labelCustomer);
     fd.set("statusStandarisasi", entry.statusStandarisasi);
@@ -3772,6 +3817,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     const validEntries = produkList.filter((e) => !!e.kodeProduk);
     const hasErrors = !dokterFields.periodeAwal || !!periodeAwalFormatError(dokterFields.periodeAwal, poaPeriod)
       || !dokterFields.hariKerjaBulan || !dokterFields.lamaPeriode || dokterFields.lamaPeriode > 12 || validEntries.length === 0
+      || !dokterFields.surveyPasienHarian
       || !dokterFields.jenisPsSp || !dokterFields.bentukPssp
       || validEntries.some((e) => !e.jumlahResepHari || !e.qtyProdukResep || !e.produkKompetitor);
     if (hasErrors) {
@@ -3850,6 +3896,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
           poaPeriod={poaPeriod}
           periodeAwalError={attempted && !dokterFields.periodeAwal}
           hariKerjaBulanError={attempted && !dokterFields.hariKerjaBulan}
+          surveyPasienHarianError={attempted && !dokterFields.surveyPasienHarian}
           lamaPeriodeRequiredError={attempted && !dokterFields.lamaPeriode}
           jenisPsSpError={attempted && !dokterFields.jenisPsSp}
           bentukPsspError={attempted && !dokterFields.bentukPssp}
@@ -4409,6 +4456,7 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
                           defaultPeriode={addingProductFor.defaultPeriode}
                           existingPengaliNilaiR={custItems[0]?.pengaliNilaiR?.toString() ?? ""}
                           existingPihakPssp={custItems[0]?.pihakPssp ?? "USER"}
+                          existingSurveyPasienHarian={custItems[0]?.surveyPasienHarian?.toString() ?? ""}
                           onCancel={() => setAddingProductFor(null)}
                         />
                       )}

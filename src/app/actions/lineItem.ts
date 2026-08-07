@@ -36,6 +36,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const periodeAwal = (formData.get("periodeAwal") as string | null)?.trim() ?? "";
   const rencanaTotalBiayaRaw = (formData.get("rencanaTotalBiaya") as string | null)?.trim() ?? "0";
   const rencanaVisitMinggu = parseInt(formData.get("rencanaVisitMinggu") as string, 10) || 0;
+  const surveyPasienHarian = parseInt(formData.get("surveyPasienHarian") as string, 10) || 0;
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
   const labelCustomer = (formData.get("labelCustomer") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
@@ -188,6 +189,7 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       periodeAwal,
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),
       rencanaVisitMinggu,
+      surveyPasienHarian,
       hariKerjaBulan,
       jumlahResepHari,
       qtyProdukResep,
@@ -215,6 +217,7 @@ export async function updateLineItemAction(
   const kodeProduk = (formData.get("kodeProduk") as string | null)?.trim() ?? "";
   const rencanaTotalBiayaRaw = (formData.get("rencanaTotalBiaya") as string | null)?.trim() ?? "0";
   const rencanaVisitMinggu = parseInt(formData.get("rencanaVisitMinggu") as string, 10) || 0;
+  const surveyPasienHarian = parseInt(formData.get("surveyPasienHarian") as string, 10) || 0;
   const produkKompetitor = (formData.get("produkKompetitor") as string | null)?.trim() || null;
   const statusStandarisasiRaw = formData.get("statusStandarisasi") as string | null;
   const jenisPsspRaw = formData.get("jenisPssp") as string | null;
@@ -317,6 +320,7 @@ export async function updateLineItemAction(
       periodeAwal: periodeAwal || undefined,
       rencanaTotalBiaya: new Prisma.Decimal(rencanaTotalBiayaRaw),
       rencanaVisitMinggu,
+      surveyPasienHarian,
       hariKerjaBulan,
       jumlahResepHari,
       qtyProdukResep,
