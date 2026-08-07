@@ -106,6 +106,12 @@ function HoverTarget({
 export function RingkasanCompareLegend({ showSebelumnya = false }: { showSebelumnya?: boolean }) {
   return (
     <div className="flex items-center gap-4 text-xs" style={{ color: "var(--color-text-muted)" }}>
+      {showSebelumnya && (
+        <span className="flex items-center gap-1.5">
+          <span style={{ width: 9, height: 9, background: AKTIF_SEBELUMNYA_COLOR, display: "inline-block" }} />
+          Aktif Q-Sebelumnya
+        </span>
+      )}
       <span className="flex items-center gap-1.5">
         <span style={{ width: 9, height: 9, background: RENCANA_COLOR, display: "inline-block" }} />
         Rencana
@@ -114,12 +120,6 @@ export function RingkasanCompareLegend({ showSebelumnya = false }: { showSebelum
         <span style={{ width: 9, height: 9, background: AKTIF_COLOR, display: "inline-block" }} />
         Aktif
       </span>
-      {showSebelumnya && (
-        <span className="flex items-center gap-1.5">
-          <span style={{ width: 9, height: 9, background: AKTIF_SEBELUMNYA_COLOR, display: "inline-block" }} />
-          Aktif Q-Sebelumnya
-        </span>
-      )}
     </div>
   );
 }
@@ -179,9 +179,13 @@ export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabe
   const barW = compact ? 34 : 40;
   const gap = compact ? 14 : 18;
   const centerX = W / 2;
-  const rencanaX = hasSebelumnya ? centerX - barW * 1.5 - gap : centerX - barW - gap / 2;
-  const aktifX = hasSebelumnya ? centerX - barW / 2 : centerX + gap / 2;
-  const sebelumnyaX = centerX + barW / 2 + gap;
+  // Order left→right: Q-Sebelumnya, Rencana, Aktif when the 3rd bar is
+  // present (2026-08-08 follow-up — was Rencana/Aktif/Sebelumnya, moved
+  // Sebelumnya to lead since it's the earliest point in time of the three).
+  // 2-bar layout (no Sebelumnya) is unchanged: Rencana, Aktif.
+  const sebelumnyaX = centerX - barW * 1.5 - gap;
+  const rencanaX = hasSebelumnya ? centerX - barW / 2 : centerX - barW - gap / 2;
+  const aktifX = hasSebelumnya ? centerX + barW / 2 + gap : centerX + gap / 2;
 
   // 3 evenly-spaced horizontal gridlines — seaborn "whitegrid" convention,
   // hairline, one step off the surface, drawn BEHIND the bars.
@@ -203,6 +207,19 @@ export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabe
       ))}
       {/* Bottom axis line — matplotlib's bottom spine */}
       <line x1={4} x2={W - 4} y1={plotBottom} y2={plotBottom} stroke="#C8C0B0" strokeWidth={1} />
+
+      {/* Aktif Q-Sebelumnya bar — 3rd bar, leftmost, only when this metric
+          carries the dimension. */}
+      {hasSebelumnya && (
+        <>
+          <rect x={sebelumnyaX} y={plotBottom - sebelumnyaH} width={barW} height={sebelumnyaH} fill={AKTIF_SEBELUMNYA_COLOR}>
+            <title>{`Aktif Q-Sebelumnya: ${sebelumnyaLabel}`}</title>
+          </rect>
+          <text x={sebelumnyaX + barW / 2} y={plotBottom - sebelumnyaH - 5} textAnchor="middle" fontSize={11} fontWeight={600} fill={INK}>
+            {sebelumnyaLabel}
+          </text>
+        </>
+      )}
 
       {/* Rencana bar — flat rectangle, no corner rounding (matplotlib default) */}
       <rect x={rencanaX} y={plotBottom - rencanaH} width={barW} height={rencanaH} fill={RENCANA_COLOR}>
@@ -228,26 +245,14 @@ export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabe
         </>
       )}
 
-      {/* Aktif Q-Sebelumnya bar — 3rd bar, only when this metric carries the dimension. */}
-      {hasSebelumnya && (
-        <>
-          <rect x={sebelumnyaX} y={plotBottom - sebelumnyaH} width={barW} height={sebelumnyaH} fill={AKTIF_SEBELUMNYA_COLOR}>
-            <title>{`Aktif Q-Sebelumnya: ${sebelumnyaLabel}`}</title>
-          </rect>
-          <text x={sebelumnyaX + barW / 2} y={plotBottom - sebelumnyaH - 5} textAnchor="middle" fontSize={11} fontWeight={600} fill={INK}>
-            {sebelumnyaLabel}
-          </text>
-        </>
-      )}
-
       {/* Category tick labels — always shown now (2026-08-05 follow-up:
           "ada keterangannya") so every chart is self-explanatory on its
           own, not dependent on scrolling back up to the shared legend. */}
-      <text x={rencanaX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Rencana</text>
-      <text x={aktifX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Aktif</text>
       {hasSebelumnya && (
         <text x={sebelumnyaX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Q-Seb</text>
       )}
+      <text x={rencanaX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Rencana</text>
+      <text x={aktifX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Aktif</text>
     </svg>
   );
 }
@@ -294,9 +299,12 @@ export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaPart
   const sebelumnyaCount = sebelumnyaParts?.length ?? rencanaParts.length;
   const sebelumnyaClusterW = sebelumnyaCount * barW + (sebelumnyaCount - 1) * innerGap;
   const totalW = rencanaClusterW + clusterGap + aktifClusterW + (hasSebelumnya ? clusterGap + sebelumnyaClusterW : 0);
-  const startX = (W - totalW) / 2;
+  // Order left→right: Q-Sebelumnya, Rencana, Aktif when present (2026-08-08
+  // follow-up, same reordering as RingkasanBarPair).
+  const leftMostW = (W - totalW) / 2;
+  const sebelumnyaStartX = leftMostW;
+  const startX = hasSebelumnya ? sebelumnyaStartX + sebelumnyaClusterW + clusterGap : leftMostW;
   const aktifStartX = startX + rencanaClusterW + clusterGap;
-  const sebelumnyaStartX = aktifStartX + aktifClusterW + clusterGap;
 
   const gridlines = [0.25, 0.5, 0.75].map((f) => marginTop + plotH * f);
 
@@ -306,6 +314,28 @@ export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaPart
         <line key={y} x1={4} x2={W - 4} y1={y} y2={y} stroke="#E8E3D8" strokeWidth={1} />
       ))}
       <line x1={4} x2={W - 4} y1={plotBottom} y2={plotBottom} stroke="#C8C0B0" strokeWidth={1} />
+
+      {hasSebelumnya && (
+        sebelumnyaParts == null ? (
+          <text x={sebelumnyaStartX + sebelumnyaClusterW / 2} y={plotBottom - 5} textAnchor="middle" fontSize={9} fill={MUTED}>
+            Tidak tersedia
+          </text>
+        ) : (
+          sebelumnyaParts.map((p, i) => {
+            const x = sebelumnyaStartX + i * (barW + innerGap);
+            const h = (p.value / max) * plotH;
+            return (
+              <g key={p.subLabel}>
+                <rect x={x} y={plotBottom - h} width={barW} height={h} fill={AKTIF_SEBELUMNYA_COLOR}>
+                  <title>{`Aktif Q-Sebelumnya ${p.subLabel}: ${p.display}`}</title>
+                </rect>
+                <text x={x + barW / 2} y={plotBottom - h - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={INK}>{p.display}</text>
+                <text x={x + barW / 2} y={H - 12} textAnchor="middle" fontSize={8} fill={MUTED}>{p.subLabel}</text>
+              </g>
+            );
+          })
+        )
+      )}
 
       {rencanaParts.map((p, i) => {
         const x = startX + i * (barW + innerGap);
@@ -342,32 +372,10 @@ export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaPart
       )}
 
       {hasSebelumnya && (
-        sebelumnyaParts == null ? (
-          <text x={sebelumnyaStartX + sebelumnyaClusterW / 2} y={plotBottom - 5} textAnchor="middle" fontSize={9} fill={MUTED}>
-            Tidak tersedia
-          </text>
-        ) : (
-          sebelumnyaParts.map((p, i) => {
-            const x = sebelumnyaStartX + i * (barW + innerGap);
-            const h = (p.value / max) * plotH;
-            return (
-              <g key={p.subLabel}>
-                <rect x={x} y={plotBottom - h} width={barW} height={h} fill={AKTIF_SEBELUMNYA_COLOR}>
-                  <title>{`Aktif Q-Sebelumnya ${p.subLabel}: ${p.display}`}</title>
-                </rect>
-                <text x={x + barW / 2} y={plotBottom - h - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={INK}>{p.display}</text>
-                <text x={x + barW / 2} y={H - 12} textAnchor="middle" fontSize={8} fill={MUTED}>{p.subLabel}</text>
-              </g>
-            );
-          })
-        )
-      )}
-
-      <text x={startX + rencanaClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Rencana</text>
-      <text x={aktifStartX + aktifClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Aktif</text>
-      {hasSebelumnya && (
         <text x={sebelumnyaStartX + sebelumnyaClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Q-Seb</text>
       )}
+      <text x={startX + rencanaClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Rencana</text>
+      <text x={aktifStartX + aktifClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Aktif</text>
     </svg>
   );
 }
