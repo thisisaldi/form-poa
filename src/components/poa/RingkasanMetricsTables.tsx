@@ -56,20 +56,26 @@ export interface RingkasanRowMetrics {
   avgLamaPeriodeRencana: number | null;
   avgLamaPeriodeAktif: number | null;
 
-  // Table 3 — Customer
-  jumlahCustomer: { rencana: number; aktif: number } | null;
+  // Table 3 — Customer. `aktifSebelumnya` (2026-08-08 request) is the SAME
+  // metric computed for Q-Sebelumnya's own months instead of "active today"
+  // — a historical snapshot, not the current Aktif figure re-shown.
+  jumlahCustomer: { rencana: number; aktif: number; aktifSebelumnya: number } | null;
   pihakBreakdownRencana: { user: number; kpdm: number } | null;
-  avgPemberianPerCustomer: { rencana: number | null; aktif: number | null } | null;
-  avgEstimasiBulananPerCustomer: { rencana: number | null; aktif: number | null } | null;
-  custBaruVsRetensi: { rencana: { baru: number; retensi: number }; aktif: { baru: number; retensi: number } } | null;
-  psspKeBerapa: { rencana: number | null; aktif: number | null } | null;
+  avgPemberianPerCustomer: { rencana: number | null; aktif: number | null; aktifSebelumnya: number | null } | null;
+  avgEstimasiBulananPerCustomer: { rencana: number | null; aktif: number | null; aktifSebelumnya: number | null } | null;
+  custBaruVsRetensi: {
+    rencana: { baru: number; retensi: number };
+    aktif: { baru: number; retensi: number };
+    aktifSebelumnya: { baru: number; retensi: number };
+  } | null;
+  psspKeBerapa: { rencana: number | null; aktif: number | null; aktifSebelumnya: number | null } | null;
 
   // Table 3 — Produk
-  avgVariasi: { rencana: number | null; aktif: number | null } | null;
-  jumlahBaris: { rencana: number | null; aktif: number | null };
+  avgVariasi: { rencana: number | null; aktif: number | null; aktifSebelumnya: number | null } | null;
+  jumlahBaris: { rencana: number | null; aktif: number | null; aktifSebelumnya: number | null };
 
   // Table 3 — Produktifitas
-  estimasiPsspPerMr: { rencana: number | null; aktif: number | null } | null;
+  estimasiPsspPerMr: { rencana: number | null; aktif: number | null; aktifSebelumnya: number | null } | null;
 
   // Table 3 — Biaya (Aktif genuinely unavailable for DPL/DPF, DP, Entertain —
   // PsspKontrak has no per-component percentage fields, see business rules §5e)
@@ -101,6 +107,26 @@ function PairCell({ rencana, aktif }: { rencana: string; aktif: string }) {
       </div>
       <div className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
         <span className="text-[10px] mr-1" style={{ color: "var(--color-green)" }}>A</span>{aktif}
+      </div>
+    </>
+  );
+}
+
+/** Same as `PairCell`, plus a 3rd line for Q-Sebelumnya's own Aktif snapshot
+ * (2026-08-08 request, Customer/Produk/Produktifitas groups only) — "AS"
+ * (Aktif Sebelumnya) prefix keeps it visually distinct from the current-Aktif
+ * "A" line right above it. */
+function TripleCell({ rencana, aktif, aktifSebelumnya }: { rencana: string; aktif: string; aktifSebelumnya: string }) {
+  return (
+    <>
+      <div style={{ color: "var(--color-text)" }}>
+        <span className="text-[10px] mr-1" style={{ color: "var(--color-blue)" }}>R</span>{rencana}
+      </div>
+      <div className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+        <span className="text-[10px] mr-1" style={{ color: "var(--color-green)" }}>A</span>{aktif}
+      </div>
+      <div className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+        <span className="text-[10px] mr-1" style={{ color: "var(--color-orange, #ea580c)" }}>AS</span>{aktifSebelumnya}
       </div>
     </>
   );
@@ -340,9 +366,10 @@ export function RingkasanMetricsTables({
         key: "jumlahCustomer", group: "Customer", label: "Jumlah Customer",
         sortValue: (r) => r.jumlahCustomer?.rencana ?? null,
         render: (r) => (
-          <PairCell
+          <TripleCell
             rencana={r.jumlahCustomer != null ? fmtInt(r.jumlahCustomer.rencana) : "-"}
             aktif={r.jumlahCustomer != null ? fmtInt(r.jumlahCustomer.aktif) : "-"}
+            aktifSebelumnya={r.jumlahCustomer != null ? fmtInt(r.jumlahCustomer.aktifSebelumnya) : "-"}
           />
         ),
       },
@@ -364,9 +391,10 @@ export function RingkasanMetricsTables({
         key: "pemberian", group: "Customer", label: "Rata-rata Pemberian per Customer",
         sortValue: (r) => r.avgPemberianPerCustomer?.rencana ?? null,
         render: (r) => (
-          <PairCell
+          <TripleCell
             rencana={r.avgPemberianPerCustomer?.rencana != null ? formatRp(r.avgPemberianPerCustomer.rencana) : "-"}
             aktif={r.avgPemberianPerCustomer?.aktif != null ? formatRp(r.avgPemberianPerCustomer.aktif) : "-"}
+            aktifSebelumnya={r.avgPemberianPerCustomer?.aktifSebelumnya != null ? formatRp(r.avgPemberianPerCustomer.aktifSebelumnya) : "-"}
           />
         ),
       },
@@ -374,9 +402,10 @@ export function RingkasanMetricsTables({
         key: "estBulanan", group: "Customer", label: "Rata-rata Estimasi Bulanan per Customer",
         sortValue: (r) => r.avgEstimasiBulananPerCustomer?.rencana ?? null,
         render: (r) => (
-          <PairCell
+          <TripleCell
             rencana={r.avgEstimasiBulananPerCustomer?.rencana != null ? formatRp(r.avgEstimasiBulananPerCustomer.rencana) : "-"}
             aktif={r.avgEstimasiBulananPerCustomer?.aktif != null ? formatRp(r.avgEstimasiBulananPerCustomer.aktif) : "-"}
+            aktifSebelumnya={r.avgEstimasiBulananPerCustomer?.aktifSebelumnya != null ? formatRp(r.avgEstimasiBulananPerCustomer.aktifSebelumnya) : "-"}
           />
         ),
       },
@@ -384,12 +413,15 @@ export function RingkasanMetricsTables({
         key: "baruRetensi", group: "Customer", label: "Customer Baru vs Retensi",
         sortValue: (r) => r.custBaruVsRetensi?.rencana.baru ?? null,
         render: (r) => (
-          <PairCell
+          <TripleCell
             rencana={r.custBaruVsRetensi != null
               ? `Baru ${fmtInt(r.custBaruVsRetensi.rencana.baru)} · Retensi ${fmtInt(r.custBaruVsRetensi.rencana.retensi)}`
               : "-"}
             aktif={r.custBaruVsRetensi != null
               ? `Baru ${fmtInt(r.custBaruVsRetensi.aktif.baru)} · Retensi ${fmtInt(r.custBaruVsRetensi.aktif.retensi)}`
+              : "-"}
+            aktifSebelumnya={r.custBaruVsRetensi != null
+              ? `Baru ${fmtInt(r.custBaruVsRetensi.aktifSebelumnya.baru)} · Retensi ${fmtInt(r.custBaruVsRetensi.aktifSebelumnya.retensi)}`
               : "-"}
           />
         ),
@@ -405,12 +437,15 @@ export function RingkasanMetricsTables({
     label: isCustomer ? "PSSP ke Berapa" : "Rata-Rata Estimasi PSSP ke Berapa",
     sortValue: (r) => r.psspKeBerapa?.rencana ?? null,
     render: (r) => (
-      <PairCell
+      <TripleCell
         rencana={r.psspKeBerapa?.rencana != null
           ? (isCustomer ? `ke-${r.psspKeBerapa.rencana.toFixed(0)}` : `ke-${fmtNum(r.psspKeBerapa.rencana)}`)
           : "-"}
         aktif={r.psspKeBerapa?.aktif != null
           ? (isCustomer ? `ke-${r.psspKeBerapa.aktif.toFixed(0)}` : `ke-${fmtNum(r.psspKeBerapa.aktif)}`)
+          : "-"}
+        aktifSebelumnya={r.psspKeBerapa?.aktifSebelumnya != null
+          ? (isCustomer ? `ke-${r.psspKeBerapa.aktifSebelumnya.toFixed(0)}` : `ke-${fmtNum(r.psspKeBerapa.aktifSebelumnya)}`)
           : "-"}
       />
     ),
@@ -421,9 +456,10 @@ export function RingkasanMetricsTables({
       key: "variasi", group: "Produk", label: "Rata-Rata Variasi per Estimasi PSSP",
       sortValue: (r) => r.avgVariasi?.rencana ?? null,
       render: (r) => (
-        <PairCell
+        <TripleCell
           rencana={fmtNum(r.avgVariasi?.rencana ?? null)}
           aktif={fmtNum(r.avgVariasi?.aktif ?? null)}
+          aktifSebelumnya={fmtNum(r.avgVariasi?.aktifSebelumnya ?? null)}
         />
       ),
     });
@@ -435,7 +471,11 @@ export function RingkasanMetricsTables({
     key: "jumlahBaris", group: "Produk", label: "Jumlah Baris per Estimasi PSSP",
     sortValue: (r) => r.jumlahBaris.rencana,
     render: (r) => (
-      <PairCell rencana={fmtNum(r.jumlahBaris.rencana)} aktif={fmtNum(r.jumlahBaris.aktif)} />
+      <TripleCell
+        rencana={fmtNum(r.jumlahBaris.rencana)}
+        aktif={fmtNum(r.jumlahBaris.aktif)}
+        aktifSebelumnya={fmtNum(r.jumlahBaris.aktifSebelumnya)}
+      />
     ),
   });
 
@@ -444,9 +484,10 @@ export function RingkasanMetricsTables({
       key: "perMr", group: "Produktifitas", label: "Estimasi PSSP per MR",
       sortValue: (r) => r.estimasiPsspPerMr?.rencana ?? null,
       render: (r) => (
-        <PairCell
+        <TripleCell
           rencana={r.estimasiPsspPerMr?.rencana != null ? formatRp(r.estimasiPsspPerMr.rencana) : "-"}
           aktif={r.estimasiPsspPerMr?.aktif != null ? formatRp(r.estimasiPsspPerMr.aktif) : "-"}
+          aktifSebelumnya={r.estimasiPsspPerMr?.aktifSebelumnya != null ? formatRp(r.estimasiPsspPerMr.aktifSebelumnya) : "-"}
         />
       ),
     });

@@ -1221,6 +1221,29 @@ async function SummaryContent({
     list.push(v);
     m.set(key, list);
   }
+  // Historical "Aktif" snapshot for a past quarter (2026-08-08 request: "ada
+  // juga histori Q-Sebelumnya (aktif)" for the Customer/Produk/Produktifitas
+  // groups) — unlike `groupActivePssp` ("active as of TODAY"), this filters
+  // `kesesuaianRows` to contracts that actually overlapped Q-Sebelumnya's own
+  // months, so it reflects who/what was active back then, not now.
+  function rowsOverlappingMonths<T extends { prdAwal: string; prdAkhir: string }>(rows: T[], months: string[]): T[] {
+    const monthSet = new Set(months);
+    return rows.filter((r) => monthsInRange(r.prdAwal, r.prdAkhir).some((m) => monthSet.has(m)));
+  }
+  // Same "distinct product per contract, averaged" shape as `variasiFor`'s
+  // Aktif branch, generalized over any row shape carrying kdCust/cUrut/
+  // kdProduk/nmProduk (kesesuaianRows isn't typed as ActivePsspRow, but has
+  // the same fields) — reused for the Sebelumnya dimension below.
+  function avgProductPerContract(rows: { kdCust: string; cUrut: string; kdProduk: string | null; nmProduk: string | null }[]): number | null {
+    const byContract = new Map<string, Set<string>>();
+    for (const r of rows) {
+      const key = `${r.kdCust}|${r.cUrut}`;
+      const s = byContract.get(key) ?? new Set<string>();
+      s.add(r.kdProduk ?? r.nmProduk ?? "-");
+      byContract.set(key, s);
+    }
+    return byContract.size > 0 ? [...byContract.values()].reduce((s, set) => s + set.size, 0) / byContract.size : null;
+  }
   const kesesuaianAktifByOutlet = new Map<string, KesesuaianAktifRow[]>();
   const kesesuaianAktifByProdName = new Map<string, KesesuaianAktifRow[]>();
   const kesesuaianAktifByCust = new Map<string, KesesuaianAktifRow[]>();
@@ -1272,6 +1295,11 @@ async function SummaryContent({
       const rencanaValueQ = ringkasanQMonths.reduce((s, m) => s + (rencanaBreakdown.get(m)?.estimasi ?? 0), 0);
       const aktifQBerjalan = tercacahAktifForQuarter(kesesuaianRows, ringkasanQMonths);
       const aktifQSebelumnya = tercacahAktifForQuarter(kesesuaianRows, ringkasanQSebelumnyaMonths);
+      // Historical "Aktif" snapshot for Q-Sebelumnya (2026-08-08 request) —
+      // contracts that actually overlapped THAT quarter's months, not
+      // "active today" like `groupActivePssp` — feeds the Customer/Produk/
+      // Produktifitas group's 3rd (AS) line below.
+      const kesesuaianRowsSebelumnya = rowsOverlappingMonths(kesesuaianRows, ringkasanQSebelumnyaMonths);
 
       // Biaya components (§5e) — same per-line-item percentage math the
       // company-wide `biayaBreakdown` uses.
@@ -1288,6 +1316,7 @@ async function SummaryContent({
 
       const custRencanaSet = new Set(items.map(custIdentity));
       const custAktifSet = new Set(groupActivePssp.map((r) => r.kdCust));
+      const custAktifSebelumnyaSet = new Set(kesesuaianRowsSebelumnya.map((r) => r.kdCust));
 
       // §5a Rata-rata Lama Periode — Rencana from PoaLineItem.lamaPeriode,
       // Aktif from contract length, deduped by contract first (same
@@ -1321,6 +1350,11 @@ async function SummaryContent({
         const n = custContractsSorted.get(kdCust)?.length ?? 1;
         if (n <= 1) baruAktif++; else retensiAktif++;
       }
+      let baruAktifSebelumnya = 0, retensiAktifSebelumnya = 0;
+      for (const kdCust of custAktifSebelumnyaSet) {
+        const n = custContractsSorted.get(kdCust)?.length ?? 1;
+        if (n <= 1) baruAktifSebelumnya++; else retensiAktifSebelumnya++;
+      }
 
       // §5b PSSP ke Berapa — Aktif = ordinal of the currently-active contract,
       // Rencana = the ordinal the planned one WOULD be. On the Customer tab
@@ -1346,12 +1380,40 @@ async function SummaryContent({
       const groupRencanaCustCodes = [...new Set(items.map((li) => li.kodeCust).filter(Boolean) as string[])];
       const rencanaOrdinals = groupRencanaCustCodes.map((kc) => (custContractsSorted.get(kc)?.length ?? 0) + 1);
       const psspKeRencana = rencanaOrdinals.length > 0 ? rencanaOrdinals.reduce((s, v) => s + v, 0) / rencanaOrdinals.length : null;
+      // Same ordinal lookup, scoped to contracts that overlapped Q-Sebelumnya
+      // instead of "active today".
+      const groupSebelumnyaCustContracts = new Map<string, Set<string>>();
+      for (const r of kesesuaianRowsSebelumnya) {
+        const s = groupSebelumnyaCustContracts.get(r.kdCust) ?? new Set<string>();
+        s.add(r.cUrut);
+        groupSebelumnyaCustContracts.set(r.kdCust, s);
+      }
+      const aktifSebelumnyaOrdinals: number[] = [];
+      for (const [kdCust, cUruts] of groupSebelumnyaCustContracts) {
+        const sorted = custContractsSorted.get(kdCust) ?? [];
+        let maxOrdinal = 0;
+        for (const cUrut of cUruts) {
+          const idx = sorted.indexOf(cUrut);
+          if (idx >= 0) maxOrdinal = Math.max(maxOrdinal, idx + 1);
+        }
+        if (maxOrdinal > 0) aktifSebelumnyaOrdinals.push(maxOrdinal);
+      }
+      const psspKeAktifSebelumnya = aktifSebelumnyaOrdinals.length > 0
+        ? aktifSebelumnyaOrdinals.reduce((s, v) => s + v, 0) / aktifSebelumnyaOrdinals.length : null;
 
       // §5c Variasi / Jumlah Baris.
       const variasi = variasiFor(items, groupActivePssp);
       const groupPoaIds = new Set(items.map((li) => li.poaId));
       const jumlahBarisRencana = groupPoaIds.size > 0 ? items.length / groupPoaIds.size : null;
       const jumlahBarisAktif = groupContractRep.size > 0 ? groupActivePssp.length / groupContractRep.size : null;
+      const groupContractRepSebelumnya = new Map<string, KesesuaianAktifRow>();
+      for (const r of kesesuaianRowsSebelumnya) {
+        const ck = `${r.kdCust}|${r.cUrut}`;
+        if (!groupContractRepSebelumnya.has(ck)) groupContractRepSebelumnya.set(ck, r);
+      }
+      const variasiAktifSebelumnya = avgProductPerContract(kesesuaianRowsSebelumnya);
+      const jumlahBarisAktifSebelumnya = groupContractRepSebelumnya.size > 0
+        ? kesesuaianRowsSebelumnya.length / groupContractRepSebelumnya.size : null;
 
       const salesValue = tab === "outlet" ? (salesValueByOutlet.get(key.code) ?? 0)
         : tab === "mr" ? (outletsByMr.get(key.code) ?? []).reduce((s, o) => s + (salesValueByOutlet.get(o) ?? 0), 0)
@@ -1398,24 +1460,27 @@ async function SummaryContent({
         avgLamaPeriodeRencana: isCustomerTab ? null : avgLamaPeriodeRencana,
         avgLamaPeriodeAktif: isCustomerTab ? null : avgLamaPeriodeAktif,
 
-        jumlahCustomer: isCustomerTab ? null : { rencana: custRencanaSet.size, aktif: custAktifSet.size },
+        jumlahCustomer: isCustomerTab ? null : { rencana: custRencanaSet.size, aktif: custAktifSet.size, aktifSebelumnya: custAktifSebelumnyaSet.size },
         pihakBreakdownRencana: isCustomerTab ? null : { user: pihakUser, kpdm: pihakKpdm },
         avgPemberianPerCustomer: isCustomerTab ? null : {
           rencana: custRencanaSet.size > 0 ? psspTotal / custRencanaSet.size : null,
           aktif: custAktifSet.size > 0 ? aktifQBerjalan.value / custAktifSet.size : null,
+          aktifSebelumnya: custAktifSebelumnyaSet.size > 0 ? aktifQSebelumnya.value / custAktifSebelumnyaSet.size : null,
         },
         avgEstimasiBulananPerCustomer: isCustomerTab ? null : {
           rencana: custRencanaSet.size > 0 ? rencanaValueQ / custRencanaSet.size : null,
           aktif: custAktifSet.size > 0 ? aktifQBerjalan.value / custAktifSet.size : null,
+          aktifSebelumnya: custAktifSebelumnyaSet.size > 0 ? aktifQSebelumnya.value / custAktifSebelumnyaSet.size : null,
         },
         custBaruVsRetensi: isCustomerTab ? null : {
           rencana: { baru: baruRencana, retensi: retensiRencana },
           aktif: { baru: baruAktif, retensi: retensiAktif },
+          aktifSebelumnya: { baru: baruAktifSebelumnya, retensi: retensiAktifSebelumnya },
         },
-        psspKeBerapa: { rencana: psspKeRencana, aktif: psspKeAktif },
+        psspKeBerapa: { rencana: psspKeRencana, aktif: psspKeAktif, aktifSebelumnya: psspKeAktifSebelumnya },
 
-        avgVariasi: isCustomerTab ? null : variasi,
-        jumlahBaris: { rencana: jumlahBarisRencana, aktif: jumlahBarisAktif },
+        avgVariasi: isCustomerTab ? null : { ...variasi, aktifSebelumnya: variasiAktifSebelumnya },
+        jumlahBaris: { rencana: jumlahBarisRencana, aktif: jumlahBarisAktif, aktifSebelumnya: jumlahBarisAktifSebelumnya },
 
         // §5d — for ONE MR the denominator is 1 (this MR submitted / has an
         // active contract), so the figure equals that MR's own PSSP Rencana /
@@ -1424,6 +1489,7 @@ async function SummaryContent({
         estimasiPsspPerMr: tab === "mr" ? {
           rencana: items.length > 0 ? rencanaValueQ : null,
           aktif: groupActivePssp.length > 0 ? aktifQBerjalan.value : null,
+          aktifSebelumnya: kesesuaianRowsSebelumnya.length > 0 ? aktifQSebelumnya.value : null,
         } : null,
 
         biayaPssp: isBiayaProdukScope ? { rencana: psspTotal, aktif: aktifQBerjalan.value } : null,
