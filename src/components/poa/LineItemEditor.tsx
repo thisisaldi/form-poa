@@ -3100,7 +3100,7 @@ function AddPanel({
             floating in the form. */}
         {monthlyBreakdownSorted.length > 0 && (
           <div className="rounded-xl border px-4 py-3 space-y-3"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
               Estimasi & Nilai PSSP per Bulan
             </p>
@@ -4105,7 +4105,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
             weight of "Total Semua Produk" above it. */}
         {monthlyBreakdownSorted.length > 0 && (
           <div className="rounded-xl border px-4 py-3 space-y-3"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
               Estimasi & Nilai PSSP per Bulan
             </p>
