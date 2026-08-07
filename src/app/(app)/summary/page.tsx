@@ -99,6 +99,13 @@ interface BreakdownRow {
   aktifUnavailable?: boolean;
   splitRencana?: { subLabel: string; value: number; display: string }[];
   splitAktif?: { subLabel: string; value: number; display: string }[] | null;
+  // Historical Q-Sebelumnya "Aktif" snapshot (2026-08-08 follow-up) — same
+  // metric as `aktif`/`aktifVal` but scoped to Q-Sebelumnya's own months
+  // instead of "active today". Only set on Customer/Produk/Produktifitas
+  // rows (the scope requested); undefined elsewhere renders no 3rd bar.
+  sebelumnya?: string;
+  sebelumnyaVal?: number;
+  splitSebelumnya?: { subLabel: string; value: number; display: string }[] | null;
 }
 
 // Same "how far along a contract's own period has run" fraction as
@@ -1040,6 +1047,18 @@ async function SummaryContent({
   // 2026-08-05) — replaced by `kesesuaianAktifQBerjalan.value` everywhere
   // below, the correctly per-quarter-scoped figure §2 already computes.
 
+  // Historical Q-Sebelumnya "Aktif" snapshot (2026-08-08 follow-up — same
+  // idea as the per-tab tables' "AS" line, now surfaced on the Ringkasan
+  // tab's own §5 Customer/Produk/Produktifitas rows too) — contracts that
+  // actually overlapped Q-SEBELUMNYA's own months, via `kesesuaianAktifRows`
+  // (which spans a wider window than "active today"), NOT `activePssp`
+  // (which only returns contracts still running right now and would silently
+  // drop anything that ended before today but was active back then).
+  // Manajemen Risiko and Biaya groups deliberately NOT extended — out of the
+  // requested scope (Customer/Produk/Produktifitas only).
+  const kesesuaianAktifRowsSebelumnya = rowsOverlappingMonths(kesesuaianAktifRows, ringkasanQSebelumnyaMonths);
+  const activeCustCodesSetSebelumnya = new Set(kesesuaianAktifRowsSebelumnya.map((r) => r.kdCust));
+
   // 5b. Customer
   // Breakdown User/KPDM — counted by LINE ITEM (pihakPssp is a per-product
   // row field, "hanya switch label tampilan" per docs/form-poa/01-business-
@@ -1065,6 +1084,11 @@ async function SummaryContent({
     const n = custContractsSorted.get(kdCust)?.length ?? 1;
     if (n <= 1) jumlahBaruAktif++; else jumlahRetensiAktif++;
   }
+  let jumlahBaruAktifSebelumnya = 0, jumlahRetensiAktifSebelumnya = 0;
+  for (const kdCust of activeCustCodesSetSebelumnya) {
+    const n = custContractsSorted.get(kdCust)?.length ?? 1;
+    if (n <= 1) jumlahBaruAktifSebelumnya++; else jumlahRetensiAktifSebelumnya++;
+  }
 
   // Rata-Rata PSSP ke Berapa — Aktif = ordinal of the currently-active
   // contract; Rencana = ordinal the Q-Berjalan planned one WOULD be
@@ -1086,6 +1110,25 @@ async function SummaryContent({
     if (maxOrdinal > 0) aktifOrdinals.push(maxOrdinal);
   }
   const avgPsspKeAktif = aktifOrdinals.length > 0 ? aktifOrdinals.reduce((s, v) => s + v, 0) / aktifOrdinals.length : null;
+
+  const aktifSebelumnyaOrdinals: number[] = [];
+  const sebelumnyaCustContractSet = new Map<string, Set<string>>();
+  for (const r of kesesuaianAktifRowsSebelumnya) {
+    const s = sebelumnyaCustContractSet.get(r.kdCust) ?? new Set<string>();
+    s.add(r.cUrut);
+    sebelumnyaCustContractSet.set(r.kdCust, s);
+  }
+  for (const [kdCust, cUruts] of sebelumnyaCustContractSet) {
+    const sorted = custContractsSorted.get(kdCust) ?? [];
+    let maxOrdinal = 0;
+    for (const cUrut of cUruts) {
+      const idx = sorted.indexOf(cUrut);
+      if (idx >= 0) maxOrdinal = Math.max(maxOrdinal, idx + 1);
+    }
+    if (maxOrdinal > 0) aktifSebelumnyaOrdinals.push(maxOrdinal);
+  }
+  const avgPsspKeAktifSebelumnya = aktifSebelumnyaOrdinals.length > 0
+    ? aktifSebelumnyaOrdinals.reduce((s, v) => s + v, 0) / aktifSebelumnyaOrdinals.length : null;
 
   const rencanaCustCodes = [...new Set(lineItems.map((li) => li.kodeCust).filter(Boolean) as string[])];
   const rencanaOrdinals = rencanaCustCodes.map((kc) => (custContractsSorted.get(kc)?.length ?? 0) + 1);
@@ -1132,6 +1175,16 @@ async function SummaryContent({
   const avgVariasiKontesAktif = variasiKontes.aktif;
   const avgBarisRencana = poaIds.length > 0 ? lineItems.length / poaIds.length : null;
   const avgBarisAktif = contractRepMap.size > 0 ? activePssp.length / contractRepMap.size : null;
+  const avgVariasiAktifSebelumnya = avgProductPerContract(kesesuaianAktifRowsSebelumnya);
+  const kesesuaianAktifRowsSebelumnyaKontes = kesesuaianAktifRowsSebelumnya.filter((r) => r.nmProduk && getAllPakets(r.nmProduk).length > 0);
+  const avgVariasiKontesAktifSebelumnya = avgProductPerContract(kesesuaianAktifRowsSebelumnyaKontes);
+  const contractRepMapSebelumnya = new Map<string, typeof kesesuaianAktifRows[number]>();
+  for (const r of kesesuaianAktifRowsSebelumnya) {
+    const ck = `${r.kdCust}|${r.cUrut}`;
+    if (!contractRepMapSebelumnya.has(ck)) contractRepMapSebelumnya.set(ck, r);
+  }
+  const avgBarisAktifSebelumnya = contractRepMapSebelumnya.size > 0
+    ? kesesuaianAktifRowsSebelumnya.length / contractRepMapSebelumnya.size : null;
 
   // 5d. Produktifitas — "per MR" here = per MR who actually submitted this
   // quarter (ringkasanPersonilAktif, computed above) for Rencana, and per MR
@@ -1155,6 +1208,13 @@ async function SummaryContent({
   // `estimasiAktifTotal`.
   const produktifitasRencana = ringkasanPersonilAktif > 0 ? rencanaMonthlyBreakdownQ / ringkasanPersonilAktif : null;
   const produktifitasAktif = mrWithActivePssp.size > 0 ? kesesuaianAktifQBerjalan.value / mrWithActivePssp.size : null;
+  const mrWithActivePsspSebelumnya = new Set<string>();
+  for (const r of kesesuaianAktifRowsSebelumnya) {
+    if (!r.kdOutlet) continue;
+    for (const nip of mrNipsByOutlet.get(r.kdOutlet) ?? []) mrWithActivePsspSebelumnya.add(nip);
+  }
+  const produktifitasAktifSebelumnya = mrWithActivePsspSebelumnya.size > 0
+    ? kesesuaianAktifQSebelumnya.value / mrWithActivePsspSebelumnya.size : null;
 
   // 5e. Biaya — PSSP/DPL-DPF/DP/Listing Fee/Entertain. DPL and DPF cannot be
   // split apart on the Rencana side either: PoaLineItem has exactly ONE
@@ -1759,7 +1819,7 @@ async function SummaryContent({
           <Card>
             <div className="flex items-start justify-between gap-3 mb-3">
               <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Breakdown Historis</p>
-              <RingkasanCompareLegend />
+              <RingkasanCompareLegend showSebelumnya />
             </div>
             <div className="space-y-6">
               {([
@@ -1773,7 +1833,11 @@ async function SummaryContent({
                 {
                   title: "Customer",
                   rows: [
-                    { label: "Jumlah Customer", rencanaVal: ringkasanCustomerTotal, rencana: ringkasanCustomerTotal.toLocaleString("id-ID"), aktifVal: activeCustCodesSet.size, aktif: activeCustCodesSet.size.toLocaleString("id-ID") },
+                    {
+                      label: "Jumlah Customer", rencanaVal: ringkasanCustomerTotal, rencana: ringkasanCustomerTotal.toLocaleString("id-ID"),
+                      aktifVal: activeCustCodesSet.size, aktif: activeCustCodesSet.size.toLocaleString("id-ID"),
+                      sebelumnyaVal: activeCustCodesSetSebelumnya.size, sebelumnya: activeCustCodesSetSebelumnya.size.toLocaleString("id-ID"),
+                    },
                     {
                       label: "Breakdown User / KPDM", composite: true,
                       rencana: `User ${pihakBreakdownRencana.USER} · KPDM ${pihakBreakdownRencana.KPDM}`, aktif: "Tidak tersedia",
@@ -1786,11 +1850,25 @@ async function SummaryContent({
                       // docs/summary-ringkasan/01-business-rules.md §5b) —
                       // null (not two zero-value bars), matches aktifUnavailable
                       // convention used elsewhere on this row's non-composite
-                      // siblings.
+                      // siblings. Sebelumnya inherits the same unavailability
+                      // (no field to filter by month either) — left undefined,
+                      // no 3rd cluster rendered.
                       splitAktif: null,
                     },
-                    { label: "Rata-rata Nilai PSSP per Customer", rencanaVal: ringkasanCustomerTotal > 0 ? ringkasanPsspTotal / ringkasanCustomerTotal : 0, rencana: ringkasanCustomerTotal > 0 ? formatRp(ringkasanPsspTotal / ringkasanCustomerTotal) : "-", aktifVal: activeCustCodesSet.size > 0 ? kesesuaianAktifQBerjalan.value / activeCustCodesSet.size : 0, aktif: activeCustCodesSet.size > 0 ? formatRp(kesesuaianAktifQBerjalan.value / activeCustCodesSet.size) : "-" },
-                    { label: "Rata-rata Estimasi Bulanan per Customer", rencanaVal: ringkasanCustomerTotal > 0 ? rencanaMonthlyBreakdownQ / ringkasanCustomerTotal : 0, rencana: ringkasanCustomerTotal > 0 ? formatRp(rencanaMonthlyBreakdownQ / ringkasanCustomerTotal) : "-", aktifVal: activeCustCodesSet.size > 0 ? kesesuaianAktifQBerjalan.value / activeCustCodesSet.size : 0, aktif: activeCustCodesSet.size > 0 ? formatRp(kesesuaianAktifQBerjalan.value / activeCustCodesSet.size) : "-" },
+                    {
+                      label: "Rata-rata Nilai PSSP per Customer",
+                      rencanaVal: ringkasanCustomerTotal > 0 ? ringkasanPsspTotal / ringkasanCustomerTotal : 0, rencana: ringkasanCustomerTotal > 0 ? formatRp(ringkasanPsspTotal / ringkasanCustomerTotal) : "-",
+                      aktifVal: activeCustCodesSet.size > 0 ? kesesuaianAktifQBerjalan.value / activeCustCodesSet.size : 0, aktif: activeCustCodesSet.size > 0 ? formatRp(kesesuaianAktifQBerjalan.value / activeCustCodesSet.size) : "-",
+                      sebelumnyaVal: activeCustCodesSetSebelumnya.size > 0 ? kesesuaianAktifQSebelumnya.value / activeCustCodesSetSebelumnya.size : 0,
+                      sebelumnya: activeCustCodesSetSebelumnya.size > 0 ? formatRp(kesesuaianAktifQSebelumnya.value / activeCustCodesSetSebelumnya.size) : "-",
+                    },
+                    {
+                      label: "Rata-rata Estimasi Bulanan per Customer",
+                      rencanaVal: ringkasanCustomerTotal > 0 ? rencanaMonthlyBreakdownQ / ringkasanCustomerTotal : 0, rencana: ringkasanCustomerTotal > 0 ? formatRp(rencanaMonthlyBreakdownQ / ringkasanCustomerTotal) : "-",
+                      aktifVal: activeCustCodesSet.size > 0 ? kesesuaianAktifQBerjalan.value / activeCustCodesSet.size : 0, aktif: activeCustCodesSet.size > 0 ? formatRp(kesesuaianAktifQBerjalan.value / activeCustCodesSet.size) : "-",
+                      sebelumnyaVal: activeCustCodesSetSebelumnya.size > 0 ? kesesuaianAktifQSebelumnya.value / activeCustCodesSetSebelumnya.size : 0,
+                      sebelumnya: activeCustCodesSetSebelumnya.size > 0 ? formatRp(kesesuaianAktifQSebelumnya.value / activeCustCodesSetSebelumnya.size) : "-",
+                    },
                     {
                       label: "Jumlah Customer Baru vs Retensi", composite: true,
                       rencana: `Baru ${jumlahBaruRencana} · Retensi ${jumlahRetensiRencana}`, aktif: `Baru ${jumlahBaruAktif} · Retensi ${jumlahRetensiAktif}`,
@@ -1802,22 +1880,46 @@ async function SummaryContent({
                         { subLabel: "Baru", value: jumlahBaruAktif, display: jumlahBaruAktif.toLocaleString("id-ID") },
                         { subLabel: "Retensi", value: jumlahRetensiAktif, display: jumlahRetensiAktif.toLocaleString("id-ID") },
                       ],
+                      splitSebelumnya: [
+                        { subLabel: "Baru", value: jumlahBaruAktifSebelumnya, display: jumlahBaruAktifSebelumnya.toLocaleString("id-ID") },
+                        { subLabel: "Retensi", value: jumlahRetensiAktifSebelumnya, display: jumlahRetensiAktifSebelumnya.toLocaleString("id-ID") },
+                      ],
                     },
-                    { label: "Rata-Rata PSSP ke Berapa", rencanaVal: avgPsspKeRencana ?? 0, rencana: avgPsspKeRencana != null ? `ke-${avgPsspKeRencana.toFixed(1)}` : "-", aktifVal: avgPsspKeAktif ?? 0, aktif: avgPsspKeAktif != null ? `ke-${avgPsspKeAktif.toFixed(1)}` : "-" },
+                    {
+                      label: "Rata-Rata PSSP ke Berapa", rencanaVal: avgPsspKeRencana ?? 0, rencana: avgPsspKeRencana != null ? `ke-${avgPsspKeRencana.toFixed(1)}` : "-",
+                      aktifVal: avgPsspKeAktif ?? 0, aktif: avgPsspKeAktif != null ? `ke-${avgPsspKeAktif.toFixed(1)}` : "-",
+                      sebelumnyaVal: avgPsspKeAktifSebelumnya ?? 0, sebelumnya: avgPsspKeAktifSebelumnya != null ? `ke-${avgPsspKeAktifSebelumnya.toFixed(1)}` : "-",
+                    },
                   ],
                 },
                 {
                   title: "Produk",
                   rows: [
-                    { label: "Rata-Rata Variasi Produk per Estimasi PSSP", rencanaVal: avgVariasiRencana ?? 0, rencana: avgVariasiRencana != null ? avgVariasiRencana.toFixed(1) : "-", aktifVal: avgVariasiAktif ?? 0, aktif: avgVariasiAktif != null ? avgVariasiAktif.toFixed(1) : "-" },
-                    { label: "Rata-Rata Variasi Produk Kontes per Estimasi PSSP", rencanaVal: avgVariasiKontesRencana ?? 0, rencana: avgVariasiKontesRencana != null ? avgVariasiKontesRencana.toFixed(1) : "-", aktifVal: avgVariasiKontesAktif ?? 0, aktif: avgVariasiKontesAktif != null ? avgVariasiKontesAktif.toFixed(1) : "-" },
-                    { label: "Jumlah Baris per Estimasi PSSP", rencanaVal: avgBarisRencana ?? 0, rencana: avgBarisRencana != null ? avgBarisRencana.toFixed(1) : "-", aktifVal: avgBarisAktif ?? 0, aktif: avgBarisAktif != null ? avgBarisAktif.toFixed(1) : "-" },
+                    {
+                      label: "Rata-Rata Variasi Produk per Estimasi PSSP", rencanaVal: avgVariasiRencana ?? 0, rencana: avgVariasiRencana != null ? avgVariasiRencana.toFixed(1) : "-",
+                      aktifVal: avgVariasiAktif ?? 0, aktif: avgVariasiAktif != null ? avgVariasiAktif.toFixed(1) : "-",
+                      sebelumnyaVal: avgVariasiAktifSebelumnya ?? 0, sebelumnya: avgVariasiAktifSebelumnya != null ? avgVariasiAktifSebelumnya.toFixed(1) : "-",
+                    },
+                    {
+                      label: "Rata-Rata Variasi Produk Kontes per Estimasi PSSP", rencanaVal: avgVariasiKontesRencana ?? 0, rencana: avgVariasiKontesRencana != null ? avgVariasiKontesRencana.toFixed(1) : "-",
+                      aktifVal: avgVariasiKontesAktif ?? 0, aktif: avgVariasiKontesAktif != null ? avgVariasiKontesAktif.toFixed(1) : "-",
+                      sebelumnyaVal: avgVariasiKontesAktifSebelumnya ?? 0, sebelumnya: avgVariasiKontesAktifSebelumnya != null ? avgVariasiKontesAktifSebelumnya.toFixed(1) : "-",
+                    },
+                    {
+                      label: "Jumlah Baris per Estimasi PSSP", rencanaVal: avgBarisRencana ?? 0, rencana: avgBarisRencana != null ? avgBarisRencana.toFixed(1) : "-",
+                      aktifVal: avgBarisAktif ?? 0, aktif: avgBarisAktif != null ? avgBarisAktif.toFixed(1) : "-",
+                      sebelumnyaVal: avgBarisAktifSebelumnya ?? 0, sebelumnya: avgBarisAktifSebelumnya != null ? avgBarisAktifSebelumnya.toFixed(1) : "-",
+                    },
                   ],
                 },
                 {
                   title: "Produktifitas",
                   rows: [
-                    { label: "Estimasi PSSP per MR", rencanaVal: produktifitasRencana ?? 0, rencana: produktifitasRencana != null ? formatRp(produktifitasRencana) : "-", aktifVal: produktifitasAktif ?? 0, aktif: produktifitasAktif != null ? formatRp(produktifitasAktif) : "-" },
+                    {
+                      label: "Estimasi PSSP per MR", rencanaVal: produktifitasRencana ?? 0, rencana: produktifitasRencana != null ? formatRp(produktifitasRencana) : "-",
+                      aktifVal: produktifitasAktif ?? 0, aktif: produktifitasAktif != null ? formatRp(produktifitasAktif) : "-",
+                      sebelumnyaVal: produktifitasAktifSebelumnya ?? 0, sebelumnya: produktifitasAktifSebelumnya != null ? formatRp(produktifitasAktifSebelumnya) : "-",
+                    },
                   ],
                 },
                 {
@@ -1851,6 +1953,7 @@ async function SummaryContent({
                           <RingkasanSplitBarPair
                             rencanaParts={r.splitRencana ?? []}
                             aktifParts={r.splitAktif ?? null}
+                            sebelumnyaParts={r.splitSebelumnya}
                           />
                         ) : (
                           <RingkasanBarPair
@@ -1859,6 +1962,8 @@ async function SummaryContent({
                             aktifVal={r.aktifVal ?? 0}
                             aktifLabel={r.aktif}
                             aktifUnavailable={r.aktifUnavailable ?? false}
+                            sebelumnyaVal={r.sebelumnyaVal}
+                            sebelumnyaLabel={r.sebelumnya}
                             compact
                           />
                         )}
