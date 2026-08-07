@@ -3661,6 +3661,29 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     return sum + computeEstimasi(e, dokterFields, p);
   }, 0), [produkList, dokterFields, products]);
 
+  // Same "Estimasi & Nilai PSSP per Bulan" table as AddPanel/Ringkasan POA
+  // (2026-08-08: was missing here, only shown when adding a new doctor, not
+  // when editing an existing one's rencana) — same computation, built from
+  // this panel's own in-progress produkList/dokterFields.
+  const pengaliNilaiRResolved = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
+  const monthlyBreakdown = useMemo(() => computeMonthlyBreakdown(
+    produkList.filter((e) => !!e.kodeProduk).map((e) => {
+      const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
+      return {
+        rencanaTotalBiaya: computeEstimasi(e, dokterFields, p),
+        persenPsspDokter: (parseFloat(e.persenPsspDokter) || 0) / 100,
+        pengaliNilaiR: pengaliNilaiRResolved,
+        periodeAwal: dokterFields.periodeAwal,
+        lamaPeriode: dokterFields.lamaPeriode,
+      };
+    })
+  ), [produkList, dokterFields, products, pengaliNilaiRResolved]);
+  const monthlyBreakdownSorted = [...monthlyBreakdown.keys()].sort();
+  const monthlyBreakdownTotal = [...monthlyBreakdown.values()].reduce(
+    (acc, v) => ({ estimasi: acc.estimasi + v.estimasi, nilaiPssp: acc.nilaiPssp + v.nilaiPssp }),
+    { estimasi: 0, nilaiPssp: 0 }
+  );
+
   const matchedPaketsForKontes = useMemo(
     () => spesialisasi ? getPaketsBySpesialisasi(spesialisasi) : [],
     [spesialisasi]
@@ -4077,6 +4100,46 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
           </div>
         );
         })()}
+
+        {/* Estimasi & Nilai PSSP per Bulan — same table as "Ringkasan POA"
+            (DraftChecklist.tsx) and AddPanel, shown here too so editing an
+            existing doctor's rencana also shows the monthly spread
+            (2026-08-08 request). */}
+        {monthlyBreakdownSorted.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
+              Estimasi & Nilai PSSP per Bulan
+            </p>
+            <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+                    <th className="text-left font-medium px-3 py-1.5">Bulan</th>
+                    <th className="text-right font-medium px-3 py-1.5">Estimasi</th>
+                    <th className="text-right font-medium px-3 py-1.5">Nilai PSSP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyBreakdownSorted.map((m) => {
+                    const v = monthlyBreakdown.get(m)!;
+                    return (
+                      <tr key={m} style={{ borderTop: "1px solid var(--color-border)" }}>
+                        <td className="px-3 py-1.5" style={{ color: "var(--color-text-muted)" }}>{formatPeriode(m)}</td>
+                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.estimasi > 0 ? formatRp(v.estimasi) : "-"}</td>
+                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.nilaiPssp > 0 ? formatRpPssp(v.nilaiPssp) : "-"}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ borderTop: "1px solid var(--color-border)", fontWeight: 600 }}>
+                    <td className="px-3 py-1.5" style={{ color: "var(--color-text)" }}>Total</td>
+                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRp(monthlyBreakdownTotal.estimasi)}</td>
+                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRpPssp(monthlyBreakdownTotal.nilaiPssp)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         </fieldset>
 
         <div className="flex items-center gap-3 pt-1">
