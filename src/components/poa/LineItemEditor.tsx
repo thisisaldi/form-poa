@@ -1112,13 +1112,12 @@ function ProdukEntryRow({
               placeholder="Masukan jumlah pasien" />
           </div>
           {resepErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-          {/* Referensi PM (2026-08-08 request) — echoes the doctor-level
-              "Survey Pasien Harian" value here so the MR can compare their
-              own manual estimate against the survey result. */}
+          {/* Echoes the doctor-level "Survey Pasien Harian" value here so the
+              MR can compare their own manual estimate against the survey
+              result (2026-08-08 request). */}
           {dokterFields.surveyPasienHarian && (
             <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
-              <div className="font-medium">Referensi PM</div>
-              <div>Survey Pasien Per Hari = {dokterFields.surveyPasienHarian} orang</div>
+              Survey Pasien Per Hari = {dokterFields.surveyPasienHarian} orang
             </div>
           )}
         </label>
