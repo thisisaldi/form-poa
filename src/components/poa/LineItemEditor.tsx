@@ -188,14 +188,6 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
   return Math.round(n).toLocaleString("id-ID");
 }
 
-// Same "Rb" unit as DraftChecklist's formatRpPssp (duplicated rather than
-// imported — DraftChecklist itself imports from this file, so importing back
-// would be circular).
-function formatRpPssp(n: number) {
-  if (n >= 1_000_000) return `${Math.round(n / 1_000_000).toLocaleString("id-ID")} Rb`;
-  return Math.round(n).toLocaleString("id-ID");
-}
-
 function hargaST(product: Product): number {
   const hna      = parseFloat(product.hna) || 0;
   const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
@@ -3102,10 +3094,13 @@ function AddPanel({
         {/* Estimasi & Nilai PSSP per Bulan — same table as "Ringkasan POA"
             (DraftChecklist.tsx), shown here too so the monthly spread is
             visible before Simpan instead of only after the POA is saved
-            (2026-08-08 request). */}
+            (2026-08-08 request). Wrapped in its own outlined card (2026-08-08
+            follow-up: "kurang rapih, kasih outline juga") to match the visual
+            weight of "Total Semua Produk" above it, instead of a bare table
+            floating in the form. */}
         {monthlyBreakdownSorted.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
+          <div className="rounded-xl border px-4 py-3 space-y-2" style={{ borderColor: "var(--color-border)" }}>
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
               Estimasi & Nilai PSSP per Bulan
             </p>
             <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
@@ -3124,14 +3119,14 @@ function AddPanel({
                       <tr key={m} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="px-3 py-1.5" style={{ color: "var(--color-text-muted)" }}>{formatPeriode(m)}</td>
                         <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.estimasi > 0 ? formatRp(v.estimasi) : "-"}</td>
-                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.nilaiPssp > 0 ? formatRpPssp(v.nilaiPssp) : "-"}</td>
+                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.nilaiPssp > 0 ? formatRp(v.nilaiPssp) : "-"}</td>
                       </tr>
                     );
                   })}
                   <tr style={{ borderTop: "1px solid var(--color-border)", fontWeight: 600 }}>
                     <td className="px-3 py-1.5" style={{ color: "var(--color-text)" }}>Total</td>
                     <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRp(monthlyBreakdownTotal.estimasi)}</td>
-                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRpPssp(monthlyBreakdownTotal.nilaiPssp)}</td>
+                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRp(monthlyBreakdownTotal.nilaiPssp)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -4104,10 +4099,12 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
         {/* Estimasi & Nilai PSSP per Bulan — same table as "Ringkasan POA"
             (DraftChecklist.tsx) and AddPanel, shown here too so editing an
             existing doctor's rencana also shows the monthly spread
-            (2026-08-08 request). */}
+            (2026-08-08 request). Wrapped in its own outlined card (2026-08-08
+            follow-up: "kurang rapih, kasih outline juga") to match the visual
+            weight of "Total Semua Produk" above it. */}
         {monthlyBreakdownSorted.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "var(--color-text-faint)" }}>
+          <div className="rounded-xl border px-4 py-3 space-y-2" style={{ borderColor: "var(--color-border)" }}>
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
               Estimasi & Nilai PSSP per Bulan
             </p>
             <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
@@ -4126,14 +4123,14 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                       <tr key={m} style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td className="px-3 py-1.5" style={{ color: "var(--color-text-muted)" }}>{formatPeriode(m)}</td>
                         <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.estimasi > 0 ? formatRp(v.estimasi) : "-"}</td>
-                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.nilaiPssp > 0 ? formatRpPssp(v.nilaiPssp) : "-"}</td>
+                        <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{v.nilaiPssp > 0 ? formatRp(v.nilaiPssp) : "-"}</td>
                       </tr>
                     );
                   })}
                   <tr style={{ borderTop: "1px solid var(--color-border)", fontWeight: 600 }}>
                     <td className="px-3 py-1.5" style={{ color: "var(--color-text)" }}>Total</td>
                     <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRp(monthlyBreakdownTotal.estimasi)}</td>
-                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRpPssp(monthlyBreakdownTotal.nilaiPssp)}</td>
+                    <td className="text-right px-3 py-1.5" style={{ color: "var(--color-text)" }}>{formatRp(monthlyBreakdownTotal.nilaiPssp)}</td>
                   </tr>
                 </tbody>
               </table>
