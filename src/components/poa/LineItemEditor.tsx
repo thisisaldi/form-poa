@@ -3099,7 +3099,8 @@ function AddPanel({
             weight of "Total Semua Produk" above it, instead of a bare table
             floating in the form. */}
         {monthlyBreakdownSorted.length > 0 && (
-          <div className="rounded-xl border px-4 py-3 space-y-2" style={{ borderColor: "var(--color-border)" }}>
+          <div className="rounded-xl border px-4 py-3 space-y-3"
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
               Estimasi & Nilai PSSP per Bulan
             </p>
@@ -4103,7 +4104,8 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
             follow-up: "kurang rapih, kasih outline juga") to match the visual
             weight of "Total Semua Produk" above it. */}
         {monthlyBreakdownSorted.length > 0 && (
-          <div className="rounded-xl border px-4 py-3 space-y-2" style={{ borderColor: "var(--color-border)" }}>
+          <div className="rounded-xl border px-4 py-3 space-y-3"
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
               Estimasi & Nilai PSSP per Bulan
             </p>
