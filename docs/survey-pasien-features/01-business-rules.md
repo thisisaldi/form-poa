@@ -65,7 +65,7 @@ Tidak ada lagi open question BLOCKING untuk keputusan besar (interpretasi fitur,
 
 | # | Pertanyaan | Asumsi yang dipakai untuk v1 | Perlu konfirmasi dari |
 |---|---|---|---|
-| OQ-1 (non-blocking) | Batas ukuran file upload maksimum. | 10 MB (angka wajar untuk file Excel data survey, disesuaikan saat implementasi kalau ternyata file sumber lebih besar). | Pengguna, opsional |
+| OQ-1 (**RESOLVED 2026-08-10**) | Batas ukuran file upload maksimum. | **50 MB** (dinaikkan dari 10 MB awal — user konfirmasi file sumber bisa lebih besar dari perkiraan awal). | Selesai. |
 | OQ-2 (non-blocking) | Role yang boleh akses form ini — cuma MR, atau SFE/Admin juga? | Diasumsikan MR (sesuai konteks "MR cuma upload excel saja" di requirement) — role lain bisa ditambah belakangan kalau diminta. | Pengguna |
 | OQ-3 (non-blocking) | Struktur folder di shared drive — flat (semua file di 1 folder) atau per-periode/per-MR (subfolder)? | Flat di 1 folder untuk v1 (paling simpel) — folder ID dikonfigurasi via env var. | Pengguna/tim ops, saat setup folder Drive-nya |
 | OQ-4 (non-blocking) | Apakah MR bisa lihat riwayat file yang pernah dia upload dari dalam app (baca `SurveyUploadLog`), atau log itu cuma buat keperluan admin/audit? | v1: tampilkan minimal daftar riwayat upload milik MR yang login (read-only, dari `SurveyUploadLog`) — sudah ada modelnya, sayang kalau tidak disurfacekan sama sekali. | Pengguna |

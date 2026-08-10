@@ -121,7 +121,7 @@ export function SurveyUploadForm({ outlets }: { outlets: OutletOption[] }) {
               className="input-field"
               required
             />
-            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Format .xlsx/.xls, maksimum 10 MB.</p>
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Format .xlsx/.xls, maksimum 50 MB.</p>
           </div>
 
           {message && (

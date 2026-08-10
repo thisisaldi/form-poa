@@ -14,7 +14,7 @@ import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { getOutletsForSurveyUpload } from "@/lib/masterData";
 import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB — docs/survey-pasien-features/01-business-rules.md OQ-1
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB — docs/survey-pasien-features/01-business-rules.md OQ-1
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
 const PERIODE_RE = /^\d{6}$/; // YYYYMM
 
