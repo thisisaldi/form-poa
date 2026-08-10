@@ -321,7 +321,7 @@ export default async function PoaDetailPage({
               suffix (e.g. "1,25" not "Rp 1.250.000"), so callers need this caption
               to not misread the scaled number as the raw Rupiah value. */}
           <p className="mt-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
-            Satuan nilai uang di halaman ini dalam Juta Rupiah (dibagi 1.000.000)
+            Note: Satuan nilai uang di halaman ini dalam Juta (dibagi 1.000.000)
           </p>
         </div>
         <StatusBadge status={poa.status} version={poa.version} />
