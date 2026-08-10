@@ -530,7 +530,10 @@ async function SummaryContent({
   // "produk" need active-PSSP + real sales data, and the fetch is cheap
   // relative to the lineItems query above.
   const outletKodesForMR = [...new Set(mrOutletRows.map((r) => r.kodePI))];
-  const SALES_2026_FROM = "202601";
+  // Scoped to exactly the selected quarter's 3 months — the "Sales
+  // {ringkasanQuarter}" label (below, per-outlet/per-produk tiles) must match
+  // what it says, not accumulate every month since Jan 2026.
+  const salesQuarterMonths = quarterToMonths(ringkasanQuarter);
 
   const [activePssp, listingFeeRows, salesValueRaw, salesQtyRaw] = await Promise.all([
     outletKodesForMR.length > 0 ? getActivePsspByOutlets(outletKodesForMR) : Promise.resolve([] as ActivePsspRow[]),
@@ -538,10 +541,10 @@ async function SummaryContent({
       ? prisma.listingFeeKontrak.findMany({ where: { kdOutlet: { in: outletKodesForMR } }, select: { kdOutlet: true, noreq: true, value: true } })
       : Promise.resolve([]),
     outletKodesForMR.length > 0
-      ? prisma.outletSalesValueMonthly.groupBy({ by: ["kodePI"], where: { kodePI: { in: outletKodesForMR }, periode: { gte: SALES_2026_FROM } }, _sum: { valueSales: true } })
+      ? prisma.outletSalesValueMonthly.groupBy({ by: ["kodePI"], where: { kodePI: { in: outletKodesForMR }, periode: { in: salesQuarterMonths } }, _sum: { valueSales: true } })
       : Promise.resolve([]),
     outletKodesForMR.length > 0
-      ? prisma.outletSalesMonthly.groupBy({ by: ["itemKode"], where: { kodePI: { in: outletKodesForMR }, periode: { gte: SALES_2026_FROM } }, _sum: { qty: true } })
+      ? prisma.outletSalesMonthly.groupBy({ by: ["itemKode"], where: { kodePI: { in: outletKodesForMR }, periode: { in: salesQuarterMonths } }, _sum: { qty: true } })
       : Promise.resolve([]),
   ]) as [
     ActivePsspRow[],
@@ -680,7 +683,7 @@ async function SummaryContent({
   // computation over already-fetched arrays (lineItems/activePssp/poas) runs
   // unconditionally since it's cheap in-memory work, same "no extra DB round
   // trip for other tabs" principle as everything above.
-  const ringkasanQMonths = quarterToMonths(ringkasanQuarter);
+  const ringkasanQMonths = salesQuarterMonths;
   const ringkasanQSebelumnya = previousQuarterPeriod(ringkasanQuarter);
   const ringkasanQSebelumnyaMonths = ringkasanQSebelumnya ? quarterToMonths(ringkasanQSebelumnya) : [];
 
