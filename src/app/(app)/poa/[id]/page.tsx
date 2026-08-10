@@ -272,19 +272,6 @@ export default async function PoaDetailPage({
     }
   }
 
-  // Aggregate stats
-  let estimasiTotal = 0, budgetWeighted = 0;
-  for (const it of allItems) {
-    const base = toNum(it.rencanaTotalBiaya);
-    const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
-    estimasiTotal += base;
-    budgetWeighted += base * (
-      toNum(it.persenPsspDokter) * pengaliNilaiR +
-      toNum(it.persenDiskon) + toNum(it.persenDp) +
-      toNum(it.persenListingFee) + toNum(it.persenEntertain)
-    );
-  }
-
   // Target Value (2026-08-03, widened same day — stakeholder item #11: label
   // "Target Area" → "Target", calculation = SUM dari Personil) — monthly
   // Rupiah sales target per GT, imported from "Target Hospital (in
@@ -311,12 +298,6 @@ export default async function PoaDetailPage({
     }
   }
 
-  const target      = poa.target ? parseFloat(poa.target.toString()) : targetValueFromGT;
-  const ratioEst    = target && target > 0 ? (estimasiTotal / target) * 100 : null;
-  const pctBudget   = estimasiTotal > 0 ? (budgetWeighted / estimasiTotal) * 100 : null;
-  const budgetOver  = pctBudget != null && pctBudget > 42.5;
-  const budgetWarn  = pctBudget != null && pctBudget > 38 && !budgetOver;
-
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -335,28 +316,13 @@ export default async function PoaDetailPage({
             )}
           </p>
 
-          {/* Stats bar — Target/Estimasi/Estimasi Produk Kontes removed (2026-08-04
-              request): duplicated the same figures already shown in the "Ringkasan
-              POA" panel (StatsPanel) further down, this bar now only keeps the two
-              ratio figures that panel doesn't surface. */}
-          {allItems.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-              <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Ratio %</p>
-                <p className="text-sm font-semibold"
-                  style={{ color: ratioEst == null ? "var(--color-text-faint)" : ratioEst >= 100 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
-                  {ratioEst != null ? `${ratioEst.toFixed(1)}%` : "-"}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>% Budget</p>
-                <p className="text-sm font-semibold"
-                  style={{ color: budgetOver ? "var(--color-red)" : budgetWarn ? "var(--color-warning, #f59e0b)" : "var(--color-text-muted)" }}>
-                  {pctBudget != null ? `${pctBudget.toFixed(1)}%` : "-"}
-                </p>
-              </div>
-            </div>
-          )}
+          {/* Currency-unit note (2026-08-10) — formatCurrency (src/lib/format.ts)
+              shows every Rupiah figure on this page scaled ÷1.000.000 with no
+              suffix (e.g. "1,25" not "Rp 1.250.000"), so callers need this caption
+              to not misread the scaled number as the raw Rupiah value. */}
+          <p className="mt-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
+            Satuan nilai uang di halaman ini dalam Juta Rupiah (dibagi 1.000.000)
+          </p>
         </div>
         <StatusBadge status={poa.status} version={poa.version} />
       </div>
