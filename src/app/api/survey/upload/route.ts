@@ -11,7 +11,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getOutletsByUser } from "@/lib/masterData";
+import { getOutletsForSurveyUpload } from "@/lib/masterData";
 import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB — docs/survey-pasien-features/01-business-rules.md OQ-1
@@ -82,9 +82,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Ukuran file maksimum ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB.` }, { status: 400 });
   }
 
-  // Outlet dibatasi ke coverage MR yang login (01-business-rules.md OQ-6) —
-  // jangan percaya kodePI dari client begitu saja.
-  const myOutlets = await getOutletsByUser(session.userId);
+  // Outlet dibatasi ke coverage user yang login — MR/ADMIN scope sendiri,
+  // ASM/SM/NSM scope seluruh subtree MR-nya (2026-08-10 widen, lihat
+  // docs/survey-pasien-features/03-ui-and-access.md §5). Jangan percaya
+  // kodePI dari client begitu saja.
+  const myOutlets = await getOutletsForSurveyUpload(session);
   const outlet = myOutlets.find((o) => o.kodePI === kodePI);
   if (!outlet) {
     return NextResponse.json({ error: "Outlet tidak ditemukan di coverage Anda." }, { status: 403 });

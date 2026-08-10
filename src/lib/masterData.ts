@@ -5,6 +5,7 @@
  */
 
 import type { MockCustomer } from "./mock/data";
+import type { Role, User } from "@prisma/client";
 
 export type { MockCustomer as Customer };
 
@@ -99,6 +100,58 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
   }
 
   return fromAssignments;
+}
+
+/**
+ * Every outlet assigned to any MR in `mrNips`, latest synced periode only
+ * (same "latest periode, not every historic month" fix as getOutletsByUser
+ * above — avoids duplicate/stale entries). Used for ASM/SM/NSM, who have no
+ * MrOutletAssignment rows of their own (see getOutletsByUser's ASM/SM/NSM
+ * branch below) but need visibility over their whole subordinate team's
+ * outlets, not just outlets they personally cover via a vacant chain.
+ */
+export async function getOutletsForMrSubtree(mrNips: string[]): Promise<MockCustomer[]> {
+  const { prisma } = await import("@/lib/prisma");
+  if (mrNips.length === 0) return [];
+
+  const latestAssignment = await prisma.mrOutletAssignment.findFirst({
+    where: { nipMR: { in: mrNips } },
+    orderBy: { periode: "desc" },
+    select: { periode: true },
+  });
+  if (!latestAssignment) return [];
+
+  const assignments = await prisma.mrOutletAssignment.findMany({
+    where: { nipMR: { in: mrNips }, periode: latestAssignment.periode },
+    include: { outlet: true },
+  });
+
+  const seen = new Set<string>();
+  const result: MockCustomer[] = [];
+  for (const { outlet: o } of assignments as { outlet: { kodePI: string; namaOutlet: string; sector: string | null; subSektor: string | null; groupRS: string | null } }[]) {
+    if (seen.has(o.kodePI)) continue;
+    seen.add(o.kodePI);
+    result.push(toMockCustomer(o));
+  }
+  return result;
+}
+
+/**
+ * Outlets a session's user may pick for Input Data Survey (2026-08-10 widen —
+ * docs/survey-pasien-features/03-ui-and-access.md §5, MR-only v1 broadened to
+ * the whole sales chain MR..NSM + ADMIN for testing). MR/ADMIN keep the
+ * existing per-user scope; ASM/SM/NSM get every outlet across their
+ * subordinate MRs (getOutletsForMrSubtree above), since they have no
+ * MrOutletAssignment rows of their own and would otherwise see an empty list
+ * whenever their team is fully staffed.
+ */
+export async function getOutletsForSurveyUpload(session: { nip: string; role: string }): Promise<MockCustomer[]> {
+  if (session.role === "MR" || session.role === "ADMIN") {
+    return getOutletsByUser(session.nip);
+  }
+  const { getSubordinateMRNips } = await import("@/lib/authz");
+  const mrNips = await getSubordinateMRNips({ nip: session.nip, role: session.role as Role } as User);
+  return getOutletsForMrSubtree(mrNips);
 }
 
 export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | null> {

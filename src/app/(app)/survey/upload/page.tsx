@@ -1,18 +1,20 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { getOutletsByUser } from "@/lib/masterData";
+import { getOutletsForSurveyUpload } from "@/lib/masterData";
 import { SurveyUploadForm } from "@/components/poa/SurveyUploadForm";
 
 export const metadata = { title: "Input Data Survey · Form POA" };
 
-// MR-only v1 (2026-08-10, item #10 dari daftar 13 task baru — lihat
-// docs/survey-pasien-features/03-ui-and-access.md §5).
+// Widened from MR-only v1 to the whole sales chain + ADMIN testing
+// (2026-08-10 — lihat docs/survey-pasien-features/03-ui-and-access.md §5).
+const ALLOWED_ROLES = ["MR", "ASM", "SM", "NSM", "ADMIN"];
+
 export default async function SurveyUploadPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  if (session.role !== "MR") redirect("/dashboard");
+  if (!ALLOWED_ROLES.includes(session.role)) redirect("/dashboard");
 
-  const outlets = await getOutletsByUser(session.userId);
+  const outlets = await getOutletsForSurveyUpload(session);
 
   return (
     <SurveyUploadForm

@@ -32,13 +32,13 @@ Kalau item #12 diimplementasikan, ikuti pola visual yang sama (warna, prefix ⚠
 
 ## 5. Role & akses
 
-- **Item #10 (upload survey)**: diasumsikan **MR saja** (`01-business-rules.md` OQ-2, sesuai konteks requirement "MR cuma upload excel saja") — role lain (ASM/SM/NSM/ADMIN) tidak melihat halaman ini kecuali diminta belakangan. Dropdown "Nama RS" dibatasi ke outlet coverage MR yang login (reuse `outletKodesForMR`/pola yang sama dengan pembatasan outlet di seluruh app, `docs/form-poa/03-ui-and-access.md`).
+- **Item #10 (upload survey)**: v1 MR-saja (`01-business-rules.md` OQ-2) **diwidenkan 2026-08-10** ke seluruh rantai sales — **MR, ASM, SM, NSM**, plus **ADMIN** khusus testing (pola sama dengan "New POA" — tidak pernah muncul di ringkasan siapa pun, cuma testing). Dropdown "Nama RS": MR/ADMIN tetap `getOutletsByUser` (scope per-user); ASM/SM/NSM pakai `getOutletsForMrSubtree` (`src/lib/masterData.ts`) — seluruh outlet dari MR-MR di bawah mereka (`getSubordinateMRNips`), BUKAN cuma outlet yang mereka cover langsung lewat rantai vacant (`coveredByNip`) — kalau tetap pakai `getOutletsByUser` apa adanya, ASM/SM/NSM dengan tim lengkap akan lihat dropdown kosong. Helper gabungan: `getOutletsForSurveyUpload(session)`, dipakai baik di halaman (`survey/upload/page.tsx`) maupun di validasi server-side `POST /api/survey/upload` (kodePI dari client tetap tidak dipercaya begitu saja, divalidasi ulang terhadap scope ini).
 - **Item #12 (warning outlet kosong)**: **Belum ditentukan** — tergantung lokasi tampilan (§3 di atas): kalau di tab Ringkasan berarti role company-wide (ADMIN/NSM/dst, sama gate `/summary` yang sudah ada), kalau di halaman drafting berarti MR pemilik POA.
 
 ## 6. Non-goals v1
 
 - **Item #10**: tidak ada parsing/validasi ISI file Excel di sisi app — app murni jadi perantara upload ke Drive, tidak membaca/memproses data survey di dalam file (beda total dari `SurveyRekomendasi` yang di-import DAN diparse ke database). Kalau nanti dibutuhkan data survey ini benar-benar masuk ke database (bukan cuma tersimpan sebagai file), itu scope terpisah yang jauh lebih besar (parsing Excel dinamis, validasi struktur kolom, dll) — tidak diasumsikan sebagai bagian v1 ini.
-- **Item #10**: tidak menambah role baru — kalau nanti butuh SFE/Admin juga bisa upload, itu keputusan terpisah.
+- **Item #10**: masih tidak menambah role BARU di luar yang sudah ada (SFE/GM/VIEWER dst tetap tidak bisa) — 2026-08-10 cuma memperluas akses ke role yang sudah ada di rantai sales (MR/ASM/SM/NSM) + ADMIN testing, bukan menambah role baru ke enum.
 - **Item #10**: tidak membangun UI untuk EDIT/DELETE `SurveyUploadLog` — v1 cuma create (upload) + read (riwayat), append-only sesuai invariant di `02-data-model.md`.
 - **Item #12**: tidak dibangun sebelum OQ-5 (`01-business-rules.md` §4) dijawab — definisi "kosong" menentukan lokasi & sumber data yang berbeda total.
 - **Tidak mengubah alur import Excel `SurveyRekomendasi`** (`scripts/importSurveyRekomendasi.ts`) — genuinely fitur terpisah dari item #10, tidak tersentuh sama sekali.
