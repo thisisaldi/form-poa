@@ -3,12 +3,7 @@
 import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/SortableTh";
-
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
+import { formatCurrency as formatRp } from "@/lib/format";
 
 export interface AchievementRow {
   code: string;

@@ -32,7 +32,10 @@ import { displayRole } from "@/lib/role";
 const PSSP_LEVEL_ORDER = ["MR", "SPV", "ASM", "SM", "NSM"];
 
 const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
-const fmtRp = (n: number) => `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+// Export Excel TETAP pakai angka asli (bukan skala ÷1.000.000 yang dipakai
+// tampilan in-app) — dikonfirmasi pengguna 2026-08-10, membatalkan asumsi
+// OQ-2 sebelumnya di docs/label-currency-format-updates/01-business-rules.md.
+const fmtRp = (n: number) => Math.round(n).toLocaleString("id-ID");
 
 // "Jenis PSSP" export label — mirrors the same map in /api/poa/[id]/export
 // (BentukPssp enum, schema.prisma).
@@ -510,8 +513,8 @@ export async function GET(req: NextRequest) {
   addDivider("Estimasi & Anggaran");
   addKv("Total Estimasi POA",       fmtRp(totalEst), true);
   addKv("Total PSSP",               fmtRp(totalPssp));
-  addKv("Total Discount + DPL/DPF", fmtRp(totalDisc));
-  addKv("Total Entertain",          fmtRp(totalEnt));
+  addKv("Total Campaign / DPL / DPF", fmtRp(totalDisc));
+  addKv("Total ENT",                fmtRp(totalEnt));
   addKv("Total Budget",             fmtRp(totalBudget), true);
   addKv("% Budget / Estimasi",      totalEst > 0 ? `${((totalBudget / totalEst) * 100).toFixed(1)}%` : "—");
 
@@ -541,8 +544,8 @@ export async function GET(req: NextRequest) {
     { header: "Status",           key: "status",         width: 22 },
     { header: "Estimasi",         key: "estimasi",       width: 20 },
     { header: "PSSP",             key: "pssp",           width: 18 },
-    { header: "Discount",         key: "discount",       width: 18 },
-    { header: "Entertain",        key: "entertain",      width: 18 },
+    { header: "Campaign / DPL / DPF", key: "discount",    width: 22 },
+    { header: "ENT",              key: "entertain",      width: 18 },
     { header: "Total Budget",     key: "budget",         width: 18 },
     { header: "% Budget",         key: "budgetPct",      width: 12 },
     { header: "Customer",         key: "customer",       width: 12 },
@@ -689,7 +692,7 @@ export async function GET(req: NextRequest) {
     { header: "Rasio Total Biaya(%Estimasi Sales)", key: "rasioTotalBiaya", width: 14 },
     { header: "Rencana Kunjungan/ Bulan", key: "rencanaKunjungan", width: 14 },
     { header: "% PS/SP User",         key: "persenPsspUser",   width: 12 },
-    { header: "% Discount (DPL/DPF)", key: "persenDiskon",     width: 14 },
+    { header: "% Campaign (DPL/DPF)", key: "persenDiskon",     width: 14 },
     { header: "Periode Diskon",       key: "periodeDiskon",    width: 14 },
     { header: "% DP",                 key: "persenDp",         width: 10 },
     { header: "% Listing Fee",        key: "persenListingFee", width: 12 },

@@ -9,12 +9,8 @@ import {
   applyQuarterlyTargetsAction,
 } from "@/app/actions/targetCalculation";
 import type { QuarterlyKontesSummary } from "@/lib/targetCalculation";
+import { formatCurrency as formatRp } from "@/lib/format";
 
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
 function formatQty(n: number) {
   return Math.round(n).toLocaleString("id-ID");
 }

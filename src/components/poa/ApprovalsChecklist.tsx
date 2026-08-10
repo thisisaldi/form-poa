@@ -75,7 +75,10 @@ export function ApprovalsChecklist({ pending, activePssp = [], actorRole }: {
   const [bulkApproving, setBulkApproving] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ approved: number; failed: { poaId: string; error: string }[] } | null>(null);
 
-  const canBulkApprove = actorRole === "SM" || actorRole === "NSM";
+  // Bulk approval DISABLED (docs/TODO.md — daftar 13 task 2026-08-10, item #11).
+  // Was: actorRole === "SM" || actorRole === "NSM" — kept as a comment so this is
+  // easy to re-enable, matching the flag in bulkApprovePoaAction (src/app/actions/poa.ts).
+  const canBulkApprove = false;
 
   async function handleBulkApprove() {
     if (checked.size === 0) return;

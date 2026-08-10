@@ -1,0 +1,127 @@
+/**
+ * POST /api/survey/upload
+ *
+ * "Input Data Survey" (docs/survey-pasien-features/, item #10 dari daftar 13
+ * task 2026-08-10) — MR upload file Excel, diteruskan ke shared Google Drive
+ * via service account. App tidak parse isi file, murni jadi perantara upload
+ * + catat audit trail (SurveyUploadLog).
+ */
+
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/session";
+import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
+import { getOutletsByUser } from "@/lib/masterData";
+import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
+
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB — docs/survey-pasien-features/01-business-rules.md OQ-1
+const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
+const PERIODE_RE = /^\d{6}$/; // YYYYMM
+
+function sanitizeForFileName(s: string): string {
+  return s.replace(/[/\\?%*:|"<>]/g, "-").trim();
+}
+
+/** Riwayat upload milik MR yang login (docs/survey-pasien-features/01-business-rules.md OQ-4). */
+export async function GET() {
+  const session = await getCurrentUser();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const logs = await prisma.surveyUploadLog.findMany({
+    where: { uploaderNip: session.userId },
+    include: { outlet: { select: { namaOutlet: true } } },
+    orderBy: { uploadedAt: "desc" },
+    take: 50,
+  });
+
+  return NextResponse.json(
+    logs.map((l: { id: string; outlet: { namaOutlet: string }; periode: string; namaFile: string; driveFileId: string; uploadedAt: Date }) => ({
+      id: l.id,
+      namaOutlet: l.outlet.namaOutlet,
+      periode: l.periode,
+      namaFile: l.namaFile,
+      driveFileId: l.driveFileId,
+      uploadedAt: l.uploadedAt,
+    }))
+  );
+}
+
+export async function POST(req: Request) {
+  const session = await getCurrentUser();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (await isWriteBlocked(session.role)) {
+    return NextResponse.json({ error: WRITE_BLOCKED_MESSAGE }, { status: 423 });
+  }
+  if (!isGoogleDriveConfigured) {
+    return NextResponse.json({ error: "Fitur upload survey belum dikonfigurasi." }, { status: 503 });
+  }
+
+  const formData = await req.formData();
+  const file = formData.get("file");
+  const kodePI = (formData.get("kodePI") as string | null)?.trim() ?? "";
+  const periode = (formData.get("periode") as string | null)?.trim() ?? "";
+
+  if (!(file instanceof File)) {
+    return NextResponse.json({ error: "File wajib diisi." }, { status: 400 });
+  }
+  if (!kodePI) {
+    return NextResponse.json({ error: "Nama RS/Outlet wajib diisi." }, { status: 400 });
+  }
+  if (!PERIODE_RE.test(periode)) {
+    return NextResponse.json({ error: "Periode wajib format YYYYMM (mis. 202608)." }, { status: 400 });
+  }
+
+  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    return NextResponse.json({ error: "File harus berformat .xlsx atau .xls." }, { status: 400 });
+  }
+  if (file.size === 0) {
+    return NextResponse.json({ error: "File kosong." }, { status: 400 });
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return NextResponse.json({ error: `Ukuran file maksimum ${MAX_FILE_SIZE_BYTES / 1024 / 1024} MB.` }, { status: 400 });
+  }
+
+  // Outlet dibatasi ke coverage MR yang login (01-business-rules.md OQ-6) —
+  // jangan percaya kodePI dari client begitu saja.
+  const myOutlets = await getOutletsByUser(session.userId);
+  const outlet = myOutlets.find((o) => o.kodePI === kodePI);
+  if (!outlet) {
+    return NextResponse.json({ error: "Outlet tidak ditemukan di coverage Anda." }, { status: 403 });
+  }
+
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const namaFile = `${timestamp} - Data Survey ${sanitizeForFileName(outlet.namaOutlet)} Periode ${periode} oleh ${sanitizeForFileName(session.name)}`;
+
+  let driveFileId: string;
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const mimeType = ext === ".xls"
+      ? "application/vnd.ms-excel"
+      : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    const result = await uploadFileToSurveyDrive(namaFile, mimeType, buffer);
+    driveFileId = result.driveFileId;
+  } catch (err) {
+    console.error("[survey/upload] Google Drive upload failed:", err);
+    return NextResponse.json({ error: "Upload ke Google Drive gagal, coba lagi." }, { status: 502 });
+  }
+
+  const log = await prisma.surveyUploadLog.create({
+    data: {
+      uploaderNip: session.userId,
+      kodePI,
+      periode,
+      namaFile,
+      driveFileId,
+    },
+  });
+
+  return NextResponse.json({
+    id: log.id,
+    namaFile: log.namaFile,
+    driveFileId: log.driveFileId,
+    uploadedAt: log.uploadedAt,
+  });
+}

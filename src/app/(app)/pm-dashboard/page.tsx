@@ -5,14 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { spesLabel } from "@/lib/spesialisasi";
+import { formatCurrency as formatRp } from "@/lib/format";
 
 export const metadata = { title: "PM Dashboard · Form POA" };
-
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
 
 interface ProductRow {
   nsmName: string;

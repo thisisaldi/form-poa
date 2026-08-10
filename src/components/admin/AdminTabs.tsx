@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PoaStatus } from "@prisma/client";
 import { ALL_SPESIALISASI_OPTIONS, spesLabel } from "@/lib/spesialisasi";
 import { displayRole } from "@/lib/role";
+import { formatCurrency as formatRp } from "@/lib/format";
 import Link from "next/link";
 import {
   createUserAction, updateUserAction, renameUserNipAction, deleteUserAction, searchUsersAction, type UserRow,
@@ -866,11 +867,6 @@ const POA_STATUS_OPTIONS: PoaStatus[] = [
   "APPROVED_BY_SM", "SUBMITTED_TO_NSM", "APPROVED_BY_NSM", "REVISI",
 ];
 
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
 
 function PoaTab() {
   const [query, setQuery] = useState("");

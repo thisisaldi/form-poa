@@ -2,12 +2,7 @@
 
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
-
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
+import { formatCurrency as formatRp } from "@/lib/format";
 
 export interface MonitoringGroup {
   code: string;
@@ -320,8 +315,8 @@ export function MonitoringChecklist({
         totalLabel={`Total ${formatRp(budgetTotal)}${budgetPctEst > 0 ? ` (${budgetPctEst.toFixed(1)}% dari estimasi)` : ""}`}
         segments={[
           { label: "PSSP", value: psspTotal, color: BLUE },
-          { label: "Discount + DPL + DPF", value: discountTotal, color: WARNING },
-          { label: "Entertain", value: entertainTotal, color: GREEN },
+          { label: "Campaign / DPL / DPF", value: discountTotal, color: WARNING },
+          { label: "ENT", value: entertainTotal, color: GREEN },
         ]}
       />
 

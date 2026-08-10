@@ -20,6 +20,12 @@ Filter periode tab Ringkasan dibatasi hanya boleh memilih **satu quarter** (isti
 
 **Bentuk input (direvisi 2026-08-06)**: awalnya satu `<select>` berisi string gabungan "YYYY-QN" (query param tunggal `quarter`). Diganti jadi **dua dropdown terpisah** — Kuartal (Q1-Q4) dan Tahun (dari tahun-tahun yang punya data POA, `allPeriods` di-derive jadi `ringkasanYears`) — via dua query param `qQuarter` (nilai "1"-"4") dan `qYear` (nilai "YYYY"), digabung di server (`summary/page.tsx`) jadi `ringkasanQuarter` ("YYYY-QN") seperti sebelumnya. Alasan: dropdown tunggal berisi puluhan opsi "2024-Q1", "2024-Q2", ... makin lama makin panjang dan lebih lambat di-scan daripada dua dropdown pendek.
 
+## 4b. Task tambahan 2026-08-10 (belum diimplementasikan — lihat `01-business-rules.md` §6)
+
+- **Item #7 (SUM Product Per Outlet)** berlokasi di halaman **Drafting & Input Form** (`DraftChecklist.tsx`/`LineItemEditor.tsx`), BUKAN di `/summary` — kalau diimplementasikan, dokumentasinya tetap ditambahkan sebagai extension di sini (bukan folder spec baru) karena secara konsep berdekatan dengan metrik agregat Ringkasan, tapi lokasi kode-nya beda halaman dari §1-§5 di atas.
+- **Item #8, #9, #13** semuanya di tab Ringkasan (`summary/page.tsx`), extension langsung dari §3/§4 yang sudah ada.
+- Role/akses untuk keempat item ini: **belum ditentukan** — kemungkinan besar reuse gate yang sama (§2 di atas, semua role kecuali MR untuk metrik agregat; item #7 kemungkinan malah untuk MR karena letaknya di halaman drafting personal MR — perlu dikonfirmasi bersamaan dengan open question §6.3 `01-business-rules.md`).
+
 ## 4. Non-goals
 
 - **Dimensi `Q-Sebelumnya`/`Realisasi` di breakdown historis §5** (`01-business-rules.md`, 13-metrik) — sengaja ditunda, tidak dibangun. Hanya `Rencana`/`Aktif` yang dibangun. Kandidat perluasan versi berikutnya. (Beda dari tile "Estimasi PSSP Aktif (Q-Sebelumnya)" di §4 — eks-kolom §2 yang sudah dihapus — yang genuinely tercacah per-kuartal, bukan limitasi terbuka lagi.)

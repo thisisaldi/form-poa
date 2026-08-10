@@ -176,6 +176,60 @@ Draft requirement awal menyebut **4 dimensi historis**: `Q-Sebelumnya (Aktif)`, 
 
 Kelima baris ini kemungkinan besar sama persis dengan breakdown budget yang SUDAH ADA di Ringkasan saat ini (`docs/form-poa/03-ui-and-access.md` §3: "breakdown budget (PSSP/Discount/Entertain + Total Budget)") — kemungkinan proposal ini hanya meminta breakdown yang lebih rinci (DPL/DPF/DP dipisah, bukan digabung jadi "Discount") ditambah dimensi historis 4-kolom di §5. Perlu dikonfirmasi ini betul reorganisasi dari yang sudah ada, bukan sumber data baru.
 
+## 6. Task tambahan 2026-08-10 (item #7/#8/#9/#13 dari daftar 13 task baru pengguna)
+
+*(Sumber: daftar 13 task baru dari pengguna, sesi 2026-08-10 — lihat `docs/sdd/01-when-and-workflow.md` untuk proses. Empat item ini menyentuh tab Ringkasan/halaman drafting yang sudah didokumentasikan spec ini, jadi ditambahkan sebagai extension di sini alih-alih folder spec baru terpisah, sesuai prinsip cross-reference `docs/sdd/04-quality-checklist.md` §15.)*
+
+### 6.1 Item #9 — Reposisi §3 "Pencapaian Target" ke posisi paling atas ✅ RESOLVED 2026-08-10
+
+**Dikonfirmasi pengguna**: bukan soal tile "Target" di §4 (itu memang sudah tile pertama sejak 2026-08-06, tidak perlu diapa-apakan) — yang dimaksud task #9 adalah **section §3 "Pencapaian Target"** (stacked bar chart Target vs PSSP Rencana+Aktif) dipindah jadi section PERTAMA di tab Ringkasan, di atas §4 "Target/Estimasi/Sales/Pelunasan".
+
+**Requirement konkret**: urutan section tab Ringkasan berubah dari `§4 → §3 → §5` (urutan sejak 2026-08-06) menjadi `§3 → §4 → §5` — cuma reorder kartu, tidak ada perubahan formula/konten di dalam §3 maupun §4 itu sendiri. Implementasi: pindah blok JSX §3 "Pencapaian Target" (`summary/page.tsx`, `RingkasanTargetStackedBar`) ke atas blok §4, di bawah counts-line generik yang sudah ada di puncak tab.
+
+**Non-blocking**: pastikan `HeaderInfo` ikon metodologi dan counts-line (yang sekarang nempel di header §4) tetap kebaca jelas walau §4 turun jadi section kedua — tidak perlu dipindah, cukup section-nya saja yang reorder.
+
+### 6.2 Item #8 — Metrik "Rencana+Aktif to Target", "Aktif to Target", "Sales to Target" ✅ RESOLVED 2026-08-10
+
+**Dikonfirmasi pengguna**: "Produk Fokus" di task #8 **= "Produk Kontes"** existing (bukan kategori baru). Pakai persis 3 metrik yang disebut task.
+
+**Lokasi dikoreksi 2026-08-10** — sempat diimplementasikan sebagai 3 tile agregat di subsection "Varian Produk Kontes" (§4), lalu dikoreksi pengguna: *"ini itu maksudnya di yang tabel produk fokus di ringkasan summary, kolom yang terkait dengan target itu ada 3 kolom itu"* — yang dimaksud adalah **tabel "Per Produk Kontes"** (§4, breakdown per produk individual), sebagai KOLOM per baris produk, bukan tile agregat gabungan semua produk. Tile agregat 3-metrik yang sempat ditambahkan sudah dihapus lagi.
+
+**Requirement final** — tabel "Per Produk Kontes" (§4) menggantikan 2 kolom rasio lama (`% Tercacah/Target`, `% Sales/Target`) dengan 3 kolom baru, dihitung PER BARIS PRODUK (bukan agregat):
+- **Rencana+Aktif to Target** = `(Estimasi PSSP Rencana + Estimasi PSSP Aktif produk itu) ÷ Target produk itu × 100`.
+- **Aktif to Target** = `Estimasi PSSP Aktif produk itu ÷ Target produk itu × 100` — genuinely metrik baru, belum ada di manapun sebelumnya.
+- **Sales to Target** = `Sales produk itu ÷ Target produk itu × 100` — rename dari `% Sales dari Target` yang sudah ada, formula tidak berubah.
+
+Kolom "Estimasi Tercacah" pada tabel yang sama TETAP ada (tidak dihapus) — cuma kolom rasio `% Tercacah/Target`-nya yang digantikan oleh 3 kolom di atas (Tercacah tidak dipakai lagi sebagai basis rasio, digantikan Rencana+Aktif).
+
+**Catatan penting (tidak berubah)**: Target per produk kontes **belum ada di data model manapun** — dummy khusus ADMIN dipakai sebagai scaffolding sementara (lihat §4 "Target per produk kontes — dummy khusus ADMIN"). Tiga kolom baru ini otomatis kena limitasi yang sama — untuk role selain ADMIN akan tetap "-" sampai Target per produk asli ada.
+
+### 6.3 Item #7 — Info Dokter & Produk Lain di Outlet yang Sama (Drafting & Input Form) ✅ RESOLVED 2026-08-10
+
+**Diklarifikasi pengguna 2026-08-10** — bukan angka SUM (qty/Rupiah), melainkan **daftar informasi**: user (dokter) dan produk apa saja yang MR ini SUDAH buat/tambahkan di outlet yang SAMA dengan dokter yang sedang dikerjakan, ditampilkan saat drafting maupun saat input form. Tujuannya: MR bisa lihat sekilas apa yang sudah dia rencanakan di outlet itu tanpa harus scroll/cari manual — mencegah duplikasi/kelupaan produk untuk outlet yang sama.
+
+**Genuinely fitur baru — tidak ada saat ini.** Riset kode (2026-08-10): `DraftChecklist.tsx` menampilkan daftar dokter sebagai **list flat** (satu row per dokter, nama outlet ditampilkan sebagai subteks di tiap row — `DraftChecklist.tsx:835`, `first.namaOutlet`), **tidak dikelompokkan per outlet** dan tidak ada cross-reference "dokter lain + produk apa di outlet yang sama". `LineItemEditor.tsx`'s `AddPanel` (halaman Input Form) juga tidak punya panel semacam ini — begitu MR pilih outlet+dokter, tidak ada info tentang dokter/produk lain yang sudah ada di outlet itu.
+
+**Requirement konkret (v1)**:
+1. **Di Input Form** (`AddPanel`/`LineItemEditor.tsx`, begitu `kodePI` outlet dipilih) — tampilkan panel info kecil: daftar dokter lain (selain yang sedang dikerjakan sekarang, kalau ada) yang sudah ada di POA draft ini untuk outlet yang sama, beserta produk yang sudah mereka punya. Sumber data: `items` yang sudah di-fetch untuk POA ini, di-filter `kodePI` yang sama, group by dokter (`doctorKey()` — pola yang sudah ada, `DraftChecklist.tsx:49`).
+2. **Di Draft Checklist** (`DraftChecklist.tsx`) — tambahkan pengelompokan per outlet (atau minimal indikator visual) supaya dokter-dokter di outlet yang sama gampang di-scan bersebelahan, bukan tersebar di list flat urut lain (mis. urut nama). Bentuk pasti (grouping header per outlet vs badge count "3 dokter lain di outlet ini") — kandidat desain, bukan requirement kaku.
+
+**Non-goals v1**: tidak menghitung/menampilkan SUM numerik apapun (qty atau Rupiah) — murni daftar nama dokter + nama produk sebagai referensi visual buat MR.
+
+### 6.4 Item #13 — Informasi pengajuan vs approved (dengan daftar siapa yang sudah approve)
+
+**Tidak ada saat ini.** Counts-line di header §4 (`summary/page.tsx`, dipindah dari §2 yang dihapus) cuma menampilkan angka flat: "N MR · N POA · N pengajuan · Q-Berjalan..." — tidak ada breakdown "berapa yang sudah di-approve vs masih pending", dan tidak ada daftar approver.
+
+Kemungkinan overlap dengan 2 item TODO existing yang belum dikerjakan:
+- `docs/TODO.md` #50 — "Halaman Approval By Personil: kolom wajib" (Estimasi Aktif+Baru, Budget, Cost Ratio).
+- `docs/TODO.md` #63 — "Matriks Summary Per Personil" (belum dikerjakan).
+
+❓ **Open question BLOCKING** — beberapa hal perlu diklarifikasi sebelum desain metrik ini:
+1. **Lokasi tampilan**: di tab Ringkasan (agregat company/subtree-wide), atau halaman terpisah dekat Approvals (`ApprovalsChecklist.tsx`)?
+2. **Skop "approved"**: approved di level mana — `APPROVED_BY_ASM`/`APPROVED_BY_SM` (legacy, jarang dipakai — lihat `docs/form-poa/01-business-rules.md` §1) atau `APPROVED_BY_NSM` (approval final)?
+3. **Bentuk daftar approver**: per-POA (siapa yang approve POA ini) — sudah ada di Riwayat Aktivitas tiap POA (`page.tsx:495-499`, via `PoaAuditLog` action `APPROVE`) — atau agregat per-periode (mis. "bulan ini, approver X sudah approve N POA")?
+
+Rekomendasi: jangan bangun fitur ini terpisah dari #50/#63 tanpa cek dulu apakah stakeholder sebenarnya minta hal yang sama — cross-reference dulu sebelum implementasi supaya tidak dobel kerjaan.
+
 ## Open questions — status & assumptions
 
 *(Konvensi ⚠️/❓/✅ mengikuti `docs/sdd/03-conventions.md`. Diperbarui 2026-08-05 setelah beberapa putaran klarifikasi lanjutan dengan pengguna — lihat status per item.)*
@@ -192,7 +246,12 @@ Kelima baris ini kemungkinan besar sama persis dengan breakdown budget yang SUDA
 9. Target per produk kontes — **dikonfirmasi belum ada di data model, akan dibangun di masa depan** ("nanti akan ada target per produk kontes"). Dummy khusus ADMIN untuk testing tampilan sementara ini dibangun sebagai jembatan, bukan data asli. Lihat §4.
 10. Estimasi Tercacah per produk — **dikonfirmasi dihitung ulang per produk individual** (bukan pembagian rata dari angka agregat). Lihat §4.
 
-**Tidak ada lagi open question berstatus BLOCKING.** Sebelum implementasi lanjutan (mis. saat Target per produk kontes asli tersedia dan dummy-nya perlu dicopot), tetap disarankan satu putaran konfirmasi terakhir ke pengguna, sebagai langkah "convergence check" standar (`docs/sdd/01-when-and-workflow.md` §2).
+**Tidak ada lagi open question berstatus BLOCKING untuk v1 yang sudah diimplementasikan (§1-§5).** Sebelum implementasi lanjutan (mis. saat Target per produk kontes asli tersedia dan dummy-nya perlu dicopot), tetap disarankan satu putaran konfirmasi terakhir ke pengguna, sebagai langkah "convergence check" standar (`docs/sdd/01-when-and-workflow.md` §2).
+
+**RESOLVED 2026-08-10** — §6.1 (item #9), §6.2 (item #8), §6.3 (item #7) sudah dikonfirmasi pengguna, requirement final tercatat di masing-masing subsection. Siap diimplementasikan.
+
+**Masih BLOCKING — task tambahan 2026-08-10, belum diimplementasikan:**
+1. §6.4 (item #13) — lokasi tampilan, skop level approval, bentuk daftar approver; perlu cross-check dulu ke `docs/TODO.md` #50/#63 supaya tidak dobel kerjaan.
 
 **Non-blocking — bisa diasumsikan sementara, tapi wajib dicatat di kode kalau nanti diimplementasikan:**
 1. Scope rename "Pengajuan" → "PSSP Rencana" (§1) — global vs lokal ke tab Ringkasan.

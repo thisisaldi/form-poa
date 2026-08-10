@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { NotReadyButton } from "@/components/ui/NotReadyButton";
 import { DeletePoaButton } from "@/components/poa/DeletePoaButton";
+import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart";
 import type { PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
 import { displayRole } from "@/lib/role";
+import { formatCurrency as formatRp } from "@/lib/format";
 
 export const metadata = { title: "Dashboard · Form POA" };
 
@@ -20,12 +22,6 @@ function buildPageHref(page: number, size: string, q?: string) {
   sp.set("size", size);
   if (q) sp.set("q", q);
   return `/dashboard?${sp.toString()}`;
-}
-
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
 }
 
 type PoaWithMeta = PoaFormType & {
@@ -313,6 +309,23 @@ async function DashboardContent({
     }
   }
 
+  // Progress approval per status (2026-08-10) — "chart untuk tau progress
+  // approval nya... bar draft, bar submitted ke ASM, bar submitted ke SM,
+  // dst", scoped ke subtree actor lewat visibleFilter yang sama dipakai
+  // tabel "Semua POA" di bawah (ASM lihat progress MR-nya, SM lihat
+  // progress ASM+MR di bawahnya, dst — bukan query/RBAC baru). Discoped ke
+  // mrProgressPeriod yang sama dengan panel "Progres Submit MR" di atas
+  // supaya kedua panel selalu menunjuk ke kuartal yang sama.
+  let statusCounts: Partial<Record<PoaStatus, number>> = {};
+  if (!isMR && mrProgressPeriod) {
+    const statusRows = await prisma.poaForm.groupBy({
+      by: ["status"],
+      where: { AND: [visibleFilter, { period: mrProgressPeriod }] },
+      _count: { _all: true },
+    }) as { status: PoaStatus; _count: { _all: number } }[];
+    statusCounts = Object.fromEntries(statusRows.map(r => [r.status, r._count._all]));
+  }
+
   return (
     <div className="space-y-6">
       {/* Action-buttons row — was inline next to the header title in the
@@ -426,6 +439,19 @@ async function DashboardContent({
               );
             })()}
           </div>
+        </Card>
+      )}
+
+      {!isMR && mrProgressPeriod && Object.keys(statusCounts).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Progress Approval</CardTitle>
+            <span className="text-xs px-2 py-0.5 rounded"
+              style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
+              Periode {mrProgressPeriod}
+            </span>
+          </CardHeader>
+          <PoaStatusProgressChart counts={statusCounts} />
         </Card>
       )}
 

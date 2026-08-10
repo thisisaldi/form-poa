@@ -64,6 +64,14 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/survey/upload",
+    label: "Input Data Survey",
+    icon: <IconTable />,
+    // MR-only v1 (2026-08-10, item #10 dari daftar 13 task baru) — lihat
+    // docs/survey-pasien-features/03-ui-and-access.md §5.
+    roles: ["MR"],
+  },
+  {
     href: "/faq",
     label: "FAQ",
     icon: <IconBook />,

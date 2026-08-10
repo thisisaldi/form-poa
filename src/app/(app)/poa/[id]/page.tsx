@@ -2,7 +2,9 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips } from "@/lib/authz";
+import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
+import { computeMonthlyBreakdown } from "@/lib/poaUtils";
+import { computeActivePsspStats } from "@/lib/activePssp";
 import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction, requestEditAction, grantEditRequestAction, declineEditRequestAction } from "@/app/actions/poa";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -135,6 +137,80 @@ export default async function PoaDetailPage({
       select: { kodePI: true },
     });
     activePssp = await getActivePsspByOutlets(assignments.map((a: { kodePI: string }) => a.kodePI));
+  }
+
+  // "Informasi PSSP Outlet" dropdown per DoctorRow (2026-08-10) — per-outlet
+  // jumlah user + Rencana yang SUDAH DISUBMIT (non-draft), tercacah ke
+  // kuartal POA ini. Scoped ke outlet yang genuinely ada di draft ini (bukan
+  // seluruh territory MR seperti activePssp di atas — dropdown ini cuma
+  // pernah dirender untuk outlet yang punya baris dokter). Batched SEKALI di
+  // sini (bukan per-row) — lihat docs/PERFORMANCE.md §2.4, jangan query di
+  // dalam loop per item.
+  const outletKodesInDraftSet = new Set<string>();
+  for (const it of allItems as PoaLineItem[]) {
+    if (it.kodePI) outletKodesInDraftSet.add(it.kodePI);
+  }
+  const outletKodesInDraft: string[] = [...outletKodesInDraftSet];
+  const outletPsspInfo: Record<string, {
+    userCount: number;
+    rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number;
+    aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number;
+  }> = {};
+  if (outletKodesInDraft.length > 0) {
+    const quarterMonthsForOutletInfo = /^\d{4}-Q[1-4]$/.test(poa.period) ? quarterToMonths(poa.period) : [];
+
+    // PSSP Aktif di sini SENGAJA di-query langsung per outlet yang ada di
+    // draft ini (getActivePsspByOutlets), BUKAN reuse `activePssp` di atas —
+    // `activePssp` itu scoped ke MrOutletAssignment PEMILIK POA ini untuk
+    // bulan berjalan, yang bisa saja TIDAK mencakup outlet seorang dokter
+    // (mis. outlet itu baru pindah assignment, atau memang dikelola MR lain
+    // secara historis) padahal kontrak PSSP aktifnya genuinely ada di outlet
+    // itu — bug ditemukan 2026-08-10 (dropdown "PSSP Outlet" tetap "-" walau
+    // ada kontrak aktif riil). Fix: query independen dari assignment siapa
+    // pun, murni berdasar outlet yang dokternya sudah masuk draft ini.
+    const [userCounts, submittedItems, outletActivePsspRows] = await Promise.all([
+      prisma.customerOutlet.groupBy({
+        by: ["kodePI"],
+        where: { kodePI: { in: outletKodesInDraft } },
+        _count: { _all: true },
+      }),
+      prisma.poaLineItem.findMany({
+        where: { kodePI: { in: outletKodesInDraft }, poa: { status: { in: NON_DRAFT_STATUSES } } },
+        select: { kodePI: true, periodeAwal: true, lamaPeriode: true, rencanaTotalBiaya: true, persenPsspDokter: true, pengaliNilaiR: true },
+      }),
+      getActivePsspByOutlets(outletKodesInDraft),
+    ]);
+
+    const itemsByOutlet = new Map<string, typeof submittedItems>();
+    for (const it of submittedItems) {
+      if (!it.kodePI) continue;
+      const g = itemsByOutlet.get(it.kodePI) ?? [];
+      g.push(it);
+      itemsByOutlet.set(it.kodePI, g);
+    }
+
+    for (const kodePI of outletKodesInDraft) {
+      const userCount = userCounts.find((u: { kodePI: string; _count: { _all: number } }) => u.kodePI === kodePI)?._count._all ?? 0;
+
+      const breakdown = computeMonthlyBreakdown(itemsByOutlet.get(kodePI) ?? []);
+      let rencanaTercacahEstimasi = 0, rencanaTercacahNilaiPssp = 0;
+      for (const m of quarterMonthsForOutletInfo) {
+        const v = breakdown.get(m);
+        if (v) { rencanaTercacahEstimasi += v.estimasi; rencanaTercacahNilaiPssp += v.nilaiPssp; }
+      }
+
+      const aktifStats = computeActivePsspStats(
+        outletActivePsspRows.filter((r) => r.kdOutlet === kodePI),
+        quarterMonthsForOutletInfo
+      );
+
+      outletPsspInfo[kodePI] = {
+        userCount,
+        rencanaTercacahEstimasi, rencanaTercacahNilaiPssp,
+        aktifTercacahEstimasi: aktifStats.estBarisTercacah,
+        aktifTercacahNilaiPssp: aktifStats.nilaiTercacah,
+      };
+    }
   }
 
   // Which of this POA's already-matched doctors (kodeCust set) have EVER had a
@@ -374,6 +450,7 @@ export default async function PoaDetailPage({
         userCanEdit={userCanEdit}
         selectable={isOwner}
         activePssp={activePssp}
+        outletPsspInfo={outletPsspInfo}
         everPsspKodeCust={everPsspKodeCust}
         kontesProductTargets={kontesProductTargets}
         salesSummary={salesSummary}

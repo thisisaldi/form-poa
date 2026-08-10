@@ -160,7 +160,7 @@ const SECTIONS: DefSection[] = [
         ),
       },
       {
-        name: "Discount + DPL + DPF",
+        name: "Campaign / DPL / DPF",
         keywords: "diskon dpl dpf listing fee",
         body: <Formula>Σ rencanaTotalBiaya × (persenDiskon + persenDp + persenListingFee)</Formula>,
       },

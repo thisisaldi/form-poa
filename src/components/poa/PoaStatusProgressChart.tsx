@@ -1,21 +1,21 @@
 import type { PoaStatus } from "@prisma/client";
-import { NON_DRAFT_STATUSES } from "@/lib/authz";
 
 /**
  * Progress-per-status bar chart (2026-08-10) — "chart untuk tau progress
- * approval nya... bar draft, bar submitted ke ASM, bar submitted ke SM,
- * dst". Dipakai di 2 tempat: Dashboard (`dashboard/page.tsx`, scoped ke
- * subtree actor via getVisiblePoaFilter — ASM lihat progress MR-nya, SM
- * lihat progress ASM+MR di bawahnya, dst) dan tab Ringkasan Summary
- * (`summary/page.tsx`, antara "Estimasi PSSP per Bulan" dan "Varian Produk
- * Kontes"). Satu komponen chart, data-fetching beda di tiap caller.
+ * approval nya... bar submitted ke ASM, bar submitted ke SM, dst" — 6
+ * submitted/approved statuses only (DRAFT/REVISI excluded, see
+ * POA_STATUS_FLOW_ORDER's own comment). Dipakai di 2 tempat: Dashboard
+ * (`dashboard/page.tsx`, scoped ke subtree actor via getVisiblePoaFilter —
+ * ASM lihat progress MR-nya, SM lihat progress ASM+MR di bawahnya, dst) dan
+ * tab Ringkasan Summary (`summary/page.tsx`, antara "Estimasi PSSP per
+ * Bulan" dan "Varian Produk Kontes"). Satu komponen chart, data-fetching
+ * beda di tiap caller.
  *
  * Horizontal bar (bukan SVG) — label kiri (lebar tetap), track+fill di
  * tengah, angka di kanan (text token, bukan warna fill — "text wears text
  * tokens, never the series color"). HTML/CSS flexbox dipilih alih-alih SVG
- * fixed-width (pola RingkasanCharts.tsx) karena 8 kategori dengan label
- * beda panjang lebih natural sebagai baris responsif daripada canvas SVG
- * tetap.
+ * fixed-width (pola RingkasanCharts.tsx) karena kategori dengan label beda
+ * panjang lebih natural sebagai baris responsif daripada canvas SVG tetap.
  */
 
 // Warna SAMA PERSIS dengan StatusBadge.tsx (bukan palet baru) — status
@@ -28,15 +28,20 @@ const PENDING_COLOR = "#C99A3D";  // var(--color-status-pending)
 const APPROVED_COLOR = "#008f42"; // var(--color-status-approved)
 const REVISI_COLOR = "#C0392B";   // var(--color-status-revisi)
 
+// DRAFT/REVISI deliberately excluded (2026-08-10 follow-up, task #13
+// "berapa pengajuan vs approved": "yang di summary dan dashboard itu yang
+// draft dan revisi tidak dipakai. cuma yang submit dan approved") — this
+// chart tracks approval PROGRESS specifically, and a Draft (not yet
+// submitted at all) or Revisi (kicked back, no longer "in progress") row
+// doesn't belong in that pipeline. Applies to both callers (Dashboard,
+// Ringkasan Summary) since they share this one component/order.
 export const POA_STATUS_FLOW_ORDER: PoaStatus[] = [
-  "DRAFT",
   "SUBMITTED_TO_ASM",
   "APPROVED_BY_ASM",
   "SUBMITTED_TO_SM",
   "APPROVED_BY_SM",
   "SUBMITTED_TO_NSM",
   "APPROVED_BY_NSM",
-  "REVISI",
 ];
 
 const STATUS_META: Record<PoaStatus, { label: string; color: string }> = {
@@ -57,15 +62,11 @@ export function PoaStatusProgressChart({ counts }: { counts: Partial<Record<PoaS
     ...STATUS_META[status],
   }));
   const max = Math.max(...rows.map((r) => r.count), 1);
-  // Total — DRAFT/REVISI excluded (2026-08-10 follow-up, task #13 "berapa
-  // pengajuan vs approved": "mending yang draft dan revisi tidak usah di
-  // hitung, yang dihitung itu hanya yang submitted dan approved"). Draft
-  // rows are still shown below for context (not yet submitted at all), just
-  // not folded into this figure — same NON_DRAFT_STATUSES definition
-  // `poas`/`getVisiblePoaFilter` already use elsewhere for "submitted, not
-  // DRAFT/REVISI", so this always agrees with any other count derived from
-  // that same filter (e.g. the Ringkasan counts line's POA figure).
-  const total = rows.reduce((s, r) => s + (NON_DRAFT_STATUSES.includes(r.status) ? r.count : 0), 0);
+  // Sum of the rows actually shown — already DRAFT/REVISI-free since
+  // POA_STATUS_FLOW_ORDER excludes them, so this naturally agrees with any
+  // other count derived from the same "submitted, not draft/revisi"
+  // definition (e.g. the Ringkasan counts line's POA figure, `poas.length`).
+  const total = rows.reduce((s, r) => s + r.count, 0);
 
   return (
     <div className="space-y-2">

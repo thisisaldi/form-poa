@@ -112,11 +112,21 @@ export async function fastTrackApproveAction(poaId: string, _formData: FormData)
 // does, one at a time (each has its own next-holder resolution and audit row), and
 // reports back which ones failed instead of throwing on the first bad one so a single
 // stale/already-moved POA doesn't block approving the rest of the batch.
+//
+// DISABLED via the flag below (docs/TODO.md — daftar 13 task 2026-08-10, item #11
+// "Fitur Bulk Approval (dimatikan)"). Logic kept intact, easy to re-enable by
+// flipping the flag — see ApprovalsChecklist.tsx for the matching UI-side gate.
+const BULK_APPROVE_ENABLED = false;
+
 export async function bulkApprovePoaAction(
   poaIds: string[]
 ): Promise<{ approved: number; failed: { poaId: string; error: string }[] }> {
   const session = await requireSession();
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+
+  if (!BULK_APPROVE_ENABLED) {
+    throw new Error("Bulk approval sedang dimatikan.");
+  }
 
   if (!(["SM", "NSM"] as string[]).includes(actor.role)) {
     throw new Error("Bulk approval hanya tersedia untuk SM dan NSM.");

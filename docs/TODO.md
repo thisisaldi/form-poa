@@ -197,6 +197,7 @@
 
 | Item | Catatan |
 |---|---|
+| Matikan fitur Bulk Approval | Dari daftar 13 task baru 2026-08-10, item #11 ("Fitur Bulk Approval (dimatikan)"). **Skip proses SDD penuh** (`docs/sdd/01-when-and-workflow.md` §"kapan boleh skip") — requirement paling jelas dari seluruh daftar 13 task, tidak ada data model baru/ambiguitas. Fitur saat ini LIVE untuk role SM/NSM (`canBulkApprove`, `src/components/poa/ApprovalsChecklist.tsx:78`, tombol "Approve Terpilih (N)") → `bulkApprovePoaAction` (`src/app/actions/poa.ts:111-128+`). Tidak ada feature flag existing — mematikan berarti menambah gate baru (hide tombol dan/atau block di server action), bukan flip switch yang sudah ada. |
 | Input Lama Periode dibuat nullable | ⚠️ Berdasarkan cross-check kode 07-20: **belum** — kolom `lamaPeriode` pada schema masih `Int` (`NOT NULL`, lihat migration `20260710020148_add_line_items_outlets`), dan UI pada `LineItemEditor.tsx:435` masih menggunakan `<Req/>` + validasi wajib isi pada submit handler (3 panel: Add/AddProduct/EditDoctor). Apabila memang ingin dibuat nullable, ini memerlukan migration schema + penghapusan validasi required — sampaikan saja apabila ingin dikerjakan. |
 | Rawat inap vs rawat jalan | Label sudah diganti "Pasien Baru/Hari", logic pembeda formula rawat-inap-vs-jalan belum diimplementasikan terpisah. |
 | ConfirmDialog custom menggantikan native `confirm()` | Sudah dipasang pada tombol "✎ Edit". 2 `confirm()` lain (hapus baris produk, hapus dokter) belum diganti. |

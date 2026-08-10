@@ -8,12 +8,7 @@ import {
   type TargetHospitalRow,
 } from "@/app/actions/targetHospitalValue";
 import { TARGET_HOSPITAL_PERIODS } from "@/lib/targetHospitalValue";
-
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
+import { formatCurrency as formatRp } from "@/lib/format";
 
 const PERIOD_LABEL: Record<string, string> = {
   "202608": "Agu'26", "202609": "Sep'26", "202610": "Okt'26", "202611": "Nov'26", "202612": "Des'26",

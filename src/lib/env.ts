@@ -26,6 +26,14 @@ const envSchema = z.object({
   EXODUS_AUTH_CLIENT_ID: z.string().optional(),
   EXODUS_AUTH_CLIENT_SECRET: z.string().optional(),
   EXODUS_API_BASE_URL: z.string().optional(),
+  // Optional — Google Drive upload for "Input Data Survey" (see
+  // docs/survey-pasien-features/, src/lib/googleDrive.ts). Service account
+  // credential JSON, base64-encoded (avoids private-key newline escaping
+  // issues in env vars) — set via Vault per deployment, not baked into the
+  // image. Feature degrades to a clear "belum dikonfigurasi" error when
+  // unset, same pattern as EXODUS_* above.
+  GOOGLE_SERVICE_ACCOUNT_KEY: z.string().optional(),
+  GOOGLE_DRIVE_SURVEY_FOLDER_ID: z.string().optional(),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
@@ -62,6 +70,8 @@ function validateEnv(): Env {
         EXODUS_AUTH_CLIENT_ID: undefined,
         EXODUS_AUTH_CLIENT_SECRET: undefined,
         EXODUS_API_BASE_URL: undefined,
+        GOOGLE_SERVICE_ACCOUNT_KEY: undefined,
+        GOOGLE_DRIVE_SURVEY_FOLDER_ID: undefined,
         NODE_ENV: (process.env.NODE_ENV as Env["NODE_ENV"]) ?? "production",
       };
     }

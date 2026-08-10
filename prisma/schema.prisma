@@ -136,6 +136,9 @@ model User {
   kpiContractEvaluations KpiContractEvaluation[] @relation("KpiEvaluatee")
   kpiEvaluationsGiven    KpiContractEvaluation[] @relation("KpiEvaluator")
 
+  // Survey upload audit trail (see docs/survey-pasien-features/)
+  surveyUploadLogs SurveyUploadLog[]
+
   @@index([nipAtasan])
   @@index([role])
 }
@@ -260,6 +263,28 @@ model SurveyRekomendasi {
 
   @@unique([kodePI, kodeCustomer, kodeProduk])
   @@index([kodePI, kodeCustomer])
+}
+
+// Audit trail for "Input Data Survey" (docs/survey-pasien-features/, item #10
+// dari daftar 13 task 2026-08-10) — MR upload file Excel, diteruskan ke
+// shared Google Drive via service account. App tidak parse isi file, cuma
+// jadi perantara upload + catat siapa-upload-apa-kapan. Append-only: satu
+// row = satu upload yang BERHASIL tersimpan di Drive (upload gagal tidak
+// menghasilkan row, lihat 01-business-rules.md §4).
+model SurveyUploadLog {
+  id          String   @id @default(uuid())
+  uploaderNip String
+  uploader    User     @relation(fields: [uploaderNip], references: [nip])
+  kodePI      String
+  outlet      Outlet   @relation(fields: [kodePI], references: [kodePI])
+  periode     String // format YYYYMM
+  namaFile    String // nama final dipakai di Drive — format §3a: "[YYYYMMDDHHMM] - Data Survey [Nama RS] Periode [Periode] oleh [Pengaju]"
+  driveFileId String // Google Drive file ID dari response files.create
+  uploadedAt  DateTime @default(now())
+
+  @@index([uploaderNip])
+  @@index([kodePI])
+  @@index([periode])
 }
 
 model PoaLineItem {
@@ -420,6 +445,7 @@ model Outlet {
   customerOutlets       CustomerOutlet[]
   psspHospinetSnapshots PsspHospinetSnapshot[]
   surveyRekomendasi     SurveyRekomendasi[]
+  surveyUploadLogs      SurveyUploadLog[]
 
   @@index([statusOutlet])
   @@index([sector])

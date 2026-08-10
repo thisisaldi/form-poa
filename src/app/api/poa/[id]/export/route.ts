@@ -270,7 +270,10 @@ export async function GET(
   const budgetTotal  = psspTotal + discountTotal + entertainTotal;
   const budgetRatio  = estimasiTotal > 0 ? (budgetTotal / estimasiTotal) * 100 : 0;
   const budgetStatus = budgetRatio > 42.5 ? "Melebihi batas (>42.5%)" : budgetRatio > 38 ? "Mendekati batas (38–42.5%)" : budgetRatio > 0 ? "Aman (<38%)" : "-";
-  const formatRp = (n: number) => `Rp ${Math.round(n).toLocaleString("id-ID")}`;
+  // Export Excel TETAP pakai angka asli (bukan skala ÷1.000.000 yang dipakai
+  // tampilan in-app) — dikonfirmasi pengguna 2026-08-10, membatalkan asumsi
+  // OQ-2 sebelumnya di docs/label-currency-format-updates/01-business-rules.md.
+  const formatRp = (n: number) => Math.round(n).toLocaleString("id-ID");
 
   // ─── Sheet 1: Summary ────────────────────────────────────────────────────
   const summary = wb.addWorksheet("Summary");
@@ -321,8 +324,8 @@ export async function GET(
   // — Anggaran —
   addSectionHeader(summary, "Anggaran");
   addDataRow(summary, "PSSP",                    formatRp(psspTotal));
-  addDataRow(summary, "Discount + DPL + DPF",    formatRp(discountTotal), true);
-  addDataRow(summary, "Entertain",               formatRp(entertainTotal));
+  addDataRow(summary, "Campaign / DPL / DPF",    formatRp(discountTotal), true);
+  addDataRow(summary, "ENT",                     formatRp(entertainTotal));
   addDataRow(summary, "Total Budget",            formatRp(budgetTotal), true);
   addDataRow(summary, "% Budget dari Estimasi",  budgetRatio > 0 ? `${budgetRatio.toFixed(1)}%` : "-");
   addDataRow(summary, "Status Anggaran",         budgetStatus, true);
@@ -432,7 +435,7 @@ export async function GET(
     { header: "Rasio Total Biaya(%Estimasi Sales)", key: "rasioTotalBiaya", width: 14 },
     { header: "Rencana Kunjungan/ Bulan", key: "rencanaKunjungan", width: 14 },
     { header: "% PS/SP User", key: "persenPsspUser", width: 12 },
-    { header: "% Discount (DPL/DPF)", key: "persenDiskon", width: 14 },
+    { header: "% Campaign (DPL/DPF)", key: "persenDiskon", width: 14 },
     { header: "Periode Diskon", key: "periodeDiskon", width: 14 },
     { header: "% DP", key: "persenDp", width: 10 },
     { header: "% Listing Fee", key: "persenListingFee", width: 12 },

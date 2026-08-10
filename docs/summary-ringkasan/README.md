@@ -11,6 +11,8 @@ Tidak ada `02-data-model.md` terpisah — seluruh section ini murni reorganisasi
 
 ## Status
 
+⬜ **Task tambahan 2026-08-10** — daftar 13 task baru dari pengguna, item **#7** (SUM Product Per Outlet di Drafting & Input Form), **#8** (metrik Produk Fokus: Rencana+Aktif to Target, Aktif to Target, Sales to Target), **#9** (reposisi Target ke paling atas), **#13** (info pengajuan vs approved + daftar approver) — belum dimulai, punya open question BLOCKING (scope "Produk Fokus" vs "Produk Kontes", definisi "SUM", dll). Lihat `01-business-rules.md` §6 dan §"Open questions" untuk detail lengkap sebelum implementasi dimulai.
+
 🟢 **Diperluas ke SELURUH tab `/summary` (2026-08-07)** — metrik di spec ini tidak lagi eksklusif tab Ringkasan. Kelima tab lain (`Per Personil`/`Per Outlet`/`Per Customer`/`Per Spesialisasi`/`Per Produk`) menampilkan metrik yang SAMA per baris lewat `src/components/poa/RingkasanMetricsTables.tsx` (3 tabel bertumpuk: PSSP Rencana/Aktif · Value+Unit · Breakdown Historis), menggantikan `TerritoryTable` yang dihapus beserta seluruh kolom lamanya (Estimasi/Growth/Budget/Cost Ratio/Realisasi). Formula-nya dipakai ulang persis, cuma di-scope ke satu grup — detail di [`01-business-rules.md`](./01-business-rules.md) §1 "Metrik di dokumen ini TIDAK lagi eksklusif tab Ringkasan". Filter rentang periode (`SummaryFilterModal`) dihapus; filter satu kuartal berlaku untuk keenam tab.
 
 🟢 **v1 diimplementasikan 2026-08-05, direvisi berkali-kali di hari yang sama** — tab Ringkasan di `/summary` (`src/app/(app)/summary/page.tsx` + `src/components/poa/RingkasanCharts.tsx`). Menggantikan isi section "Isi kartu Ringkasan" yang sebelumnya didokumentasikan sebagai LIVE di `docs/form-poa/03-ui-and-access.md` §3 (cross-reference ⬜→🟢 sudah diberikan di sana).

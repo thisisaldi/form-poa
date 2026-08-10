@@ -103,22 +103,22 @@ function HoverTarget({
 // ONCE by the caller (Card header), not per row. Small filled squares —
 // matplotlib/seaborn legend marker convention, not a dot (no longer a
 // dumbbell) and not a line-swatch (these are bars).
-export function RingkasanCompareLegend({ showSebelumnya = false }: { showSebelumnya?: boolean }) {
+export function RingkasanCompareLegend({ showSebelumnya = false, sebelumnyaQuarterLabel = "Q-Seb" }: { showSebelumnya?: boolean; sebelumnyaQuarterLabel?: string }) {
   return (
     <div className="flex items-center gap-4 text-xs" style={{ color: "var(--color-text-muted)" }}>
       {showSebelumnya && (
         <span className="flex items-center gap-1.5">
           <span style={{ width: 9, height: 9, background: AKTIF_SEBELUMNYA_COLOR, display: "inline-block" }} />
-          Aktif Q-Sebelumnya
+          PSSP Aktif {sebelumnyaQuarterLabel}
         </span>
       )}
       <span className="flex items-center gap-1.5">
         <span style={{ width: 9, height: 9, background: RENCANA_COLOR, display: "inline-block" }} />
-        Rencana
+        PSSP Rencana
       </span>
       <span className="flex items-center gap-1.5">
         <span style={{ width: 9, height: 9, background: AKTIF_COLOR, display: "inline-block" }} />
-        Aktif
+        PSSP Aktif
       </span>
     </div>
   );
@@ -145,6 +145,9 @@ interface BarPairProps {
   // rows that don't have this dimension (Manajemen Risiko, Biaya).
   sebelumnyaVal?: number;
   sebelumnyaLabel?: string;
+  /** Kuartal aktual untuk bar ke-3, mis. "Q-2" (2026-08-10: tampilkan
+   * kuartal langsung, bukan istilah relatif "Q-Seb"/"Q-Sebelumnya"). */
+  sebelumnyaQuarterLabel?: string;
 }
 
 // Rencana vs Aktif (vs optionally Aktif Q-Sebelumnya), as a grouped bar
@@ -159,7 +162,7 @@ interface BarPairProps {
 // native SVG `<title>` on each bar adds a hover tooltip with zero
 // custom-positioning code, since the earlier custom HTML tooltip's
 // positioning logic is exactly what broke twice.
-export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabel, aktifUnavailable, compact, sebelumnyaVal, sebelumnyaLabel }: BarPairProps) {
+export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabel, aktifUnavailable, compact, sebelumnyaVal, sebelumnyaLabel, sebelumnyaQuarterLabel = "Q-Seb" }: BarPairProps) {
   const hasSebelumnya = sebelumnyaVal != null && sebelumnyaLabel != null;
   // 3-bar rows get a wider canvas so bars stay a readable width instead of
   // shrinking the whole chart — same H/margins either way.
@@ -213,7 +216,7 @@ export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabe
       {hasSebelumnya && (
         <>
           <rect x={sebelumnyaX} y={plotBottom - sebelumnyaH} width={barW} height={sebelumnyaH} fill={AKTIF_SEBELUMNYA_COLOR}>
-            <title>{`Aktif Q-Sebelumnya: ${sebelumnyaLabel}`}</title>
+            <title>{`PSSP Aktif ${sebelumnyaQuarterLabel}: ${sebelumnyaLabel}`}</title>
           </rect>
           <text x={sebelumnyaX + barW / 2} y={plotBottom - sebelumnyaH - 5} textAnchor="middle" fontSize={11} fontWeight={600} fill={INK}>
             {sebelumnyaLabel}
@@ -223,7 +226,7 @@ export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabe
 
       {/* Rencana bar — flat rectangle, no corner rounding (matplotlib default) */}
       <rect x={rencanaX} y={plotBottom - rencanaH} width={barW} height={rencanaH} fill={RENCANA_COLOR}>
-        <title>{`Rencana: ${rencanaLabel}`}</title>
+        <title>{`PSSP Rencana: ${rencanaLabel}`}</title>
       </rect>
       <text x={rencanaX + barW / 2} y={plotBottom - rencanaH - 5} textAnchor="middle" fontSize={11} fontWeight={600} fill={INK}>
         {rencanaLabel}
@@ -237,7 +240,7 @@ export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabe
       ) : (
         <>
           <rect x={aktifX} y={plotBottom - aktifH} width={barW} height={aktifH} fill={AKTIF_COLOR}>
-            <title>{`Aktif: ${aktifLabel}`}</title>
+            <title>{`PSSP Aktif: ${aktifLabel}`}</title>
           </rect>
           <text x={aktifX + barW / 2} y={plotBottom - aktifH - 5} textAnchor="middle" fontSize={11} fontWeight={600} fill={INK}>
             {aktifLabel}
@@ -249,7 +252,7 @@ export function RingkasanBarPair({ rencanaVal, rencanaLabel, aktifVal, aktifLabe
           "ada keterangannya") so every chart is self-explanatory on its
           own, not dependent on scrolling back up to the shared legend. */}
       {hasSebelumnya && (
-        <text x={sebelumnyaX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Q-Seb</text>
+        <text x={sebelumnyaX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>{sebelumnyaQuarterLabel}</text>
       )}
       <text x={rencanaX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Rencana</text>
       <text x={aktifX + barW / 2} y={H - 4} textAnchor="middle" fontSize={9} fill={MUTED}>Aktif</text>
@@ -268,6 +271,9 @@ interface SplitBarPairProps {
   // Optional 3rd cluster (2026-08-08) — Aktif Q-Sebelumnya. Omitted entirely
   // on rows that don't carry this dimension.
   sebelumnyaParts?: BarPart[] | null;
+  /** Kuartal aktual untuk cluster ke-3, mis. "Q-2" (2026-08-10: tampilkan
+   * kuartal langsung, bukan istilah relatif "Q-Seb"/"Q-Sebelumnya"). */
+  sebelumnyaQuarterLabel?: string;
 }
 
 // §5b's two composite rows (Breakdown User/KPDM, Jumlah Customer Baru vs
@@ -278,7 +284,7 @@ interface SplitBarPairProps {
 // are both readable at once. Same matplotlib/seaborn styling as
 // `RingkasanBarPair` (gridlines, flat bars, muted axis) — this is that same
 // visual language generalized from 1 bar per side to N.
-export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaParts }: SplitBarPairProps) {
+export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaParts, sebelumnyaQuarterLabel = "Q-Seb" }: SplitBarPairProps) {
   const hasSebelumnya = sebelumnyaParts !== undefined;
   const W = hasSebelumnya ? 300 : 220;
   const H = 86;
@@ -327,7 +333,7 @@ export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaPart
             return (
               <g key={p.subLabel}>
                 <rect x={x} y={plotBottom - h} width={barW} height={h} fill={AKTIF_SEBELUMNYA_COLOR}>
-                  <title>{`Aktif Q-Sebelumnya ${p.subLabel}: ${p.display}`}</title>
+                  <title>{`PSSP Aktif ${sebelumnyaQuarterLabel} ${p.subLabel}: ${p.display}`}</title>
                 </rect>
                 <text x={x + barW / 2} y={plotBottom - h - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={INK}>{p.display}</text>
                 <text x={x + barW / 2} y={H - 12} textAnchor="middle" fontSize={8} fill={MUTED}>{p.subLabel}</text>
@@ -343,7 +349,7 @@ export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaPart
         return (
           <g key={p.subLabel}>
             <rect x={x} y={plotBottom - h} width={barW} height={h} fill={RENCANA_COLOR}>
-              <title>{`Rencana ${p.subLabel}: ${p.display}`}</title>
+              <title>{`PSSP Rencana ${p.subLabel}: ${p.display}`}</title>
             </rect>
             <text x={x + barW / 2} y={plotBottom - h - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={INK}>{p.display}</text>
             <text x={x + barW / 2} y={H - 12} textAnchor="middle" fontSize={8} fill={MUTED}>{p.subLabel}</text>
@@ -362,7 +368,7 @@ export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaPart
           return (
             <g key={p.subLabel}>
               <rect x={x} y={plotBottom - h} width={barW} height={h} fill={AKTIF_COLOR}>
-                <title>{`Aktif ${p.subLabel}: ${p.display}`}</title>
+                <title>{`PSSP Aktif ${p.subLabel}: ${p.display}`}</title>
               </rect>
               <text x={x + barW / 2} y={plotBottom - h - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={INK}>{p.display}</text>
               <text x={x + barW / 2} y={H - 12} textAnchor="middle" fontSize={8} fill={MUTED}>{p.subLabel}</text>
@@ -372,7 +378,7 @@ export function RingkasanSplitBarPair({ rencanaParts, aktifParts, sebelumnyaPart
       )}
 
       {hasSebelumnya && (
-        <text x={sebelumnyaStartX + sebelumnyaClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Q-Seb</text>
+        <text x={sebelumnyaStartX + sebelumnyaClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>{sebelumnyaQuarterLabel}</text>
       )}
       <text x={startX + rencanaClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Rencana</text>
       <text x={aktifStartX + aktifClusterW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill={MUTED}>Aktif</text>

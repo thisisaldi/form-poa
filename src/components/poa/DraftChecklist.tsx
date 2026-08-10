@@ -15,20 +15,15 @@ import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
 import { computeMonthlyBreakdown, formatPeriode } from "@/lib/poaUtils";
 import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
+import { formatCurrency } from "@/lib/format";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
-
-// Nilai PSSP displays in "Rb" (e.g. 3.000.000 → "3 Rb").
-export function formatRpPssp(n: number) {
-  if (n >= 1_000_000) return `${Math.round(n / 1_000_000).toLocaleString("id-ID")} Rb`;
-  return Math.round(n).toLocaleString("id-ID");
-}
+// Both re-export the same shared formatter (docs/label-currency-format-updates/
+// 01-business-rules.md §1) — the old "Jt/M" vs "Rb" scaling distinction between
+// these two names no longer applies now that neither has a suffix.
+export const formatRp = formatCurrency;
+export const formatRpPssp = formatCurrency;
 
 // Masks a doctor's name for the draft view: keeps every other character, replaces the rest with X.
 function censorName(name: string): string {
@@ -407,7 +402,7 @@ export function StatsPanel({
         </span>
       </div>
 
-      {/* ── 1. Estimasi & Nilai PSSP — PSSP Berjalan vs POA, Bukan Tercacah vs Tercacah ──
+      {/* ── 1. Estimasi & Nilai PSSP — PSSP Aktif vs PSSP Rencana, Bukan Tercacah vs Tercacah ──
           Moved to the top (2026-08-04 request) so it's immediately visible, above
           the fold. Bukan Tercacah = full period as originally planned/contracted.
           Tercacah = apportioned to just this POA's quarter. Order corrected
@@ -421,16 +416,16 @@ export function StatsPanel({
             {
               title: "Full Periode",
               rows: [
-                { label: "PSSP Berjalan", estimasi: aktifPssp.estBarisTotal,          nilai: aktifPssp.nilaiTotal },
-                { label: "POA",           estimasi: s.estimasiTotal,                 nilai: s.psspTotal },
+                { label: "PSSP Aktif",    estimasi: aktifPssp.estBarisTotal,          nilai: aktifPssp.nilaiTotal },
+                { label: "PSSP Rencana",  estimasi: s.estimasiTotal,                 nilai: s.psspTotal },
                 { label: "Total",         estimasi: estimasiDisplay,                 nilai: s.psspTotal + aktifPssp.nilaiTotal, bold: true },
               ],
             },
             {
               title: `Tercacah (Kuartal ${qLabel})`,
               rows: [
-                { label: `PSSP Aktif ${qLabel}`, estimasi: aktifPssp.estBarisTercacah, nilai: aktifPssp.nilaiTercacah },
-                { label: `POA ${qLabel}`,        estimasi: tercacah.estimasi,          nilai: tercacah.nilaiPssp },
+                { label: `PSSP Aktif ${qLabel}`,   estimasi: aktifPssp.estBarisTercacah, nilai: aktifPssp.nilaiTercacah },
+                { label: `PSSP Rencana ${qLabel}`, estimasi: tercacah.estimasi,          nilai: tercacah.nilaiPssp },
                 { label: "Total",                estimasi: tercacahEstimasiWithAktif,  nilai: tercacahNilaiPsspWithAktif, bold: true },
               ],
             },
@@ -523,8 +518,8 @@ export function StatsPanel({
       <div className="space-y-2.5 mb-5">
         {[
           { label: "PSSP",               value: s.psspTotal },
-          { label: "Discount + DPL + DPF", value: s.discountTotal },
-          { label: "Entertain",          value: s.entertainTotal },
+          { label: "Campaign / DPL / DPF", value: s.discountTotal },
+          { label: "ENT",                value: s.entertainTotal },
         ].map(({ label, value }) => {
           const pct = s.estimasiTotal > 0 ? (value / s.estimasiTotal) * 100 : 0;
           const fmt = label === "PSSP" ? formatRpPssp : formatRp;
@@ -542,7 +537,7 @@ export function StatsPanel({
           );
         })}
         {/* DP & Listing Fee (Tercacah Kuartal Ini) — split out from the
-            "Discount + DPL + DPF" full-period bucket above (2026-08-08
+            "Campaign / DPL / DPF" full-period bucket above (2026-08-08
             request), apportioned to just this quarter the same way
             "Estimasi POA (Tercacah)" is (computeBiayaTercacah), not blended
             full-period like the 3 bars above. Denominator is tercacah.estimasi
@@ -566,21 +561,23 @@ export function StatsPanel({
             </div>
           );
         })}
-        {/* Biaya Aktif vs Biaya Pengajuan (POA Baru), separated instead of blended
+        {/* Biaya Aktif vs Biaya Rencana, separated instead of blended
             straight into one "Total Budget" line (2026-08-05, stakeholder item #9:
             "Biaya Estimasi Tercacah di Ringkasan Draft — breakdown Estimasi Aktif,
-            Biaya Aktif, dan Total Setelah Akumulasi POA Baru"). Biaya Pengajuan is
-            the subtotal of the PSSP/Discount/Entertain bars above (= s.budgetTotal);
-            Biaya Aktif is the still-running PSSP contracts' own budget contribution. */}
+            Biaya Aktif, dan Total Setelah Akumulasi POA Baru"). Biaya PSSP Rencana is
+            the subtotal of the PSSP/Campaign-DPL-DPF/ENT bars above (= s.budgetTotal);
+            Biaya PSSP Aktif is the still-running PSSP contracts' own budget contribution.
+            Label diselaraskan ke "PSSP Rencana"/"PSSP Aktif" (2026-08-10, item #6 dari
+            daftar 13 task baru). */}
         <div className="pt-2 space-y-1.5" style={{ borderTop: `1px solid ${BORDER}` }}>
           <div className="flex justify-between text-xs">
-            <span style={{ color: MUTED }}>Biaya Pengajuan (POA Baru)</span>
+            <span style={{ color: MUTED }}>Biaya PSSP Rencana</span>
             <span style={{ color: TEXT }}>{s.budgetTotal > 0 ? formatRp(s.budgetTotal) : "-"}</span>
           </div>
           {aktifPssp.kontrakTotal > 0 && (
             <div>
               <div className="flex justify-between text-xs">
-                <span style={{ color: MUTED }}>Biaya Aktif (PSSP Berjalan)</span>
+                <span style={{ color: MUTED }}>Biaya PSSP Aktif</span>
                 <span style={{ color: TEXT }}>{formatRp(aktifPssp.nilaiTotal)}</span>
               </div>
               <p className="text-xs" style={{ color: FAINT }}>
@@ -709,7 +706,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -721,6 +718,15 @@ function DoctorRow({
   quarterMonths: string[];
   /** kodeCust values with any PSSP history ever — see DraftChecklist's own prop doc. */
   everPsspKodeCust?: Set<string>;
+  /** Dokter lain (selain baris ini) di outlet yang sama, dalam POA yang sama
+   * (2026-08-10, item #7 dari daftar 13 task baru). */
+  otherDoctorsAtOutletCount?: number;
+  /** Feeds "PSSP Outlet" dropdown — server-computed per outlet (poa/[id]/page.tsx),
+   * SENGAJA bukan hasil filter `activePssp` di sini — lihat catatan di
+   * poa/[id]/page.tsx soal kenapa itu scope-nya salah untuk kebutuhan ini
+   * (activePssp cuma mencakup territory MR pemilik POA, bukan outlet dokter
+   * ini spesifik). */
+  outletPsspInfo?: Record<string, { userCount: number; rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number; aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -794,6 +800,17 @@ function DoctorRow({
   const contribPct = totalEstimasi > 0 ? (rowEst / totalEstimasi) * 100 : 0;
   const [isDeleting, startDelete] = useTransition();
   const [detailOpen, setDetailOpen] = useState(false);
+  const [outletInfoOpen, setOutletInfoOpen] = useState(false);
+
+  // "PSSP Outlet" dropdown (2026-08-10) — semua 4 angka (Aktif & Rencana)
+  // datang dari `outletPsspInfo`, server-computed sekali untuk semua outlet
+  // di draft ini (poa/[id]/page.tsx), tercacah ke kuartal POA ini. TIDAK
+  // pakai `activePssp` prop di sini — itu di-scope ke territory MR pemilik
+  // POA (via MrOutletAssignment bulan berjalan), yang ternyata bisa
+  // tidak mencakup outlet dokter ini (bug ditemukan 2026-08-10: dropdown
+  // selalu "-" walau kontrak aktif riil ada, karena outlet itu assignment-nya
+  // sedang dipegang MR lain bulan ini).
+  const outletInfo = first.kodePI ? outletPsspInfo?.[first.kodePI] : undefined;
 
   function handleDelete() {
     if (!poaId) return;
@@ -838,6 +855,11 @@ function DoctorRow({
           </div>
           <p className="text-sm font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
             {first.namaOutlet}
+            {!!otherDoctorsAtOutletCount && (
+              <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded-full" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
+                +{otherDoctorsAtOutletCount} dokter lain di outlet ini
+              </span>
+            )}
           </p>
           {checked && contribPct > 0 && (
             <div className="h-1 rounded-full overflow-hidden mt-1.5 max-w-xs" style={{ background: "var(--color-border)" }}>
@@ -904,14 +926,47 @@ function DoctorRow({
               )}
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => setDetailOpen((v) => !v)}
-            className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-            Detail {detailOpen ? "▲" : "▼"}
-          </button>
+          <div className="flex flex-col items-start gap-1 mt-1">
+            <button
+              type="button"
+              onClick={() => setDetailOpen((v) => !v)}
+              className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+              Detail {detailOpen ? "▲" : "▼"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOutletInfoOpen((v) => !v)}
+              className="text-xs whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+              PSSP Outlet {outletInfoOpen ? "▲" : "▼"}
+            </button>
+          </div>
         </div>
       </div>
+
+      {outletInfoOpen && (
+        <div className="mt-2.5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
+          <p className="text-xs font-medium mb-2" style={{ color: "var(--color-text-muted)" }}>
+            {first.namaOutlet} — semua user di outlet ini{quarterMonths.length > 0 ? ` (tercacah ${qLabel})` : ""}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {[
+              { label: "Jumlah User", value: (outletInfo?.userCount ?? 0).toLocaleString("id-ID") },
+              { label: "Estimasi PSSP Aktif", value: (outletInfo?.aktifTercacahEstimasi ?? 0) > 0 ? formatRp(outletInfo!.aktifTercacahEstimasi) : "-" },
+              { label: "Estimasi PSSP Rencana", value: (outletInfo?.rencanaTercacahEstimasi ?? 0) > 0 ? formatRp(outletInfo!.rencanaTercacahEstimasi) : "-" },
+              { label: "Nilai PSSP Aktif", value: (outletInfo?.aktifTercacahNilaiPssp ?? 0) > 0 ? formatRpPssp(outletInfo!.aktifTercacahNilaiPssp) : "-" },
+              { label: "Nilai PSSP Rencana", value: (outletInfo?.rencanaTercacahNilaiPssp ?? 0) > 0 ? formatRpPssp(outletInfo!.rencanaTercacahNilaiPssp) : "-" },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-md px-2.5 py-2" style={{ background: "var(--color-bg-subtle)" }}>
+                <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>{label}</p>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{value}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] mt-2" style={{ color: "var(--color-text-faint)" }}>
+            Rencana = pengajuan yang sudah disubmit (bukan draft), tercacah ke kuartal ini. Aktif = kontrak PSSP yang masih berjalan.
+          </p>
+        </div>
+      )}
 
       {detailOpen && (
         <div className="mt-2.5 rounded-lg border overflow-hidden overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
@@ -962,7 +1017,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -981,6 +1036,11 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   selectable?: boolean;
   /** Still-active PSSP contracts for the doctors on this POA, for the ringkasan. */
   activePssp?: ActivePsspRow[];
+  /** Per-outlet stats for "Informasi PSSP Outlet" dropdown (2026-08-10, item
+   * baru: jumlah user + Rencana submitted tercacah per outlet) —
+   * server-computed in poa/[id]/page.tsx, batched once for every outlet in
+   * this draft (not per-row — see docs/PERFORMANCE.md §2.4). */
+  outletPsspInfo?: Record<string, { userCount: number; rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number; aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
   /** kodeCust values that have EVER had a PSSP contract (any period, active or
    * expired — see getPsspEverKodeCust). A doctor matched to a Customer record
    * (kodeCust set) but absent from this list has never actually had PSSP,
@@ -1016,6 +1076,19 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
     }
     return map;
   }, [items]);
+
+  // Jumlah dokter lain per outlet (2026-08-10, item #7 dari daftar 13 task
+  // baru) — feeds badge "N dokter lain di outlet ini" per DoctorRow, supaya
+  // dokter-dokter di outlet yang sama gampang dikenali walau list-nya tetap
+  // flat (bukan di-restructure jadi nested group per outlet).
+  const doctorCountByOutlet = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const key of groups.keys()) {
+      const outletKey = key.split("|")[0];
+      counts.set(outletKey, (counts.get(outletKey) ?? 0) + 1);
+    }
+    return counts;
+  }, [groups]);
 
   const allKeys = useMemo(() => [...groups.keys()], [groups]);
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allKeys));
@@ -1134,6 +1207,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 userCanEdit={canEditNow}
                 quarterMonths={quarterMonths}
                 everPsspKodeCust={everPsspKodeCustSet}
+                otherDoctorsAtOutletCount={(doctorCountByOutlet.get(key.split("|")[0]) ?? 1) - 1}
+                outletPsspInfo={outletPsspInfo}
               />
             ))}
           </div>

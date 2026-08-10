@@ -3,16 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Card } from "@/components/ui/Card";
 import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/SortableTh";
-
-// Same abs-aware magnitude formatting TerritoryTable used (a negative value is
-// well below the raw 1_000_000 threshold and would otherwise fall through to
-// the raw-digit branch instead of "-X,X Jt").
-function formatRp(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
+import { formatCurrency as formatRp } from "@/lib/format";
 
 function fmtInt(n: number): string {
   return n.toLocaleString("id-ID");
@@ -534,7 +525,7 @@ export function RingkasanMetricsTables({
         ),
       },
       {
-        key: "biayaEntertain", group: "Biaya", label: "Entertain",
+        key: "biayaEntertain", group: "Biaya", label: "ENT",
         sortValue: (r) => r.biayaEntertain?.rencana ?? null,
         render: (r) => (
           <PairCell rencana={r.biayaEntertain != null ? formatRp(r.biayaEntertain.rencana) : "-"} aktif={NA} />

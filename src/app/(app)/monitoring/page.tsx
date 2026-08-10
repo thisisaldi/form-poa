@@ -8,6 +8,7 @@ import { buildOrgMaps, type OrgMaps } from "@/lib/targetCalculation";
 import { Card } from "@/components/ui/Card";
 import { SalesAchievementTable, type AchievementRow } from "@/components/poa/SalesAchievementTable";
 import { MonitoringFilterModal } from "@/components/poa/MonitoringFilterModal";
+import { formatCurrency as formatRp } from "@/lib/format";
 
 export const metadata = { title: "Monitoring · Form POA" };
 
@@ -15,12 +16,6 @@ type Tab = "mr" | "area" | "outlet" | "produk";
 
 function toNum(v: { toString(): string } | number | string | null | undefined): number {
   return parseFloat(String(v ?? 0)) || 0;
-}
-
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
 }
 
 /**
