@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import Link from "next/link";
+import type { PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
@@ -14,6 +15,8 @@ import { HeaderInfo } from "@/components/ui/HeaderInfo";
 import { RingkasanMetricsTables, type RingkasanRowMetrics } from "@/components/poa/RingkasanMetricsTables";
 import { RingkasanQuarterFilter } from "@/components/poa/SummaryFilterModal";
 import { RingkasanBarPair, RingkasanCompareLegend, RingkasanSplitBarPair, RingkasanTargetStackedBar } from "@/components/poa/RingkasanCharts";
+import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart";
+import { formatCurrency as formatRp } from "@/lib/format";
 
 // PSSP contract rows key products by name only (Procode ≠ Item Kode across
 // systems — see computeOldEstPerMonth in LineItemEditor.tsx for the same
@@ -54,11 +57,6 @@ function toNum(v: { toString(): string } | number | string | null | undefined): 
   return parseFloat(String(v ?? 0)) || 0;
 }
 
-function formatRp(n: number) {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
 
 // "2026-Q3" -> "Q-3" — short column-header form for §2's table (2026-08-05
 // follow-up: "PSSP Aktif Q-3", "PSSP Aktif (Q-2)").
@@ -358,6 +356,28 @@ async function SummaryContent({
     : [];
   const poaIds = poas.map((p) => p.id);
   const targetTotal = poas.reduce((s, p) => s + toNum(p.target), 0);
+
+  // Progress approval per status (2026-08-10, "chart untuk tau progress
+  // approval nya... bar draft, bar submitted ke ASM, bar submitted ke SM,
+  // dst") — SENGAJA query terpisah dari `poas` di atas (yang sudah difilter
+  // NON_DRAFT_STATUSES, jadi tidak punya baris DRAFT/REVISI sama sekali).
+  // Sama scope mrNips+period dengan `poas`, cuma tanpa filter status.
+  const statusCounts: Partial<Record<PoaStatus, number>> = {};
+  if (mrNips.length > 0) {
+    const statusRows = await prisma.poaForm.groupBy({
+      by: ["status"],
+      where: { ownerId: { in: mrNips }, period: { gte: effPeriodFrom, lte: effPeriodTo } },
+      _count: { _all: true },
+    }) as { status: PoaStatus; _count: { _all: number } }[];
+    for (const r of statusRows) statusCounts[r.status] = r._count._all;
+  }
+  // "POA" figure in the counts line = `poas.length` (already
+  // NON_DRAFT_STATUSES-filtered, same `poaWhere` scope as `statusCounts`
+  // below) — matches PoaStatusProgressChart's own Total exactly, since that
+  // component excludes DRAFT/REVISI from its Total the same way (2026-08-10
+  // follow-up, task #13: "yang dihitung itu hanya yang submitted dan
+  // approved"). No separate variable needed once both sides agree on the
+  // same "not draft/revisi" definition.
 
   // The "Growth vs Quarter Sebelumnya" machinery that used to live here (an
   // extra poaForm + poaLineItem fetch scoped to the real calendar quarter,
@@ -1220,7 +1240,7 @@ async function SummaryContent({
   // split apart on the Rencana side either: PoaLineItem has exactly ONE
   // combined `persenDiskon` field (schema.prisma), no separate dpl/dpf
   // columns — so "DPL/DPF" stays one combined bucket, same as the existing
-  // "Discount + DPL + DPF" line this replaces, just now separated from DP
+  // "Campaign / DPL / DPF" line this replaces, just now separated from DP
   // (persenDp IS its own distinct field) and Listing Fee (persenListingFee).
   // On the Aktif side, PsspKontrak has only a single lump `biaya`/`estBaris`
   // per contract-product row — no equivalent %-based component split exists
@@ -1568,21 +1588,6 @@ async function SummaryContent({
 
   return (
     <div className="space-y-5">
-      {/* Counts line — was part of the static header in SummaryPage's shell;
-          moved here since it needs the heavy-fetched mrUsers/poas/lineItems.
-          Briefly lived inside the Kesesuaian POA card instead, moved back
-          here (2026-08-06 follow-up: that card was dropped down to just this
-          same line — "section kesesuaian POA itu isinya yang kayak [...]
-          aja" — so it no longer needs its own dedicated home). Ringkasan-only
-          (2026-08-08 follow-up: removed from the other 5 tabs — redundant
-          with their own per-row tables now). */}
-      {rawTab === "ringkasan" && (
-        <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-          {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
-          <span style={{ color: "var(--color-text-faint)" }}> · Q-Berjalan {ringkasanQuarter} (gunakan Filter Kuartal untuk ganti)</span>
-        </p>
-      )}
-
       {/* Ringkasan redesign (docs/summary-ringkasan, implemented 2026-08-05) —
           §2-§5 below, all scoped to the single Q-Berjalan quarter selected via
           RingkasanQuarterFilter (see effPeriodFrom/effPeriodTo above). Same
@@ -1591,13 +1596,55 @@ async function SummaryContent({
           one card further. */}
       {rawTab === "ringkasan" && (
         <>
-          {/* §4 Kelompok metrik Value + Unit — dipindah ke paling atas
-              (2026-08-06 follow-up: "section 'Target / Estimasi / Sales /
-              Pelunasan' taro paling atas jadinya"), setelah §2 Kesesuaian POA
-              digabung ke sini (tabelnya dianggap redundan dengan tile-tile
-              ini — "kayaknya redundan deh" — cuma kolom Jumlah/Value PSSP
-              Aktif Q-Sebelumnya yang belum ada tile-nya, ditambahkan sebagai
-              tile baru di bawah). */}
+          {/* §3 Pencapaian Target — dipindah ke paling atas (2026-08-10, item
+              #9 dari daftar 13 task baru: "section Pencapaian Target itu
+              maksudnya yang dipindah ke paling atas" — bukan tile Target di
+              §4, yang sudah jadi tile pertama sejak 2026-08-06). Horizontal
+              stacked bar per kuartal: Target = 100%, PSSP Rencana dan PSSP
+              Aktif masing-masing kontribusi berapa persen ke Target,
+              ditumpuk dalam satu bar (2026-08-06 follow-up). */}
+          <Card>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Pencapaian Target</p>
+              <RingkasanCompareLegend />
+            </div>
+            <p className="text-xs mb-4" style={{ color: "var(--color-text-faint)" }}>
+              PSSP Rencana + PSSP Aktif, ditumpuk sebagai kontribusi terhadap Target (garis putus-putus = Target 100%).
+            </p>
+            {(targetBerjalanIsDummy || targetSebelumnyaIsDummy) && (
+              <p className="text-[10px] mb-3 px-2 py-1 rounded" style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #92400e)" }}>
+                ⚠ Target memakai data dummy (khusus ADMIN, untuk testing tampilan) — belum ada Target asli untuk kuartal ini.
+              </p>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                { label: `${qLabel(ringkasanQSebelumnya)} vs Target`, rencanaPct: rencanaPctSebelumnya, aktifPct: aktifPctSebelumnya, rencanaVal: rencanaSebelumnyaTotal, aktifVal: kesesuaianAktifQSebelumnya.value, target: targetSebelumnyaForCalc, isDummy: targetSebelumnyaIsDummy },
+                { label: `${qLabel(ringkasanQuarter)} vs Target`, rencanaPct: rencanaPctBerjalan, aktifPct: aktifPctBerjalan, rencanaVal: kesesuaianValueRencana, aktifVal: kesesuaianAktifQBerjalan.value, target: targetBerjalanForCalc, isDummy: targetBerjalanIsDummy },
+              ].map(({ label, rencanaPct, aktifPct, rencanaVal, aktifVal, target, isDummy }) => (
+                <div key={label} className="rounded-lg p-4" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+                  <p className="text-xs mb-2" style={{ color: "var(--color-text-muted)" }}>{label}</p>
+                  <RingkasanTargetStackedBar
+                    rencanaPct={rencanaPct}
+                    aktifPct={aktifPct}
+                    rencanaLabel={`${formatRp(rencanaVal)} (${rencanaPct != null ? `${rencanaPct.toFixed(0)}%` : "-"})`}
+                    aktifLabel={`${formatRp(aktifVal)} (${aktifPct != null ? `${aktifPct.toFixed(0)}%` : "-"})`}
+                  />
+                  <p className="text-[11px] mt-2" style={{ color: "var(--color-text-faint)" }}>
+                    Target {target > 0 ? `${formatRp(target)}${isDummy ? " (dummy)" : ""}` : "-"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* §4 Kelompok metrik Value + Unit — section kedua sejak 2026-08-10
+              (§3 Pencapaian Target dipindah ke atasnya, item #9). Sebelumnya
+              sempat jadi section pertama (2026-08-06: "section 'Target /
+              Estimasi / Sales / Pelunasan' taro paling atas jadinya"),
+              setelah §2 Kesesuaian POA digabung ke sini (tabelnya dianggap
+              redundan dengan tile-tile ini — "kayaknya redundan deh" — cuma
+              kolom Jumlah/Value PSSP Aktif Q-Sebelumnya yang belum ada
+              tile-nya, ditambahkan sebagai tile baru di bawah). */}
           <Card>
             <div className="flex items-start justify-between gap-2 mb-3">
               <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
@@ -1606,7 +1653,7 @@ async function SummaryContent({
               </p>
               <p className="text-xs text-right shrink-0" style={{ color: "var(--color-text-muted)" }}>
                 {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
-                <span style={{ color: "var(--color-text-faint)" }}> · Q-Berjalan {ringkasanQuarter} (gunakan Filter Kuartal untuk ganti)</span>
+                <span style={{ color: "var(--color-text-faint)" }}> · {ringkasanQuarter}</span>
               </p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -1682,6 +1729,30 @@ async function SummaryContent({
               </div>
             )}
 
+            {/* Progress Approval (2026-08-10) — subsection di antara Estimasi
+                PSSP per Bulan dan Varian Produk Kontes, atas permintaan
+                eksplisit ("chart ini masukkan ke ringkasan summary juga,
+                taruh di antara section..."). Sama komponen dengan Dashboard,
+                data-nya company/subtree-wide (mrNips), bukan cuma 1 MR. */}
+            {Object.keys(statusCounts).length > 0 && (
+              <div className="mt-4 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                    Progress Approval
+                  </p>
+                  {/* Counts line — moved here from the page's top-level header
+                      (2026-08-10 follow-up: "taro ke section PROGRESS
+                      APPROVAL juga") so it sits next to the section it now
+                      describes instead of floating above every card. */}
+                  <p className="text-xs text-right shrink-0" style={{ color: "var(--color-text-muted)" }}>
+                    {mrUsers.length} MR · {poas.length} POA · {lineItems.length} pengajuan
+                    <span style={{ color: "var(--color-text-faint)" }}> · {ringkasanQuarter}</span>
+                  </p>
+                </div>
+                <PoaStatusProgressChart counts={statusCounts} />
+              </div>
+            )}
+
             {/* Varian Produk Kontes — visual demotion (background lebih muted,
                 tanpa aksen kiri) supaya kebaca sebagai rincian dari section
                 di atas, bukan section yang setara pentingnya. */}
@@ -1736,13 +1807,20 @@ async function SummaryContent({
                         <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi PSSP Rencana</th>
                         <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Estimasi PSSP Aktif</th>
                         <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Sales {ringkasanQuarter}</th>
-                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>% Tercacah/Target</th>
-                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>% Sales/Target</th>
+                        {/* 3 kolom rasio ke Target (2026-08-10, item #8 dari
+                            daftar 13 task baru — dikonfirmasi: kolom terkait
+                            Target di tabel Per Produk Kontes ini, bukan tile
+                            agregat terpisah). Menggantikan "% Tercacah/Target"
+                            dan "% Sales/Target" yang sebelumnya di sini. */}
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Rencana+Aktif to Target</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Aktif to Target</th>
+                        <th className="text-right py-1.5 px-2 font-medium" style={{ color: "var(--color-text-faint)" }}>Sales to Target</th>
                       </tr>
                     </thead>
                     <tbody>
                       {kontesProdukRows.map((r) => {
-                        const tercacahPct = r.target != null && r.target > 0 ? (r.tercacah / r.target) * 100 : null;
+                        const rencanaAktifPct = r.target != null && r.target > 0 ? ((r.rencana + r.aktif) / r.target) * 100 : null;
+                        const aktifPct = r.target != null && r.target > 0 ? (r.aktif / r.target) * 100 : null;
                         const salesPct = r.target != null && r.target > 0 ? (r.sales / r.target) * 100 : null;
                         return (
                           <tr key={r.namaProduk} style={{ borderBottom: "1px solid var(--color-border)" }}>
@@ -1754,10 +1832,13 @@ async function SummaryContent({
                             <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(r.rencana)}</td>
                             <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(r.aktif)}</td>
                             <td className="text-right py-1.5 px-2" style={{ color: "var(--color-text)" }}>{formatRp(r.sales)}</td>
-                            <td className="text-right py-1.5 px-2" style={{ color: tercacahPct != null ? "var(--color-text)" : "var(--color-text-faint)" }}>
-                              {tercacahPct != null ? `${tercacahPct.toFixed(0)}%` : "-"}
+                            <td className="text-right py-1.5 px-2" style={{ color: rencanaAktifPct != null ? pctColor(rencanaAktifPct) : "var(--color-text-faint)" }}>
+                              {rencanaAktifPct != null ? `${rencanaAktifPct.toFixed(0)}%` : "-"}
                             </td>
-                            <td className="text-right py-1.5 px-2" style={{ color: salesPct != null ? "var(--color-text)" : "var(--color-text-faint)" }}>
+                            <td className="text-right py-1.5 px-2" style={{ color: aktifPct != null ? pctColor(aktifPct) : "var(--color-text-faint)" }}>
+                              {aktifPct != null ? `${aktifPct.toFixed(0)}%` : "-"}
+                            </td>
+                            <td className="text-right py-1.5 px-2" style={{ color: salesPct != null ? pctColor(salesPct) : "var(--color-text-faint)" }}>
                               {salesPct != null ? `${salesPct.toFixed(0)}%` : "-"}
                             </td>
                           </tr>
@@ -1768,44 +1849,6 @@ async function SummaryContent({
                 </div>
               </div>
             )}
-          </Card>
-
-          {/* §3 Pencapaian Target — horizontal stacked bar per kuartal:
-              Target = 100%, PSSP Rencana dan PSSP Aktif masing-masing
-              kontribusi berapa persen ke Target, ditumpuk dalam satu bar
-              (2026-08-06 follow-up). */}
-          <Card>
-            <div className="flex items-start justify-between gap-3 mb-1">
-              <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Pencapaian Target</p>
-              <RingkasanCompareLegend />
-            </div>
-            <p className="text-xs mb-4" style={{ color: "var(--color-text-faint)" }}>
-              PSSP Rencana + PSSP Aktif, ditumpuk sebagai kontribusi terhadap Target (garis putus-putus = Target 100%).
-            </p>
-            {(targetBerjalanIsDummy || targetSebelumnyaIsDummy) && (
-              <p className="text-[10px] mb-3 px-2 py-1 rounded" style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #92400e)" }}>
-                ⚠ Target memakai data dummy (khusus ADMIN, untuk testing tampilan) — belum ada Target asli untuk kuartal ini.
-              </p>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
-                { label: `Q-Sebelumnya (${ringkasanQSebelumnya ?? "-"}) vs Target`, rencanaPct: rencanaPctSebelumnya, aktifPct: aktifPctSebelumnya, rencanaVal: rencanaSebelumnyaTotal, aktifVal: kesesuaianAktifQSebelumnya.value, target: targetSebelumnyaForCalc, isDummy: targetSebelumnyaIsDummy },
-                { label: `Q-Berjalan (${ringkasanQuarter}) vs Target`, rencanaPct: rencanaPctBerjalan, aktifPct: aktifPctBerjalan, rencanaVal: kesesuaianValueRencana, aktifVal: kesesuaianAktifQBerjalan.value, target: targetBerjalanForCalc, isDummy: targetBerjalanIsDummy },
-              ].map(({ label, rencanaPct, aktifPct, rencanaVal, aktifVal, target, isDummy }) => (
-                <div key={label} className="rounded-lg p-4" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-                  <p className="text-xs mb-2" style={{ color: "var(--color-text-muted)" }}>{label}</p>
-                  <RingkasanTargetStackedBar
-                    rencanaPct={rencanaPct}
-                    aktifPct={aktifPct}
-                    rencanaLabel={`${formatRp(rencanaVal)} (${rencanaPct != null ? `${rencanaPct.toFixed(0)}%` : "-"})`}
-                    aktifLabel={`${formatRp(aktifVal)} (${aktifPct != null ? `${aktifPct.toFixed(0)}%` : "-"})`}
-                  />
-                  <p className="text-[11px] mt-2" style={{ color: "var(--color-text-faint)" }}>
-                    Target {target > 0 ? `${formatRp(target)}${isDummy ? " (dummy)" : ""}` : "-"}
-                  </p>
-                </div>
-              ))}
-            </div>
           </Card>
 
           {/* §5 Breakdown historis — 5 kelompok × 13 metrik, dimensi Rencana/Aktif
@@ -1819,7 +1862,7 @@ async function SummaryContent({
           <Card>
             <div className="flex items-start justify-between gap-3 mb-3">
               <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Breakdown Historis</p>
-              <RingkasanCompareLegend showSebelumnya />
+              <RingkasanCompareLegend showSebelumnya sebelumnyaQuarterLabel={qLabel(ringkasanQSebelumnya)} />
             </div>
             <div className="space-y-6">
               {([
@@ -1930,7 +1973,7 @@ async function SummaryContent({
                     { label: "DPL/DPF", rencanaVal: biayaBreakdown.dplDpf.rencana, rencana: formatRp(biayaBreakdown.dplDpf.rencana), aktifVal: 0, aktif: "Tidak tersedia", aktifUnavailable: true },
                     { label: "DP", rencanaVal: biayaBreakdown.dp.rencana, rencana: formatRp(biayaBreakdown.dp.rencana), aktifVal: 0, aktif: "Tidak tersedia", aktifUnavailable: true },
                     { label: "Listing Fee", rencanaVal: biayaBreakdown.listingFee.rencana, rencana: formatRp(biayaBreakdown.listingFee.rencana), aktifVal: biayaBreakdown.listingFee.aktif, aktif: formatRp(biayaBreakdown.listingFee.aktif) },
-                    { label: "Entertain", rencanaVal: biayaBreakdown.entertain.rencana, rencana: formatRp(biayaBreakdown.entertain.rencana), aktifVal: 0, aktif: "Tidak tersedia", aktifUnavailable: true },
+                    { label: "ENT", rencanaVal: biayaBreakdown.entertain.rencana, rencana: formatRp(biayaBreakdown.entertain.rencana), aktifVal: 0, aktif: "Tidak tersedia", aktifUnavailable: true },
                   ],
                 },
               ] as { title: string; rows: BreakdownRow[] }[]).map(({ title, rows }) => (
@@ -1954,6 +1997,7 @@ async function SummaryContent({
                             rencanaParts={r.splitRencana ?? []}
                             aktifParts={r.splitAktif ?? null}
                             sebelumnyaParts={r.splitSebelumnya}
+                            sebelumnyaQuarterLabel={qLabel(ringkasanQSebelumnya)}
                           />
                         ) : (
                           <RingkasanBarPair
@@ -1964,6 +2008,7 @@ async function SummaryContent({
                             aktifUnavailable={r.aktifUnavailable ?? false}
                             sebelumnyaVal={r.sebelumnyaVal}
                             sebelumnyaLabel={r.sebelumnya}
+                            sebelumnyaQuarterLabel={qLabel(ringkasanQSebelumnya)}
                             compact
                           />
                         )}
