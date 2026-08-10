@@ -1048,3 +1048,17 @@ model MaintenanceMode {
   updatedByNip String?
   updatedAt   DateTime @updatedAt
 }
+
+// Cross-replica mutex for in-process schedulers (see
+// salesHistoryMonthlyScheduler.ts) — multiple pods each run their own
+// setTimeout/setInterval, so without this every replica would re-run the
+// same sync at ~the same instant. Claimed via a single atomic
+// `INSERT ... ON CONFLICT DO UPDATE ... WHERE lockedAt < now() - staleAfter`
+// (see acquireSyncLock in syncLock.ts) — self-heals if a replica dies
+// mid-run instead of holding the lock forever, unlike a session-level
+// pg_advisory_lock (which doesn't survive Prisma's pooled connections
+// reliably) or a long-held transaction.
+model SyncLock {
+  key      String   @id
+  lockedAt DateTime
+}
