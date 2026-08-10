@@ -15,6 +15,19 @@ import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getP
 import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
 
+// Halaman input (Tambah Rencana POA, Tambah Produk, Edit Dokter, estimasi
+// real-time saat mengisi form) TETAP pakai angka asli, BUKAN skala
+// ÷1.000.000 yang dipakai tampilan Ringkasan/Summary/Draft (formatCurrency
+// di @/lib/format) — dikonfirmasi pengguna 2026-08-10: "di tambah rencana,
+// tetap pakai angka uang yang asli jangan dibagi 1 jt". Beda dari file lain
+// yang IKUT pakai skala baru (DraftChecklist.tsx, summary/page.tsx, dll).
+function formatRp(val: string | number | { toString(): string } | null | undefined) {
+  if (val == null) return "-";
+  const n = typeof val === "number" ? val : parseFloat(val.toString());
+  if (isNaN(n)) return "-";
+  return Math.round(n).toLocaleString("id-ID");
+}
+
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
   PROSES_PENGAJUAN: "Proses Pengajuan",
@@ -186,15 +199,6 @@ function emptyProdukEntry(): ProdukEntry {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatRp(val: string | number | { toString(): string } | null | undefined) {
-  if (val == null) return "-";
-  const n = parseFloat(val.toString());
-  if (isNaN(n)) return "-";
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1).replace(".", ",")} M`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} Jt`;
-  return Math.round(n).toLocaleString("id-ID");
-}
 
 function hargaST(product: Product): number {
   const hna      = parseFloat(product.hna) || 0;
@@ -455,7 +459,7 @@ function Opt() {
 }
 const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
 
-function UnitInput({ value, onChange, unit, placeholder = "0", step, min = 0 }: {
+function UnitInput({ value, onChange, unit, placeholder = "0", step, min = 0, max }: {
   value: string;
   onChange: (v: string) => void;
   unit?: string | null;
@@ -463,10 +467,22 @@ function UnitInput({ value, onChange, unit, placeholder = "0", step, min = 0 }: 
   /** When set, renders up/down stepper buttons that bump the value by this amount. */
   step?: number;
   min?: number;
+  /** When set, typing/stepping past this value is clamped down to it (e.g. Hari Praktek ≤ 31, no month has more days). */
+  max?: number;
 }) {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
-    if (v === "" || /^\d*\.?\d*$/.test(v)) onChange(v);
+    if (v === "") { onChange(v); return; }
+    if (!/^\d*\.?\d*$/.test(v)) return;
+    // Clamp only once the value is a complete-enough number to compare —
+    // letting a partial typed value like "3" through unclamped even though
+    // "31" (the eventual target) is fine, but rejecting a keystroke that
+    // would push a COMPLETE value over `max` (e.g. typing "32" over max=31).
+    if (max != null) {
+      const n = parseFloat(v);
+      if (!isNaN(n) && n > max) { onChange(String(max)); return; }
+    }
+    onChange(v);
   }
 
   function bump(delta: number) {
@@ -474,7 +490,8 @@ function UnitInput({ value, onChange, unit, placeholder = "0", step, min = 0 }: 
     // Empty field displays `placeholder` (e.g. "1") as its implied value — bump from
     // that, not from 0, so the first click steps relative to what's actually shown.
     const current = parseFloat(value) || parseFloat(placeholder) || 0;
-    const next = Math.max(min, current + delta);
+    let next = Math.max(min, current + delta);
+    if (max != null) next = Math.min(max, next);
     const decimals = step % 1 === 0 ? 0 : String(step).split(".")[1]?.length ?? 1;
     onChange(next.toFixed(decimals));
   }
@@ -565,8 +582,8 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
    * Harian follows the same rule — silently inherited, not re-collected. */
   showCustomerLevelFields?: boolean;
   /** Feeds the "Histori Visit (3 Bulan Terakhir)" hint under Rencana Visit /
-   * Bulan below — undefined (e.g. brand-new doctor not registered yet in
-   * AddDokterBaruPanel) just hides the hint, see VisitHistoryHint. */
+   * Bulan below — undefined (e.g. brand-new doctor not yet materialized as
+   * a Customer row) just hides the hint, see VisitHistoryHint. */
   kodeCustomer?: string;
   kodePI?: string;
 }) {
@@ -625,7 +642,8 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
                 value={fields.hariKerjaBulan}
                 onChange={(v) => onChange({ hariKerjaBulan: v })}
                 unit="Hari"
-                placeholder="Jumlah hari praktek / bulan" />
+                placeholder="Jumlah hari praktek / bulan"
+                max={31} />
             </div>
             {hariKerjaBulanError && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
@@ -1174,7 +1192,8 @@ function ProdukEntryRow({
             value={entry.hariKerjaBulan}
             onChange={(v) => onChange({ hariKerjaBulan: v })}
             unit="Hari"
-            placeholder={dokterFields.hariKerjaBulan || "default"} />
+            placeholder={dokterFields.hariKerjaBulan || "default"}
+            max={31} />
         </label>
       </div>
 
@@ -1386,7 +1405,7 @@ function BudgetFieldsRow({
         </label>
         {numInput("% DP", "persenDp")}
         {numInput("% Listing Fee", "persenListingFee")}
-        {numInput("% Entertain", "persenEntertain")}
+        {numInput("% ENT", "persenEntertain")}
       </div>
       {hasTotal && (
         <div className="flex items-center gap-2 px-3 py-1.5 rounded text-xs"
@@ -2062,8 +2081,12 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
 
   if (rows.length === 0) {
     return (
-      <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
-        Tidak ada data survey untuk dokter ini.
+      <div className="text-xs px-3 py-2.5 rounded-lg space-y-1.5"
+        style={{ color: "var(--color-red)", background: "var(--color-red-light)" }}>
+        <p className="font-medium">⚠ Data survey tidak ada untuk dokter ini.</p>
+        <Link href="/survey/upload" className="inline-block font-semibold underline">
+          Upload data survey →
+        </Link>
       </div>
     );
   }
@@ -2266,13 +2289,19 @@ function PsspSidebar({
 // ─── AddPanel (new dokter + multi-produk) ─────────────────────────────────────
 
 function AddPanel({
-  poaId, poaPeriod, outlets, products, onCancel, onSuccess, onToast, onAddNewCustomer,
+  poaId, poaPeriod, outlets, products, existingItems, onCancel, onSuccess, onToast,
 }: {
   poaId: string; poaPeriod: string; outlets: OutletOption[]; products: Product[];
+  /** Line items already in this POA draft — feeds the "dokter/produk lain di
+   * outlet ini" info panel below (2026-08-10, item #7 dari daftar 13 task
+   * baru: "informasi mengenai user-user dan produk-produk yang si MR sudah
+   * buat dari outlet yang sama"). Optional so other callers of AddPanel
+   * (formOnly mode from /poa/[id]/edit, which doesn't have the full item
+   * list handy) don't have to thread it through just to keep compiling. */
+  existingItems?: PoaLineItem[];
   onCancel?: () => void;
   onSuccess?: () => void;
   onToast?: (msg: string, type?: "success" | "error") => void;
-  onAddNewCustomer?: () => void;
 }) {
   const [kodePI, setKodePI] = useState("");
   const [spesialisasi, setSpesialisasi] = useState("");
@@ -2319,7 +2348,7 @@ function AddPanel({
       sublabel: o.groupRS ?? "NON CHAIN",
     })), [outlets]);
   // Static list (independent of outlet, so it never comes up empty even
-  // before any user is registered there — see onAddNewCustomer below), but
+  // before any user is registered there), but
   // tagged with how many of this outlet's ALREADY-registered doctors fall
   // in each spesialisasi, so the MR can tell at a glance which one their
   // doctor is likely under (2026-07-24 request).
@@ -2407,6 +2436,25 @@ function AddPanel({
   }, [customerList, spesialisasi, psspStatusByCust]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
+
+  // Dokter & produk lain yang sudah ada di POA draft ini untuk outlet yang
+  // sama (2026-08-10, item #7) — bukan SUM angka, murni daftar referensi
+  // supaya MR bisa lihat sekilas apa yang sudah direncanakan di outlet ini
+  // sebelum menambah dokter/produk baru. Dokter yang sedang dipilih sekarang
+  // (selectedCustomer) sengaja dikeluarkan — tidak berguna melihat diri
+  // sendiri di daftar "dokter lain".
+  const otherDoctorsAtOutlet = useMemo(() => {
+    if (!kodePI || !existingItems) return [];
+    const byDoctor = new Map<string, { namaCust: string; produk: Set<string> }>();
+    for (const item of existingItems) {
+      if (item.kodePI !== kodePI) continue;
+      if (selectedCustomer && item.namaCust === selectedCustomer.namaCustomer) continue;
+      const entry = byDoctor.get(item.namaCust) ?? { namaCust: item.namaCust, produk: new Set<string>() };
+      entry.produk.add(item.namaProduk);
+      byDoctor.set(item.namaCust, entry);
+    }
+    return [...byDoctor.values()].sort((a, b) => a.namaCust.localeCompare(b.namaCust));
+  }, [kodePI, existingItems, selectedCustomer]);
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
@@ -2834,15 +2882,6 @@ function AddPanel({
                   Belum tau spesialisasinya? Langsung cari nama user aja - spesialisasi keisi otomatis.
                 </span>
               )}
-              {kodePI && !loadingCust && onAddNewCustomer && (
-                <button type="button" onClick={onAddNewCustomer}
-                  className="text-xs text-left font-medium"
-                  style={{ color: "var(--color-blue)" }}>
-                  {customerOptions.length === 0
-                    ? "Belum ada user terdaftar di outlet ini - + Daftar User Baru"
-                    : "Gak ketemu usernya? + Daftar User Baru"}
-                </button>
-              )}
             </div>
           </div>
           {selectedCustomer && (
@@ -2869,6 +2908,26 @@ function AddPanel({
             </>
           )}
         </div>
+
+        {/* Dokter & produk lain di outlet yang sama (2026-08-10, item #7) —
+            info kecil, bukan wajib diisi, murni referensi supaya MR tidak
+            duplikat/kelupaan produk untuk outlet yang sama. */}
+        {kodePI && otherDoctorsAtOutlet.length > 0 && (
+          <div className="rounded-lg px-3 py-2.5 text-xs space-y-1.5"
+            style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+            <p className="font-medium" style={{ color: "var(--color-text-muted)" }}>
+              {otherDoctorsAtOutlet.length} user lain di outlet ini sudah ada di draft POA ini:
+            </p>
+            <ul className="space-y-1">
+              {otherDoctorsAtOutlet.map((d) => (
+                <li key={d.namaCust} style={{ color: "var(--color-text-faint)" }}>
+                  <span style={{ color: "var(--color-text)" }}>{d.namaCust}</span>
+                  {" — "}{[...d.produk].join(", ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Rencana per dokter */}
         <DokterFieldsSection
@@ -3197,170 +3256,6 @@ function AddPanel({
           psspHistory={psspHistory ?? undefined}
         />
       )}
-    </div>
-  );
-}
-
-// ─── AddDokterBaruPanel (daftarkan dokter baru ke database customer) ──────────
-// Setelah terdaftar, dokter muncul di dropdown "Tambah Rencana POA".
-
-function AddDokterBaruPanel({
-  outlets, onCancel,
-}: {
-  outlets: OutletOption[]; onCancel: () => void;
-}) {
-  const [kodePI, setKodePI] = useState("");
-  const [namaDokter, setNamaDokter] = useState("");
-  const [spesialisasi, setSpesialisasi] = useState("");
-  const [customerList, setCustomerList] = useState<CustomerOption[]>([]);
-
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [attempted, setAttempted] = useState(false);
-
-  useEffect(() => {
-    if (!kodePI) return;
-    getCustomersByOutlet(kodePI).then(setCustomerList);
-  }, [kodePI]);
-
-  const outletOptions = useMemo(() => [...new Map(outlets.map((o) => [o.kodePI, o])).values()]
-    .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
-    .map((o) => ({
-      value: o.kodePI,
-      label: `${o.kodePI} - ${o.namaOutlet}`,
-      sublabel: o.groupRS ?? "NON CHAIN",
-    })), [outlets]);
-
-  // Tagged with how many of this outlet's already-registered doctors fall in
-  // each spesialisasi — helps catch an accidental duplicate registration
-  // (2026-07-24 request, same as the main "Tambah Rencana POA" picker).
-  const spesOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const c of customerList) {
-      const label = spesLabel(c.spesialisasi);
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-    return ALL_SPESIALISASI_OPTIONS.map((o) => {
-      const n = counts.get(o.label) ?? 0;
-      return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined, _count: n };
-    }).sort((a, b) => b._count - a._count);
-  }, [customerList]);
-  const selectedOutlet = outlets.find((o) => o.kodePI === kodePI);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const hasErrors = !kodePI || !namaDokter.trim() || !spesialisasi;
-    if (hasErrors) {
-      setAttempted(true);
-      setTimeout(() => {
-        const el = document.querySelector("[data-field-err]");
-        (el as HTMLElement)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 50);
-      return;
-    }
-    setError(null);
-    const fd = new FormData();
-    fd.set("namaCustomer", namaDokter.trim());
-    fd.set("spesialisasi", spesialisasi);
-    fd.set("kodePI", kodePI);
-    startTransition(async () => {
-      const result = await createCustomerAction(fd);
-      if (result.ok) {
-        setSuccess(true);
-      } else {
-        setError(result.error ?? "Gagal mendaftarkan dokter.");
-      }
-    });
-  }
-
-  if (success) {
-    return (
-      <div className="rounded-xl border p-4 space-y-3"
-        style={{ background: "var(--color-bg)", borderColor: "var(--color-success, #16a34a)", borderWidth: 1.5 }}>
-        <p className="text-sm font-semibold" style={{ color: "var(--color-success, #16a34a)" }}>
-          ✓ User berhasil didaftarkan
-        </p>
-        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          <strong>{namaDokter}</strong> ({spesLabel(spesialisasi)}) sudah terdaftar di {selectedOutlet?.namaOutlet}.
-          Sekarang bisa ditambahkan ke POA via &ldquo;Tambah Rencana POA&rdquo;.
-        </p>
-        <div className="flex gap-2">
-          <Button type="button" size="sm" variant="secondary"
-            onClick={() => { setSuccess(false); setNamaDokter(""); setSpesialisasi(""); setKodePI(""); }}>
-            Daftar User Lain
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Selesai</Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border p-4 space-y-4"
-      style={{ background: "var(--color-bg)", borderColor: "var(--color-warning, #f59e0b)", borderWidth: 1.5 }}>
-      <div>
-        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Daftar User Baru</p>
-        <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-          Daftarkan user ke database terlebih dahulu. Setelah terdaftar, pilih via &ldquo;Tambah Rencana POA&rdquo;.
-        </p>
-      </div>
-
-      {error && (
-        <p className="text-sm px-3 py-2 rounded-md"
-          style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="flex flex-col gap-1"
-            {...(attempted && !kodePI ? { "data-field-err": "true" } : {})}>
-            <span className="text-xs" style={{ color: attempted && !kodePI ? "var(--color-red)" : "var(--color-text-muted)" }}>
-              Outlet<Req />
-            </span>
-            <div style={attempted && !kodePI ? ERR_RING : undefined}>
-              <Combobox name="_outlet_reg" value={kodePI} onChange={setKodePI}
-                placeholder="Cari outlet…" options={outletOptions} />
-            </div>
-            {attempted && !kodePI && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-          </div>
-          <label className="flex flex-col gap-1"
-            {...(attempted && !namaDokter.trim() ? { "data-field-err": "true" } : {})}>
-            <span className="text-xs" style={{ color: attempted && !namaDokter.trim() ? "var(--color-red)" : "var(--color-text-muted)" }}>
-              Nama User<Req />
-            </span>
-            <input type="text" value={namaDokter}
-              onChange={(e) => setNamaDokter(e.target.value)}
-              placeholder="dr. Nama Lengkap"
-              className="input-field"
-              style={attempted && !namaDokter.trim() ? ERR_RING : undefined} />
-            {attempted && !namaDokter.trim() && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-          </label>
-          <label className="flex flex-col gap-1"
-            {...(attempted && !spesialisasi ? { "data-field-err": "true" } : {})}>
-            <span className="text-xs" style={{ color: attempted && !spesialisasi ? "var(--color-red)" : "var(--color-text-muted)" }}>
-              Spesialisasi<Req />
-            </span>
-            <select value={spesialisasi}
-              onChange={(e) => setSpesialisasi(e.target.value)}
-              className="input-field"
-              style={attempted && !spesialisasi ? ERR_RING : undefined}>
-              <option value="">- Pilih -</option>
-              {spesOptions.map(({ value, label, sublabel }) => (
-                <option key={value} value={value}>{sublabel ? `${label} (${sublabel})` : label}</option>
-              ))}
-            </select>
-            {attempted && !spesialisasi && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-          </label>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Button type="submit" size="sm" disabled={isPending}>
-            {isPending ? "Mendaftarkan…" : "Daftarkan User"}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel}>Batal</Button>
-        </div>
-      </form>
     </div>
   );
 }
@@ -4226,7 +4121,7 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
   const router = useRouter();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<PoaLineItem[]>(initialItems);
-  const [mode, setMode] = useState<"none" | "add" | "addBaru">(formOnly ? "add" : "none");
+  const [mode, setMode] = useState<"none" | "add">(formOnly ? "add" : "none");
   const [toast, setToast] = useState<{ msg: string; type: "success" | "info" | "error" } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -4472,14 +4367,11 @@ export function LineItemEditor({ poaId, poaPeriod, initialItems, outlets, produc
       {mode === "add" && (
         <AddPanel
           poaId={poaId} poaPeriod={poaPeriod} outlets={outlets} products={products}
+          existingItems={items}
           onCancel={formOnly ? undefined : () => setMode("none")}
           onSuccess={formOnly ? handleSuccess : () => { setMode("none"); window.location.reload(); }}
           onToast={showToast}
-          onAddNewCustomer={() => setMode("addBaru")}
         />
-      )}
-      {mode === "addBaru" && (
-        <AddDokterBaruPanel outlets={outlets} onCancel={() => setMode(formOnly ? "add" : "none")} />
       )}
 
       {/* "+ Tambah" button — hidden in formOnly mode */}
