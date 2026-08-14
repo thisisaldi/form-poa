@@ -16,6 +16,9 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
   const { id } = await params;
   const session = await getCurrentUser();
   if (!session) redirect("/login");
+  // ADMIN-only while this feature is under review (2026-08-14), same
+  // convention as /monitoring.
+  if (session.role !== "ADMIN") redirect("/dashboard");
 
   const pengajuan = await getPoaStandarisasiDetail(id);
   if (!pengajuan) notFound();

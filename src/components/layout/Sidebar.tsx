@@ -31,8 +31,9 @@ const NAV_ITEMS: NavItem[] = [
     href: "/poa-standarisasi/new",
     label: "New POA Standarisasi",
     icon: <IconPlus />,
-    // Same eligibility/testing convention as "New POA" above (docs/poa-standarisasi/).
-    roles: ["MR", "ADMIN"],
+    // Hidden from everyone but ADMIN for now (2026-08-14) — same
+    // ADMIN-only-while-under-review convention as /monitoring below.
+    roles: ["ADMIN"],
   },
   {
     href: "/approvals",

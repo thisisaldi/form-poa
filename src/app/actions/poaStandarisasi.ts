@@ -89,6 +89,11 @@ export async function setKpdmJabatanAction(kpdmId: string, jabatanId: string | n
 
 export async function createPoaStandarisasiAction(formData: FormData): Promise<void> {
   const session = await requireSession();
+  // ADMIN-only while this feature is under review (2026-08-14), same
+  // convention as /monitoring — bypasses the normal MR/ASM/SM/NSM
+  // eligibility check below entirely until this is opened back up.
+  if (session.role !== "ADMIN") redirect("/dashboard");
+
   const kodePI = (formData.get("kodePI") as string | null)?.trim() ?? "";
   if (!kodePI) redirect("/poa-standarisasi/new?error=" + encodeURIComponent("Outlet wajib dipilih."));
 

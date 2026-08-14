@@ -6,6 +6,9 @@ import { NewPoaStandarisasiForm } from "@/components/poaStandarisasi/NewPoaStand
 export default async function NewPoaStandarisasiPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
+  // ADMIN-only while this feature is under review (2026-08-14), same
+  // convention as /monitoring.
+  if (session.role !== "ADMIN") redirect("/dashboard");
 
   const outlets = await getOutletsByUser(session.userId);
 
