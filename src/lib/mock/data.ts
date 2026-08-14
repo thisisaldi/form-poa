@@ -70,6 +70,8 @@ export const MOCK_AUDIT_LOGS: PoaAuditLog[] = [
     fromStatus: null,
     toStatus: PoaStatus.DRAFT,
     snapshot: {},
+    doctorApprovalId: null,
+    rejectCategory: null,
     createdAt: EARLIER,
   },
   {
@@ -80,6 +82,8 @@ export const MOCK_AUDIT_LOGS: PoaAuditLog[] = [
     fromStatus: PoaStatus.DRAFT,
     toStatus: PoaStatus.SUBMITTED_TO_ASM,
     snapshot: {},
+    doctorApprovalId: null,
+    rejectCategory: null,
     createdAt: NOW,
   },
 ];

@@ -64,6 +64,7 @@ export async function uploadFileToSurveyDrive(
       body: Readable.from(buffer),
     },
     fields: "id",
+    supportsAllDrives: true,
   });
 
   if (!res.data.id) {

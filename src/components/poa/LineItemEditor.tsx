@@ -200,7 +200,7 @@ function emptyProdukEntry(): ProdukEntry {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function hargaST(product: Product): number {
+export function hargaST(product: Product): number {
   const hna      = parseFloat(product.hna) || 0;
   const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
   return hna / konversi;
@@ -316,7 +316,7 @@ function qtyToUB(qtyST: number, product: Product): number {
 // Product.satuan is just an import placeholder ("-"/"—"/"–", no real unit
 // synced), which is most products (2026-07-28 follow-up: falling back only on
 // a missing/empty string let "—" through as if it were a real unit name).
-function satuanLabel(product: Product | null | undefined): string {
+export function satuanLabel(product: Product | null | undefined): string {
   const s = product?.satuan?.trim();
   return s && !/^[-—–]$/.test(s) ? s : "SJ";
 }
@@ -368,6 +368,19 @@ function computePelunasanAllPeriode(history: PsspKontrakSummary[], namaProduk: s
   const sumEst = rows.reduce((s, r) => s + r.estBaris, 0);
   const sumLunas = rows.reduce((s, r) => s + r.totalLunas, 0);
   return sumEst > 0 ? Math.round((sumLunas / sumEst) * 100) : null;
+}
+
+// Period label for the "Pernah PSSP" badge (2026-08-13, task #22) — the pct
+// above aggregates across every matched contract, but the period shown is
+// deliberately just the MOST RECENT contract's own span (not a min-max
+// across all of them), same convention as computeLatestEstPerMonth above.
+function computeLatestPeriodeAllPeriode(history: PsspKontrakSummary[], namaProduk: string): string | null {
+  const norm = namaProduk.toLowerCase().trim();
+  const rows = history
+    .filter((r) => r.nmProduk?.toLowerCase().trim() === norm)
+    .sort((a, b) => b.prdAkhir.localeCompare(a.prdAkhir));
+  if (rows.length === 0) return null;
+  return `${rows[0].prdAwal}-${rows[0].prdAkhir}`;
 }
 
 // Growth Pelunasan's baseline: the most recent PSSP contract for this product (active
@@ -1678,6 +1691,9 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
 
   return (
     <div className="space-y-3">
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        Hanya produk yang diestimasikan (punya kontrak PSSP tercatat) yang tercantum di sini.
+      </p>
       {isFiltered && (
         <p className="text-xs px-2 py-1 rounded" style={{ color: "var(--color-blue)", background: "var(--color-blue-light)" }}>
           Difilter ke outlet yang lagi dipilih ({filtered.length} dari {allHistory.length} baris)
@@ -1949,7 +1965,7 @@ function KriteriaProdukPanel({
   }
 
   const kontesPMRaw: Product[] = [];
-  const pernahPsspRaw: { p: Product; pct: number }[] = [];
+  const pernahPsspRaw: { p: Product; pct: number; periode: string | null }[] = [];
   const listingSalesRaw: Product[] = [];
   const listingNoSalesRaw: Product[] = [];
 
@@ -1957,7 +1973,10 @@ function KriteriaProdukPanel({
     if (matchedPakets.length > 0 && getProductTier(p.namaProduk, matchedPakets) === 0) kontesPMRaw.push(p);
 
     const pct = psspHistory ? computePelunasanAllPeriode(psspHistory, p.namaProduk) : null;
-    if (pct != null) pernahPsspRaw.push({ p, pct });
+    if (pct != null) {
+      const periode = psspHistory ? computeLatestPeriodeAllPeriode(psspHistory, p.namaProduk) : null;
+      pernahPsspRaw.push({ p, pct, periode });
+    }
 
     const kriteria = kriteriaMap.get(p.kodeProduk);
     if (kriteria?.startsWith("Produk Sudah Terstandarisasi") && (!spesialisasi || isRelevantToSpesialisasi(p.spesialisasiRekomendasi, spesialisasi))) {
@@ -1989,9 +2008,10 @@ function KriteriaProdukPanel({
   const allSections: Section[] = [
     {
       title: "Pernah PSSP", color: "green",
-      items: pernahPssp.map(({ p, pct }) => ({
+      items: pernahPssp.map(({ p, pct, periode }) => ({
         key: p.kodeProduk, label: p.namaProduk, added: addedKodeProduk.has(p.kodeProduk),
         badge: `${pct}%`, badgeColor: pct >= 80 ? "green" : pct >= 40 ? "yellow" : "red",
+        badge2: periode ?? undefined, badge2Color: "blue" as const,
       })),
     },
     {
@@ -2110,7 +2130,7 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
               {r.kompetitor.map((k, i) => (
                 <span key={i} className="text-[10px] px-1.5 py-0.5 rounded font-medium"
                   style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
-                  {k.namaProduk}{k.pct > 0 ? ` (${k.pct}%)` : ""}
+                  {k.namaProduk}{k.pct > 0 ? ` (${k.pct}%${k.qty != null ? ` · ${k.qty}` : ""})` : ""}
                 </span>
               ))}
             </div>
@@ -2347,18 +2367,31 @@ function AddPanel({
       label: `${o.kodePI} - ${o.namaOutlet}`,
       sublabel: o.groupRS ?? "NON CHAIN",
     })), [outlets]);
-  // Static list (independent of outlet, so it never comes up empty even
-  // before any user is registered there), but
-  // tagged with how many of this outlet's ALREADY-registered doctors fall
-  // in each spesialisasi, so the MR can tell at a glance which one their
-  // doctor is likely under (2026-07-24 request).
+  // Static catalog (independent of outlet, so it never comes up empty even
+  // before any user is registered there), tagged with how many of this
+  // outlet's ALREADY-registered doctors fall in each spesialisasi, so the MR
+  // can tell at a glance which one their doctor is likely under (2026-07-24
+  // request). PLUS any raw spesialisasi value actually present in
+  // customerList but missing from the static catalog — customerList is
+  // Nexus-primary (getCustomersByOutlet, 2026-08-13) and can surface values
+  // the static ALL_SPESIALISASI_OPTIONS list (hardcoded from a one-time Excel
+  // import) never had. Without this, picking a User whose spesialisasi isn't
+  // in the static list still correctly sets the `spesialisasi` state (used
+  // for filtering) but the Spesialisasi combobox itself shows blank, since
+  // its options list has no matching value to display (2026-08-14 bug report).
   const specOptions = useMemo(() => {
     const counts = new Map<string, number>(); // PM label -> count
+    const rawByLabel = new Map<string, string>(); // PM label -> a raw value with that label
     for (const c of customerList) {
       const label = spesLabel(c.spesialisasi);
       counts.set(label, (counts.get(label) ?? 0) + 1);
+      if (!rawByLabel.has(label)) rawByLabel.set(label, c.spesialisasi);
     }
-    return ALL_SPESIALISASI_OPTIONS.map((o) => {
+    const knownValues = new Set(ALL_SPESIALISASI_OPTIONS.map((o) => o.value));
+    const extra = [...rawByLabel.entries()]
+      .filter(([, raw]) => !knownValues.has(raw))
+      .map(([label, raw]) => ({ value: raw, label }));
+    return [...ALL_SPESIALISASI_OPTIONS, ...extra].map((o) => {
       const n = counts.get(o.label) ?? 0;
       return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined, _count: n };
     }).sort((a, b) => b._count - a._count);

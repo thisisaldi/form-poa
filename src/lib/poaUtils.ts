@@ -20,6 +20,21 @@ export function computePeriodeAkhir(periodeAwal: string, lamaPeriode: number): s
   return `${endYear}${String(endMonth).padStart(2, "0")}`;
 }
 
+/**
+ * Inverse of computePeriodeAkhir — number of months spanned from periodeAwal
+ * through periodeAkhir, inclusive (e.g. "202601" to "202603" = 3). Used for
+ * sources that only ever store awal/akhir (e.g. PsspKontrak's prdAwal/
+ * prdAkhir) and never a stored lamaPeriode — docs/TODO.md #16 "Jumlah
+ * Periode" export column.
+ */
+export function computeJumlahPeriode(periodeAwal: string, periodeAkhir: string): number {
+  const awalY = parseInt(periodeAwal.slice(0, 4), 10);
+  const awalM = parseInt(periodeAwal.slice(4, 6), 10);
+  const akhirY = parseInt(periodeAkhir.slice(0, 4), 10);
+  const akhirM = parseInt(periodeAkhir.slice(4, 6), 10);
+  return (akhirY * 12 + akhirM) - (awalY * 12 + awalM) + 1;
+}
+
 /** Formats a YYYYMM string to "Mmm YYYY" for display (e.g. "Jul 2026") */
 export function formatPeriode(yyyymm: string): string {
   const year = parseInt(yyyymm.slice(0, 4), 10);

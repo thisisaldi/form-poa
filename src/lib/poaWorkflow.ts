@@ -7,10 +7,11 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove, canFastTrackApprove, canCancelApproved, getLastApprover, hasApprovalThisCycle } from "@/lib/authz";
-import { sendPoaStatusEmail, sendEditRequestEmail } from "@/lib/notifications";
+import { canEdit, canApprove, canFastTrackApprove, canCancelApproved, getLastApprover, hasApprovalThisCycle,
+  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor } from "@/lib/authz";
+import { sendPoaStatusEmail, sendEditRequestEmail, sendDoctorStatusEmail } from "@/lib/notifications";
 import { PoaStatus, AuditAction } from "@prisma/client";
-import type { PoaForm, User } from "@prisma/client";
+import type { PoaForm, PoaDoctorApproval, PoaRejectCategory, User } from "@prisma/client";
 
 // ─── Transition Map ───────────────────────────────────────────────────────────
 
@@ -484,6 +485,464 @@ export async function flagRevisionOnEdit(
     AuditAction.REVISE,
     undefined,
     snapshotExtra
+  );
+}
+
+// ─── Per-doctor approval (docs/poa-per-doctor-approval/) ──────────────────────
+//
+// 2026-08-13 decision: approve/reject moved from whole-draft to per-doctor
+// granularity. Every function below is the doctor-scoped twin of its
+// PoaForm-level counterpart above, operating on a PoaDoctorApproval row
+// instead of PoaForm.status/currentHolderId directly. The PoaForm-level
+// functions above are left UNCHANGED (still used by createPoaDraft, and as
+// the historical reference these were generalized from) — PoaForm.status/
+// currentHolderId are now a live-derived ROLLUP over PoaDoctorApproval rows,
+// recomputed and written back after every doctor-level transition via
+// resolvePoaRollup below, so code that hasn't been generalized yet (exports,
+// dashboards — see docs/poa-per-doctor-approval/03-ui-and-access.md
+// Non-goals v1) keeps reading an approximately-correct single status.
+
+/** Rank used to pick the "least advanced" doctor status for the PoaForm rollup — lower = needs more attention. */
+const ROLLUP_RANK: Record<PoaStatus, number> = {
+  [PoaStatus.DRAFT]: 0,
+  [PoaStatus.REVISI]: 0,
+  [PoaStatus.SUBMITTED_TO_ASM]: 1,
+  [PoaStatus.APPROVED_BY_ASM]: 2,
+  [PoaStatus.SUBMITTED_TO_SM]: 3,
+  [PoaStatus.APPROVED_BY_SM]: 4,
+  [PoaStatus.SUBMITTED_TO_NSM]: 5,
+  [PoaStatus.APPROVED_BY_NSM]: 6,
+};
+
+/**
+ * Recomputes PoaForm.status/currentHolderId as a rollup over this POA's
+ * PoaDoctorApproval rows (docs/poa-per-doctor-approval/01-business-rules.md
+ * §3a, OQ-1) and writes it back. Doctors with no PoaDoctorApproval row yet
+ * (never submitted this cycle) count as rank 0 (same as DRAFT/REVISI) — they
+ * still need the owner to act. Picks the lowest-rank doctor as representative
+ * (a draft is only as "done" as its least-advanced doctor); ties are broken
+ * by preferring an actual REVISI row over a same-rank never-submitted doctor,
+ * since REVISI communicates "needs revision" more precisely than bare DRAFT.
+ * This is a best-effort single-value approximation for legacy readers, NOT
+ * the source of truth once a doctor has its own PoaDoctorApproval row — see
+ * doc comment on PoaDoctorApproval in schema.prisma.
+ */
+async function resolvePoaRollup(poaId: string): Promise<void> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
+  if (poa.status === PoaStatus.DRAFT) {
+    // Never submitted at all yet (no doctor has been split out) — nothing to roll up.
+    const anyApproval = await prisma.poaDoctorApproval.findFirst({ where: { poaId }, select: { id: true } });
+    if (!anyApproval) return;
+  }
+
+  const [approvals, doctorKeys] = await Promise.all([
+    prisma.poaDoctorApproval.findMany({ where: { poaId } }),
+    prisma.poaLineItem.findMany({
+      where: { poaId },
+      distinct: ["kodePI", "namaCust"],
+      select: { kodePI: true, namaCust: true },
+    }),
+  ]);
+  const approvalByDoctor = new Map<string, PoaDoctorApproval>(
+    approvals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}`, a])
+  );
+
+  let best: { rank: number; status: PoaStatus; currentHolderId: string | null; isRevisi: boolean } | null = null;
+  for (const { kodePI, namaCust } of doctorKeys) {
+    const approval = approvalByDoctor.get(`${kodePI ?? ""}|${namaCust}`);
+    const status = approval?.status ?? PoaStatus.DRAFT;
+    const rank = ROLLUP_RANK[status];
+    const isRevisi = status === PoaStatus.REVISI;
+    if (!best || rank < best.rank || (rank === best.rank && isRevisi && !best.isRevisi)) {
+      best = { rank, status, currentHolderId: approval?.currentHolderId ?? null, isRevisi };
+    }
+  }
+  if (!best) return; // no line items yet — leave PoaForm.status as-is
+
+  await prisma.poaForm.update({
+    where: { id: poaId },
+    data: { status: best.status, currentHolderId: best.currentHolderId },
+  });
+}
+
+async function loadDoctorApproval(poaId: string, kodePI: string, namaCust: string): Promise<PoaDoctorApproval | null> {
+  return prisma.poaDoctorApproval.findUnique({
+    where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } },
+  });
+}
+
+/** Internal — mirrors applyTransition, but mutates a PoaDoctorApproval row (creating it if needed) instead of PoaForm. */
+async function applyDoctorTransition(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string,
+  transition: TransitionTarget,
+  fromStatus: PoaStatus,
+  action: AuditAction,
+  existing: PoaDoctorApproval | null,
+  notes?: string,
+  snapshotExtra?: Record<string, unknown>,
+  rejectCategory?: PoaRejectCategory
+): Promise<PoaDoctorApproval> {
+  const poa = await loadPoaWithHierarchy(poaId);
+
+  let nextHolderId: string | null = null;
+  if (transition.nextHolderRole) {
+    nextHolderId = resolveNextHolder(poa, transition.nextHolderRole);
+    if (!nextHolderId) {
+      throw new Error(
+        `Cannot resolve next holder (${transition.nextHolderRole}) for POA ${poaId} doctor ${namaCust} — check org hierarchy data`
+      );
+    }
+  }
+
+  const [doctorApproval] = await prisma.$transaction([
+    existing
+      ? prisma.poaDoctorApproval.update({
+          where: { id: existing.id },
+          data: {
+            status: transition.toStatus,
+            currentHolderId: nextHolderId,
+            ...(transition.toStatus === PoaStatus.REVISI ? { version: { increment: 1 } } : {}),
+          },
+        })
+      : prisma.poaDoctorApproval.create({
+          data: { poaId, kodePI, namaCust, status: transition.toStatus, currentHolderId: nextHolderId },
+        }),
+  ]);
+
+  await prisma.poaAuditLog.create({
+    data: {
+      poaId,
+      actorId: actingUserId,
+      action,
+      fromStatus,
+      toStatus: transition.toStatus,
+      doctorApprovalId: doctorApproval.id,
+      snapshot: { namaCust, kodePI, ...(notes ? { notes } : {}), ...snapshotExtra },
+      ...(rejectCategory ? { rejectCategory } : {}),
+    },
+  });
+
+  await resolvePoaRollup(poaId);
+
+  sendDoctorStatusEmail(poa, namaCust, transition.toStatus, action, nextHolderId).catch((err) =>
+    console.error("[notifications] sendDoctorStatusEmail failed:", err)
+  );
+
+  return doctorApproval;
+}
+
+/**
+ * MR submits ONE doctor within a draft (docs/poa-per-doctor-approval/
+ * OQ-2: submit is per-doctor, not whole-draft). Creates the doctor's
+ * PoaDoctorApproval row on first submit; on resubmit after REVISI, reuses it.
+ */
+export async function submitDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string,
+  notes?: string
+): Promise<PoaDoctorApproval> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId }, include: { owner: true } });
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!(await canEdit(actingUser, poa))) {
+    throw new Error(`User ${actingUserId} does not have edit rights on POA ${poaId}`);
+  }
+
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  const fromStatus = existing?.status ?? PoaStatus.DRAFT;
+
+  const transition = !existing || existing.status === PoaStatus.REVISI
+    ? firstSubmitTransition(poa.owner.role)
+    : SUBMIT_TRANSITIONS[existing.status];
+  if (!transition) {
+    throw new Error(`Cannot submit doctor ${namaCust} in status ${fromStatus}`);
+  }
+
+  return applyDoctorTransition(poaId, kodePI, namaCust, actingUserId, transition, fromStatus, AuditAction.SUBMIT, existing, notes);
+}
+
+/**
+ * Convenience wrapper preserving the existing one-click "Ajukan ke Atasan"
+ * UX: submits every doctor in this draft that's currently eligible (no
+ * PoaDoctorApproval row yet, or sitting in REVISI) in one call — each still
+ * gets its own PoaDoctorApproval row and can be approved/rejected
+ * independently afterward. Doctors already mid-review or fully approved are
+ * left untouched.
+ */
+export async function submitAllDoctorsInDraft(
+  poaId: string,
+  actingUserId: string,
+  notes?: string
+): Promise<PoaDoctorApproval[]> {
+  const [doctorKeys, approvals] = await Promise.all([
+    prisma.poaLineItem.findMany({
+      where: { poaId },
+      distinct: ["kodePI", "namaCust"],
+      select: { kodePI: true, namaCust: true },
+    }),
+    prisma.poaDoctorApproval.findMany({ where: { poaId } }),
+  ]);
+  const approvalByDoctor = new Map<string, PoaDoctorApproval>(
+    approvals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}`, a])
+  );
+
+  const results: PoaDoctorApproval[] = [];
+  for (const { kodePI, namaCust } of doctorKeys) {
+    if (!kodePI) continue;
+    const existing = approvalByDoctor.get(`${kodePI}|${namaCust}`);
+    if (existing && existing.status !== PoaStatus.REVISI) continue; // already submitted/approved this cycle
+    results.push(await submitDoctor(poaId, kodePI, namaCust, actingUserId, notes));
+  }
+  return results;
+}
+
+/** Doctor-scoped twin of approvePoa. */
+export async function approveDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string
+): Promise<PoaDoctorApproval> {
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  if (!existing) throw new Error(`No pending approval found for doctor ${namaCust} on POA ${poaId}`);
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!canApproveDoctor(actingUser, existing)) {
+    throw new Error(`User ${actingUserId} is not authorized to approve doctor ${namaCust} on POA ${poaId}`);
+  }
+
+  const transition = APPROVE_TRANSITIONS[existing.status];
+  if (!transition) throw new Error(`Cannot approve doctor ${namaCust} in status ${existing.status}`);
+
+  return applyDoctorTransition(poaId, kodePI, namaCust, actingUserId, transition, existing.status, AuditAction.APPROVE, existing);
+}
+
+/** Doctor-scoped twin of fastTrackApprove. */
+export async function fastTrackApproveDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string
+): Promise<PoaDoctorApproval> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  if (!existing) throw new Error(`No pending approval found for doctor ${namaCust} on POA ${poaId}`);
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!(await canFastTrackApproveDoctor(actingUser, poa, existing))) {
+    throw new Error(`User ${actingUserId} is not authorized to fast-track approve doctor ${namaCust} on POA ${poaId}`);
+  }
+
+  return applyDoctorTransition(
+    poaId, kodePI, namaCust, actingUserId,
+    { toStatus: PoaStatus.APPROVED_BY_NSM, nextHolderRole: null },
+    existing.status, AuditAction.APPROVE, existing,
+    "Fast-track approval oleh NSM — melewati ASM/SM"
+  );
+}
+
+/**
+ * Doctor-scoped twin of rejectPoa. `category` is required — docs/poa-rejection-categories/
+ * (2026-08-13, single-select, main "Tolak" form only) — validated against the
+ * PoaRejectCategory enum whitelist by the caller (rejectDoctorAction in
+ * src/app/actions/poa.ts) before reaching here; Postgres's own enum
+ * constraint is the final backstop against a forged/invalid value.
+ */
+export async function rejectDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string,
+  reason: string,
+  category: PoaRejectCategory
+): Promise<PoaDoctorApproval> {
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  if (!existing) throw new Error(`No pending approval found for doctor ${namaCust} on POA ${poaId}`);
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!canApproveDoctor(actingUser, existing)) {
+    throw new Error(`User ${actingUserId} is not authorized to reject doctor ${namaCust} on POA ${poaId}`);
+  }
+
+  return applyDoctorTransition(
+    poaId, kodePI, namaCust, actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    existing.status, AuditAction.REJECT, existing, reason, undefined, category
+  );
+}
+
+/** Doctor-scoped twin of cancelApprovedByNsm. */
+export async function cancelApprovedByNsmDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string,
+  reason: string
+): Promise<PoaDoctorApproval> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  if (!existing) throw new Error(`No approval found for doctor ${namaCust} on POA ${poaId}`);
+
+  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
+  if (!(await canCancelApprovedDoctor(actingUser, poa, existing))) {
+    throw new Error(`User ${actingUserId} is not authorized to cancel approval for doctor ${namaCust} on POA ${poaId}`);
+  }
+
+  return applyDoctorTransition(
+    poaId, kodePI, namaCust, actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    existing.status, AuditAction.CANCEL, existing, reason
+  );
+}
+
+/** Doctor-scoped twin of requestEdit. */
+export async function requestEditDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string,
+  reason?: string
+): Promise<void> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
+  if (poa.ownerId !== actingUserId) throw new Error(`User ${actingUserId} does not own POA ${poaId}`);
+
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  if (!existing) throw new Error(`Doctor ${namaCust} has no approval cycle on POA ${poaId} to request an edit against`);
+
+  const lastApprover = await getLastApproverForDoctor(existing.id);
+  if (!lastApprover) throw new Error(`Doctor ${namaCust} on POA ${poaId} has no approval this cycle to request an edit against`);
+
+  await prisma.poaAuditLog.create({
+    data: {
+      poaId,
+      actorId: actingUserId,
+      action: AuditAction.REQUEST_EDIT,
+      fromStatus: existing.status,
+      toStatus: existing.status,
+      doctorApprovalId: existing.id,
+      snapshot: { namaCust, kodePI, ...(reason ? { notes: reason } : {}) },
+    },
+  });
+
+  sendEditRequestEmail(poa, lastApprover.actorId).catch((err) =>
+    console.error("[notifications] sendEditRequestEmail failed:", err)
+  );
+}
+
+/** Doctor-scoped twin of grantEditRequest. */
+export async function grantEditRequestDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string
+): Promise<PoaDoctorApproval> {
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  if (!existing) throw new Error(`No approval found for doctor ${namaCust} on POA ${poaId}`);
+
+  const lastApprover = await getLastApproverForDoctor(existing.id);
+  if (!lastApprover || lastApprover.actorId !== actingUserId) {
+    throw new Error(`User ${actingUserId} is not authorized to grant an edit request for doctor ${namaCust} on POA ${poaId}`);
+  }
+
+  return applyDoctorTransition(
+    poaId, kodePI, namaCust, actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    existing.status, AuditAction.GRANT_EDIT, existing,
+    "Menyetujui permintaan edit dari pemilik POA"
+  );
+}
+
+/** Doctor-scoped twin of declineEditRequest. */
+export async function declineEditRequestDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string,
+  reason: string
+): Promise<void> {
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  if (!existing) throw new Error(`No approval found for doctor ${namaCust} on POA ${poaId}`);
+
+  const lastApprover = await getLastApproverForDoctor(existing.id);
+  if (!lastApprover || lastApprover.actorId !== actingUserId) {
+    throw new Error(`User ${actingUserId} is not authorized to decline an edit request for doctor ${namaCust} on POA ${poaId}`);
+  }
+
+  await prisma.poaAuditLog.create({
+    data: {
+      poaId,
+      actorId: actingUserId,
+      action: AuditAction.DECLINE_EDIT,
+      fromStatus: existing.status,
+      toStatus: existing.status,
+      doctorApprovalId: existing.id,
+      snapshot: { namaCust, kodePI, notes: reason },
+    },
+  });
+}
+
+/**
+ * Doctor-scoped twin of flagRevisionOnEdit — called whenever a line item
+ * belonging to ONE doctor is added/edited/deleted. Same three-way logic as
+ * the original (no-op while nobody's reviewed yet this cycle, bounce to
+ * REVISI once the owner edits after an approval, no-op for a superior's own
+ * edit), just scoped to that doctor's own PoaDoctorApproval row instead of
+ * the whole draft — see docs/poa-per-doctor-approval/01-business-rules.md §5.
+ */
+export async function flagRevisionOnEditDoctor(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  actingUserId: string,
+  detail?: { customer?: string | null; product?: string | null; op?: "add" | "update" | "delete" }
+): Promise<PoaDoctorApproval | null> {
+  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
+  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
+  const snapshotExtra = { namaCust, kodePI, ...(detail ?? {}) };
+
+  if (!existing) {
+    // Doctor never submitted this cycle — plain UPDATE log, no status to touch.
+    await prisma.poaAuditLog.create({
+      data: {
+        poaId,
+        actorId: actingUserId,
+        action: AuditAction.UPDATE,
+        fromStatus: PoaStatus.DRAFT,
+        toStatus: PoaStatus.DRAFT,
+        snapshot: snapshotExtra,
+      },
+    });
+    return null;
+  }
+
+  const stillPendingFirstApproval =
+    existing.status !== PoaStatus.DRAFT && existing.status !== PoaStatus.REVISI &&
+    !(await hasApprovalThisCycleForDoctor(existing.id));
+
+  if (existing.status === PoaStatus.DRAFT || existing.status === PoaStatus.REVISI || stillPendingFirstApproval) {
+    await prisma.poaAuditLog.create({
+      data: {
+        poaId,
+        actorId: actingUserId,
+        action: AuditAction.UPDATE,
+        fromStatus: existing.status,
+        toStatus: existing.status,
+        doctorApprovalId: existing.id,
+        snapshot: snapshotExtra,
+      },
+    });
+    return null;
+  }
+  if (poa.ownerId !== actingUserId) return null;
+
+  return applyDoctorTransition(
+    poaId, kodePI, namaCust, actingUserId,
+    { toStatus: PoaStatus.REVISI, nextHolderRole: null },
+    existing.status, AuditAction.REVISE, existing, undefined, snapshotExtra
   );
 }
 

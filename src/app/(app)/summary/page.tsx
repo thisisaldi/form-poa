@@ -9,7 +9,7 @@ import { getAllPakets } from "@/lib/paketProduk";
 import { spesLabel } from "@/lib/spesialisasi";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { computeMonthlyBreakdown, formatPeriode } from "@/lib/poaUtils";
-import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
+import { getActivePsspByOutlets, getNexusSpesialisasiByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { HeaderInfo } from "@/components/ui/HeaderInfo";
 import { RingkasanMetricsTables, type RingkasanRowMetrics } from "@/components/poa/RingkasanMetricsTables";
@@ -461,15 +461,17 @@ async function SummaryContent({
   // Customer → spesialisasi (PM label) lookup — PsspKontrak/ActivePsspRow have
   // no spesialisasi column of their own, only kdCust, so this is what lets the
   // "Per Spesialisasi" tab bucket contract rows at all (`kesesuaianAktifBySpes`
-  // / `activePsspBySpes` below).
-  const custSpesRows = custCodes.length > 0
-    ? (await prisma.customer.findMany({
-        where: { kodeCustomer: { in: custCodes } },
-        select: { kodeCustomer: true, spesialisasi: true },
-      })) as { kodeCustomer: string | null; spesialisasi: string }[]
-    : [];
+  // / `activePsspBySpes` below). Nexus-sourced as of 2026-08-13 ("customer
+  // full pakai Nexus") — fans out one get_customer_by_outlet call per outlet
+  // in scope (getNexusSpesialisasiByOutlets), replacing the old batched
+  // prisma.customer lookup by kodeCustomer. Keyed uppercase — see the two
+  // `.get(r.kdCust.toUpperCase())` lookups below.
+  const nexusSpesByKode = outletCodes.length > 0 ? await getNexusSpesialisasiByOutlets(outletCodes) : new Map<string, string>();
   const spesByCust = new Map(
-    custSpesRows.filter((c) => c.kodeCustomer).map((c) => [c.kodeCustomer as string, spesLabel(c.spesialisasi)])
+    custCodes
+      .map((code) => [code, nexusSpesByKode.get(code.toUpperCase())] as const)
+      .filter((entry): entry is [string, string] => !!entry[1])
+      .map(([code, spes]) => [code, spesLabel(spes)] as const)
   );
 
   // Build poa→owner map

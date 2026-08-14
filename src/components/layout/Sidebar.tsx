@@ -21,10 +21,17 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/poa/new",
-    label: "New POA",
+    label: "New POA Estimasi",
     icon: <IconPlus />,
     // ADMIN included for testing-only POAs (2026-07-24) — never surfaces in
     // anyone else's ringkasan, see canCreatePoa in authz.ts.
+    roles: ["MR", "ADMIN"],
+  },
+  {
+    href: "/poa-standarisasi/new",
+    label: "New POA Standarisasi",
+    icon: <IconPlus />,
+    // Same eligibility/testing convention as "New POA" above (docs/poa-standarisasi/).
     roles: ["MR", "ADMIN"],
   },
   {

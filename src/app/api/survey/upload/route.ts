@@ -13,9 +13,17 @@ import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { getOutletsForSurveyUpload } from "@/lib/masterData";
 import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
+import { SURVEY_SUMBER_OPTIONS } from "@/lib/surveySumber";
 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB — docs/survey-pasien-features/01-business-rules.md OQ-1
-const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
+// docs/TODO.md #18 (2026-08-13) — ZIP added alongside Excel (MR bundling
+// multiple files/photos together, per "Support Format File ZIP" request).
+const ALLOWED_EXTENSIONS = [".xlsx", ".xls", ".zip"];
+const MIME_BY_EXT: Record<string, string> = {
+  ".xls": "application/vnd.ms-excel",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".zip": "application/zip",
+};
 const PERIODE_RE = /^\d{6}$/; // YYYYMM
 
 function sanitizeForFileName(s: string): string {
@@ -35,12 +43,14 @@ export async function GET() {
   });
 
   return NextResponse.json(
-    logs.map((l: { id: string; outlet: { namaOutlet: string }; periode: string; namaFile: string; driveFileId: string; uploadedAt: Date }) => ({
+    logs.map((l: (typeof logs)[number]) => ({
       id: l.id,
       namaOutlet: l.outlet.namaOutlet,
       periode: l.periode,
       namaFile: l.namaFile,
       driveFileId: l.driveFileId,
+      biayaData: l.biayaData != null ? parseFloat(l.biayaData.toString()) : null,
+      sumber: l.sumber,
       uploadedAt: l.uploadedAt,
     }))
   );
@@ -60,6 +70,10 @@ export async function POST(req: Request) {
   const file = formData.get("file");
   const kodePI = (formData.get("kodePI") as string | null)?.trim() ?? "";
   const periode = (formData.get("periode") as string | null)?.trim() ?? "";
+  // Biaya Data / Sumber (docs/TODO.md #18) — both optional for now (not yet
+  // confirmed as required by stakeholder), validated if present.
+  const biayaDataRaw = (formData.get("biayaData") as string | null)?.trim() ?? "";
+  const sumberRaw = (formData.get("sumber") as string | null)?.trim() ?? "";
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "File wajib diisi." }, { status: 400 });
@@ -70,10 +84,20 @@ export async function POST(req: Request) {
   if (!PERIODE_RE.test(periode)) {
     return NextResponse.json({ error: "Periode wajib format YYYYMM (mis. 202608)." }, { status: 400 });
   }
+  let biayaData: number | null = null;
+  if (biayaDataRaw) {
+    biayaData = parseFloat(biayaDataRaw);
+    if (isNaN(biayaData) || biayaData < 0) {
+      return NextResponse.json({ error: "Biaya Data harus berupa angka ≥ 0." }, { status: 400 });
+    }
+  }
+  if (sumberRaw && !(SURVEY_SUMBER_OPTIONS as readonly string[]).includes(sumberRaw)) {
+    return NextResponse.json({ error: "Sumber tidak valid." }, { status: 400 });
+  }
 
   const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return NextResponse.json({ error: "File harus berformat .xlsx atau .xls." }, { status: 400 });
+    return NextResponse.json({ error: "File harus berformat .xlsx, .xls, atau .zip." }, { status: 400 });
   }
   if (file.size === 0) {
     return NextResponse.json({ error: "File kosong." }, { status: 400 });
@@ -100,9 +124,7 @@ export async function POST(req: Request) {
   let driveFileId: string;
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const mimeType = ext === ".xls"
-      ? "application/vnd.ms-excel"
-      : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    const mimeType = MIME_BY_EXT[ext] ?? "application/octet-stream";
     const result = await uploadFileToSurveyDrive(namaFile, mimeType, buffer);
     driveFileId = result.driveFileId;
   } catch (err) {
@@ -117,6 +139,8 @@ export async function POST(req: Request) {
       periode,
       namaFile,
       driveFileId,
+      biayaData,
+      sumber: sumberRaw || null,
     },
   });
 

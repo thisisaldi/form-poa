@@ -48,6 +48,20 @@ enum AuditAction {
   DECLINE_EDIT
 }
 
+// docs/poa-rejection-categories/ (2026-08-13) — tag on a REJECT audit event
+// classifying WHY the doctor was rejected. Only ever set on rows with
+// action = REJECT (main "Tolak" form, per-doctor — see 01-business-rules.md
+// §2/OQ-1 RESOLVED: cuma form Tolak utama, bukan Tolak-edit/Batalkan-Approval),
+// null for every other action. See PoaAuditLog.rejectCategory below.
+enum PoaRejectCategory {
+  PRODUK
+  OUTLET
+  USER
+  PERIODE
+  KALKULASI_PSSP
+  ALASAN_LAIN
+}
+
 enum StatusStandarisasi {
   SUDAH_STANDARISASI
   PROSES_PENGAJUAN
@@ -119,8 +133,9 @@ model User {
   subordinates User[]  @relation("OrgHierarchy")
 
   // POA ownership
-  ownedPoas PoaForm[] @relation("PoaOwner")
-  heldPoas  PoaForm[] @relation("PoaCurrentHolder")
+  ownedPoas           PoaForm[]           @relation("PoaOwner")
+  heldPoas            PoaForm[]           @relation("PoaCurrentHolder")
+  heldDoctorApprovals PoaDoctorApproval[] @relation("PoaDoctorApprovalHolder")
 
   // Audit activity
   auditLogs PoaAuditLog[]
@@ -138,6 +153,9 @@ model User {
 
   // Survey upload audit trail (see docs/survey-pasien-features/)
   surveyUploadLogs SurveyUploadLog[]
+
+  // POA Standarisasi (see docs/poa-standarisasi/) — pembuat pengajuan
+  poaStandarisasiOwned PoaStandarisasi[]
 
   @@index([nipAtasan])
   @@index([role])
@@ -159,10 +177,51 @@ model PoaForm {
   currentHolderId String?
   currentHolder   User?   @relation("PoaCurrentHolder", fields: [currentHolderId], references: [nip])
 
-  auditLogs PoaAuditLog[]
-  items     PoaLineItem[]
+  auditLogs       PoaAuditLog[]
+  items           PoaLineItem[]
+  doctorApprovals PoaDoctorApproval[]
 
   @@index([ownerId])
+  @@index([currentHolderId])
+  @@index([status])
+}
+
+// Approval unit per-dokter within a PoaForm — see docs/poa-per-doctor-approval/
+// (2026-08-13 decision: approve/reject moved from whole-draft to per-doctor
+// granularity, so ASM/SM/NSM can approve Doctor A while rejecting Doctor B in
+// the SAME draft). "Dokter" = 1 (kodePI, namaCust) pair, same doctorKey concept
+// as DraftChecklist.tsx's grouping of PoaLineItem rows — all PoaLineItem rows
+// for one doctor (1 per product) move as a single approval unit; there is no
+// per-product approval. Denormalized identity (kodePI/namaCust) rather than an
+// FK to one specific PoaLineItem because a doctor spans many line items.
+// Created lazily: a row only exists once that doctor has been submitted at
+// least once — a doctor still sitting in DRAFT/REVISI within an otherwise
+// in-flight draft has no row yet. PoaForm.status/currentHolderId remain a
+// live-derived rollup over these rows (see resolvePoaRollup in poaWorkflow.ts)
+// for code that hasn't been generalized to per-doctor yet (exports, dashboards
+// — docs/poa-per-doctor-approval/03-ui-and-access.md Non-goals v1).
+model PoaDoctorApproval {
+  id       String  @id @default(uuid())
+  poaId    String
+  poa      PoaForm @relation(fields: [poaId], references: [id], onDelete: Cascade)
+  kodePI   String
+  namaCust String
+
+  status  PoaStatus @default(SUBMITTED_TO_ASM)
+  version Int       @default(1) // bumped every time THIS doctor re-enters REVISI
+
+  // Null once fully approved, or while sitting with the owner (DRAFT/REVISI,
+  // not yet (re)submitted).
+  currentHolderId String?
+  currentHolder   User?   @relation("PoaDoctorApprovalHolder", fields: [currentHolderId], references: [nip])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs PoaAuditLog[]
+
+  @@unique([poaId, kodePI, namaCust])
+  @@index([poaId])
   @@index([currentHolderId])
   @@index([status])
 }
@@ -176,8 +235,10 @@ model Customer {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  outlets               CustomerOutlet[]
-  psspHospinetSnapshots PsspHospinetSnapshot[]
+  outlets                        CustomerOutlet[]
+  psspHospinetSnapshots          PsspHospinetSnapshot[]
+  poaStandarisasiDokterApprovals PoaStandarisasiDokterApproval[]
+  poaStandarisasiDokterUsers     PoaStandarisasiDokterUser[]
 
   @@index([spesialisasi])
   @@index([namaCustomer])
@@ -280,6 +341,13 @@ model SurveyUploadLog {
   periode     String // format YYYYMM
   namaFile    String // nama final dipakai di Drive — format §3a: "[YYYYMMDDHHMM] - Data Survey [Nama RS] Periode [Periode] oleh [Pengaju]"
   driveFileId String // Google Drive file ID dari response files.create
+  // Biaya Data / Sumber (docs/TODO.md #18, 2026-08-13 — extends v1).
+  // biayaData nullable (Rupiah) — belum wajib sampai dikonfirmasi.
+  // sumber plain String (bukan Postgres enum) SENGAJA — whitelist-nya di
+  // src/lib/surveySumber.ts (dikonfirmasi pengguna 2026-08-13), gampang
+  // diganti tanpa migration baru kalau daftarnya berubah lagi nanti.
+  biayaData   Decimal? @db.Decimal(18, 2)
+  sumber      String?
   uploadedAt  DateTime @default(now())
 
   @@index([uploaderNip])
@@ -346,7 +414,7 @@ model PoaLineItem {
   // own survey count of daily patients, shown as a "Referensi PM" hint next
   // to the per-product jumlahResepHari ("Pasien Baru / Hari") input in the
   // form (see ProdukEntryRow in LineItemEditor.tsx).
-  surveyPasienHarian Int @default(0)
+  surveyPasienHarian Int     @default(0)
 
   // ── Master data (auto from sync) ─────────────────────────────────────────
   nilaiR           Decimal? @db.Decimal(18, 2)
@@ -385,12 +453,17 @@ model PoaLineItem {
 }
 
 model PoaAuditLog {
-  id         String      @id @default(uuid())
-  action     AuditAction
-  fromStatus PoaStatus?
-  toStatus   PoaStatus?
-  snapshot   Json        @default("{}") // metadata at time of action (status, actor)
-  createdAt  DateTime    @default(now())
+  id             String             @id @default(uuid())
+  action         AuditAction
+  fromStatus     PoaStatus?
+  toStatus       PoaStatus?
+  snapshot       Json               @default("{}") // metadata at time of action (status, actor)
+  // docs/poa-rejection-categories/ (2026-08-13) — only set on REJECT rows,
+  // always null otherwise (enforced at the application layer, see rejectDoctor
+  // in poaWorkflow.ts). Typed enum column (not a snapshot JSON key) so future
+  // "reject count by category" reporting can groupBy/filter directly.
+  rejectCategory PoaRejectCategory?
+  createdAt      DateTime           @default(now())
 
   poaId String
   poa   PoaForm @relation(fields: [poaId], references: [id])
@@ -398,8 +471,15 @@ model PoaAuditLog {
   actorId String
   actor   User   @relation(fields: [actorId], references: [nip])
 
+  // Set for per-doctor events (approve/reject/etc. targeting one doctor) —
+  // null for draft-level events (CREATE, and any future non-doctor-scoped
+  // action). See PoaDoctorApproval doc comment.
+  doctorApprovalId String?
+  doctorApproval   PoaDoctorApproval? @relation(fields: [doctorApprovalId], references: [id], onDelete: SetNull)
+
   @@index([poaId])
   @@index([actorId])
+  @@index([doctorApprovalId])
 }
 
 // ─── Outlet Master Data ───────────────────────────────────────────────────────
@@ -437,6 +517,12 @@ model Outlet {
   coveredByNip  String?
   coveredByRole String? // "MR" | "ASM" | "SM" | "NSM"
 
+  // POA Standarisasi (docs/poa-standarisasi/, 2026-08-14) — sumber data belum
+  // pasti (sync eksternal vs input manual, lihat 01-business-rules.md §7 Q8),
+  // v1: nullable, diisi manual pertama kali oleh MR di form (lalu snapshot
+  // independen di PoaStandarisasi.jumlahBedRs, tidak live-derive dari sini).
+  jumlahBed Int?
+
   syncedAt  DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -446,6 +532,7 @@ model Outlet {
   psspHospinetSnapshots PsspHospinetSnapshot[]
   surveyRekomendasi     SurveyRekomendasi[]
   surveyUploadLogs      SurveyUploadLog[]
+  poaStandarisasi       PoaStandarisasi[]
 
   @@index([statusOutlet])
   @@index([sector])
@@ -458,25 +545,25 @@ model Product {
   // "Kd Item" / "Item Kode" — sourced from TKT...LAPORAN HNA SARUASUBUR.xlsx.
   // Nilai R.xlsx and Kebutuhan Satuan Terkecil.xlsx key by this same code
   // natively, so no bridge/mapping file is needed for those syncs.
-  kodeProduk             String   @id
-  namaGroupBrand         String
-  namaProduk             String
-  zatAktif               String?
-  satuan                 String // SJ (Satuan Jual), e.g. "BOX"
-  hna                    Decimal  @db.Decimal(18, 2) // HNA per SJ
-  nilaiRPersen           Decimal? @db.Decimal(10, 6) // NILAI_R / HNA from Nilai R.xlsx
+  kodeProduk              String   @id
+  namaGroupBrand          String
+  namaProduk              String
+  zatAktif                String?
+  satuan                  String // SJ (Satuan Jual), e.g. "BOX"
+  hna                     Decimal  @db.Decimal(18, 2) // HNA per SJ
+  nilaiRPersen            Decimal? @db.Decimal(10, 6) // NILAI_R / HNA from Nilai R.xlsx
   // Satuan Terkecil — from Kebutuhan Satuan Terkecil.xlsx
-  satuanTerkecil         String? // Pack_Name, e.g. "TABLET", "BOTOL"
-  konversiPembagi        Decimal? @db.Decimal(10, 2) // how many ST per SJ (e.g. 100 for tablet BOX 100's)
+  satuanTerkecil          String? // Pack_Name, e.g. "TABLET", "BOTOL"
+  konversiPembagi         Decimal? @db.Decimal(10, 2) // how many ST per SJ (e.g. 100 for tablet BOX 100's)
   // Dosis reference data — from "List Product pharos.xlsx" (sheets "Oral Product" / "Injeksi Product").
   // Keyed by that file's "PROCOD" column, which despite the name matches kodeProduk (Kd Item) directly.
-  dosisKekuatanSediaan   String? // "Dosis/Kekuatan Sediaan"
-  qtyPerRxPasien         Decimal? @db.Decimal(10, 2) // "Berapa banyak per Rx per Pasien (Satuan Terkecil)"
-  lamaPemberianHari      Int? // "Lama pemberian Per Pasien (Hari)"
-  jumlahPemberianPerHari Decimal? @db.Decimal(10, 2) // "Jumlah pemberian Per hari (Satuan Terkecil)"
-  bentukSediaan          String?
-  packing                String?
-  indikasi               String?  @db.Text
+  dosisKekuatanSediaan    String? // "Dosis/Kekuatan Sediaan"
+  qtyPerRxPasien          Decimal? @db.Decimal(10, 2) // "Berapa banyak per Rx per Pasien (Satuan Terkecil)"
+  lamaPemberianHari       Int? // "Lama pemberian Per Pasien (Hari)"
+  jumlahPemberianPerHari  Decimal? @db.Decimal(10, 2) // "Jumlah pemberian Per hari (Satuan Terkecil)"
+  bentukSediaan           String?
+  packing                 String?
+  indikasi                String?  @db.Text
   // Which medical specialties this product is recommended for — from
   // "internal/Rekomendasi Paket Produk Per Spesialisasi.xlsx", sheet
   // "Recommendation" (columns BEDAH..UROLOGY, "Y" marks a match), uppercased
@@ -489,9 +576,11 @@ model Product {
   // spesialisasi -> these column names mapping (sourced from the same
   // workbook's Sheet2, column "REKOMENDASI PAKET DATA PAK LEEMAN").
   spesialisasiRekomendasi String[] @default([])
-  syncedAt               DateTime
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  syncedAt                DateTime
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  poaStandarisasiProduk PoaStandarisasiProduk[]
 
   @@index([namaGroupBrand])
 }
@@ -829,19 +918,19 @@ model OutletSalesValueMonthly {
 // source text regardless of whether resolution succeeded, so the row is
 // still fully attributable/editable even unresolved.
 model TargetHospitalValue {
-  id       String   @id @default(uuid())
-  namaGT   String
-  periode  String // YYYYMM, e.g. "202608"
-  target   Decimal  @db.Decimal(18, 2)
-  nipMR    String?
-  namaMR   String
-  nipASM   String?
-  namaASM  String
-  nipSM    String?
-  namaSM   String
-  nipNSM   String?
-  namaNSM  String
-  syncedAt DateTime
+  id        String   @id @default(uuid())
+  namaGT    String
+  periode   String // YYYYMM, e.g. "202608"
+  target    Decimal  @db.Decimal(18, 2)
+  nipMR     String?
+  namaMR    String
+  nipASM    String?
+  namaASM   String
+  nipSM     String?
+  namaSM    String
+  nipNSM    String?
+  namaNSM   String
+  syncedAt  DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1041,12 +1130,12 @@ model KpiContractEvaluation {
 // `enabled` (full lockout) implies write-blocked too — isWriteBlocked() checks
 // both flags, not just this one.
 model MaintenanceMode {
-  id          Int      @id @default(1)
-  enabled     Boolean  @default(false)
-  viewOnly    Boolean  @default(false)
-  message     String?  @db.Text
+  id           Int      @id @default(1)
+  enabled      Boolean  @default(false)
+  viewOnly     Boolean  @default(false)
+  message      String?  @db.Text
   updatedByNip String?
-  updatedAt   DateTime @updatedAt
+  updatedAt    DateTime @updatedAt
 }
 
 // Cross-replica mutex for in-process schedulers (see
@@ -1061,4 +1150,245 @@ model MaintenanceMode {
 model SyncLock {
   key      String   @id
   lockedAt DateTime
+}
+
+// ─── POA Standarisasi ────────────────────────────────────────────────────────
+// Sub-form BARU, terpisah dari PoaForm/PoaLineItem — lihat docs/poa-standarisasi/.
+// POA Estimasi (existing, di atas) di-scope Dokter × Produk; POA Standarisasi
+// di-scope Produk × Outlet (satu PoaStandarisasi = satu outlet, berisi banyak
+// PoaStandarisasiProduk — dokter jadi sub-entity pendukung per produk, bukan
+// sumbu baris utama). Wizard 4-phase: Planning Standarisasi → Approval Atasan
+// → Approval User/Dokter → Finalisasi.
+
+enum PoaStandarisasiPhase {
+  PLANNING
+  APPROVAL_ATASAN
+  APPROVAL_USER_DOKTER
+  FINALISASI
+}
+
+enum TipeStandarisasi {
+  PERIODIC
+  SISIPAN
+  PERMANEN
+}
+
+enum StatusApprovalAtasan {
+  MENUNGGU
+  DISETUJUI
+  DITOLAK
+}
+
+enum DokumenStandarisasiJenis {
+  NIE
+  CPOB
+  KFA
+  SP_NON_SALES
+}
+
+model KpdmStandarisasi {
+  id        String               @id @default(uuid())
+  nama      String               @unique
+  jabatanId String?
+  jabatan   JabatanStandarisasi? @relation(fields: [jabatanId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pengajuan PoaStandarisasi[]
+
+  @@index([nama])
+}
+
+model JabatanStandarisasi {
+  id   String @id @default(uuid())
+  nama String @unique
+
+  kpdm      KpdmStandarisasi[]
+  createdAt DateTime           @default(now())
+}
+
+// Master distributor — dropdown biasa (bukan creatable seperti KPDM/Jabatan),
+// dikelola ADMIN. Dikonfirmasi tidak ada tabel serupa lain di schema ini
+// (docs/poa-standarisasi/02-data-model.md).
+model Distributor {
+  id       String  @id @default(uuid())
+  nama     String  @unique
+  isActive Boolean @default(true)
+
+  pengajuan PoaStandarisasi[]
+  createdAt DateTime          @default(now())
+}
+
+// Header pengajuan — satu row = satu Outlet, berisi N produk.
+model PoaStandarisasi {
+  id String @id @default(uuid())
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [nip])
+
+  kodePI String
+  outlet Outlet @relation(fields: [kodePI], references: [kodePI])
+
+  kpdmId String
+  kpdm   KpdmStandarisasi @relation(fields: [kpdmId], references: [id])
+
+  // Snapshot nama/jabatan di waktu pengajuan dibuat — KpdmStandarisasi bisa
+  // berubah jabatannya di masa depan, tapi histori pengajuan yang sudah
+  // dibuat harus tetap merefer ke apa yang berlaku SAAT pengajuan dibuat
+  // (sama alasan dengan PoaLineItem.namaCust/namaProduk sebagai snapshot).
+  kpdmNamaSnapshot    String
+  jabatanNamaSnapshot String?
+
+  kpdmEntertainEstimasi Decimal? @db.Decimal(18, 2)
+  kpdmEntertainFinal    Decimal? @db.Decimal(18, 2)
+
+  tipeStandarisasi TipeStandarisasi
+  // Wajib utk PERIODIC/SISIPAN, null utk PERMANEN — kondisional, divalidasi
+  // di server action (bukan constraint DB).
+  periodeBulan     Int?
+
+  jumlahBedRs             Int? // snapshot dari Outlet.jumlahBed saat dipilih, tapi editable & independen
+  estimasiTimelineSelesai DateTime?
+
+  currentPhase PoaStandarisasiPhase @default(PLANNING)
+
+  statusApprovalAsm  StatusApprovalAtasan @default(MENUNGGU)
+  statusApprovalSm   StatusApprovalAtasan @default(MENUNGGU)
+  tanggalApprovalAsm DateTime?
+  tanggalApprovalSm  DateTime?
+
+  jadwalMeetingKft DateTime?
+
+  distributorId String?
+  distributor   Distributor? @relation(fields: [distributorId], references: [id])
+
+  // Satu file untuk seluruh pengajuan (asumsi kerja, lihat
+  // 01-business-rules.md §7 Q6 — belum dikonfirmasi tim bisnis).
+  suratApprovalStandarisasiKftPath        String?
+  suratApprovalStandarisasiKftDriveFileId String?
+
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  produk PoaStandarisasiProduk[]
+
+  @@index([ownerId])
+  @@index([kodePI])
+  @@index([currentPhase])
+}
+
+model PoaStandarisasiProduk {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasi @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  kodeProduk String
+  product    Product @relation(fields: [kodeProduk], references: [kodeProduk])
+
+  // TIDAK ada FK ke SurveyRekomendasi — "Golongan yang Dipakai Saat Ini"
+  // di-resolve LIVE per dokter via getSurveyRekomendasiInfo() di server
+  // action (sama pola dengan PoaLineItem, yang juga tidak menyimpan FK ini).
+
+  // ── Estimasi Standarisasi (Planning) — input mentah ─────────────────────
+  jumlahPasien     Int?
+  resepPerPasienSt Decimal? @db.Decimal(10, 2)
+
+  // Nilai PER BULAN (bukan total periode, lihat 01-business-rules.md §3/§7
+  // Q4) — computed di server dari jumlahPasien × resepPerPasienSt ×
+  // hargaST(product), tidak trust dari client.
+  estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
+  estimasiNilaiRpPerBulan Decimal? @db.Decimal(18, 2)
+
+  estimasiDiskonPct      Decimal? @db.Decimal(10, 4)
+  estimasiBiayaListingRp Decimal? @db.Decimal(18, 2)
+  estimasiEntertainRp    Decimal? @db.Decimal(18, 2)
+
+  // ── Finalisasi Biaya ──────────────────────────────────────────────────
+  finalDiscountPct     Decimal? @db.Decimal(10, 4)
+  diskonDistributorPct Decimal? @db.Decimal(10, 4)
+  finalBiayaListingRp  Decimal? @db.Decimal(18, 2)
+  // finalEntertain TIDAK ada di sini — computed dari SUM PoaStandarisasiDokterUser.entertainRp
+
+  formApprovalFilePath    String?
+  formApprovalDriveFileId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dokterApproval PoaStandarisasiDokterApproval[]
+  dokterUser     PoaStandarisasiDokterUser[]
+  dokumen        PoaStandarisasiDokumen[]
+
+  @@unique([pengajuanId, kodeProduk])
+  @@index([pengajuanId])
+}
+
+// Dokter Klinis (Planning) — checklist "sudah TTD" per produk, BUKAN
+// approval in-app oleh dokter (lihat 01-business-rules.md §1/§6).
+model PoaStandarisasiDokterApproval {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  wajib    Boolean @default(true)
+  sudahTtd Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([produkId, customerId])
+  @@index([produkId])
+}
+
+// "Dokter yang Akan Menjadi User" (Finalisasi) — entitas TERPISAH dari
+// PoaStandarisasiDokterApproval: field & siklus hidupnya beda (Jumlah
+// Pasien/Resep per Pasien/Entertain baru diisi di Finalisasi, MR boleh
+// ganti dokternya tanpa mengubah histori approval TTD Phase 3).
+model PoaStandarisasiDokterUser {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  jumlahPasien     Int?
+  resepPerPasienSt Decimal? @db.Decimal(10, 2)
+
+  // Nilai PER BULAN, formula sama dengan level produk — computed di server.
+  estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
+  estimasiSalesRpPerBulan Decimal? @db.Decimal(18, 2)
+
+  entertainRp Decimal? @db.Decimal(18, 2) // manual, tidak ada formula
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([produkId, customerId])
+  @@index([produkId])
+}
+
+// NIE/CPOB/KFA/SP Non Sales — download-only, per produk.
+model PoaStandarisasiDokumen {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  jenis       DokumenStandarisasiJenis
+  namaFile    String
+  driveFileId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([produkId, jenis])
+  @@index([produkId])
 }

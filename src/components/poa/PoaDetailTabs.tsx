@@ -25,7 +25,7 @@ interface KontesProductTarget {
 // full detail on every page load; now only their summary shows in Drafting.
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
-  selectable = true, activePssp = [], outletPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -39,6 +39,9 @@ export function PoaDetailTabs({
   /** Per-outlet stats for "Informasi PSSP Outlet" dropdown (2026-08-10) —
    * server-computed in poa/[id]/page.tsx, batched once (not per-row). */
   outletPsspInfo?: Record<string, { userCount: number; rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number; aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
+  /** Per-doctor Estimasi Aktif (docs/TODO.md #17, 2026-08-13), keyed by
+   * `${kodePI}|${namaCust}` — server-computed in poa/[id]/page.tsx. */
+  doctorPsspInfo?: Record<string, { aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
   /** kodeCust values that have EVER had a PSSP contract (see getPsspEverKodeCust) — passed through to DraftChecklist. */
   everPsspKodeCust?: string[];
   kontesProductTargets: KontesProductTarget[];
@@ -137,6 +140,7 @@ export function PoaDetailTabs({
               selectable={selectable}
               activePssp={activePssp}
               outletPsspInfo={outletPsspInfo}
+              doctorPsspInfo={doctorPsspInfo}
               everPsspKodeCust={everPsspKodeCust}
               salesSummary={salesSummary}
               targetArea={targetArea}

@@ -2,10 +2,13 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canApprove, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
+import { canView, canEdit, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips, NON_DRAFT_STATUSES,
+  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor } from "@/lib/authz";
 import { computeMonthlyBreakdown } from "@/lib/poaUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
-import { approvePoaAction, rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction, requestEditAction, grantEditRequestAction, declineEditRequestAction } from "@/app/actions/poa";
+import { requestEditAction, grantEditRequestAction, declineEditRequestAction,
+  approveDoctorAction, rejectDoctorAction, fastTrackApproveDoctorAction, cancelApprovedByNsmDoctorAction } from "@/app/actions/poa";
+import type { PoaDoctorApproval } from "@prisma/client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -32,13 +35,23 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   DECLINE_EDIT: "menolak permintaan edit",
 };
 
+// docs/poa-rejection-categories/ (2026-08-13) — single-select, main "Tolak" form only.
+const REJECT_CATEGORY_LABELS: Record<string, string> = {
+  PRODUK: "Produk",
+  OUTLET: "Outlet",
+  USER: "User",
+  PERIODE: "Periode",
+  KALKULASI_PSSP: "Kalkulasi PSSP",
+  ALASAN_LAIN: "Alasan Lain",
+};
+
 const AUDIT_OP_LABELS: Record<string, string> = {
   add: "menambahkan produk",
   update: "mengedit produk",
   delete: "menghapus produk",
 };
 
-type AuditSnapshot = { notes?: string; customer?: string | null; product?: string | null; op?: string } | null;
+type AuditSnapshot = { notes?: string; customer?: string | null; product?: string | null; op?: string; namaCust?: string; kodePI?: string } | null;
 
 function auditActionLabel(action: string, snapshot: AuditSnapshot) {
   if ((action === "UPDATE" || action === "REVISE") && snapshot?.op && AUDIT_OP_LABELS[snapshot.op]) {
@@ -64,6 +77,7 @@ export default async function PoaDetailPage({
         owner: true,
         currentHolder: true,
         items: { orderBy: { createdAt: "asc" } },
+        doctorApprovals: { include: { currentHolder: true } },
         auditLogs: {
           include: { actor: true },
           orderBy: { createdAt: "asc" },
@@ -79,19 +93,38 @@ export default async function PoaDetailPage({
   if (!hasAccess) redirect("/dashboard");
 
   const userCanEdit = await canEdit(actor, poa);
-  const userCanApprove = canApprove(actor, poa);
-  const userCanFastTrack = await canFastTrackApprove(actor, poa);
-  const userCanCancelApproved = await canCancelApproved(actor, poa);
   // Lock Edit Logic (2026-07-27): only worth explaining to roles that could
   // otherwise have edited (MR/ASM/SM/NSM) — GM/SFE/ADMIN never hit this path
   // (GM is always read-only, ADMIN always passes canEdit regardless).
   const editLockRoleLabel = !userCanEdit && (["MR", "ASM", "SM", "NSM"] as string[]).includes(session.role)
     ? await getEditLockRoleLabel(poa)
     : null;
-  const approveWithId = approvePoaAction.bind(null, id);
-  const rejectWithId = rejectPoaAction.bind(null, id);
-  const fastTrackWithId = fastTrackApproveAction.bind(null, id);
-  const cancelApprovedWithId = cancelApprovedByNsmAction.bind(null, id);
+
+  // Per-doctor approval (docs/poa-per-doctor-approval/, 2026-08-13) — build
+  // one row per doctor in this draft (from its line items), joined with its
+  // PoaDoctorApproval row if one exists (a doctor still sitting in DRAFT/
+  // REVISI within an otherwise in-flight draft has no row yet — see
+  // PoaDoctorApproval's doc comment in schema.prisma).
+  const doctorApprovalByKey = new Map<string, PoaDoctorApproval>(
+    poa.doctorApprovals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}`, a])
+  );
+  const doctorKeysInDraft = new Map<string, { kodePI: string; namaCust: string }>();
+  for (const it of poa.items as PoaLineItem[]) {
+    if (!it.kodePI) continue;
+    doctorKeysInDraft.set(`${it.kodePI}|${it.namaCust}`, { kodePI: it.kodePI, namaCust: it.namaCust });
+  }
+  const doctorRows = await Promise.all(
+    [...doctorKeysInDraft.values()].map(async ({ kodePI, namaCust }) => {
+      const approval = doctorApprovalByKey.get(`${kodePI}|${namaCust}`) ?? null;
+      const canApproveThis = approval ? canApproveDoctor(actor, approval) : false;
+      const canFastTrackThis = approval ? await canFastTrackApproveDoctor(actor, poa, approval) : false;
+      const canCancelThis = approval ? await canCancelApprovedDoctor(actor, poa, approval) : false;
+      return { kodePI, namaCust, approval, canApproveThis, canFastTrackThis, canCancelThis };
+    })
+  );
+  const actionableDoctorRows = doctorRows.filter((d) => d.canApproveThis || d.canFastTrackThis);
+  const cancelableDoctorRows = doctorRows.filter((d) => d.canCancelThis);
+  const isMRRole = !(["ASM", "SM", "NSM", "ADMIN"] as string[]).includes(session.role);
 
   const isMR = session.role === "MR";
   // Whoever owns this POA drives the submit/checklist UI — normally an MR, but
@@ -156,6 +189,8 @@ export default async function PoaDetailPage({
     rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number;
     aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number;
   }> = {};
+  // Keyed by `${kodePI}|${namaCust}` — same doctorKey convention as DraftChecklist.tsx.
+  const doctorPsspInfo: Record<string, { aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }> = {};
   if (outletKodesInDraft.length > 0) {
     const quarterMonthsForOutletInfo = /^\d{4}-Q[1-4]$/.test(poa.period) ? quarterToMonths(poa.period) : [];
 
@@ -210,6 +245,28 @@ export default async function PoaDetailPage({
         aktifTercacahEstimasi: aktifStats.estBarisTercacah,
         aktifTercacahNilaiPssp: aktifStats.nilaiTercacah,
       };
+    }
+
+    // Per-dokter Estimasi Aktif (docs/TODO.md #17, 2026-08-13) — same source
+    // rows as outletPsspInfo above (outlet-wide), narrowed further to just
+    // THIS doctor's own kodeCust so DoctorRow can show its own active-PSSP
+    // figure instead of only the outlet-wide total. Doctors without a
+    // kodeCust (isManualCustomer, not yet in the synced CDB) simply have no
+    // PSSP contracts to match against and get zeros — same limitation as
+    // everywhere else PSSP is matched by kodeCust.
+    const doctorKeysForPsspInfo = new Map<string, { kodePI: string; kodeCust: string | null }>();
+    for (const it of allItems as PoaLineItem[]) {
+      if (!it.kodePI) continue;
+      doctorKeysForPsspInfo.set(`${it.kodePI}|${it.namaCust}`, { kodePI: it.kodePI, kodeCust: it.kodeCust });
+    }
+    for (const [key, { kodePI, kodeCust }] of doctorKeysForPsspInfo) {
+      if (!kodeCust) continue;
+      const stats = computeActivePsspStats(
+        outletActivePsspRows.filter((r) => r.kdOutlet === kodePI && r.kdCust === kodeCust),
+        quarterMonthsForOutletInfo
+      );
+      if (stats.estBarisTercacah === 0 && stats.nilaiTercacah === 0) continue;
+      doctorPsspInfo[key] = { aktifTercacahEstimasi: stats.estBarisTercacah, aktifTercacahNilaiPssp: stats.nilaiTercacah };
     }
   }
 
@@ -417,56 +474,82 @@ export default async function PoaDetailPage({
         selectable={isOwner}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}
+        doctorPsspInfo={doctorPsspInfo}
         everPsspKodeCust={everPsspKodeCust}
         kontesProductTargets={kontesProductTargets}
         salesSummary={salesSummary}
         targetArea={targetValueFromGT ?? undefined}
       />
 
-      {/* Actions — approver only (MR submit is inside DraftChecklist) */}
-      {(userCanApprove || userCanFastTrack) && !isMR && !isFullyApproved && (
+      {/* Actions — approver only, per dokter (docs/poa-per-doctor-approval/,
+          2026-08-13: approve/reject bergerak per dokter, bukan per draft —
+          atasan bisa approve Dokter A sambil reject Dokter B di draft yang
+          sama). MR submit tetap ada di dalam DraftChecklist. */}
+      {!isMRRole && actionableDoctorRows.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Tindakan</CardTitle>
+            <CardTitle>Tindakan Per Dokter</CardTitle>
           </CardHeader>
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            {userCanApprove && (
-              <form action={approveWithId}>
-                <Button type="submit" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
-                  Approve &amp; Teruskan
-                </Button>
-              </form>
-            )}
-            {userCanFastTrack && poa.status !== "SUBMITTED_TO_NSM" && (
-              <form action={fastTrackWithId}>
-                <Button type="submit" variant="secondary"
-                  style={{ borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning, #f59e0b)" }}>
-                  Approve Langsung (Lewati ASM/SM)
-                </Button>
-              </form>
-            )}
+          <div className="space-y-4">
+            {actionableDoctorRows.map(({ kodePI, namaCust, canApproveThis, canFastTrackThis }) => {
+              const approveDoctorWithId = approveDoctorAction.bind(null, id, kodePI, namaCust);
+              const rejectDoctorWithId = rejectDoctorAction.bind(null, id, kodePI, namaCust);
+              const fastTrackDoctorWithId = fastTrackApproveDoctorAction.bind(null, id, kodePI, namaCust);
+              return (
+                <div key={`${kodePI}|${namaCust}`} className="pt-3 first:pt-0 first:border-0"
+                  style={{ borderTop: "1px solid var(--color-border)" }}>
+                  <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-text)" }}>{namaCust}</p>
+                  <div className="flex flex-wrap items-center gap-3 mb-2">
+                    {canApproveThis && (
+                      <form action={approveDoctorWithId}>
+                        <Button type="submit" size="sm" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+                          Approve &amp; Teruskan
+                        </Button>
+                      </form>
+                    )}
+                    {canFastTrackThis && (
+                      <form action={fastTrackDoctorWithId}>
+                        <Button type="submit" size="sm" variant="secondary"
+                          style={{ borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning, #f59e0b)" }}>
+                          Approve Langsung (Lewati ASM/SM)
+                        </Button>
+                      </form>
+                    )}
+                  </div>
+                  {canFastTrackThis && (
+                    <p className="text-xs mb-2" style={{ color: "var(--color-text-faint)" }}>
+                      Sebagai NSM, Anda bisa langsung menyetujui dokter ini sampai final tanpa menunggu approval ASM/SM.
+                    </p>
+                  )}
+                  {canApproveThis && (
+                    <form action={rejectDoctorWithId} className="space-y-2">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Kategori Reject</span>
+                        <select name="rejectCategory" required defaultValue="" className="input-field text-sm">
+                          <option value="" disabled>Pilih kategori…</option>
+                          {Object.entries(REJECT_CATEGORY_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
+                        <textarea
+                          name="reason"
+                          required
+                          rows={2}
+                          placeholder={`Jelaskan alasan reject dokter ${namaCust} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
+                          className="input-field text-sm" />
+                      </label>
+                      <Button type="submit" size="sm" variant="danger">
+                        Tolak Dokter Ini (kembali ke Revisi)
+                      </Button>
+                    </form>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          {userCanFastTrack && poa.status !== "SUBMITTED_TO_NSM" && (
-            <p className="text-xs -mt-2 mb-4" style={{ color: "var(--color-text-faint)" }}>
-              Sebagai NSM, Anda bisa langsung menyetujui POA ini sampai final tanpa menunggu approval ASM/SM.
-            </p>
-          )}
-          {userCanApprove && (
-            <form action={rejectWithId} className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
-                <textarea
-                  name="reason"
-                  required
-                  rows={2}
-                  placeholder="Jelaskan alasan reject POA ini - MR akan melihat catatan ini di Riwayat Aktivitas…"
-                  className="input-field text-sm" />
-              </label>
-              <Button type="submit" variant="danger">
-                Tolak (kembali ke Revisi)
-              </Button>
-            </form>
-          )}
         </Card>
       )}
 
@@ -477,25 +560,34 @@ export default async function PoaDetailPage({
         </div>
       )}
 
-      {isFullyApproved && userCanCancelApproved && (
+      {cancelableDoctorRows.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Batalkan Approval</CardTitle>
+            <CardTitle>Batalkan Approval Per Dokter</CardTitle>
           </CardHeader>
-          <form action={cancelApprovedWithId} className="space-y-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Pembatalan</span>
-              <textarea
-                name="reason"
-                required
-                rows={2}
-                placeholder="Jelaskan alasan membatalkan approval ini - MR akan melihat catatan ini di Riwayat Aktivitas…"
-                className="input-field text-sm" />
-            </label>
-            <Button type="submit" variant="danger">
-              Batalkan Approval (kembali ke Revisi)
-            </Button>
-          </form>
+          <div className="space-y-4">
+            {cancelableDoctorRows.map(({ kodePI, namaCust }) => {
+              const cancelApprovedDoctorWithId = cancelApprovedByNsmDoctorAction.bind(null, id, kodePI, namaCust);
+              return (
+                <form key={`${kodePI}|${namaCust}`} action={cancelApprovedDoctorWithId}
+                  className="pt-3 first:pt-0 first:border-0 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+                  <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{namaCust}</p>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Pembatalan</span>
+                    <textarea
+                      name="reason"
+                      required
+                      rows={2}
+                      placeholder={`Jelaskan alasan membatalkan approval dokter ${namaCust} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
+                      className="input-field text-sm" />
+                  </label>
+                  <Button type="submit" size="sm" variant="danger">
+                    Batalkan Approval Dokter Ini (kembali ke Revisi)
+                  </Button>
+                </form>
+              );
+            })}
+          </div>
         </Card>
       )}
 
@@ -529,10 +621,20 @@ export default async function PoaDetailPage({
                       <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
                         {auditActionLabel(log.action, snapshot)}
                       </span>
+                      {snapshot?.namaCust && (
+                        <span className="ml-1.5 font-normal" style={{ color: "var(--color-blue)" }}>
+                          — {snapshot.namaCust}
+                        </span>
+                      )}
                     </p>
                     {log.toStatus && log.toStatus !== log.fromStatus && (
                       <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
                         → {log.toStatus.replace(/_/g, " ")}
+                      </p>
+                    )}
+                    {log.rejectCategory && (
+                      <p className="mt-0.5 text-xs" style={{ color: "var(--color-red)" }}>
+                        Kategori: {REJECT_CATEGORY_LABELS[log.rejectCategory] ?? log.rejectCategory}
                       </p>
                     )}
                     {snapshot?.notes && (

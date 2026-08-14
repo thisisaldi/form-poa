@@ -12,7 +12,7 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { PoaStatus, Role, AuditAction } from "@prisma/client";
-import type { Prisma, PoaForm, User } from "@prisma/client";
+import type { Prisma, PoaForm, PoaDoctorApproval, User } from "@prisma/client";
 
 // Small local copy of poaWorkflow.ts's ROLE_LEVEL — not imported from there to
 // avoid a circular dependency (poaWorkflow.ts already imports FROM authz.ts).
@@ -479,4 +479,208 @@ export function getPendingActionFilter(user: User): Prisma.PoaFormWhereInput {
   }
   // For managers: POAs where they are the current holder
   return { currentHolderId: user.nip };
+}
+
+// ─── Per-doctor approval (docs/poa-per-doctor-approval/) ──────────────────────
+//
+// 2026-08-13 decision: approve/reject moved from whole-draft to per-doctor
+// granularity — see docs/poa-per-doctor-approval/. Every predicate below is
+// the doctor-scoped twin of its PoaForm-level counterpart above, reusing the
+// exact same rules (role level, current holder, subtree ownership via
+// canView) but reading from a specific PoaDoctorApproval row instead of the
+// PoaForm itself. The PoaForm-level predicates above are UNCHANGED and still
+// govern viewing/creating a draft and any doctor that hasn't been split into
+// its own PoaDoctorApproval row yet (still sitting in the owner's DRAFT/REVISI
+// bucket — see PoaDoctorApproval's doc comment in schema.prisma).
+
+/**
+ * Same rule as getEditLockLevel above, scoped to ONE doctor's own audit trail
+ * (doctorApprovalId = this doctor) instead of the whole draft — so Doctor A
+ * being approved/edited by a superior does not lock Doctor B in the same
+ * draft (docs/poa-per-doctor-approval/01-business-rules.md §5).
+ */
+async function getEditLockLevelForDoctor(doctorApprovalId: string, ownerId: string): Promise<number> {
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { doctorApprovalId },
+    orderBy: { createdAt: "desc" },
+    select: { action: true, actorId: true, toStatus: true, actor: { select: { role: true } } },
+  });
+
+  let lockLevel = -1;
+  for (const log of logs) {
+    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
+    if ((log.action === AuditAction.APPROVE || log.action === AuditAction.UPDATE) && log.actorId !== ownerId) {
+      const level = ROLE_LEVEL[log.actor.role] ?? -1;
+      if (level > lockLevel) lockLevel = level;
+    }
+  }
+  return lockLevel;
+}
+
+/** Doctor-scoped twin of getLastApprover — most recent approver for THIS doctor's current cycle. */
+export async function getLastApproverForDoctor(doctorApprovalId: string): Promise<{ actorId: string; role: string } | null> {
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { doctorApprovalId },
+    orderBy: { createdAt: "desc" },
+    select: { action: true, toStatus: true, actorId: true, actor: { select: { role: true } } },
+  });
+  for (const log of logs) {
+    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
+    if (log.action === AuditAction.APPROVE) return { actorId: log.actorId, role: log.actor.role };
+  }
+  return null;
+}
+
+/** Doctor-scoped twin of hasApprovalThisCycle. */
+export async function hasApprovalThisCycleForDoctor(doctorApprovalId: string): Promise<boolean> {
+  return (await getLastApproverForDoctor(doctorApprovalId)) !== null;
+}
+
+/**
+ * Can this user edit this doctor's line items right now?
+ *
+ * `doctor` is null when this doctor hasn't been submitted yet this cycle (no
+ * PoaDoctorApproval row exists) — in that case it behaves exactly like the
+ * PoaForm-level canEdit (owner always can; managers can if they can view the
+ * draft at all), since there's no per-doctor lock to check yet. Once a row
+ * exists, the lock is scoped to that row's own audit trail via
+ * getEditLockLevelForDoctor — a superior approving/editing Doctor A never
+ * locks Doctor B.
+ */
+export async function canEditDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval | null): Promise<boolean> {
+  if (user.role === Role.ADMIN) return true;
+
+  const userLevel = ROLE_LEVEL[user.role] ?? -1;
+  if (userLevel >= 0 && doctor) {
+    const lockLevel = await getEditLockLevelForDoctor(doctor.id, poa.ownerId);
+    if (userLevel < lockLevel) return false;
+  }
+
+  if (poa.ownerId === user.nip) return true;
+
+  if (([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role)) {
+    return canView(user, poa);
+  }
+
+  return false;
+}
+
+/** Doctor-scoped twin of getEditLockRoleLabel. Null when this doctor isn't locked (or not yet split). */
+export async function getEditLockRoleLabelForDoctor(poa: PoaForm, doctor: PoaDoctorApproval | null): Promise<string | null> {
+  if (!doctor) return null;
+  const lockLevel = await getEditLockLevelForDoctor(doctor.id, poa.ownerId);
+  const label = Object.entries(ROLE_LEVEL).find(([, level]) => level === lockLevel)?.[0];
+  return label ?? null;
+}
+
+/**
+ * Can this user approve/reject & forward THIS doctor right now? Stricter than
+ * canEditDoctor — only the doctor's own current holder may complete the
+ * action, same rule as canApprove but read from PoaDoctorApproval.currentHolderId
+ * instead of PoaForm.currentHolderId.
+ */
+export function canApproveDoctor(user: User, doctor: PoaDoctorApproval): boolean {
+  if (user.role === Role.ADMIN) return true;
+  return (
+    ([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role) &&
+    doctor.currentHolderId === user.nip
+  );
+}
+
+/** Doctor-scoped twin of canFastTrackApprove — NSM-only, skips ASM/SM for THIS doctor only. */
+export async function canFastTrackApproveDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval): Promise<boolean> {
+  if (user.role !== Role.NSM) return false;
+  if (!PENDING_APPROVAL_STATUSES.includes(doctor.status)) return false;
+  return canView(user, poa);
+}
+
+/** Doctor-scoped twin of canCancelApproved — NSM undoes their own approval on THIS doctor only. */
+export async function canCancelApprovedDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval): Promise<boolean> {
+  if (user.role !== Role.NSM) return false;
+  if (doctor.status !== PoaStatus.APPROVED_BY_NSM) return false;
+  return canView(user, poa);
+}
+
+/** Doctor-scoped twin of canRequestEdit. */
+export async function canRequestEditDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval | null): Promise<boolean> {
+  if (poa.ownerId !== user.nip) return false;
+  if (!doctor) return false;
+  if (await canEditDoctor(user, poa, doctor)) return false;
+  return hasApprovalThisCycleForDoctor(doctor.id);
+}
+
+/** Doctor-scoped twin of canRespondEditRequest. */
+export async function canRespondEditRequestDoctor(user: User, doctor: PoaDoctorApproval): Promise<boolean> {
+  const lastApprover = await getLastApproverForDoctor(doctor.id);
+  return lastApprover?.actorId === user.nip;
+}
+
+// ─── POA Standarisasi (docs/poa-standarisasi/) ─────────────────────────────────
+// Approval Phase 2 ("Approval Atasan") follows the SAME nipAtasan chain as the
+// rest of the app (resolved Q3, 01-business-rules.md §7) — the pengajuan
+// owner's direct atasan is the ASM approver, that ASM's own atasan is the SM
+// approver. No separate RBAC table. Falls back to Outlet.coveredByNip/
+// coveredByRole (same vacant-team mechanism canCreatePoa uses) when a level
+// in that chain is missing.
+
+interface PoaStandarisasiApprovers {
+  asmNip: string | null;
+  smNip: string | null;
+}
+
+async function getPoaStandarisasiApprovers(ownerNip: string, kodePI: string): Promise<PoaStandarisasiApprovers> {
+  const owner = await prisma.user.findUnique({ where: { nip: ownerNip }, select: { nipAtasan: true } });
+  let asmNip = owner?.nipAtasan ?? null;
+  let smNip: string | null = null;
+
+  if (asmNip) {
+    const asm = await prisma.user.findUnique({ where: { nip: asmNip }, select: { role: true, nipAtasan: true } });
+    // Chain may skip straight from MR to SM (vacant ASM) — only trust asmNip
+    // as the real ASM approver if that person actually holds the ASM role.
+    if (asm?.role !== Role.ASM) asmNip = null;
+    smNip = asm?.nipAtasan ?? null;
+  }
+
+  if (!asmNip || !smNip) {
+    const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { coveredByNip: true, coveredByRole: true } });
+    if (!asmNip && outlet?.coveredByRole === Role.ASM) asmNip = outlet.coveredByNip;
+    if (!smNip && outlet?.coveredByRole === Role.SM) smNip = outlet.coveredByNip;
+  }
+
+  return { asmNip, smNip };
+}
+
+/** Can this user see this pengajuan at all? Owner, resolved ASM/SM approver, or company-wide read-only roles. */
+export async function canViewPoaStandarisasi(
+  user: User,
+  pengajuan: { ownerId: string; kodePI: string }
+): Promise<boolean> {
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) return true;
+  if (pengajuan.ownerId === user.nip) return true;
+  if (user.role === Role.ASM || user.role === Role.SM) {
+    const { asmNip, smNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
+    return user.nip === asmNip || user.nip === smNip;
+  }
+  return false;
+}
+
+/** Only the owner can edit Phase 1/3/4 content, and only before final submit. */
+export function canEditPoaStandarisasi(user: User, pengajuan: { ownerId: string; submittedAt: Date | null }): boolean {
+  return pengajuan.ownerId === user.nip && !pengajuan.submittedAt;
+}
+
+/**
+ * Can this user approve/reject the given Phase 2 level right now? Sequential —
+ * SM can only act after ASM has already approved (resolved Q2: blocking,
+ * stops at SM, no NSM escalation).
+ */
+export async function canApprovePoaStandarisasiAtasan(
+  user: User,
+  pengajuan: { ownerId: string; kodePI: string; statusApprovalAsm: string },
+  level: "ASM" | "SM"
+): Promise<boolean> {
+  if (user.role === Role.ADMIN) return true;
+  const { asmNip, smNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
+  if (level === "ASM") return user.role === Role.ASM && user.nip === asmNip;
+  return user.role === Role.SM && user.nip === smNip && pengajuan.statusApprovalAsm === "DISETUJUI";
 }

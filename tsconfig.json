@@ -40,7 +40,9 @@
     "./dist/staging/types/**/*.ts",
     "./dist/staging/dev/types/**/*.ts",
     "./dist/production/types/**/*.ts",
-    "./dist/production/dev/types/**/*.ts"
+    "./dist/production/dev/types/**/*.ts",
+    "./dist/dev/types/**/*.ts",
+    "./dist/dev/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -13,7 +13,7 @@ import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
-import { computeMonthlyBreakdown, formatPeriode } from "@/lib/poaUtils";
+import { computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
 import { formatCurrency } from "@/lib/format";
 
@@ -706,7 +706,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -727,6 +727,8 @@ function DoctorRow({
    * (activePssp cuma mencakup territory MR pemilik POA, bukan outlet dokter
    * ini spesifik). */
   outletPsspInfo?: Record<string, { userCount: number; rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number; aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
+  /** This doctor's own Estimasi Aktif (docs/TODO.md #17, 2026-08-13) — see DraftChecklist's own prop doc. */
+  doctorPsspInfo?: { aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number };
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -852,6 +854,16 @@ function DoctorRow({
             <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
               {spesLabel(first.spesialisasi)}
             </span>
+            {/* Info Periode (docs/TODO.md #20, 2026-08-13) — periode produk
+                PERTAMA dokter ini, pola sama dengan field level-dokter lain
+                (mis. labelCustomer) yang direpresentasikan dari `first`. Produk
+                lain milik dokter yang sama BISA punya periode berbeda — lihat
+                tabel Detail ▼ untuk breakdown per-produk apabila divergen. */}
+            {first.periodeAwal && first.lamaPeriode && (
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
+                {formatPeriodeRange(first.periodeAwal, first.lamaPeriode)}
+              </span>
+            )}
           </div>
           <p className="text-sm font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
             {first.namaOutlet}
@@ -891,6 +903,19 @@ function DoctorRow({
                 label={`Tercacah (Kuartal ${qLabel})`}
                 value={formatRp(rowTercacah.estimasi)}
                 sub={rowTercacah.nilaiPssp > 0 ? `Nilai PSSP ${formatRpPssp(rowTercacah.nilaiPssp)}` : undefined}
+              />
+            </div>
+          )}
+          {/* Estimasi Aktif — docs/TODO.md #17 (2026-08-13): this doctor's own
+              currently-running PSSP contract(s), tercacah ke kuartal POA ini —
+              distinct from "Tercacah" above (this draft's own plan) and from
+              the outlet-wide "PSSP Outlet" dropdown (all doctors at that outlet). */}
+          {doctorPsspInfo && (doctorPsspInfo.aktifTercacahEstimasi > 0 || doctorPsspInfo.aktifTercacahNilaiPssp > 0) && (
+            <div className="mt-1.5">
+              <StatTile
+                label={`Estimasi Aktif (Kuartal ${qLabel})`}
+                value={formatRp(doctorPsspInfo.aktifTercacahEstimasi)}
+                sub={doctorPsspInfo.aktifTercacahNilaiPssp > 0 ? `Nilai PSSP ${formatRpPssp(doctorPsspInfo.aktifTercacahNilaiPssp)}` : undefined}
               />
             </div>
           )}
@@ -1017,7 +1042,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1041,6 +1066,11 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
    * server-computed in poa/[id]/page.tsx, batched once for every outlet in
    * this draft (not per-row — see docs/PERFORMANCE.md §2.4). */
   outletPsspInfo?: Record<string, { userCount: number; rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number; aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
+  /** Per-doctor Estimasi Aktif (docs/TODO.md #17, 2026-08-13), keyed by
+   * `${kodePI}|${namaCust}` — server-computed in poa/[id]/page.tsx, narrowed
+   * from outletPsspInfo's outlet-wide rows down to just this one doctor's
+   * own kodeCust. Absent entries mean zero/no active PSSP for that doctor. */
+  doctorPsspInfo?: Record<string, { aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
   /** kodeCust values that have EVER had a PSSP contract (any period, active or
    * expired — see getPsspEverKodeCust). A doctor matched to a Customer record
    * (kodeCust set) but absent from this list has never actually had PSSP,
@@ -1209,6 +1239,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 everPsspKodeCust={everPsspKodeCustSet}
                 otherDoctorsAtOutletCount={(doctorCountByOutlet.get(key.split("|")[0]) ?? 1) - 1}
                 outletPsspInfo={outletPsspInfo}
+                doctorPsspInfo={doctorPsspInfo[key]}
               />
             ))}
           </div>

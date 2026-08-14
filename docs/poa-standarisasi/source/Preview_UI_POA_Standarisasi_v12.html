@@ -1,0 +1,54 @@
+<!--
+  Sumber: "Preview_UI_POA_Standarisasi_v12 (1).html", dilampirkan pengguna
+  (m.naufaldi.aldi@gmail.com) pada 2026-08-13 sebagai referensi UI konkret
+  untuk fitur POA Standarisasi (bukan kode produksi — mockup statis HTML/CSS/JS
+  vanilla, dipakai sebagai acuan visual untuk 03-ui-and-access.md).
+  Disimpan apa adanya untuk ketertelusuran klaim di spesifikasi.
+-->
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Preview — POA Standarisasi v11</title>
+<style>
+  :root{
+    --color-bg:#FAF8F4; --color-bg-subtle:#F2EDE4; --color-surface:#FFFFFF;
+    --color-text:#2B2822; --color-text-muted:#6B6560; --color-text-faint:#9C948A;
+    --color-blue:#0063a0; --color-blue-light:#E6F0F8;
+    --color-border:#E8E3D8; --color-border-strong:#C8C0B0;
+    --color-error:#C0392B; --color-error-bg:#FDECEA;
+    --color-warning:#C99A3D;
+    --color-orange:#ea580c;
+    --color-green:#16a34a;
+    --color-status-approved:#008f42; --color-status-approved-bg:#E6F5EC;
+  }
+</style>
+</head>
+<body>
+<!--
+  Struktur wizard 4-phase (lihat body lengkap di dokumen yang dilampirkan
+  pengguna): Planning Standarisasi -> Approval Atasan -> Approval User/Dokter
+  -> Finalisasi. Ringkasan komponen & tata letak per phase dituangkan ke
+  ../03-ui-and-access.md (bukan disalin verbatim di sini untuk menghindari
+  duplikasi ~500 baris CSS/HTML/JS yang sudah dianalisis).
+
+  Elemen kunci yang dianalisis untuk spesifikasi:
+  - .stepper: 4 langkah, klik-untuk-pindah hanya untuk step yang sudah "done"
+  - screen-1 (Planning): outlet, KPDM+Jabatan, Tipe Standarisasi, Periode,
+    Jumlah Bed RS, Target Penyelesaian, N kartu produk (dokter klinis di
+    ujung tiap kartu), sidebar Data Survey/Produk Rekomendasi/Produk Sudah
+    Terstandarisasi, blok Ringkasan POA (stat quad + tabel per produk)
+  - screen-2 (Approval Atasan): status Menunggu untuk ASM & SM, TIDAK ada
+    tombol approve/reject di wizard ini sendiri (ditandai "preview/placeholder"
+    oleh penulis dokumen sumber)
+  - screen-3 (Approval User/Dokter): checklist dokter per produk (checkbox
+    "Sudah TTD"), grid dokumen NIE/CPOB/KFA/SP Non Sales (download-only),
+    upload "Form Approval Standarisasi", sidebar navigasi produk
+  - screen-4 (Finalisasi): readonly KPDM/Jabatan, upload "Surat Approval
+    Standarisasi KFT", pilih Distributor, per produk: Finalisasi Biaya
+    (Discount/Diskon Distributor/Biaya Listing) + tabel "Dokter yang Akan
+    Menjadi User" (Jumlah Pasien & Resep per Pasien -> Estimasi Qty/Sales
+    read-only, Entertain manual), lalu Ringkasan POA (sama dengan Planning)
+-->
+</body>
+</html>

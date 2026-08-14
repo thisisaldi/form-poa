@@ -11,7 +11,7 @@ import type { PoaLineItem } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
-import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown } from "@/lib/poaUtils";
+import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown, computeJumlahPeriode } from "@/lib/poaUtils";
 import { displayRole } from "@/lib/role";
 import { getAllPakets } from "@/lib/paketProduk";
 import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
@@ -425,7 +425,7 @@ export async function GET(
     { header: "Pengali PS/SP", key: "pengaliPssp", width: 12 },
     { header: "Nilai PS/SP Produk \n/Bulan", key: "nilaiPsspBulan", width: 16 },
     { header: "Total Nilai PS/SP Produk \n/Bulan", key: "totalNilaiPsspBulan", width: 18 },
-    { header: "Periode PS/SP (Bulan)", key: "periodePssp", width: 14 },
+    { header: "Jumlah Periode PS/SP (Bulan)", key: "periodePssp", width: 16 },
     { header: "Periode Awal PS/SP (YYYYMM, contoh: 202601)", key: "periodeAwal", width: 16 },
     { header: "Periode Akhir PS/SP (YYYYMM, contoh: 202612)", key: "periodeAkhir", width: 16 },
     { header: "Estimasi PS/SP Produk \n/Periode", key: "estimasiPeriode", width: 18 },
@@ -669,6 +669,7 @@ export async function GET(
     { header: "Nama Produk", key: "namaProduk", width: 28 },
     { header: "Periode Awal", key: "periodeAwal", width: 14 },
     { header: "Periode Akhir", key: "periodeAkhir", width: 14 },
+    { header: "Jumlah Periode (Bulan)", key: "jumlahPeriode", width: 16 },
     { header: "Biaya / Value PSSP", key: "biaya", width: 18 },
     { header: "Estimasi Sales", key: "estBaris", width: 16 },
     { header: "Total Lunas / Pelunasan", key: "totalLunas", width: 20 },
@@ -692,6 +693,7 @@ export async function GET(
       namaProduk: r.nmProduk ?? "-",
       periodeAwal: r.prdAwal,
       periodeAkhir: r.prdAkhir,
+      jumlahPeriode: computeJumlahPeriode(r.prdAwal, r.prdAkhir),
       biaya: r.biaya,
       estBaris: r.estBaris,
       totalLunas: r.totalLunas,
@@ -711,6 +713,7 @@ export async function GET(
       namaOutlet: r.namaOutlet ?? "-",
       kodeProduk: "-", namaProduk: "-",
       periodeAwal: r.periodeAwal ?? "-", periodeAkhir: r.periodeAkhir ?? "-",
+      jumlahPeriode: r.periodeAwal && r.periodeAkhir ? computeJumlahPeriode(r.periodeAwal, r.periodeAkhir) : "-",
       biaya: r.valuePssp,
       estBaris: "-",
       totalLunas: r.pelunasan,

@@ -96,3 +96,38 @@ export async function sendEditRequestEmail(poa: PoaForm, lastApproverId: string)
     html: `<p>Hi ${lastApprover.name},</p><p>${owner?.name ?? poa.ownerId} meminta izin untuk mengedit POA periode <strong>${poa.period}</strong> yang sudah Anda setujui. Buka POA ini untuk menyetujui atau menolak permintaan tersebut.</p>`,
   });
 }
+
+/**
+ * Doctor-scoped twin of sendPoaStatusEmail (docs/poa-per-doctor-approval/,
+ * OQ-5: "1 email per keputusan approve/reject per dokter") — same shape, just
+ * names the doctor in the subject/body instead of implying the whole draft.
+ */
+export async function sendDoctorStatusEmail(
+  poa: PoaForm,
+  namaCust: string,
+  doctorStatus: PoaStatus,
+  action: AuditAction,
+  nextHolderId: string | null
+): Promise<void> {
+  const owner = await prisma.user.findUnique({ where: { nip: poa.ownerId } });
+  const statusLabel = STATUS_LABELS[doctorStatus];
+
+  if (owner?.email) {
+    await sendEmail({
+      to: owner.email,
+      subject: `POA ${poa.period} — ${namaCust}: ${statusLabel}`,
+      html: `<p>Hi ${owner.name},</p><p>Dokter <strong>${namaCust}</strong> pada POA periode <strong>${poa.period}</strong> Anda telah diperbarui menjadi: <strong>${statusLabel}</strong>.</p>`,
+    });
+  }
+
+  if (nextHolderId) {
+    const nextHolder = await prisma.user.findUnique({ where: { nip: nextHolderId } });
+    if (nextHolder?.email) {
+      await sendEmail({
+        to: nextHolder.email,
+        subject: `Action required: POA ${poa.period} — ${namaCust} awaiting your review`,
+        html: `<p>Hi ${nextHolder.name},</p><p>Dokter <strong>${namaCust}</strong> pada POA periode <strong>${poa.period}</strong> telah ${action === AuditAction.SUBMIT ? "disubmit" : "disetujui"} dan menunggu tindakan Anda.</p>`,
+      });
+    }
+  }
+}

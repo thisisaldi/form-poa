@@ -3,10 +3,17 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
-import { createPoaDraft, submitPoa, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm, requestEdit, grantEditRequest, declineEditRequest } from "@/lib/poaWorkflow";
+import {
+  createPoaDraft, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm, requestEdit, grantEditRequest, declineEditRequest,
+  submitAllDoctorsInDraft, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
+} from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
-import { canEdit, canApprove, canCreatePoa, canFastTrackApprove, canCancelApproved, canRequestEdit, canRespondEditRequest } from "@/lib/authz";
+import {
+  canEdit, canApprove, canCreatePoa, canFastTrackApprove, canCancelApproved, canRequestEdit, canRespondEditRequest,
+  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor, canRequestEditDoctor, canRespondEditRequestDoctor,
+} from "@/lib/authz";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
+import { PoaRejectCategory } from "@prisma/client";
 
 // Every export in this file is a mutation, so the write-block check lives
 // right here — single choke point instead of repeating it per action.
@@ -49,7 +56,11 @@ export async function submitPoaAction(poaId: string, formData: FormData): Promis
   if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
 
   const notes = (formData.get("notes") as string | null)?.trim() || undefined;
-  await submitPoa(poaId, session.userId, notes);
+  // Per-doctor submit (docs/poa-per-doctor-approval/, OQ-2) — one click still
+  // submits every eligible doctor in the draft, but each gets its own
+  // PoaDoctorApproval row so ASM/SM/NSM can approve/reject them independently
+  // afterward. See submitAllDoctorsInDraft's doc comment in poaWorkflow.ts.
+  await submitAllDoctorsInDraft(poaId, session.userId, notes);
   redirect(`/poa/${poaId}`);
 }
 
@@ -73,7 +84,7 @@ export async function submitPoaWithSelectionAction(
     });
   }
 
-  await submitPoa(poaId, session.userId, notes?.trim() || undefined);
+  await submitAllDoctorsInDraft(poaId, session.userId, notes?.trim() || undefined);
   redirect(`/poa/${poaId}`);
 }
 
@@ -232,6 +243,136 @@ export async function declineEditRequestAction(poaId: string, formData: FormData
   if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan menolak permintaan edit wajib diisi."));
 
   await declineEditRequest(poaId, session.userId, reason);
+  redirect(`/poa/${poaId}`);
+}
+
+// ─── Per-doctor approval actions (docs/poa-per-doctor-approval/) ──────────────
+// Doctor-scoped twins of the whole-draft actions above — approve/reject/etc.
+// target ONE doctor (kodePI + namaCust, same doctorKey used by
+// DraftChecklist.tsx) within the draft instead of the entire draft. The
+// whole-draft actions above are kept for any caller not yet migrated.
+
+export async function approveDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<void> {
+  const session = await requireSession();
+
+  const [poa, doctor] = await Promise.all([
+    prisma.poaForm.findUnique({ where: { id: poaId } }),
+    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+  ]);
+  if (!poa || !doctor) redirect(`/poa/${poaId}`);
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!canApproveDoctor(actor, doctor)) redirect(`/poa/${poaId}`);
+
+  await approveDoctor(poaId, kodePI, namaCust, session.userId);
+  revalidatePath(`/poa/${poaId}`);
+}
+
+export async function fastTrackApproveDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<void> {
+  const session = await requireSession();
+
+  const [poa, doctor] = await Promise.all([
+    prisma.poaForm.findUnique({ where: { id: poaId } }),
+    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+  ]);
+  if (!poa || !doctor) redirect(`/poa/${poaId}`);
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canFastTrackApproveDoctor(actor, poa, doctor))) redirect(`/poa/${poaId}`);
+
+  await fastTrackApproveDoctor(poaId, kodePI, namaCust, session.userId);
+  revalidatePath(`/poa/${poaId}`);
+}
+
+export async function rejectDoctorAction(poaId: string, kodePI: string, namaCust: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const [poa, doctor] = await Promise.all([
+    prisma.poaForm.findUnique({ where: { id: poaId } }),
+    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+  ]);
+  if (!poa || !doctor) redirect(`/poa/${poaId}`);
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!canApproveDoctor(actor, doctor)) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
+  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan reject wajib diisi."));
+
+  // docs/poa-rejection-categories/ (2026-08-13) — single-select, required.
+  // Validated against the enum whitelist here (not just trusted from the
+  // client) — a forged/invalid value gets rejected, never silently stored.
+  const categoryRaw = (formData.get("rejectCategory") as string | null) ?? "";
+  if (!(Object.values(PoaRejectCategory) as string[]).includes(categoryRaw)) {
+    redirect(`/poa/${poaId}?error=` + encodeURIComponent("Kategori reject wajib dipilih."));
+  }
+
+  await rejectDoctor(poaId, kodePI, namaCust, session.userId, reason, categoryRaw as PoaRejectCategory);
+  redirect(`/poa/${poaId}`);
+}
+
+export async function cancelApprovedByNsmDoctorAction(poaId: string, kodePI: string, namaCust: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const [poa, doctor] = await Promise.all([
+    prisma.poaForm.findUnique({ where: { id: poaId } }),
+    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+  ]);
+  if (!poa || !doctor) redirect(`/poa/${poaId}`);
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canCancelApprovedDoctor(actor, poa, doctor))) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
+  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan pembatalan wajib diisi."));
+
+  await cancelApprovedByNsmDoctor(poaId, kodePI, namaCust, session.userId, reason);
+  redirect(`/poa/${poaId}`);
+}
+
+export async function requestEditDoctorAction(poaId: string, kodePI: string, namaCust: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const [poa, doctor] = await Promise.all([
+    prisma.poaForm.findUnique({ where: { id: poaId } }),
+    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+  ]);
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canRequestEditDoctor(actor, poa, doctor))) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() || undefined;
+  await requestEditDoctor(poaId, kodePI, namaCust, session.userId, reason);
+  redirect(`/poa/${poaId}`);
+}
+
+export async function grantEditRequestDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<void> {
+  const session = await requireSession();
+
+  const doctor = await prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } });
+  if (!doctor) redirect(`/poa/${poaId}`);
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canRespondEditRequestDoctor(actor, doctor))) redirect(`/poa/${poaId}`);
+
+  await grantEditRequestDoctor(poaId, kodePI, namaCust, session.userId);
+  redirect(`/poa/${poaId}`);
+}
+
+export async function declineEditRequestDoctorAction(poaId: string, kodePI: string, namaCust: string, formData: FormData): Promise<void> {
+  const session = await requireSession();
+
+  const doctor = await prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } });
+  if (!doctor) redirect(`/poa/${poaId}`);
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canRespondEditRequestDoctor(actor, doctor))) redirect(`/poa/${poaId}`);
+
+  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
+  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan menolak permintaan edit wajib diisi."));
+
+  await declineEditRequestDoctor(poaId, kodePI, namaCust, session.userId, reason);
   redirect(`/poa/${poaId}`);
 }
 

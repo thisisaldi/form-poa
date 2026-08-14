@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canEdit } from "@/lib/authz";
-import { flagRevisionOnEdit } from "@/lib/poaWorkflow";
+import { flagRevisionOnEditDoctor } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
 import { isWriteBlocked } from "@/lib/maintenance";
 import { StatusStandarisasi, JenisPssp, PihakPssp, PsSp, BentukPssp, Prisma } from "@prisma/client";
@@ -151,8 +151,8 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       ? (bentukPsspRaw as BentukPssp)
       : null;
 
-  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
-  await flagRevisionOnEdit(poaId, actor.nip, { customer: namaCust, product: product!.namaProduk, op: "add" });
+  // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
+  await flagRevisionOnEditDoctor(poaId, kodePI, namaCust, actor.nip, { customer: namaCust, product: product!.namaProduk, op: "add" });
 
   await prisma.poaLineItem.create({
     data: {
@@ -244,8 +244,8 @@ export async function updateLineItemAction(
     }
   }
 
-  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
-  await flagRevisionOnEdit(poaId, actor.nip, {
+  // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
+  await flagRevisionOnEditDoctor(poaId, current?.kodePI ?? "", current?.namaCust ?? "", actor.nip, {
     customer: current?.namaCust,
     product: product?.namaProduk ?? current?.namaProduk,
     op: "update",
@@ -343,8 +343,8 @@ export async function deleteLineItemAction(poaId: string, lineItemId: string): P
 
   const item = await prisma.poaLineItem.findUnique({ where: { id: lineItemId } });
 
-  // Editing a POA that already left DRAFT bounces it back to REVISI — must be resubmitted.
-  await flagRevisionOnEdit(poaId, actor.nip, { customer: item?.namaCust, product: item?.namaProduk, op: "delete" });
+  // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
+  await flagRevisionOnEditDoctor(poaId, item?.kodePI ?? "", item?.namaCust ?? "", actor.nip, { customer: item?.namaCust, product: item?.namaProduk, op: "delete" });
 
   await prisma.poaLineItem.delete({ where: { id: lineItemId } });
 

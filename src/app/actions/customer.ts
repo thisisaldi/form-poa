@@ -556,58 +556,95 @@ async function fetchNexusCustomersByOutlet(kodePI: string): Promise<NexusCustome
 }
 
 /**
+ * Bulk kodeCustomer → spesialisasi lookup, built from Nexus get_customer_by_outlet
+ * across every given outlet (2026-08-13 request: "customer full pakai
+ * Nexus" — replaces the old batched `prisma.customer.findMany` lookup used
+ * by Summary "Per Spesialisasi" and the team Excel export). Nexus has no
+ * bulk-by-code endpoint, only per-outlet, so this fans out one call per
+ * outlet with limited concurrency — an explicit latency/reliability
+ * tradeoff the business chose over keeping a local DB copy authoritative
+ * (2026-08-13 decision, see docs/PERFORMANCE.md for why this would
+ * otherwise be avoided on a company-wide page). Best-effort per outlet,
+ * same as fetchNexusCustomersByOutlet — an outlet Nexus fails to answer for
+ * just contributes no spesialisasi entries, never throws.
+ */
+export async function getNexusSpesialisasiByOutlets(outletKodes: string[]): Promise<Map<string, string>> {
+  const spesByKode = new Map<string, string>();
+  const CONCURRENCY = 10;
+  const uniqueOutlets = [...new Set(outletKodes)];
+  for (let i = 0; i < uniqueOutlets.length; i += CONCURRENCY) {
+    const batch = uniqueOutlets.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map((kodePI) => fetchNexusCustomersByOutlet(kodePI)));
+    for (const customers of results) {
+      for (const c of customers) {
+        if (c.vbCode) spesByKode.set(c.vbCode.toUpperCase(), c.spesialisasi);
+      }
+    }
+  }
+  return spesByKode;
+}
+
+/**
  * Every customer at a given outlet, regardless of spesialisasi — lets an MR
  * search by the doctor's own NAME first when they don't know/remember the
  * spesialisasi, instead of being forced to guess through the spesialisasi
  * dropdown before the customer list can even load (2026-07-23).
  *
- * Merged live with the Nexus API (2026-07-23, business owner: "gabungin aja
- * bareng" — always merge, not just when the DB looks empty) as a safety net
- * for outlets our own Customer/CustomerOutlet import hasn't fully covered
- * yet. Nexus-only entries (no matching local kodeCustomer) get a synthetic
- * "nexus:<vbCode|name>" id — the caller (LineItemEditor's handleCustomerChange)
- * detects that prefix and materializes a real Customer row via
- * createCustomerAction before actually using it as a line item's customerId,
- * since addLineItemAction requires a real Customer.id to exist.
+ * FULLY Nexus-sourced as of 2026-08-14 (explicit instruction: "pakai fully
+ * nexus, tidak sama sekali dari local db untuk list dokter nya") — the SET of
+ * doctors shown is exactly what Nexus returns for this outlet, full stop. No
+ * local-only rows are appended anymore (this reverses the 2026-08-13
+ * "append local-only doctors Nexus doesn't return" decision — a real
+ * duplicate-entry bug surfaced while checking outlet F1000271 was the
+ * trigger: a Nexus record with no vb_code and a local Customer with no
+ * kodeCustomer but the same name both showed up as separate options).
+ * `isFokus` and existing `Customer.id` are still read from the local DB
+ * where a match exists (by kodeCustomer/vb_code, or by name when neither
+ * side has a code) — this ENRICHES a Nexus-returned entry, it never ADDS
+ * one, so it doesn't violate "fully from Nexus" for the list itself. It also
+ * keeps re-picking an already-registered doctor from creating a duplicate
+ * Customer row (see `createCustomerAction` materialization below).
+ * Nexus entries with no local match get a synthetic "nexus:<vbCode|name>"
+ * id — the caller (LineItemEditor's handleCustomerChange) detects that
+ * prefix and materializes a real Customer row via createCustomerAction
+ * before using it as a line item's customerId, since addLineItemAction
+ * requires a real Customer.id to exist.
  */
 export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOption[]> {
-  const [rows, nexusCustomers] = await Promise.all([
+  const [localRows, nexusCustomers] = await Promise.all([
     prisma.customerOutlet.findMany({
       where: { kodePI },
       include: { customer: true },
-      orderBy: [{ isFokus: "desc" }, { customer: { namaCustomer: "asc" } }],
     }),
     fetchNexusCustomersByOutlet(kodePI),
   ]);
 
-  const local: CustomerOption[] = rows.map((r: { isFokus: boolean; customer: { id: string; kodeCustomer: string | null; namaCustomer: string; spesialisasi: string } }) => ({
-    id: r.customer.id,
-    kodeCustomer: r.customer.kodeCustomer,
-    namaCustomer: r.customer.namaCustomer,
-    spesialisasi: r.customer.spesialisasi,
-    isFokus: r.isFokus,
-  }));
+  type LocalRow = (typeof localRows)[number];
+  const localByKode = new Map<string, LocalRow>();
+  const localByName = new Map<string, LocalRow>();
+  for (const r of localRows) {
+    if (r.customer.kodeCustomer) localByKode.set(r.customer.kodeCustomer.toUpperCase(), r);
+    else localByName.set(r.customer.namaCustomer.trim().toUpperCase(), r);
+  }
 
-  const localKodeSet = new Set(local.map((c) => c.kodeCustomer?.toUpperCase()).filter(Boolean));
-  const localNameSet = new Set(local.map((c) => c.namaCustomer.trim().toUpperCase()));
-
-  const seenNexus = new Set<string>();
-  for (const nc of nexusCustomers) {
-    const alreadyLocal = (nc.vbCode && localKodeSet.has(nc.vbCode.toUpperCase()))
-      || localNameSet.has(nc.namaCustomer.toUpperCase());
-    const dedupeKey = nc.vbCode?.toUpperCase() ?? nc.namaCustomer.toUpperCase();
-    if (alreadyLocal || seenNexus.has(dedupeKey)) continue;
-    seenNexus.add(dedupeKey);
-    local.push({
-      id: `nexus:${nc.vbCode ?? nc.namaCustomer}`,
+  const result: CustomerOption[] = nexusCustomers.map((nc) => {
+    const key = nc.vbCode?.toUpperCase();
+    const localMatch = key ? localByKode.get(key) : localByName.get(nc.namaCustomer.trim().toUpperCase());
+    return {
+      id: localMatch ? localMatch.customer.id : `nexus:${nc.vbCode ?? nc.namaCustomer}`,
       kodeCustomer: nc.vbCode,
       namaCustomer: nc.namaCustomer,
       spesialisasi: nc.spesialisasi,
-      isFokus: false,
-    });
-  }
+      isFokus: localMatch?.isFokus ?? false,
+    };
+  });
 
-  return local;
+  result.sort((a, b) => {
+    if (a.isFokus !== b.isFokus) return a.isFokus ? -1 : 1;
+    return a.namaCustomer.localeCompare(b.namaCustomer, "id");
+  });
+
+  return result;
 }
 
 export interface KriteriaByOutlet {
@@ -650,6 +687,8 @@ export async function getPsspProductNamesByOutlet(kodePI: string): Promise<strin
 export interface KompetitorHistoryEntry {
   namaProduk: string;
   pct: number;
+  /** pct% of potensiBulan, rounded — null when potensiBulan isn't on file. */
+  qty: number | null;
 }
 
 // First contiguous run of letters/hyphens — a rough "brand root" (e.g.
@@ -675,11 +714,18 @@ export interface SurveyRekomendasiInfo {
 // Shared by getSurveyRekomendasiInfo (single row) and getSurveyRekomendasiByOutlet
 // (all rows) — parses the raw "PRODUCT NAME (XX.X%); ..." string and drops
 // entries that are actually our own products (see brandRoot() above).
-function parseKompetitorHistory(historyProduk: string, pharosRoots: Set<string>): KompetitorHistoryEntry[] {
+function parseKompetitorHistory(
+  historyProduk: string,
+  pharosRoots: Set<string>,
+  potensiBulan: number | null
+): KompetitorHistoryEntry[] {
   const entries: KompetitorHistoryEntry[] = historyProduk.split(";").map((s: string) => {
     const trimmed = s.trim();
     const m = trimmed.match(/^(.*)\((\d+(?:\.\d+)?)%\)\s*$/);
-    return m ? { namaProduk: m[1].trim(), pct: parseFloat(m[2]) } : { namaProduk: trimmed, pct: 0 };
+    const pct = m ? parseFloat(m[2]) : 0;
+    const namaProduk = m ? m[1].trim() : trimmed;
+    const qty = pct > 0 && potensiBulan != null ? Math.round((pct / 100) * potensiBulan) : null;
+    return { namaProduk, pct, qty };
   }).filter((e: KompetitorHistoryEntry) => e.namaProduk);
   return entries.filter((e) => !pharosRoots.has(brandRoot(e.namaProduk)));
 }
@@ -708,10 +754,11 @@ export async function getSurveyRekomendasiInfo(
   if (!row) return null;
 
   const pharosRoots = await getPharosRoots();
+  const potensiBulan = row.potensiBulan != null ? parseFloat(row.potensiBulan.toString()) : null;
 
   return {
-    kompetitor: parseKompetitorHistory(row.historyProduk, pharosRoots),
-    potensiBulan: row.potensiBulan != null ? parseFloat(row.potensiBulan.toString()) : null,
+    kompetitor: parseKompetitorHistory(row.historyProduk, pharosRoots, potensiBulan),
+    potensiBulan,
   };
 }
 
@@ -743,12 +790,15 @@ export async function getSurveyRekomendasiByOutlet(
 
   const pharosRoots = await getPharosRoots();
 
-  return rows.map((r: { kodeProduk: string; namaProdukRekomendasi: string; historyProduk: string; potensiBulan: { toString(): string } | null }) => ({
-    kodeProduk: r.kodeProduk,
-    namaProdukRekomendasi: r.namaProdukRekomendasi,
-    kompetitor: parseKompetitorHistory(r.historyProduk, pharosRoots),
-    potensiBulan: r.potensiBulan != null ? parseFloat(r.potensiBulan.toString()) : null,
-  }));
+  return rows.map((r: { kodeProduk: string; namaProdukRekomendasi: string; historyProduk: string; potensiBulan: { toString(): string } | null }) => {
+    const potensiBulan = r.potensiBulan != null ? parseFloat(r.potensiBulan.toString()) : null;
+    return {
+      kodeProduk: r.kodeProduk,
+      namaProdukRekomendasi: r.namaProdukRekomendasi,
+      kompetitor: parseKompetitorHistory(r.historyProduk, pharosRoots, potensiBulan),
+      potensiBulan,
+    };
+  });
 }
 
 export interface DiskonByProduct {

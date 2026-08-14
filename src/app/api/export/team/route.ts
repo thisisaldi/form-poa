@@ -11,6 +11,14 @@
  *                           scoped to this export's team (2026-07-27, #55)
  *   6. Summary by Produk  — same metrics as the /summary "Per Produk" tab,
  *                           scoped to this export's team (2026-07-28, #6)
+ *   7. Summary Ringkasan  — grand-total cards from the /summary "Ringkasan" tab,
+ *                           scoped to this export's team + a single quarter
+ *                           (2026-08-13, stakeholder #15)
+ *   8. Summary Per Personil    — "Per Personil" tab, same Outlet/Produk-sheet
+ *                                metric shape, grouped by MR instead (#15)
+ *   9. Summary Per Customer    — "Per Customer" tab, ditto, grouped by customer (#15)
+ *  10. Summary Per Spesialisasi — "Per Spesialisasi" tab, ditto, grouped by
+ *                                 spesialisasi label (#15)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,9 +26,10 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
-import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getNexusSpesialisasiByOutlets, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
-import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown } from "@/lib/poaUtils";
+import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown, computeJumlahPeriode } from "@/lib/poaUtils";
+import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel } from "@/lib/spesialisasi";
 import { displayRole } from "@/lib/role";
 
@@ -484,15 +493,18 @@ export async function GET(req: NextRequest) {
     { key: "value", width: 28 },
   ];
 
-  function addKv(label: string, value: string | number, bold = false) {
-    const row = ws1.addRow([label, value]);
+  // Generalized to take a worksheet param (2026-08-13) — originally ws1-only,
+  // reused as-is for the new "Summary Ringkasan" sheet (#15) instead of a
+  // second near-duplicate KV-sheet builder.
+  function addKv(ws: ExcelJS.Worksheet, label: string, value: string | number, bold = false) {
+    const row = ws.addRow([label, value]);
     row.getCell(2).alignment = { horizontal: "right" };
     if (bold) row.font = { bold: true };
   }
-  function addDivider(title: string) {
-    ws1.addRow([]);
-    const row = ws1.addRow([title]);
-    ws1.mergeCells(row.number, 1, row.number, 2);
+  function addDivider(ws: ExcelJS.Worksheet, title: string) {
+    ws.addRow([]);
+    const row = ws.addRow([title]);
+    ws.mergeCells(row.number, 1, row.number, 2);
     row.getCell(1).font = { bold: true, color: { argb: WHITE } };
     row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
     row.height = 18;
@@ -505,28 +517,28 @@ export async function GET(req: NextRequest) {
   if (period) ws1.addRow(["Periode", period]);
   ws1.addRow([]);
 
-  addDivider("Progres Submit");
-  addKv("Total MR", mrUsers.length);
-  addKv("Sudah submit", mrSubmitted);
-  addKv("Belum submit", mrUsers.length - mrSubmitted);
+  addDivider(ws1, "Progres Submit");
+  addKv(ws1, "Total MR", mrUsers.length);
+  addKv(ws1, "Sudah submit", mrSubmitted);
+  addKv(ws1, "Belum submit", mrUsers.length - mrSubmitted);
 
-  addDivider("Estimasi & Anggaran");
-  addKv("Total Estimasi POA",       fmtRp(totalEst), true);
-  addKv("Total PSSP",               fmtRp(totalPssp));
-  addKv("Total Campaign / DPL / DPF", fmtRp(totalDisc));
-  addKv("Total ENT",                fmtRp(totalEnt));
-  addKv("Total Budget",             fmtRp(totalBudget), true);
-  addKv("% Budget / Estimasi",      totalEst > 0 ? `${((totalBudget / totalEst) * 100).toFixed(1)}%` : "—");
+  addDivider(ws1, "Estimasi & Anggaran");
+  addKv(ws1, "Total Estimasi POA",       fmtRp(totalEst), true);
+  addKv(ws1, "Total PSSP",               fmtRp(totalPssp));
+  addKv(ws1, "Total Campaign / DPL / DPF", fmtRp(totalDisc));
+  addKv(ws1, "Total ENT",                fmtRp(totalEnt));
+  addKv(ws1, "Total Budget",             fmtRp(totalBudget), true);
+  addKv(ws1, "% Budget / Estimasi",      totalEst > 0 ? `${((totalBudget / totalEst) * 100).toFixed(1)}%` : "—");
 
-  addDivider("Cakupan");
-  addKv("Total Customer (unik)",     totalCust);
-  addKv("Variasi Produk Kontes (unik)", totalKontes);
-  addKv("Total Baris Pengajuan",    totalPengaj);
+  addDivider(ws1, "Cakupan");
+  addKv(ws1, "Total Customer (unik)",     totalCust);
+  addKv(ws1, "Variasi Produk Kontes (unik)", totalKontes);
+  addKv(ws1, "Total Baris Pengajuan",    totalPengaj);
 
-  addDivider("Listing Produk");
-  addKv("Sudah Listing",            totalSudah);
-  addKv("Proses Pengajuan",         totalProses);
-  addKv("Belum Listing",            totalBelum);
+  addDivider(ws1, "Listing Produk");
+  addKv(ws1, "Sudah Listing",            totalSudah);
+  addKv(ws1, "Proses Pengajuan",         totalProses);
+  addKv(ws1, "Belum Listing",            totalBelum);
 
   // ── Sheet 2: Per MR ─────────────────────────────────────────────────────────
 
@@ -682,7 +694,7 @@ export async function GET(req: NextRequest) {
     { header: "Pengali PS/SP",        key: "pengaliPssp",      width: 12 },
     { header: "Nilai PS/SP Produk \n/Bulan", key: "nilaiPsspBulan", width: 16 },
     { header: "Total Nilai PS/SP Produk \n/Bulan", key: "totalNilaiPsspBulan", width: 18 },
-    { header: "Periode PS/SP (Bulan)", key: "periodePssp",     width: 14 },
+    { header: "Jumlah Periode PS/SP (Bulan)", key: "periodePssp",     width: 16 },
     { header: "Periode Awal PS/SP (YYYYMM, contoh: 202601)", key: "periodeAwal", width: 16 },
     { header: "Periode Akhir PS/SP (YYYYMM, contoh: 202612)", key: "periodeAkhir", width: 16 },
     { header: "Estimasi PS/SP Produk \n/Periode", key: "estimasiPeriode", width: 18 },
@@ -942,6 +954,7 @@ export async function GET(req: NextRequest) {
     { header: "Nama Produk",  key: "namaProduk",    width: 28 },
     { header: "Periode Awal", key: "periodeAwal",   width: 14 },
     { header: "Periode Akhir",key: "periodeAkhir",  width: 14 },
+    { header: "Jumlah Periode (Bulan)", key: "jumlahPeriode", width: 16 },
     { header: "Biaya / Value PSSP", key: "biaya",   width: 18 },
     { header: "Estimasi Sales",  key: "estBaris",   width: 16 },
     { header: "Total Lunas / Pelunasan", key: "totalLunas", width: 18 },
@@ -967,6 +980,7 @@ export async function GET(req: NextRequest) {
       kodeOutlet: r.kdOutlet ?? "—", namaOutlet: r.nmOutlet ?? "—",
       kodeProduk: r.kdProduk ?? "—", namaProduk: r.nmProduk ?? "—",
       periodeAwal: r.prdAwal, periodeAkhir: r.prdAkhir,
+      jumlahPeriode: computeJumlahPeriode(r.prdAwal, r.prdAkhir),
       biaya: Math.round(r.biaya), estBaris: Math.round(r.estBaris), totalLunas: Math.round(r.totalLunas),
       pctLunas: r.estBaris > 0 ? parseFloat(((r.totalLunas / r.estBaris) * 100).toFixed(1)) : 0,
       sisaEstimasi: Math.round(Math.max(r.estBaris - r.totalLunas, 0)),
@@ -989,6 +1003,7 @@ export async function GET(req: NextRequest) {
       kodeOutlet: r.kodePI, namaOutlet: r.namaOutlet ?? "—",
       kodeProduk: "—", namaProduk: "—",
       periodeAwal: r.periodeAwal ?? "—", periodeAkhir: r.periodeAkhir ?? "—",
+      jumlahPeriode: r.periodeAwal && r.periodeAkhir ? computeJumlahPeriode(r.periodeAwal, r.periodeAkhir) : "—",
       biaya: Math.round(r.valuePssp), estBaris: "—", totalLunas: Math.round(r.pelunasan),
       pctLunas: r.rr != null ? parseFloat((r.rr * 100).toFixed(1)) : 0,
       sisaEstimasi: "—",
@@ -1276,6 +1291,518 @@ export async function GET(req: NextRequest) {
   shadeAlt(ws6, 1);
 
   if (produkSummaryRows.length === 0) ws6.addRow(["(Belum ada data pengajuan)"]);
+
+  // ── Sheet 7: Summary Ringkasan ──────────────────────────────────────────────
+  // Mirrors the /summary "Ringkasan" tab's grand-total cards (docs/summary-ringkasan),
+  // scoped to this export's team. Unlike every tab/sheet above, the live Ringkasan
+  // tab is filtered to exactly ONE quarter (`RingkasanQuarterFilter`), not a period
+  // range — this route only ever accepts a single `?period=` value already (never a
+  // range), so the fit is direct: reuse that SAME param as the Ringkasan quarter.
+  // ASSUMPTION (stakeholder #15, no range→quarter rule specified): when `?period=`
+  // is omitted (this export's "all periods" default), Ringkasan falls back to the
+  // real calendar current quarter — same default `/summary` itself uses when its
+  // own filter is unset — rather than trying to collapse an unbounded multi-quarter
+  // export into one card.
+  const RINGKASAN_QUARTER = period && /^\d{4}-Q[1-4]$/.test(period) ? period : currentQuarter();
+  const ringkasanQMonths = quarterToMonths(RINGKASAN_QUARTER);
+
+  // Duplicated from src/app/(app)/summary/page.tsx (same file-wide convention as
+  // BENTUK_PSSP_LABELS/resolveDiskonPeriodLabel above — no shared lib module yet).
+  function monthsInRangeExport(prdAwal: string, prdAkhir: string): string[] {
+    const months: string[] = [];
+    let y = parseInt(prdAwal.slice(0, 4), 10), m = parseInt(prdAwal.slice(4), 10);
+    const ey = parseInt(prdAkhir.slice(0, 4), 10), em = parseInt(prdAkhir.slice(4), 10);
+    let guard = 0;
+    while ((y < ey || (y === ey && m <= em)) && guard < 240) {
+      months.push(`${y}${String(m).padStart(2, "0")}`);
+      m++; if (m > 12) { m = 1; y++; }
+      guard++;
+    }
+    return months;
+  }
+  function elapsedFractionExport(prdAwal: string, prdAkhir: string): number {
+    const now = new Date();
+    const currentYYYYMM = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const sy = parseInt(prdAwal.slice(0, 4), 10), sm = parseInt(prdAwal.slice(4), 10);
+    const ey = parseInt(prdAkhir.slice(0, 4), 10), em = parseInt(prdAkhir.slice(4), 10);
+    const total = (ey - sy) * 12 + (em - sm) + 1;
+    if (total <= 0) return 0;
+    const cappedEnd = currentYYYYMM < prdAkhir ? currentYYYYMM : prdAkhir;
+    const cy = parseInt(cappedEnd.slice(0, 4), 10), cm = parseInt(cappedEnd.slice(4), 10);
+    const elapsed = Math.max(0, Math.min(total, (cy - sy) * 12 + (cm - sm) + 1));
+    return elapsed / total;
+  }
+
+  // Dedicated quarter-scoped fetch — mrNips-wide (same scope as `poaWhere`
+  // above), NOT filtered to NON_DRAFT_STATUSES like /summary's own Ringkasan
+  // query, so it stays consistent with this file's own established convention
+  // ("this team rekap includes every status", see comment near `poaWhere`
+  // above) rather than silently diverging from the rest of this export.
+  const ringkasanPoas = mrNips.length > 0
+    ? await prisma.poaForm.findMany({
+        where: { ownerId: { in: mrNips }, period: RINGKASAN_QUARTER },
+        select: { id: true, target: true },
+      }) as { id: string; target: { toString(): string } | null }[]
+    : [];
+  const ringkasanPoaIds = ringkasanPoas.map((p) => p.id);
+  const ringkasanTargetTotal = ringkasanPoas.reduce((s, p) => s + toNum(p.target), 0);
+
+  const ringkasanLineItems = ringkasanPoaIds.length > 0
+    ? await prisma.poaLineItem.findMany({
+        where: { poaId: { in: ringkasanPoaIds } },
+        select: {
+          kodeCust: true, namaCust: true, kodeProduk: true, namaProduk: true,
+          rencanaTotalBiaya: true, persenPsspDokter: true, persenDiskon: true,
+          persenDp: true, persenListingFee: true, persenEntertain: true,
+          pengaliNilaiR: true, periodeAwal: true, lamaPeriode: true,
+        },
+      }) as {
+        kodeCust: string | null; namaCust: string; kodeProduk: string; namaProduk: string;
+        rencanaTotalBiaya: { toString(): string }; persenPsspDokter: { toString(): string } | null;
+        persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
+        persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
+        pengaliNilaiR: { toString(): string } | null; periodeAwal: string | null; lamaPeriode: number | null;
+      }[]
+    : [];
+
+  let ringkasanEstimasi = 0, ringkasanPssp = 0, ringkasanDisc = 0, ringkasanEnt = 0;
+  for (const li of ringkasanLineItems) {
+    const base = toNum(li.rencanaTotalBiaya);
+    const pengali = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+    ringkasanEstimasi += base;
+    ringkasanPssp += base * toNum(li.persenPsspDokter) * pengali;
+    ringkasanDisc += base * (toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee));
+    ringkasanEnt += base * toNum(li.persenEntertain);
+  }
+  const ringkasanBudget = ringkasanPssp + ringkasanDisc + ringkasanEnt;
+
+  // Tercacah (apportioned to this quarter's own 3 months) — same
+  // computeMonthlyBreakdown apportionment /summary's Ringkasan tab uses for
+  // its headline "Estimasi Rencana"/"Nilai PSSP" figures, rather than the
+  // plain full-value sums above (which can include months outside the quarter).
+  const ringkasanMonthlyBreakdown = computeMonthlyBreakdown(ringkasanLineItems);
+  const ringkasanEstimasiTercacah = ringkasanQMonths.reduce((s, m) => s + (ringkasanMonthlyBreakdown.get(m)?.estimasi ?? 0), 0);
+
+  const ringkasanCustCount = new Set(ringkasanLineItems.map((li) => li.kodeCust ?? li.namaCust)).size;
+  const ringkasanKontesCount = new Set(
+    ringkasanLineItems.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)
+  ).size;
+
+  // PSSP Aktif tercacah for the quarter, scoped to this team's outlets — bounded
+  // to a SINGLE quarter window (not /summary's 2-quarter Q-Berjalan+Q-Sebelumnya
+  // window), since this sheet has no Q-Sebelumnya comparison column.
+  const ringkasanAktifRows = assignedOutlets.length > 0
+    ? await prisma.psspKontrak.findMany({
+        where: {
+          kdOutlet: { in: assignedOutlets },
+          prdAwal: { lte: ringkasanQMonths[ringkasanQMonths.length - 1] },
+          prdAkhir: { gte: ringkasanQMonths[0] },
+        },
+        select: { kdCust: true, cUrut: true, prdAwal: true, prdAkhir: true, estBaris: true, totalLunas: true },
+      }) as { kdCust: string; cUrut: string; prdAwal: string; prdAkhir: string; estBaris: { toString(): string } | null; totalLunas: { toString(): string } | null }[]
+    : [];
+  function tercacahForQuarterExport(rows: typeof ringkasanAktifRows, months: string[]): { jumlah: number; value: number } {
+    const monthSet = new Set(months);
+    const contractKeys = new Set<string>();
+    let value = 0;
+    for (const r of rows) {
+      const rMonths = monthsInRangeExport(r.prdAwal, r.prdAkhir);
+      if (rMonths.length === 0) continue;
+      if (rMonths.some((m) => monthSet.has(m))) contractKeys.add(`${r.kdCust}|${r.cUrut}`);
+      const perMonth = toNum(r.estBaris) / rMonths.length;
+      for (const m of rMonths) if (monthSet.has(m)) value += perMonth;
+    }
+    return { jumlah: contractKeys.size, value };
+  }
+  const ringkasanAktifQ = tercacahForQuarterExport(ringkasanAktifRows, ringkasanQMonths);
+
+  const ringkasanPctRencana = ringkasanTargetTotal > 0 ? (ringkasanEstimasiTercacah / ringkasanTargetTotal) * 100 : null;
+  const ringkasanPctAktif = ringkasanTargetTotal > 0 ? (ringkasanAktifQ.value / ringkasanTargetTotal) * 100 : null;
+
+  // Pelunasan — expected (estBaris × elapsed fraction of the contract's OWN
+  // period) vs actual (totalLunas), deduped by contract — same Running Rate
+  // formula /summary's Ringkasan §4 Pelunasan card uses.
+  const ringkasanContractRep = new Map<string, typeof ringkasanAktifRows[number]>();
+  for (const r of ringkasanAktifRows) {
+    const key = `${r.kdCust}|${r.cUrut}`;
+    if (!ringkasanContractRep.has(key)) ringkasanContractRep.set(key, r);
+  }
+  let ringkasanExpectedLunas = 0, ringkasanActualLunas = 0;
+  for (const r of ringkasanContractRep.values()) {
+    ringkasanExpectedLunas += toNum(r.estBaris) * elapsedFractionExport(r.prdAwal, r.prdAkhir);
+    ringkasanActualLunas += toNum(r.totalLunas);
+  }
+  const ringkasanPelunasanPct = ringkasanExpectedLunas > 0 ? (ringkasanActualLunas / ringkasanExpectedLunas) * 100 : null;
+
+  const ringkasanSalesRaw = (assignedOutlets.length > 0
+    ? await prisma.outletSalesValueMonthly.groupBy({
+        by: ["kodePI"],
+        where: { kodePI: { in: assignedOutlets }, periode: { in: ringkasanQMonths } },
+        _sum: { valueSales: true },
+      })
+    : []) as { kodePI: string; _sum: { valueSales: { toString(): string } | null } }[];
+  const ringkasanSalesTotal = ringkasanSalesRaw.reduce((s, r) => s + toNum(r._sum.valueSales), 0);
+
+  // ListingFeeKontrak has no periode column to scope to this quarter specifically
+  // (same limitation the Per Outlet/Per Produk sheets above already accept for
+  // Listing Fee) — reuses the whole-team total already computed for Sheet 5.
+  const ringkasanListingFeeTotal = [...listingFeeByOutlet.values()].reduce((s, v) => s + v, 0);
+
+  const ws7 = wb.addWorksheet("Summary Ringkasan");
+  ws7.columns = [
+    { key: "label", width: 40 },
+    { key: "value", width: 26 },
+  ];
+  ws7.addRow(["Ringkasan POA — Kuartal " + RINGKASAN_QUARTER]);
+  ws7.getRow(1).font = { bold: true, size: 14 };
+  addKv(ws7, "Diekspor oleh", `${session.name} (${session.role})`);
+  addKv(ws7, "Tanggal export", new Date().toLocaleDateString("id-ID"));
+  addKv(ws7, "Kuartal Ringkasan", RINGKASAN_QUARTER + (period ? "" : " (default kuartal berjalan — tidak ada ?period= pada request ini)"));
+  ws7.addRow([]);
+
+  addDivider(ws7, "Target & Pencapaian");
+  addKv(ws7, "Total Target", fmtRp(ringkasanTargetTotal), true);
+  addKv(ws7, "Estimasi Rencana (Tercacah)", fmtRp(ringkasanEstimasiTercacah));
+  addKv(ws7, "PSSP Aktif (Tercacah)", `${fmtRp(ringkasanAktifQ.value)} (${ringkasanAktifQ.jumlah} kontrak)`);
+  addKv(ws7, "% Rencana thd Target", ringkasanPctRencana != null ? `${ringkasanPctRencana.toFixed(1)}%` : "Tidak tersedia (Target 0)");
+  addKv(ws7, "% Aktif thd Target", ringkasanPctAktif != null ? `${ringkasanPctAktif.toFixed(1)}%` : "Tidak tersedia (Target 0)");
+
+  addDivider(ws7, "Estimasi & Anggaran (Kuartal)");
+  addKv(ws7, "Total Estimasi POA", fmtRp(ringkasanEstimasi), true);
+  addKv(ws7, "Total PSSP", fmtRp(ringkasanPssp));
+  addKv(ws7, "Total Campaign / DPL / DPF / DP / Listing Fee", fmtRp(ringkasanDisc));
+  addKv(ws7, "Total ENT", fmtRp(ringkasanEnt));
+  addKv(ws7, "Total Budget", fmtRp(ringkasanBudget), true);
+  addKv(ws7, "% Budget / Estimasi", ringkasanEstimasi > 0 ? `${((ringkasanBudget / ringkasanEstimasi) * 100).toFixed(1)}%` : "—");
+
+  addDivider(ws7, "Cakupan");
+  addKv(ws7, "Total Customer (unik)", ringkasanCustCount);
+  addKv(ws7, "Variasi Produk Kontes (unik)", ringkasanKontesCount);
+  addKv(ws7, "Total Baris Pengajuan", ringkasanLineItems.length);
+
+  addDivider(ws7, "Sales & Pelunasan");
+  addKv(ws7, "Sales Aktif (Kuartal)", fmtRp(ringkasanSalesTotal));
+  addKv(ws7, "Listing Fee (Total, seluruh outlet tim — tidak per-kuartal)", fmtRp(ringkasanListingFeeTotal));
+  addKv(ws7, "% Pelunasan PSSP Aktif", ringkasanPelunasanPct != null ? `${ringkasanPelunasanPct.toFixed(1)}%` : "Tidak tersedia");
+
+  // ── Sheet 8: Summary Per Personil ────────────────────────────────────────────
+  // Same metric shape as Sheet 5 "Summary Per Outlet" (Estimasi Aktif+Pengajuan,
+  // User count, Variasi Produk Kontes/Non-Kontes, Budget, Cost Ratio, Sales
+  // Aktif, Listing Fee), grouped by MR instead of outlet — mirrors the /summary
+  // "Per Personil" tab (2026-08-13, stakeholder #15). Reuses activePsspByOutlet/
+  // salesValueByOutlet/listingFeeByOutlet already built for Sheet 5 (no new
+  // per-row queries) via each MR's own outlet list (`mrToOutlets`, built earlier
+  // for the org-hierarchy lookup).
+
+  const poaOwnerMap = new Map(poas.map((p) => [p.id, p.ownerId]));
+  const itemsByMrNip = new Map<string, typeof lineItems>();
+  for (const mr of mrUsers) itemsByMrNip.set(mr.nip, []);
+  for (const li of lineItems) {
+    const ownerNip = poaOwnerMap.get(li.poaId);
+    if (!ownerNip) continue;
+    const list = itemsByMrNip.get(ownerNip) ?? [];
+    list.push(li);
+    itemsByMrNip.set(ownerNip, list);
+  }
+
+  interface PersonilSummaryRow {
+    nip: string; name: string;
+    estimasi: number; estimasiAktif: number; userCount: number;
+    variasiProduk: number; variasiProdukKontes: number;
+    budgetTotal: number; biayaAktif: number; salesAktif: number; listingFeeTotal: number;
+  }
+  const personilSummaryRows: PersonilSummaryRow[] = mrUsers.map((mr) => {
+    const items = itemsByMrNip.get(mr.nip) ?? [];
+    let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
+    for (const li of items) {
+      const base = toNum(li.rencanaTotalBiaya);
+      const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+      const psspPct = toNum(li.persenPsspDokter) * pengaliNilaiR;
+      const discPct = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
+      const entPct = toNum(li.persenEntertain);
+      estimasi += base;
+      psspTotal += base * psspPct;
+      discountTotal += base * discPct;
+      entertainTotal += base * entPct;
+    }
+    const outletsForMr = mrToOutlets.get(mr.nip) ?? [];
+    const activeRows = outletsForMr.flatMap((o) => activePsspByOutlet.get(o) ?? []);
+    const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+    const seenContracts = new Set<string>();
+    let biayaAktif = 0;
+    for (const r of activeRows) {
+      if (seenContracts.has(r.cUrut)) continue;
+      seenContracts.add(r.cUrut);
+      biayaAktif += r.biaya;
+    }
+    const activeCustKeys = new Set(activeRows.map((r) => r.kdCust));
+    const draftCustKeys = new Set(items.map((li) => li.kodeCust ?? `name:${li.namaCust}`));
+    const userCount = new Set([...activeCustKeys, ...draftCustKeys]).size;
+    const salesAktif = outletsForMr.reduce((s, o) => s + (salesValueByOutlet.get(o) ?? 0), 0);
+    const listingFeeTotal = outletsForMr.reduce((s, o) => s + (listingFeeByOutlet.get(o) ?? 0), 0);
+    return {
+      nip: mr.nip, name: mr.name,
+      estimasi, estimasiAktif, userCount,
+      variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
+      variasiProdukKontes: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
+      budgetTotal: psspTotal + discountTotal + entertainTotal,
+      biayaAktif, salesAktif, listingFeeTotal,
+    };
+  }).sort((a, b) => (b.estimasi + b.estimasiAktif) - (a.estimasi + a.estimasiAktif));
+
+  const ws8 = wb.addWorksheet("Summary Per Personil");
+  ws8.columns = [
+    { header: "NIP MR",                       key: "nip",                    width: 12 },
+    { header: "Nama MR",                      key: "name",                   width: 28 },
+    { header: "Estimasi Aktif+Pengajuan",     key: "estimasiAktifPengajuan", width: 22 },
+    { header: "User PSSP (Aktif+Estimasi)",   key: "userCount",              width: 20 },
+    { header: "Variasi Produk Kontes",        key: "variasiProdukKontes",    width: 16 },
+    { header: "Variasi Produk Non-Kontes",    key: "variasiProdukNonKontes", width: 18 },
+    { header: "Budget",                       key: "budget",                 width: 18 },
+    { header: "Cost Ratio",                   key: "costRatio",              width: 12 },
+    { header: "Sales Aktif (2026)",           key: "salesAktif",             width: 18 },
+    { header: "Estimasi Per User",            key: "estimasiPerUser",        width: 18 },
+    { header: "Listing Fee",                  key: "listingFee",             width: 16 },
+  ];
+  styleHeader(ws8);
+  for (const r of personilSummaryRows) {
+    const estimasiAktifPengajuan = r.estimasi + r.estimasiAktif;
+    const biayaAktifPengajuan = r.biayaAktif + r.budgetTotal;
+    const costRatio = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : 0;
+    ws8.addRow({
+      nip: r.nip, name: r.name,
+      estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
+      userCount: r.userCount,
+      variasiProdukKontes: r.variasiProdukKontes,
+      variasiProdukNonKontes: r.variasiProduk - r.variasiProdukKontes,
+      budget: Math.round(r.budgetTotal),
+      costRatio: parseFloat(costRatio.toFixed(1)),
+      salesAktif: Math.round(r.salesAktif),
+      estimasiPerUser: r.userCount > 0 ? Math.round(estimasiAktifPengajuan / r.userCount) : 0,
+      listingFee: Math.round(r.listingFeeTotal),
+    });
+  }
+  ["estimasiAktifPengajuan", "budget", "salesAktif", "estimasiPerUser", "listingFee"].forEach((key) => {
+    ws8.getColumn(key).numFmt = '#,##0';
+  });
+  ws8.getColumn("costRatio").numFmt = '0.0"%"';
+  shadeAlt(ws8, 1);
+  if (personilSummaryRows.length === 0) ws8.addRow(["(Belum ada data pengajuan)"]);
+
+  // ── Sheet 9: Summary Per Customer ────────────────────────────────────────────
+  // Same metric shape again, grouped by customer — mirrors /summary "Per
+  // Customer" tab. Sales Aktif/Listing Fee are outlet-level-only figures with no
+  // clean per-customer join anywhere in this data model, so (unlike Sheets 5/8)
+  // they're omitted here rather than approximated. Customers with no kodeCust
+  // are excluded, same "no synthetic no-code row" convention /summary's own
+  // Per Customer tab uses (see comment on `custIdentity`/getTerritoryKey in
+  // src/app/(app)/summary/page.tsx).
+
+  // Shared by Sheet 9 (Spesialisasi column) and Sheet 10 (grouping) — Nexus-
+  // sourced as of 2026-08-13 ("customer full pakai Nexus"), one
+  // get_customer_by_outlet call per outlet touched by this team's line items
+  // + active PSSP (not a company-wide scan), replacing the old batched
+  // prisma.customer lookup by kodeCustomer.
+  const custCodesForSpes = [...new Set([
+    ...lineItems.map((li) => li.kodeCust).filter((k): k is string => !!k),
+    ...activePsspAll.map((r) => r.kdCust),
+  ])];
+  const outletCodesForSpes = [...new Set([
+    ...lineItems.map((li) => li.kodePI).filter((k): k is string => !!k),
+    ...activePsspAll.map((r) => r.kdOutlet).filter((k): k is string => !!k),
+  ])];
+  const nexusSpesByKodeForExport = outletCodesForSpes.length > 0
+    ? await getNexusSpesialisasiByOutlets(outletCodesForSpes)
+    : new Map<string, string>();
+  const spesByCustCode = new Map(
+    custCodesForSpes
+      .map((code) => [code, nexusSpesByKodeForExport.get(code.toUpperCase())] as const)
+      .filter((entry): entry is [string, string] => !!entry[1])
+      .map(([code, spes]) => [code, spesLabel(spes)] as const)
+  );
+
+  const custGroups = new Map<string, { namaCust: string; items: typeof lineItems }>();
+  for (const li of lineItems) {
+    if (!li.kodeCust) continue;
+    if (!custGroups.has(li.kodeCust)) custGroups.set(li.kodeCust, { namaCust: li.namaCust, items: [] });
+    custGroups.get(li.kodeCust)!.items.push(li);
+  }
+  const activePsspByCustCode = new Map<string, typeof activePsspAll>();
+  for (const r of activePsspAll) {
+    const list = activePsspByCustCode.get(r.kdCust) ?? [];
+    list.push(r);
+    activePsspByCustCode.set(r.kdCust, list);
+  }
+  // Customers with an active contract but no planned line item this export
+  // period still deserve a row (same "Aktif-only" inclusion Sheets 5/6 give
+  // outlets/products) — seed from activePssp too.
+  for (const r of activePsspAll) {
+    if (!custGroups.has(r.kdCust)) custGroups.set(r.kdCust, { namaCust: r.nmCust ?? r.kdCust, items: [] });
+  }
+
+  interface CustomerSummaryRow {
+    kodeCust: string; namaCust: string; spesialisasi: string;
+    estimasi: number; estimasiAktif: number;
+    variasiProduk: number; variasiProdukKontes: number;
+    budgetTotal: number; biayaAktif: number;
+  }
+  const customerSummaryRows: CustomerSummaryRow[] = [...custGroups.entries()].map(([kodeCust, { namaCust, items }]) => {
+    let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
+    for (const li of items) {
+      const base = toNum(li.rencanaTotalBiaya);
+      const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+      const psspPct = toNum(li.persenPsspDokter) * pengaliNilaiR;
+      const discPct = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
+      const entPct = toNum(li.persenEntertain);
+      estimasi += base;
+      psspTotal += base * psspPct;
+      discountTotal += base * discPct;
+      entertainTotal += base * entPct;
+    }
+    const activeRows = activePsspByCustCode.get(kodeCust) ?? [];
+    const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+    const seenContracts = new Set<string>();
+    let biayaAktif = 0;
+    for (const r of activeRows) {
+      if (seenContracts.has(r.cUrut)) continue;
+      seenContracts.add(r.cUrut);
+      biayaAktif += r.biaya;
+    }
+    const namaResolved = namaCust || activeRows[0]?.nmCust || kodeCust;
+    return {
+      kodeCust, namaCust: namaResolved,
+      spesialisasi: spesByCustCode.get(kodeCust) ?? "-",
+      estimasi, estimasiAktif,
+      variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
+      variasiProdukKontes: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
+      budgetTotal: psspTotal + discountTotal + entertainTotal,
+      biayaAktif,
+    };
+  }).sort((a, b) => (b.estimasi + b.estimasiAktif) - (a.estimasi + a.estimasiAktif));
+
+  const ws9 = wb.addWorksheet("Summary Per Customer");
+  ws9.columns = [
+    { header: "Kode Customer",                key: "kodeCust",               width: 14 },
+    { header: "Nama Customer",                key: "namaCust",               width: 30 },
+    { header: "Spesialisasi",                 key: "spesialisasi",           width: 22 },
+    { header: "Estimasi Aktif+Pengajuan",     key: "estimasiAktifPengajuan", width: 22 },
+    { header: "Variasi Produk Kontes",        key: "variasiProdukKontes",    width: 16 },
+    { header: "Variasi Produk Non-Kontes",    key: "variasiProdukNonKontes", width: 18 },
+    { header: "Budget",                       key: "budget",                 width: 18 },
+    { header: "Cost Ratio",                   key: "costRatio",              width: 12 },
+  ];
+  styleHeader(ws9);
+  for (const r of customerSummaryRows) {
+    const estimasiAktifPengajuan = r.estimasi + r.estimasiAktif;
+    const biayaAktifPengajuan = r.biayaAktif + r.budgetTotal;
+    const costRatio = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : 0;
+    ws9.addRow({
+      kodeCust: r.kodeCust, namaCust: r.namaCust, spesialisasi: r.spesialisasi,
+      estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
+      variasiProdukKontes: r.variasiProdukKontes,
+      variasiProdukNonKontes: r.variasiProduk - r.variasiProdukKontes,
+      budget: Math.round(r.budgetTotal),
+      costRatio: parseFloat(costRatio.toFixed(1)),
+    });
+  }
+  ["estimasiAktifPengajuan", "budget"].forEach((key) => { ws9.getColumn(key).numFmt = '#,##0'; });
+  ws9.getColumn("costRatio").numFmt = '0.0"%"';
+  shadeAlt(ws9, 1);
+  if (customerSummaryRows.length === 0) ws9.addRow(["(Belum ada data pengajuan)"]);
+
+  // ── Sheet 10: Summary Per Spesialisasi ───────────────────────────────────────
+  // Grouped by spesLabel(li.spesialisasi) — a raw field already on every line
+  // item (no customer join needed for the Rencana side). The Aktif side has no
+  // spesialisasi field on PsspKontrak at all, so it's joined via `spesByCustCode`
+  // (built above for Sheet 9) — contracts whose customer has no Customer-table
+  // match are excluded from the Aktif figures here, same limitation /summary's
+  // own "Per Spesialisasi" tab (`kesesuaianAktifBySpes`/`activePsspBySpes`) has.
+
+  const spesGroups = new Map<string, { items: typeof lineItems }>();
+  for (const li of lineItems) {
+    const label = spesLabel(li.spesialisasi);
+    if (!spesGroups.has(label)) spesGroups.set(label, { items: [] });
+    spesGroups.get(label)!.items.push(li);
+  }
+  const activePsspBySpesLabel = new Map<string, typeof activePsspAll>();
+  for (const r of activePsspAll) {
+    const label = spesByCustCode.get(r.kdCust);
+    if (!label) continue;
+    const list = activePsspBySpesLabel.get(label) ?? [];
+    list.push(r);
+    activePsspBySpesLabel.set(label, list);
+  }
+
+  interface SpesialisasiSummaryRow {
+    spesialisasi: string;
+    estimasi: number; estimasiAktif: number; userCount: number;
+    variasiProduk: number; variasiProdukKontes: number;
+    budgetTotal: number; biayaAktif: number;
+  }
+  const spesialisasiSummaryRows: SpesialisasiSummaryRow[] = [...spesGroups.entries()].map(([label, { items }]) => {
+    let estimasi = 0, psspTotal = 0, discountTotal = 0, entertainTotal = 0;
+    for (const li of items) {
+      const base = toNum(li.rencanaTotalBiaya);
+      const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
+      const psspPct = toNum(li.persenPsspDokter) * pengaliNilaiR;
+      const discPct = toNum(li.persenDiskon) + toNum(li.persenDp) + toNum(li.persenListingFee);
+      const entPct = toNum(li.persenEntertain);
+      estimasi += base;
+      psspTotal += base * psspPct;
+      discountTotal += base * discPct;
+      entertainTotal += base * entPct;
+    }
+    const activeRows = activePsspBySpesLabel.get(label) ?? [];
+    const estimasiAktif = activeRows.reduce((s, r) => s + r.estBaris, 0);
+    const seenContracts = new Set<string>();
+    let biayaAktif = 0;
+    for (const r of activeRows) {
+      if (seenContracts.has(r.cUrut)) continue;
+      seenContracts.add(r.cUrut);
+      biayaAktif += r.biaya;
+    }
+    const activeCustKeys = new Set(activeRows.map((r) => r.kdCust));
+    const draftCustKeys = new Set(items.map((li) => li.kodeCust ?? `name:${li.namaCust}`));
+    const userCount = new Set([...activeCustKeys, ...draftCustKeys]).size;
+    return {
+      spesialisasi: label,
+      estimasi, estimasiAktif, userCount,
+      variasiProduk: new Set(items.map((li) => li.kodeProduk)).size,
+      variasiProdukKontes: new Set(items.filter((li) => getAllPakets(li.namaProduk).length > 0).map((li) => li.kodeProduk)).size,
+      budgetTotal: psspTotal + discountTotal + entertainTotal,
+      biayaAktif,
+    };
+  }).sort((a, b) => (b.estimasi + b.estimasiAktif) - (a.estimasi + a.estimasiAktif));
+
+  const ws10 = wb.addWorksheet("Summary Per Spesialisasi");
+  ws10.columns = [
+    { header: "Spesialisasi",                 key: "spesialisasi",           width: 24 },
+    { header: "Estimasi Aktif+Pengajuan",     key: "estimasiAktifPengajuan", width: 22 },
+    { header: "User PSSP (Aktif+Estimasi)",   key: "userCount",              width: 20 },
+    { header: "Variasi Produk Kontes",        key: "variasiProdukKontes",    width: 16 },
+    { header: "Variasi Produk Non-Kontes",    key: "variasiProdukNonKontes", width: 18 },
+    { header: "Budget",                       key: "budget",                 width: 18 },
+    { header: "Cost Ratio",                   key: "costRatio",              width: 12 },
+  ];
+  styleHeader(ws10);
+  for (const r of spesialisasiSummaryRows) {
+    const estimasiAktifPengajuan = r.estimasi + r.estimasiAktif;
+    const biayaAktifPengajuan = r.biayaAktif + r.budgetTotal;
+    const costRatio = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : 0;
+    ws10.addRow({
+      spesialisasi: r.spesialisasi,
+      estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
+      userCount: r.userCount,
+      variasiProdukKontes: r.variasiProdukKontes,
+      variasiProdukNonKontes: r.variasiProduk - r.variasiProdukKontes,
+      budget: Math.round(r.budgetTotal),
+      costRatio: parseFloat(costRatio.toFixed(1)),
+    });
+  }
+  ["estimasiAktifPengajuan", "budget"].forEach((key) => { ws10.getColumn(key).numFmt = '#,##0'; });
+  ws10.getColumn("costRatio").numFmt = '0.0"%"';
+  shadeAlt(ws10, 1);
+  if (spesialisasiSummaryRows.length === 0) ws10.addRow(["(Belum ada data pengajuan)"]);
 
   // ── Response ─────────────────────────────────────────────────────────────────
 
