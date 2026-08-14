@@ -2539,13 +2539,19 @@ function AddPanel({
     return { total, count };
   }, [produkList, dokterFields, products, matchedPaketsForKontes]);
 
+  // Uses entry.persenPsspDokter (the value actually saved to the line item,
+  // pre-filled from Product.nilaiRPersen but user-editable and rounded to
+  // 2dp there) rather than the live Product.nilaiRPersen, so this total
+  // matches computeMonthlyBreakdown's "Estimasi & Nilai PSSP per Bulan"
+  // total instead of silently diverging by the rounding delta between the
+  // two fields.
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
     if (!p) return sum;
-    const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
-    if (nilaiR == null) return sum;
+    const persen = (parseFloat(e.persenPsspDokter) || 0) / 100;
+    if (!persen) return sum;
     const pengali = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
-    return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
+    return sum + Math.round(computeEstimasi(e, dokterFields, p) * persen * pengali);
   }, 0), [produkList, dokterFields, products]);
 
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
@@ -3146,10 +3152,10 @@ function AddPanel({
                     const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
                     const isKontes = getProductTier(p.namaProduk, matchedPaketsForKontes) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
-                    const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
+                    const persenPsspDokter = (parseFloat(entry.persenPsspDokter) || 0) / 100;
                     const pengaliNilaiRProduk = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
-                    const nilaiPSSP = nilaiRPersen != null
-                      ? Math.round(estimasiTotal * nilaiRPersen * pengaliNilaiRProduk)
+                    const nilaiPSSP = persenPsspDokter
+                      ? Math.round(estimasiTotal * persenPsspDokter * pengaliNilaiRProduk)
                       : null;
                     // % Budget per produk (2026-07-28 request) — same formula as
                     // totalPctBudget's per-entry weight above, just shown per row
@@ -3669,13 +3675,19 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     return { total, count };
   }, [produkList, dokterFields, products, matchedPaketsForKontes]);
 
+  // Uses entry.persenPsspDokter (the value actually saved to the line item,
+  // pre-filled from Product.nilaiRPersen but user-editable and rounded to
+  // 2dp there) rather than the live Product.nilaiRPersen, so this total
+  // matches computeMonthlyBreakdown's "Estimasi & Nilai PSSP per Bulan"
+  // total instead of silently diverging by the rounding delta between the
+  // two fields.
   const totalNilaiPSSP = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
     if (!p) return sum;
-    const nilaiR = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
-    if (nilaiR == null) return sum;
+    const persen = (parseFloat(e.persenPsspDokter) || 0) / 100;
+    if (!persen) return sum;
     const pengali = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
-    return sum + Math.round(computeEstimasi(e, dokterFields, p) * nilaiR * pengali);
+    return sum + Math.round(computeEstimasi(e, dokterFields, p) * persen * pengali);
   }, 0), [produkList, dokterFields, products]);
 
   // % Budget across all products, weighted by each product's own estimasi (mirrors detail-page calc)
@@ -3997,10 +4009,10 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                     const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
                     const isKontes = getProductTier(p.namaProduk, matchedPaketsForKontes) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
-                    const nilaiRPersen = p.nilaiRPersen ? parseFloat(p.nilaiRPersen) : null;
+                    const persenPsspDokter = (parseFloat(entry.persenPsspDokter) || 0) / 100;
                     const pengaliNilaiRProduk = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
-                    const nilaiPSSP = nilaiRPersen != null
-                      ? Math.round(estimasiTotal * nilaiRPersen * pengaliNilaiRProduk)
+                    const nilaiPSSP = persenPsspDokter
+                      ? Math.round(estimasiTotal * persenPsspDokter * pengaliNilaiRProduk)
                       : null;
                     // % Budget per produk (2026-07-28 request) — same formula as
                     // totalPctBudget's per-entry weight above, just shown per row
