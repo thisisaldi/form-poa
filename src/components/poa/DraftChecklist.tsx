@@ -970,13 +970,24 @@ function DoctorRow({
                   PSSP, Kriteria Produk, semua field) an editor sees, not just
                   the lightweight "Detail ▼" summary table below (2026-07-31:
                   "benar-benar bisa lihat detailnya, bukan cuma ringkasan"). */}
-              <Link href={`/poa/${poaId}/doctor/${doctorItems[0].id}/edit`}
-                className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
-                style={userCanEdit
-                  ? { background: "var(--color-blue)", color: "#fff" }
-                  : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-                {userCanEdit ? "Edit" : "Lihat"}
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link href={`/poa/${poaId}/doctor/${doctorItems[0].id}/edit`}
+                  className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
+                  style={userCanEdit
+                    ? { background: "var(--color-blue)", color: "#fff" }
+                    : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
+                  {userCanEdit ? "Edit" : "Lihat"}
+                </Link>
+                {doctorActions && (
+                  <button
+                    type="button"
+                    onClick={() => setAtasanPanelOpen((v) => !v)}
+                    className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
+                    style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
+                    Approval
+                  </button>
+                )}
+              </div>
               {userCanEdit && (
                 <button
                   type="button"
@@ -992,14 +1003,6 @@ function DoctorRow({
                   onClick={() => setDoctorSubmitOpen((v) => !v)}
                   className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
                   Ajukan dokter ini
-                </button>
-              )}
-              {doctorActions && (
-                <button
-                  type="button"
-                  onClick={() => setAtasanPanelOpen((v) => !v)}
-                  className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
-                  Tindakan Atasan
                 </button>
               )}
             </div>
