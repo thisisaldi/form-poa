@@ -982,8 +982,8 @@ function DoctorRow({
                   <button
                     type="button"
                     onClick={() => setAtasanPanelOpen((v) => !v)}
-                    className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
-                    style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
+                    className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90"
+                    style={{ background: "var(--color-warning)", color: "#fff" }}>
                     Approval
                   </button>
                 )}
