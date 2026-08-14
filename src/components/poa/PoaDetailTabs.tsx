@@ -25,7 +25,7 @@ interface KontesProductTarget {
 // full detail on every page load; now only their summary shows in Drafting.
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
-  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -35,6 +35,10 @@ export function PoaDetailTabs({
   showSubmit?: boolean;
   userCanEdit?: boolean;
   selectable?: boolean;
+  /** kodePI|namaCust -> that doctor's own PoaDoctorApproval.status, for the
+   * per-doctor "Ajukan" button (docs/poa-per-doctor-approval/, OQ-2). A
+   * doctor with no row yet (never submitted this cycle) is simply absent. */
+  doctorStatuses?: Record<string, PoaStatus>;
   activePssp?: ActivePsspRow[];
   /** Per-outlet stats for "Informasi PSSP Outlet" dropdown (2026-08-10) —
    * server-computed in poa/[id]/page.tsx, batched once (not per-row). */
@@ -144,6 +148,7 @@ export function PoaDetailTabs({
               everPsspKodeCust={everPsspKodeCust}
               salesSummary={salesSummary}
               targetArea={targetArea}
+              doctorStatuses={doctorStatuses}
             />
           )}
         </div>

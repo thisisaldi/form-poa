@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import {
   createPoaDraft, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm, requestEdit, grantEditRequest, declineEditRequest,
-  submitAllDoctorsInDraft, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
+  submitAllDoctorsInDraft, submitDoctor, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
 } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
 import {
@@ -86,6 +86,28 @@ export async function submitPoaWithSelectionAction(
 
   await submitAllDoctorsInDraft(poaId, session.userId, notes?.trim() || undefined);
   redirect(`/poa/${poaId}`);
+}
+
+// MR submits ONE doctor within the draft (docs/poa-per-doctor-approval/,
+// OQ-2) instead of the whole draft at once — the rest of the draft stays
+// in DRAFT/REVISI untouched. Thin wrapper around submitDoctor, same
+// canEdit gate as the whole-draft submit actions above.
+export async function submitDoctorAction(
+  poaId: string,
+  kodePI: string,
+  namaCust: string,
+  notes?: string,
+): Promise<void> {
+  const session = await requireSession();
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) redirect("/dashboard");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
+
+  await submitDoctor(poaId, kodePI, namaCust, session.userId, notes?.trim() || undefined);
+  revalidatePath(`/poa/${poaId}`);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem } from "@prisma/client";
+import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canView, canEdit, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips, NON_DRAFT_STATUSES,
@@ -107,6 +107,13 @@ export default async function PoaDetailPage({
   // PoaDoctorApproval's doc comment in schema.prisma).
   const doctorApprovalByKey = new Map<string, PoaDoctorApproval>(
     poa.doctorApprovals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}`, a])
+  );
+  // Plain, serializable twin of doctorApprovalByKey (just the status) for the
+  // "use client" DraftChecklist tree below — feeds the per-doctor "Ajukan"
+  // button (docs/poa-per-doctor-approval/, OQ-2) so it only shows for a
+  // doctor with no approval row yet or sitting in REVISI.
+  const doctorStatuses: Record<string, PoaStatus> = Object.fromEntries(
+    [...doctorApprovalByKey.entries()].map(([key, a]) => [key, a.status])
   );
   const doctorKeysInDraft = new Map<string, { kodePI: string; namaCust: string }>();
   for (const it of poa.items as PoaLineItem[]) {
@@ -472,6 +479,7 @@ export default async function PoaDetailPage({
         showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
         userCanEdit={userCanEdit}
         selectable={isOwner}
+        doctorStatuses={doctorStatuses}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}
         doctorPsspInfo={doctorPsspInfo}

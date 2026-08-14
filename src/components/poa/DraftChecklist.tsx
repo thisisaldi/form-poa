@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
-import { submitPoaWithSelectionAction } from "@/app/actions/poa";
+import { submitPoaWithSelectionAction, submitDoctorAction } from "@/app/actions/poa";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
@@ -706,7 +706,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -729,6 +729,10 @@ function DoctorRow({
   outletPsspInfo?: Record<string, { userCount: number; rencanaTercacahEstimasi: number; rencanaTercacahNilaiPssp: number; aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number }>;
   /** This doctor's own Estimasi Aktif (docs/TODO.md #17, 2026-08-13) — see DraftChecklist's own prop doc. */
   doctorPsspInfo?: { aktifTercacahEstimasi: number; aktifTercacahNilaiPssp: number };
+  /** Whether the draft-level submit UI is showing at all (owner + DRAFT/REVISI) — see DraftChecklist's own prop doc. */
+  showSubmit?: boolean;
+  /** This doctor's own PoaDoctorApproval.status — undefined means never submitted this cycle. */
+  doctorStatus?: PoaStatus;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -820,6 +824,27 @@ function DoctorRow({
     if (!confirm(`Hapus ${first.namaCust} beserta ${label}?`)) return;
     startDelete(async () => {
       for (const it of doctorItems) await deleteLineItemAction(poaId, it.id);
+    });
+  }
+
+  // Per-doctor submit (docs/poa-per-doctor-approval/, OQ-2) — lets the owner
+  // send THIS doctor to the atasan without touching the rest of the draft,
+  // separate from the destructive "Ajukan ke Atasan" bulk flow below (which
+  // deletes any unchecked doctor). Only offered when this doctor is actually
+  // eligible: no PoaDoctorApproval row yet, or bounced back to REVISI.
+  const canSubmitThisDoctor = !!showSubmit && !!poaId && (!doctorStatus || doctorStatus === "REVISI");
+  const [isSubmittingDoctor, startSubmitDoctor] = useTransition();
+  const [doctorSubmitOpen, setDoctorSubmitOpen] = useState(false);
+  const [doctorSubmitNotes, setDoctorSubmitNotes] = useState("");
+  const doctorNotesRequired = doctorStatus === "REVISI";
+  const doctorNotesMissing = doctorNotesRequired && !doctorSubmitNotes.trim();
+
+  function handleSubmitDoctor() {
+    if (!poaId || !first.kodePI || doctorNotesMissing) return;
+    startSubmitDoctor(async () => {
+      await submitDoctorAction(poaId, first.kodePI!, first.namaCust, doctorSubmitNotes.trim() || undefined);
+      setDoctorSubmitOpen(false);
+      setDoctorSubmitNotes("");
     });
   }
 
@@ -949,6 +974,14 @@ function DoctorRow({
                   Hapus
                 </button>
               )}
+              {canSubmitThisDoctor && (
+                <button
+                  type="button"
+                  onClick={() => setDoctorSubmitOpen((v) => !v)}
+                  className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+                  Ajukan dokter ini
+                </button>
+              )}
             </div>
           )}
           <div className="flex flex-col items-start gap-1 mt-1">
@@ -967,6 +1000,34 @@ function DoctorRow({
           </div>
         </div>
       </div>
+
+      {doctorSubmitOpen && (
+        <div className="mt-2.5 rounded-lg border p-3" style={{ borderColor: "var(--color-blue)" }}>
+          <label className="flex flex-col gap-1 mb-2">
+            <span className="text-xs" style={{ color: doctorNotesMissing ? "var(--color-red)" : "var(--color-text-muted)" }}>
+              {doctorNotesRequired
+                ? "Notes - jelaskan apa yang diubah dari revisi sebelumnya"
+                : "Notes tambahan (opsional)"}
+              {doctorNotesRequired && <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>}
+            </span>
+            <textarea
+              value={doctorSubmitNotes}
+              onChange={(e) => setDoctorSubmitNotes(e.target.value)}
+              rows={2}
+              placeholder={doctorNotesRequired
+                ? "Jelaskan perubahan yang dilakukan untuk menjawab catatan revisi…"
+                : "mis. konteks tambahan…"}
+              className="input-field text-xs" />
+            {doctorNotesMissing && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+          </label>
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" disabled={isSubmittingDoctor || doctorNotesMissing} onClick={handleSubmitDoctor}>
+              {isSubmittingDoctor ? "Mengajukan…" : `Ajukan ${censorName(first.namaCust)}`}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setDoctorSubmitOpen(false)}>Batal</Button>
+          </div>
+        </div>
+      )}
 
       {outletInfoOpen && (
         <div className="mt-2.5 rounded-lg border p-3" style={{ borderColor: "var(--color-border)" }}>
@@ -1042,7 +1103,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1087,6 +1148,10 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
    * (e.g. an ASM/SM self-owned POA with no single "own GT" to sum — see the
    * same MR-only scoping note on poa/[id]/page.tsx's targetValueFromGT). */
   targetArea?: number;
+  /** kodePI|namaCust -> that doctor's own PoaDoctorApproval.status, for the
+   * per-doctor "Ajukan" button (docs/poa-per-doctor-approval/, OQ-2) — see
+   * PoaDetailTabs' own prop doc. Absent key means never submitted this cycle. */
+  doctorStatuses?: Record<string, PoaStatus>;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -1240,6 +1305,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 otherDoctorsAtOutletCount={(doctorCountByOutlet.get(key.split("|")[0]) ?? 1) - 1}
                 outletPsspInfo={outletPsspInfo}
                 doctorPsspInfo={doctorPsspInfo[key]}
+                showSubmit={showSubmit}
+                doctorStatus={doctorStatuses[key]}
               />
             ))}
           </div>
