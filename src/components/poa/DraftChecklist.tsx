@@ -9,11 +9,12 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
 import { submitPoaWithSelectionAction, submitDoctorAction } from "@/app/actions/poa";
+import type { DoctorActions } from "@/components/poa/PoaDetailTabs";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
-import { computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
+import { computeMonthlyBreakdown, formatPeriode, formatPeriodeRange, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
 import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
 import { formatCurrency } from "@/lib/format";
 
@@ -706,7 +707,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorActions,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -733,6 +734,8 @@ function DoctorRow({
   showSubmit?: boolean;
   /** This doctor's own PoaDoctorApproval.status — undefined means never submitted this cycle. */
   doctorStatus?: PoaStatus;
+  /** This viewer's atasan actions for this doctor — see DraftChecklist's own prop doc. */
+  doctorActions?: DoctorActions;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -847,6 +850,15 @@ function DoctorRow({
       setDoctorSubmitNotes("");
     });
   }
+
+  // Atasan actions (approve/reject/fast-track/cancel) inline in this same row
+  // (2026-08-14 request: "kenapa ga dibuat menyatu di draftnya juga" — these
+  // used to live in a separate "Tindakan Per Dokter" list below the whole
+  // checklist, duplicating the doctor's name). Reject and Cancel each still
+  // need their own reason field, so both stay as real <form action> — the
+  // approve/fast-track single-click actions do too, for the same free
+  // pending-state styling a plain onClick handler doesn't get.
+  const [atasanPanelOpen, setAtasanPanelOpen] = useState(false);
 
   return (
     <div className="py-3 px-2.5 rounded-lg" style={{ opacity: checked ? 1 : 0.5, border: "1px solid var(--color-border)" }}>
@@ -982,6 +994,14 @@ function DoctorRow({
                   Ajukan dokter ini
                 </button>
               )}
+              {doctorActions && (
+                <button
+                  type="button"
+                  onClick={() => setAtasanPanelOpen((v) => !v)}
+                  className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+                  Tindakan Atasan
+                </button>
+              )}
             </div>
           )}
           <div className="flex flex-col items-start gap-1 mt-1">
@@ -1026,6 +1046,77 @@ function DoctorRow({
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setDoctorSubmitOpen(false)}>Batal</Button>
           </div>
+        </div>
+      )}
+
+      {atasanPanelOpen && doctorActions && (
+        <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-blue)" }}>
+          {(doctorActions.canApprove || doctorActions.canFastTrack) && (
+            <div className="flex flex-wrap items-center gap-3">
+              {doctorActions.canApprove && (
+                <form action={doctorActions.approveAction}>
+                  <Button type="submit" size="sm" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+                    Approve &amp; Teruskan
+                  </Button>
+                </form>
+              )}
+              {doctorActions.canFastTrack && (
+                <form action={doctorActions.fastTrackAction}>
+                  <Button type="submit" size="sm" variant="secondary"
+                    style={{ borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning, #f59e0b)" }}>
+                    Approve Langsung (Lewati ASM/SM)
+                  </Button>
+                </form>
+              )}
+            </div>
+          )}
+          {doctorActions.canFastTrack && (
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              Sebagai NSM, Anda bisa langsung menyetujui dokter ini sampai final tanpa menunggu approval ASM/SM.
+            </p>
+          )}
+          {doctorActions.canApprove && (
+            <form action={doctorActions.rejectAction} className="space-y-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Kategori Reject</span>
+                <select name="rejectCategory" required defaultValue="" className="input-field text-sm">
+                  <option value="" disabled>Pilih kategori…</option>
+                  {Object.entries(REJECT_CATEGORY_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
+                <textarea
+                  name="reason"
+                  required
+                  rows={2}
+                  placeholder={`Jelaskan alasan reject dokter ${first.namaCust} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
+                  className="input-field text-sm" />
+              </label>
+              <Button type="submit" size="sm" variant="danger">
+                Tolak Dokter Ini (kembali ke Revisi)
+              </Button>
+            </form>
+          )}
+          {doctorActions.canCancel && (
+            <form action={doctorActions.cancelAction} className="space-y-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Pembatalan</span>
+                <textarea
+                  name="reason"
+                  required
+                  rows={2}
+                  placeholder={`Jelaskan alasan membatalkan approval dokter ${first.namaCust} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
+                  className="input-field text-sm" />
+              </label>
+              <Button type="submit" size="sm" variant="danger">
+                Batalkan Approval Dokter Ini (kembali ke Revisi)
+              </Button>
+            </form>
+          )}
+          <Button type="button" size="sm" variant="ghost" onClick={() => setAtasanPanelOpen(false)}>Tutup</Button>
         </div>
       )}
 
@@ -1103,7 +1194,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorActions = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1152,6 +1243,10 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
    * per-doctor "Ajukan" button (docs/poa-per-doctor-approval/, OQ-2) — see
    * PoaDetailTabs' own prop doc. Absent key means never submitted this cycle. */
   doctorStatuses?: Record<string, PoaStatus>;
+  /** kodePI|namaCust -> this viewer's atasan actions for that one doctor
+   * (approve/reject/fast-track/cancel) — see PoaDetailTabs' own prop doc.
+   * Absent key means nothing to show for that doctor to this viewer. */
+  doctorActions?: Record<string, DoctorActions>;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -1307,6 +1402,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 doctorPsspInfo={doctorPsspInfo[key]}
                 showSubmit={showSubmit}
                 doctorStatus={doctorStatuses[key]}
+                doctorActions={doctorActions[key]}
               />
             ))}
           </div>

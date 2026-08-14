@@ -107,3 +107,15 @@ export function computeMonthlyBreakdown(items: MonthlyBreakdownInput[]): Map<str
   }
   return map;
 }
+
+// docs/poa-rejection-categories/ (2026-08-13) — single-select, main "Tolak"
+// form only. Shared between the reject form itself (DraftChecklist.tsx's
+// DoctorRow) and the audit log's read-only category display (poa/[id]/page.tsx).
+export const REJECT_CATEGORY_LABELS: Record<string, string> = {
+  PRODUK: "Produk",
+  OUTLET: "Outlet",
+  USER: "User",
+  PERIODE: "Periode",
+  KALKULASI_PSSP: "Kalkulasi PSSP",
+  ALASAN_LAIN: "Alasan Lain",
+};

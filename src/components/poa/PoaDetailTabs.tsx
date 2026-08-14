@@ -23,9 +23,19 @@ interface KontesProductTarget {
 // Produk Kontes (full per-product quarterly target breakdown), History PSSP Aktif
 // (full per-doctor/per-contract breakdown) — the last two used to sit inline as
 // full detail on every page load; now only their summary shows in Drafting.
+export interface DoctorActions {
+  canApprove: boolean;
+  canFastTrack: boolean;
+  canCancel: boolean;
+  approveAction: () => Promise<void>;
+  rejectAction: (formData: FormData) => Promise<void>;
+  fastTrackAction: () => Promise<void>;
+  cancelAction: (formData: FormData) => Promise<void>;
+}
+
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
-  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorActions,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -39,6 +49,12 @@ export function PoaDetailTabs({
    * per-doctor "Ajukan" button (docs/poa-per-doctor-approval/, OQ-2). A
    * doctor with no row yet (never submitted this cycle) is simply absent. */
   doctorStatuses?: Record<string, PoaStatus>;
+  /** kodePI|namaCust -> this viewer's approve/reject/fast-track/cancel rights
+   * + bound server actions for that one doctor (2026-08-14: merged into the
+   * doctor row instead of a separate "Tindakan Per Dokter" list — see
+   * poa/[id]/page.tsx). Absent key means no atasan action available for that
+   * doctor to this viewer. */
+  doctorActions?: Record<string, DoctorActions>;
   activePssp?: ActivePsspRow[];
   /** Per-outlet stats for "Informasi PSSP Outlet" dropdown (2026-08-10) —
    * server-computed in poa/[id]/page.tsx, batched once (not per-row). */
@@ -149,6 +165,7 @@ export function PoaDetailTabs({
               salesSummary={salesSummary}
               targetArea={targetArea}
               doctorStatuses={doctorStatuses}
+              doctorActions={doctorActions}
             />
           )}
         </div>

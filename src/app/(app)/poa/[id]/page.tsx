@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canView, canEdit, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips, NON_DRAFT_STATUSES,
   canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor } from "@/lib/authz";
-import { computeMonthlyBreakdown } from "@/lib/poaUtils";
+import { computeMonthlyBreakdown, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
 import { requestEditAction, grantEditRequestAction, declineEditRequestAction,
   approveDoctorAction, rejectDoctorAction, fastTrackApproveDoctorAction, cancelApprovedByNsmDoctorAction } from "@/app/actions/poa";
@@ -12,7 +12,7 @@ import type { PoaDoctorApproval } from "@prisma/client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { PoaDetailTabs } from "@/components/poa/PoaDetailTabs";
+import { PoaDetailTabs, type DoctorActions } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
 import { computeKontesProductTargetsSummary } from "@/lib/targetCalculation";
 import { displayRole } from "@/lib/role";
@@ -33,16 +33,6 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   REQUEST_EDIT: "mengajukan permintaan edit",
   GRANT_EDIT: "menyetujui permintaan edit (kembali ke Revisi)",
   DECLINE_EDIT: "menolak permintaan edit",
-};
-
-// docs/poa-rejection-categories/ (2026-08-13) — single-select, main "Tolak" form only.
-const REJECT_CATEGORY_LABELS: Record<string, string> = {
-  PRODUK: "Produk",
-  OUTLET: "Outlet",
-  USER: "User",
-  PERIODE: "Periode",
-  KALKULASI_PSSP: "Kalkulasi PSSP",
-  ALASAN_LAIN: "Alasan Lain",
 };
 
 const AUDIT_OP_LABELS: Record<string, string> = {
@@ -129,9 +119,26 @@ export default async function PoaDetailPage({
       return { kodePI, namaCust, approval, canApproveThis, canFastTrackThis, canCancelThis };
     })
   );
-  const actionableDoctorRows = doctorRows.filter((d) => d.canApproveThis || d.canFastTrackThis);
-  const cancelableDoctorRows = doctorRows.filter((d) => d.canCancelThis);
-  const isMRRole = !(["ASM", "SM", "NSM", "ADMIN"] as string[]).includes(session.role);
+  // Atasan actions (approve/reject/fast-track/cancel), keyed the same way as
+  // doctorStatuses so DraftChecklist's DoctorRow can render them inline in
+  // the same row instead of a separate "Tindakan Per Dokter" list (2026-08-14
+  // request: "kenapa ga dibuat menyatu di draftnya juga"). Bound server
+  // actions cross the server->client boundary as props exactly like the
+  // <form action={...}> bindings did before — same pattern, just handed down
+  // instead of rendered right here.
+  const doctorActions: Record<string, DoctorActions> = Object.fromEntries(
+    doctorRows
+      .filter((d) => d.canApproveThis || d.canFastTrackThis || d.canCancelThis)
+      .map((d) => [`${d.kodePI}|${d.namaCust}`, {
+        canApprove: d.canApproveThis,
+        canFastTrack: d.canFastTrackThis,
+        canCancel: d.canCancelThis,
+        approveAction: approveDoctorAction.bind(null, id, d.kodePI, d.namaCust),
+        rejectAction: rejectDoctorAction.bind(null, id, d.kodePI, d.namaCust),
+        fastTrackAction: fastTrackApproveDoctorAction.bind(null, id, d.kodePI, d.namaCust),
+        cancelAction: cancelApprovedByNsmDoctorAction.bind(null, id, d.kodePI, d.namaCust),
+      }])
+  );
 
   const isMR = session.role === "MR";
   // Whoever owns this POA drives the submit/checklist UI — normally an MR, but
@@ -480,6 +487,7 @@ export default async function PoaDetailPage({
         userCanEdit={userCanEdit}
         selectable={isOwner}
         doctorStatuses={doctorStatuses}
+        doctorActions={doctorActions}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}
         doctorPsspInfo={doctorPsspInfo}
@@ -492,111 +500,16 @@ export default async function PoaDetailPage({
       {/* Actions — approver only, per dokter (docs/poa-per-doctor-approval/,
           2026-08-13: approve/reject bergerak per dokter, bukan per draft —
           atasan bisa approve Dokter A sambil reject Dokter B di draft yang
-          sama). MR submit tetap ada di dalam DraftChecklist. */}
-      {!isMRRole && actionableDoctorRows.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Tindakan Per Dokter</CardTitle>
-          </CardHeader>
-          <div className="space-y-4">
-            {actionableDoctorRows.map(({ kodePI, namaCust, canApproveThis, canFastTrackThis }) => {
-              const approveDoctorWithId = approveDoctorAction.bind(null, id, kodePI, namaCust);
-              const rejectDoctorWithId = rejectDoctorAction.bind(null, id, kodePI, namaCust);
-              const fastTrackDoctorWithId = fastTrackApproveDoctorAction.bind(null, id, kodePI, namaCust);
-              return (
-                <div key={`${kodePI}|${namaCust}`} className="pt-3 first:pt-0 first:border-0"
-                  style={{ borderTop: "1px solid var(--color-border)" }}>
-                  <p className="text-sm font-semibold mb-2" style={{ color: "var(--color-text)" }}>{namaCust}</p>
-                  <div className="flex flex-wrap items-center gap-3 mb-2">
-                    {canApproveThis && (
-                      <form action={approveDoctorWithId}>
-                        <Button type="submit" size="sm" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
-                          Approve &amp; Teruskan
-                        </Button>
-                      </form>
-                    )}
-                    {canFastTrackThis && (
-                      <form action={fastTrackDoctorWithId}>
-                        <Button type="submit" size="sm" variant="secondary"
-                          style={{ borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning, #f59e0b)" }}>
-                          Approve Langsung (Lewati ASM/SM)
-                        </Button>
-                      </form>
-                    )}
-                  </div>
-                  {canFastTrackThis && (
-                    <p className="text-xs mb-2" style={{ color: "var(--color-text-faint)" }}>
-                      Sebagai NSM, Anda bisa langsung menyetujui dokter ini sampai final tanpa menunggu approval ASM/SM.
-                    </p>
-                  )}
-                  {canApproveThis && (
-                    <form action={rejectDoctorWithId} className="space-y-2">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Kategori Reject</span>
-                        <select name="rejectCategory" required defaultValue="" className="input-field text-sm">
-                          <option value="" disabled>Pilih kategori…</option>
-                          {Object.entries(REJECT_CATEGORY_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
-                        <textarea
-                          name="reason"
-                          required
-                          rows={2}
-                          placeholder={`Jelaskan alasan reject dokter ${namaCust} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
-                          className="input-field text-sm" />
-                      </label>
-                      <Button type="submit" size="sm" variant="danger">
-                        Tolak Dokter Ini (kembali ke Revisi)
-                      </Button>
-                    </form>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
+          sama). Rendered inline in each doctor's own row inside
+          PoaDetailTabs/DraftChecklist (2026-08-14: merged instead of a
+          separate list here, see doctorActions above) — nothing left to
+          render at this level. MR submit tetap ada di dalam DraftChecklist. */}
 
       {isFullyApproved && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-green-light)", color: "var(--color-green)" }}>
           POA ini telah sepenuhnya disetujui oleh NSM.
         </div>
-      )}
-
-      {cancelableDoctorRows.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Batalkan Approval Per Dokter</CardTitle>
-          </CardHeader>
-          <div className="space-y-4">
-            {cancelableDoctorRows.map(({ kodePI, namaCust }) => {
-              const cancelApprovedDoctorWithId = cancelApprovedByNsmDoctorAction.bind(null, id, kodePI, namaCust);
-              return (
-                <form key={`${kodePI}|${namaCust}`} action={cancelApprovedDoctorWithId}
-                  className="pt-3 first:pt-0 first:border-0 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
-                  <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>{namaCust}</p>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Pembatalan</span>
-                    <textarea
-                      name="reason"
-                      required
-                      rows={2}
-                      placeholder={`Jelaskan alasan membatalkan approval dokter ${namaCust} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
-                      className="input-field text-sm" />
-                  </label>
-                  <Button type="submit" size="sm" variant="danger">
-                    Batalkan Approval Dokter Ini (kembali ke Revisi)
-                  </Button>
-                </form>
-              );
-            })}
-          </div>
-        </Card>
       )}
 
       {/* Audit log */}
