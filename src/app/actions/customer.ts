@@ -106,7 +106,11 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
   if (!kodeCustomer) return [];
   const rows = await prisma.psspKontrak.findMany({
     where: { kdCust: kodeCustomer },
-    orderBy: [{ prdAkhir: "desc" }, { cUrut: "asc" }],
+    // id tiebreaker (2026-08-18) — without it, rows tied on prdAkhir+cUrut
+    // (multiple products under the same contract) get an arbitrary,
+    // query-plan-dependent order from Postgres, which made this diverge from
+    // getPsspHistoryByCustomers' batched IN-list version of the same query.
+    orderBy: [{ prdAkhir: "desc" }, { cUrut: "asc" }, { id: "asc" }],
     select: {
       id: true, cUrut: true, nmProduk: true, kdProduk: true,
       prdAwal: true, prdAkhir: true, biaya: true,
@@ -137,6 +141,64 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
     kdOutlet: r.kdOutlet,
     nmOutlet: r.nmOutlet,
   }));
+}
+
+/**
+ * Batched twin of getPsspHistory — one query for every kodeCustomer in scope
+ * instead of one round trip per customer. Added 2026-08-18 (bug report: the
+ * team Excel export was calling getPsspHistory in a sequential per-customer
+ * loop — ~1,400 distinct customers company-wide meant ~1,400 sequential DB
+ * round trips just for this one column set, on top of two other loops doing
+ * the same thing, which was long enough to trip the reverse proxy's timeout
+ * (502 Bad Gateway) for ADMIN/SFE/VIEWER's company-wide export). Same
+ * ordering guarantee per customer as the single-row version — global
+ * ORDER BY prdAkhir desc, cUrut asc preserves each customer's relative order
+ * once grouped, since it's a stable partition of one ordered result set.
+ */
+export async function getPsspHistoryByCustomers(kodeCustomers: string[]): Promise<Map<string, PsspKontrakSummary[]>> {
+  const distinct = [...new Set(kodeCustomers.filter(Boolean))];
+  const map = new Map<string, PsspKontrakSummary[]>();
+  if (distinct.length === 0) return map;
+
+  const rows = await prisma.psspKontrak.findMany({
+    where: { kdCust: { in: distinct } },
+    orderBy: [{ prdAkhir: "desc" }, { cUrut: "asc" }, { id: "asc" }],
+    select: {
+      id: true, kdCust: true, cUrut: true, nmProduk: true, kdProduk: true,
+      prdAwal: true, prdAkhir: true, biaya: true,
+      estBaris: true, totalLunas: true,
+      snapshotDate: true, kdOutlet: true, nmOutlet: true,
+    },
+  });
+
+  for (const r of rows as {
+    id: string; kdCust: string; cUrut: string; nmProduk: string | null; kdProduk: string | null;
+    prdAwal: string; prdAkhir: string;
+    biaya: { toString(): string };
+    estBaris: { toString(): string } | null;
+    totalLunas: { toString(): string } | null;
+    snapshotDate: Date | null;
+    kdOutlet: string | null; nmOutlet: string | null;
+  }[]) {
+    const summary: PsspKontrakSummary = {
+      id: r.id,
+      cUrut: r.cUrut,
+      nmProduk: r.nmProduk,
+      kdProduk: r.kdProduk,
+      prdAwal: r.prdAwal,
+      prdAkhir: r.prdAkhir,
+      biaya: parseFloat(r.biaya.toString()) || 0,
+      estBaris: parseFloat(r.estBaris?.toString() ?? "0") || 0,
+      totalLunas: parseFloat(r.totalLunas?.toString() ?? "0") || 0,
+      snapshotDate: r.snapshotDate ? r.snapshotDate.toISOString().slice(0, 10) : null,
+      kdOutlet: r.kdOutlet,
+      nmOutlet: r.nmOutlet,
+    };
+    const list = map.get(r.kdCust) ?? [];
+    list.push(summary);
+    map.set(r.kdCust, list);
+  }
+  return map;
 }
 
 export interface VisitHistorySummary {
@@ -543,12 +605,20 @@ async function fetchNexusCustomersByOutlet(kodePI: string): Promise<NexusCustome
     if (!Array.isArray(customers)) return [];
 
     return customers
-      .filter((c): c is { vb_code?: string; customer_name?: string; specialist?: string } =>
-        !!c && typeof c.customer_name === "string" && typeof c.specialist === "string")
+      // Only customer_name is actually required — specialist coming back
+      // null (real Nexus data, e.g. outlet F1016654's "AJENG GANURMALA") used
+      // to silently drop the whole doctor from the list via a `typeof
+      // c.specialist === "string"` filter (2026-08-14 bug report: doctor
+      // missing from the Input POA picker even though Nexus has it). "-" is
+      // a non-empty placeholder so createCustomerAction's required-field
+      // check still passes when this doctor gets materialized into a real
+      // Customer row on pick (see resolveNexusCustomer in LineItemEditor.tsx).
+      .filter((c): c is { vb_code?: string; customer_name?: string; specialist?: string | null } =>
+        !!c && typeof c.customer_name === "string")
       .map((c) => ({
         vbCode: typeof c.vb_code === "string" && c.vb_code.trim() ? c.vb_code.trim() : null,
         namaCustomer: c.customer_name!.trim(),
-        spesialisasi: c.specialist!.trim(),
+        spesialisasi: typeof c.specialist === "string" && c.specialist.trim() ? c.specialist.trim() : "-",
       }));
   } catch {
     return [];
@@ -801,6 +871,43 @@ export async function getSurveyRekomendasiByOutlet(
   });
 }
 
+/**
+ * Batched twin of getSurveyRekomendasiByOutlet — one query for every
+ * kodeCustomer in scope (not per kodeCustomer×kodePI pair), keyed by
+ * `${kodeCustomer}|${kodePI}` in the returned map. Same 2026-08-18 perf fix
+ * as getPsspHistoryByCustomers above — see its doc comment.
+ */
+export async function getSurveyRekomendasiByCustomers(kodeCustomers: string[]): Promise<Map<string, SurveyRekomendasiRow[]>> {
+  const distinct = [...new Set(kodeCustomers.filter(Boolean))];
+  const map = new Map<string, SurveyRekomendasiRow[]>();
+  if (distinct.length === 0) return map;
+
+  const rows = await prisma.surveyRekomendasi.findMany({
+    where: { kodeCustomer: { in: distinct } },
+    select: { kodePI: true, kodeCustomer: true, kodeProduk: true, namaProdukRekomendasi: true, historyProduk: true, potensiBulan: true },
+    orderBy: { namaProdukRekomendasi: "asc" },
+  });
+  if (rows.length === 0) return map;
+
+  const pharosRoots = await getPharosRoots();
+  for (const r of rows as {
+    kodePI: string; kodeCustomer: string; kodeProduk: string; namaProdukRekomendasi: string;
+    historyProduk: string; potensiBulan: { toString(): string } | null;
+  }[]) {
+    const potensiBulan = r.potensiBulan != null ? parseFloat(r.potensiBulan.toString()) : null;
+    const key = `${r.kodeCustomer}|${r.kodePI}`;
+    const list = map.get(key) ?? [];
+    list.push({
+      kodeProduk: r.kodeProduk,
+      namaProdukRekomendasi: r.namaProdukRekomendasi,
+      kompetitor: parseKompetitorHistory(r.historyProduk, pharosRoots, potensiBulan),
+      potensiBulan,
+    });
+    map.set(key, list);
+  }
+  return map;
+}
+
 export interface DiskonByProduct {
   kodeProduk: string;
   newOnPi: number;  // effective on-invoice discount %, e.g. 12.5 for 12.5%
@@ -848,4 +955,38 @@ export async function getDiskonHistoryByOutlet(kodePI: string): Promise<DiskonHi
     kodeProduk: r.kodeProduk,
     maxDiskonPct: parseFloat(r.maxDiskonPct.toString()),
   }));
+}
+
+/** Batched twin of getDiskonByOutlet — one query for every kodePI in scope. Same 2026-08-18 perf fix as getPsspHistoryByCustomers above. */
+export async function getDiskonByOutlets(kodePIs: string[]): Promise<Map<string, DiskonByProduct[]>> {
+  const distinct = [...new Set(kodePIs.filter(Boolean))];
+  const map = new Map<string, DiskonByProduct[]>();
+  if (distinct.length === 0) return map;
+  const rows = await prisma.diskonKontrak.findMany({
+    where: { kodePI: { in: distinct }, newOnPi: { not: null } },
+    select: { kodePI: true, kodeProduk: true, newOnPi: true, prdAwal: true, prdAkhir: true },
+  });
+  for (const r of rows as { kodePI: string; kodeProduk: string; newOnPi: { toString(): string } | null; prdAwal: string; prdAkhir: string }[]) {
+    const list = map.get(r.kodePI) ?? [];
+    list.push({ kodeProduk: r.kodeProduk, newOnPi: parseFloat(r.newOnPi!.toString()), prdAwal: r.prdAwal, prdAkhir: r.prdAkhir });
+    map.set(r.kodePI, list);
+  }
+  return map;
+}
+
+/** Batched twin of getDiskonHistoryByOutlet — one query for every kodePI in scope. Same 2026-08-18 perf fix as getPsspHistoryByCustomers above. */
+export async function getDiskonHistoryByOutlets(kodePIs: string[]): Promise<Map<string, DiskonHistoryByProduct[]>> {
+  const distinct = [...new Set(kodePIs.filter(Boolean))];
+  const map = new Map<string, DiskonHistoryByProduct[]>();
+  if (distinct.length === 0) return map;
+  const rows = await prisma.diskonHistory.findMany({
+    where: { kodePI: { in: distinct } },
+    select: { kodePI: true, kodeProduk: true, maxDiskonPct: true },
+  });
+  for (const r of rows as { kodePI: string; kodeProduk: string; maxDiskonPct: { toString(): string } }[]) {
+    const list = map.get(r.kodePI) ?? [];
+    list.push({ kodeProduk: r.kodeProduk, maxDiskonPct: parseFloat(r.maxDiskonPct.toString()) });
+    map.set(r.kodePI, list);
+  }
+  return map;
 }

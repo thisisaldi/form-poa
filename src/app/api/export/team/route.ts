@@ -26,7 +26,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
-import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistory, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getNexusSpesialisasiByOutlets, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
+import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistoryByCustomers, getSurveyRekomendasiByCustomers, getDiskonByOutlets, getDiskonHistoryByOutlets, getNexusSpesialisasiByOutlets, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown, computeJumlahPeriode } from "@/lib/poaUtils";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
@@ -185,16 +185,18 @@ export async function GET(req: NextRequest) {
   // ── PSSP history + survey recommendations (for "Historis PSSP" / "Jenis
   //    PSSP" / "Keterangan Produk" columns on "Semua Pengajuan" — same
   //    columns already on the single-POA export, missing here) ──────────────
-  const psspHistoryMap = new Map<string, PsspKontrakSummary[]>();
-  for (const kodeCust of new Set(lineItems.map((li) => li.kodeCust).filter((k): k is string => !!k))) {
-    psspHistoryMap.set(kodeCust, await getPsspHistory(kodeCust));
-  }
+  // Batched (2026-08-18 fix — was one getPsspHistory/getSurveyRekomendasiByOutlet
+  // call PER DISTINCT customer/outlet-pair in a sequential loop: ~1,400+ extra
+  // round trips company-wide, long enough to trip the reverse proxy's timeout
+  // (502 Bad Gateway) for ADMIN/SFE/VIEWER's full-scope export). See
+  // getPsspHistoryByCustomers/getSurveyRekomendasiByCustomers doc comments.
+  const distinctKodeCust = [...new Set(lineItems.map((li) => li.kodeCust).filter((k): k is string => !!k))];
+  const [psspHistoryMap, surveyRowsByKey] = await Promise.all([
+    getPsspHistoryByCustomers(distinctKodeCust),
+    getSurveyRekomendasiByCustomers(distinctKodeCust),
+  ]);
   const surveyByOutletMap = new Map<string, Set<string>>();
-  for (const li of lineItems) {
-    if (!li.kodeCust || !li.kodePI) continue;
-    const key = `${li.kodeCust}|${li.kodePI}`;
-    if (surveyByOutletMap.has(key)) continue;
-    const rows = await getSurveyRekomendasiByOutlet(li.kodeCust, li.kodePI);
+  for (const [key, rows] of surveyRowsByKey) {
     surveyByOutletMap.set(key, new Set(rows.map((r) => r.kodeProduk)));
   }
 
@@ -234,15 +236,15 @@ export async function GET(req: NextRequest) {
     return log ? `${log.actor.name} (${log.createdAt.toLocaleDateString("id-ID")})` : "-";
   }
 
-  // "Periode Diskon" column data — one getDiskonByOutlet/getDiskonHistoryByOutlet
-  // call per distinct outlet across every line item in scope (bounded by the
-  // org's outlet count, not per-row).
-  const diskonByOutletMap = new Map<string, DiskonByProduct[]>();
-  const diskonHistoryByOutletMap = new Map<string, DiskonHistoryByProduct[]>();
-  for (const kodePI of new Set(lineItems.map((li) => li.kodePI).filter((k): k is string => !!k))) {
-    diskonByOutletMap.set(kodePI, await getDiskonByOutlet(kodePI));
-    diskonHistoryByOutletMap.set(kodePI, await getDiskonHistoryByOutlet(kodePI));
-  }
+  // "Periode Diskon" column data — batched across every distinct outlet in
+  // scope (2026-08-18 fix, same class of bug as the PSSP/survey loops above:
+  // this used to be 2 sequential getDiskonByOutlet/getDiskonHistoryByOutlet
+  // calls PER DISTINCT OUTLET, ~800+ extra round trips company-wide).
+  const distinctKodePI = [...new Set(lineItems.map((li) => li.kodePI).filter((k): k is string => !!k))];
+  const [diskonByOutletMap, diskonHistoryByOutletMap] = await Promise.all([
+    getDiskonByOutlets(distinctKodePI),
+    getDiskonHistoryByOutlets(distinctKodePI),
+  ]);
 
   // Mirrors computePelunasanPct/computeOldEstPerMonth in
   // /api/poa/[id]/export/route.ts exactly (same formulas) — duplicated

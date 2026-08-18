@@ -75,12 +75,23 @@ interface ReportsToChain extends User {
 }
 
 /**
- * Walk up the owner's reportsTo chain and return the first user at or above
- * the target role level. Deliberately NOT a fixed number of hops — a vacant
- * intermediate level (e.g. ASM) has no User row at all, so whoever reports
- * "through" it already has their nipAtasan pointing past it, one level up.
- * Walking by role instead of by hop count means that gap just works, instead
- * of resolveNextHolder needing to know in advance how many levels were skipped.
+ * Walk up the owner's reportsTo chain and return the first ACTIVE user at or
+ * above the target role level. Deliberately NOT a fixed number of hops — a
+ * vacant intermediate level (e.g. ASM) with no User row at all has whoever
+ * reports "through" it already pointing past it, one level up. Walking by
+ * role instead of by hop count means that gap just works, instead of
+ * resolveNextHolder needing to know in advance how many levels were skipped.
+ *
+ * `isActive` check added 2026-08-18 (bug report: "atasannya ga muncul tombol
+ * Approval") — a deactivated ASM/SM can still be sitting in a subordinate's
+ * reportsTo chain (deactivating a user doesn't rewire everyone below them the
+ * way Outlet.coveredByNip/coveredByRole does for outlet-level vacancy), so
+ * without this check currentHolderId could get assigned to someone inactive.
+ * The person who's now ACTUALLY covering that role never matches
+ * currentHolderId === user.nip, so canApproveDoctor/canApprove never let them
+ * see the button at all — same class of gap getMrIdsUnder/getSubordinateIdsUnder
+ * in authz.ts already guard against with `isActive: true` when walking the
+ * hierarchy the other direction.
  */
 function resolveNextHolder(
   poa: PoaForm & { owner: ReportsToChain },
@@ -89,7 +100,7 @@ function resolveNextHolder(
   const targetLevel = ROLE_LEVEL[nextHolderRole];
   let current: ReportsToChain | null = poa.owner.reportsTo ?? null;
   while (current) {
-    if ((ROLE_LEVEL[current.role] ?? -1) >= targetLevel) return current.nip;
+    if (current.isActive && (ROLE_LEVEL[current.role] ?? -1) >= targetLevel) return current.nip;
     current = current.reportsTo ?? null;
   }
   return null;
