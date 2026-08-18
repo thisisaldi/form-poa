@@ -340,14 +340,17 @@ async function DashboardContent({
         {eligible && (
           <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
         )}
-        {/* SFE is monitoring-only (2026-07-24) — the full team export goes
-            well past what /summary shows, so it's hidden here too (see
-            matching block in /api/export/team). No ?period= here (2026-08-04
-            request) — default export is every quarter the team has data for,
-            not just the one mrProgressPeriod picks out for the panel below;
-            /api/export/team still accepts ?period= for a scoped export, just
-            nothing in the UI links to that variant right now. */}
-        {!isMR && session.role !== "SFE" && (
+        {/* SFE used to be excluded here (2026-07-24, "monitoring-only") since
+            the full team export goes well past what /summary shows — reversed
+            2026-08-14 per explicit request: SFE (and VIEWER, already unaffected
+            by this check) should get the bulk export too, not just per-POA
+            one-by-one via canView. See matching block in /api/export/team.
+            No ?period= here (2026-08-04 request) — default export is every
+            quarter the team has data for, not just the one mrProgressPeriod
+            picks out for the panel below; /api/export/team still accepts
+            ?period= for a scoped export, just nothing in the UI links to that
+            variant right now. */}
+        {!isMR && (
           <a href="/api/export/team">
             <Button variant="secondary" size="sm">↓ Export Excel</Button>
           </a>

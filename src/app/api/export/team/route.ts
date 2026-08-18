@@ -78,10 +78,12 @@ function resolveDiskonPeriodLabel(
 export async function GET(req: NextRequest) {
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // SFE is monitoring-only (2026-07-24: "hanya monitor summarynya saja") —
-  // this export goes well past the /summary aggregate (full per-line-item +
-  // PSSP contract detail), so it's blocked same as MR.
-  if (session.role === "MR" || session.role === "SFE") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // SFE used to be blocked here too (2026-07-24: "hanya monitor summarynya
+  // saja") — reversed 2026-08-14 per explicit request: SFE and VIEWER (the
+  // latter never blocked here) should be able to bulk-export, not just pull
+  // one POA at a time via canView's per-POA access. MR stays blocked — this
+  // is a team-wide rollup, an MR has no team.
+  if (session.role === "MR") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   const mrNips = await getSubordinateMRNips(actor);
