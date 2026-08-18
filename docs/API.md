@@ -94,6 +94,21 @@ Customer/dokter yang terhubung ke outlet ini (gabungan data lokal dan live Nexus
 
 ## POA / Export
 
+### `GET /api/poa-doctors?nip={nip}`
+List dokter (1 baris per pasangan kodePI+namaCust, grouping sama dengan `PoaDoctorApproval`/`DraftChecklist.tsx`) di PoaForm milik satu NIP pada **kuartal kalender berjalan saja** (`PoaForm.period`, format `YYYY-QN`, dibandingkan dengan `currentQuarter()` — bukan kuartal lain, tidak ada override). Satu NIP biasanya cuma punya 1 PoaForm per kuartal, tapi response tetap flat array untuk jaga-jaga. NIP dikirim sebagai query param (bukan `/[nip]/` di path) — tetap GET karena ini murni operasi baca, tanpa side-effect.
+- **Auth**: wajib login, role apapun diperbolehkan.
+- **Query param**: `nip` (wajib)
+- **Response 200**: array `{ uidPoa, uidCustomer, path, approveUntil, dokter: { kodeCust, namaCust, spesialisasi, kodePI, namaOutlet }, estimasi, nilaiPssp, produk: [{ kodeProduk, namaProduk, estimasi, nilaiPssp }] }`.
+  - `uidPoa`: `PoaForm.id`.
+  - `uidCustomer`: id salah satu `PoaLineItem` milik dokter ini (dipakai sebagai "anchor item" — sama seperti pola `/poa/[id]/doctor/[itemId]/edit`, yang query ulang semua baris dengan kodePI+namaCust yang sama begitu dibuka, jadi id baris manapun milik dokter ini valid).
+  - `path`: path frontend `/poa/{uidPoa}/doctor/{uidCustomer}/edit` — halaman detail per-dokter yang sama persis dipakai UI in-app.
+  - `estimasi`/`nilaiPssp` (level dokter, dan sekali lagi per baris di `produk`): sama formula dengan `computeItemValues()` di `/api/poa/{id}/export` — `estimasi = rencanaTotalBiaya`, `nilaiPssp = rencanaTotalBiaya × persenPsspDokter × pengaliNilaiR` (pengaliNilaiR default 1 kalau null). Angka rupiah mentah (belum dibagi 1.000.000 seperti tampilan in-app), dijumlah per periode pengajuan (bukan per bulan).
+  - `approveUntil`: nilai enum `PoaStatus` (`DRAFT`, `SUBMITTED_TO_ASM`, `APPROVED_BY_ASM`, `SUBMITTED_TO_SM`, `APPROVED_BY_SM`, `SUBMITTED_TO_NSM`, `APPROVED_BY_NSM`, `REVISI`) — dari `PoaDoctorApproval.status` kalau baris approval-nya sudah ada (submitted minimal sekali), fallback ke `PoaForm.status` kalau dokter itu masih di DRAFT/REVISI dan belum pernah disubmit (belum ada row `PoaDoctorApproval`).
+  - `produk`: distinct produk per dokter dari `PoaLineItem`, urutan sesuai `createdAt` baris pertamanya.
+- **Error**: `400` NIP kosong · `404` NIP tidak ditemukan. Response `[]` (bukan error) kalau NIP valid tapi tidak punya PoaForm di kuartal berjalan.
+
+---
+
 Kedua endpoint berikut mengembalikan file **`.xlsx` binary** (`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), bukan JSON — apabila diuji melalui curl gunakan `-o namafile.xlsx` agar tidak ter-print sebagai raw binary ke terminal; melalui Postman biasanya otomatis menawarkan "Save Response" / preview.
 
 ### `GET /api/poa/{id}/export`
