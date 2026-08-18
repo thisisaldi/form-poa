@@ -10,7 +10,7 @@ Trigger SDD yang terpenuhi (`docs/sdd/01-when-and-workflow.md`): migrasi ini men
 
 ## Status
 
-⬜ **Belum dimulai — spesifikasi masih draft, ada open question BLOCKING yang belum terjawab.** Tidak ada kode implementasi yang ditulis untuk migrasi ini. Investigasi live terhadap API Nexus sudah dilakukan (2026-08-18, lihat bukti di `01-business-rules.md`), tapi migrasi `orgStructureSync.ts` itu sendiri belum disentuh — `User`/`nipAtasan` masih 100% dari MSSQL sampai spec ini convergen dan v1 diimplementasikan.
+🟡 **Spec sudah divalidasi kuat terhadap data nyata, implementasi belum dimulai.** OQ-1 (validitas algoritma rekonstruksi `nipAtasan`) dan OQ-2 (cakupan `project=ethical` vs divisi MSSQL) sudah RESOLVED lewat dry-run penuh 2026-08-18 terhadap seluruh 375 employee + perbandingan langsung ke MSSQL production: **197/198 (99.5%) `nipAtasan` hasil inferensi cocok** dengan hasil sync MSSQL yang berjalan sekarang, satu-satunya selisih sudah dijelaskan sepenuhnya (bukan bug). Sisa 3 open question (OQ-3 status aktif/nonaktif, OQ-4 scope GM, OQ-5 cutover-vs-paralel) adalah keputusan bisnis/risk-tolerance yang butuh konfirmasi pengguna, bukan sesuatu yang bisa dijawab lewat eksplorasi API lagi — lihat `01-business-rules.md` §5. Kode implementasi (`orgStructureSync.ts`) belum disentuh — `User`/`nipAtasan` masih 100% dari MSSQL sampai OQ-3/4/5 terjawab.
 
 ## Temuan penting (mengoreksi catatan lama)
 
