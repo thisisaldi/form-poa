@@ -9,7 +9,9 @@ Permintaan lisan dari pengguna (percakapan sesi 2026-08-06), dipicu oleh dokumen
 
 ## Terkait, tapi di luar scope
 
-Selama diskusi ditemukan endpoint Nexus keempat, `get_subordinates?nip=` (balikan: daftar bawahan langsung `{nip, nama, project, position}`) — berpotensi dipakai merekonstruksi hierarki `nipAtasan` yang sekarang disinkron `orgStructureSync.ts` dari MSSQL. Pengguna memutuskan (2026-08-06) migrasi org structure ini **tetap dipisah** dari spec outlet ini, akan jadi spec SDD tersendiri kalau/ketika dikerjakan — dicatat di sini sebagai pointer, bukan dibangun di spec ini.
+Selama diskusi ditemukan endpoint Nexus keempat, `get_subordinates?nip=` (balikan saat itu diperkirakan: daftar bawahan langsung `{nip, nama, project, position}`) — berpotensi dipakai merekonstruksi hierarki `nipAtasan` yang sekarang disinkron `orgStructureSync.ts` dari MSSQL. Pengguna memutuskan (2026-08-06) migrasi org structure ini **tetap dipisah** dari spec outlet ini, akan jadi spec SDD tersendiri kalau/ketika dikerjakan — dicatat di sini sebagai pointer, bukan dibangun di spec ini.
+
+⚠️ **Koreksi 2026-08-18**: dugaan "daftar bawahan langsung" di atas TERNYATA SALAH — tes live terhadap API menunjukkan `get_subordinates` balikin seluruh subtree transitif (lintas level), bukan cuma direct report. Lihat `docs/org-nexus-migration/01-business-rules.md` §2 untuk bukti dan detailnya (spec migrasi org structure yang dijanjikan di atas).
 
 ## Status
 
