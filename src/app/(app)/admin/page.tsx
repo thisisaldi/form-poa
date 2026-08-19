@@ -4,6 +4,7 @@ import { getCustomers } from "@/lib/masterData";
 import { prisma } from "@/lib/prisma";
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { MaintenanceModeToggle } from "@/components/admin/MaintenanceModeToggle";
+import { PoaDoctorsApiCredentialPanel } from "@/components/admin/PoaDoctorsApiCredentialPanel";
 
 export const metadata = { title: "Admin · Form POA" };
 
@@ -49,6 +50,7 @@ export default async function AdminPage() {
         )}
       </div>
       <MaintenanceModeToggle />
+      <PoaDoctorsApiCredentialPanel />
       <AdminTabs outlets={outlets} />
     </div>
   );

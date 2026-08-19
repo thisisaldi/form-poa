@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/masterData";
+import { hargaST } from "@/lib/masterData";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
 import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
@@ -199,12 +200,9 @@ function emptyProdukEntry(): ProdukEntry {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-export function hargaST(product: Product): number {
-  const hna      = parseFloat(product.hna) || 0;
-  const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
-  return hna / konversi;
-}
+// hargaST moved to @/lib/masterData (a plain, non-"use client" module) —
+// server actions need to call it directly, which isn't possible when it's
+// exported from a "use client" file (2026-08-19 runtime error).
 
 // Per-product override with a doctor-level default, falling back to 1 only when
 // NEITHER is set. Deliberately not `parseFloat(x) || fallback` — 0 is a valid,

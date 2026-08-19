@@ -30,6 +30,16 @@ export interface Product {
   spesialisasiRekomendasi: string[];
 }
 
+/** Harga per ST (satuan terkecil) = HNA per SJ / konversiPembagi. Plain helper
+ * (not "use client") so both server actions and client components can call it
+ * directly — importing from a "use client" module makes every export a client
+ * reference, which throws when invoked from server code. */
+export function hargaST(product: Product): number {
+  const hna = parseFloat(product.hna) || 0;
+  const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
+  return hna / konversi;
+}
+
 // ─── Outlet queries ───────────────────────────────────────────────────────────
 
 function toMockCustomer(o: { kodePI: string; namaOutlet: string; sector?: string | null; subSektor?: string | null; groupRS?: string | null }): MockCustomer {

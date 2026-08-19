@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { getOutletsByUser } from "@/lib/masterData";
+import { getOutletsByUser, getProducts } from "@/lib/masterData";
+import { listKpdmOptions, listJabatanOptions } from "@/app/actions/poaStandarisasi";
 import { NewPoaStandarisasiForm } from "@/components/poaStandarisasi/NewPoaStandarisasiForm";
 
 export default async function NewPoaStandarisasiPage() {
@@ -10,18 +11,30 @@ export default async function NewPoaStandarisasiPage() {
   // convention as /monitoring.
   if (session.role !== "ADMIN") redirect("/dashboard");
 
-  const outlets = await getOutletsByUser(session.userId);
+  const [outlets, productOptions, kpdmOptions, jabatanOptions] = await Promise.all([
+    getOutletsByUser(session.userId),
+    getProducts(),
+    listKpdmOptions(),
+    listJabatanOptions(),
+  ]);
+
+  // Chain-first sort, group name shown as sublabel — same convention as the
+  // outlet Combobox in POA Estimasi (LineItemEditor's isChainGroup + sublabel).
+  const isChainGroup = (groupRS?: string | null) => !!groupRS && groupRS !== "NON CHAIN";
+  const outletOptions = [...outlets]
+    .sort((a, b) => (isChainGroup(a.groupRS) ? 0 : 1) - (isChainGroup(b.groupRS) ? 0 : 1))
+    .map((o) => ({
+      value: o.kodeRequest,
+      label: o.namaCust,
+      sublabel: o.groupRS ?? "NON CHAIN",
+    }));
 
   return (
-    <div className="max-w-lg">
-      <div className="mb-6">
-        <h1>POA Standarisasi Baru</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Pilih outlet terlebih dahulu. Detail produk, dokter, dan estimasi diisi di halaman berikutnya.
-        </p>
-      </div>
-
-      <NewPoaStandarisasiForm outletOptions={outlets.map((o) => ({ value: o.kodeRequest, label: o.namaCust }))} />
-    </div>
+    <NewPoaStandarisasiForm
+      outletOptions={outletOptions}
+      productOptions={productOptions}
+      kpdmOptions={kpdmOptions}
+      jabatanOptions={jabatanOptions}
+    />
   );
 }

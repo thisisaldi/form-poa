@@ -1,53 +1,222 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { Combobox } from "@/components/ui/Combobox";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { createPoaStandarisasiAction } from "@/app/actions/poaStandarisasi";
+import type { Product } from "@/lib/masterData";
+import type { CustomerOption } from "@/app/actions/customer";
+import { createCustomerAction } from "@/app/actions/customer";
+import {
+  createPoaStandarisasiAction,
+  getDokterOptionsAction,
+  type PlanningProdukInput,
+} from "@/app/actions/poaStandarisasi";
+import {
+  Stepper,
+  PlanningPhase,
+  emptyProduk,
+  type ProdukFormState,
+} from "@/components/poaStandarisasi/PoaStandarisasiWizard";
 
-export function NewPoaStandarisasiForm({ outletOptions }: { outletOptions: { value: string; label: string }[] }) {
+/**
+ * Outlet is the top field of the SAME Planning Standarisasi form as Phase 1
+ * of the real wizard (reuses <PlanningPhase>) — not a separate outlet-only
+ * pre-step. Outlet still has to exist before the pengajuan row does (it's a
+ * non-null FK), so submitting here creates the row AND saves everything else
+ * (KPDM, jabatan, tipe, produk, dokter klinis) in one shot, then redirects
+ * into the same wizard at /poa-standarisasi/[id] (2026-08-19 redesign).
+ */
+export function NewPoaStandarisasiForm({
+  outletOptions,
+  productOptions,
+  kpdmOptions,
+  jabatanOptions,
+}: {
+  outletOptions: { value: string; label: string; sublabel?: string }[];
+  productOptions: Product[];
+  kpdmOptions: { id: string; nama: string; jabatanId: string | null }[];
+  jabatanOptions: { id: string; nama: string }[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
   const [kodePI, setKodePI] = useState("");
-  const [pending, setPending] = useState(false);
+  const [dokterList, setDokterList] = useState<CustomerOption[]>([]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!kodePI) return;
-    setPending(true);
+  const [kpdmList, setKpdmList] = useState(kpdmOptions);
+  const [jabatanList, setJabatanList] = useState(jabatanOptions);
+
+  const [kpdmId, setKpdmId] = useState("");
+  const [kpdmNama, setKpdmNama] = useState("");
+  const [jabatanId, setJabatanId] = useState<string | null>(null);
+  const [jabatanNama, setJabatanNama] = useState("");
+  const [kpdmEntertainEstimasi, setKpdmEntertainEstimasi] = useState("");
+  const [tipeStandarisasi, setTipeStandarisasi] = useState<"PERIODIC" | "SISIPAN" | "PERMANEN">("PERIODIC");
+  const [periodeBulan, setPeriodeBulan] = useState("");
+  const [jumlahBedRs, setJumlahBedRs] = useState("");
+  const [estimasiTimelineSelesai, setEstimasiTimelineSelesai] = useState("");
+  const [produkList, setProdukList] = useState<ProdukFormState[]>([emptyProduk()]);
+
+  const dokterById = new Map(dokterList.map((d) => [d.id, d]));
+  const productByKode = new Map(productOptions.map((p) => [p.kodeProduk, p]));
+
+  async function handleKodePIChange(v: string) {
+    setKodePI(v);
+    setDokterList(v ? await getDokterOptionsAction(v) : []);
+  }
+
+  /** Materializes a "nexus:<...>" synthetic id into a real Customer row before it's used as a FK — same pattern as the real wizard's resolveDokterId. */
+  async function resolveDokterId(rawId: string): Promise<string> {
+    if (!rawId.startsWith("nexus:")) return rawId;
+    const opt = dokterById.get(rawId);
+    if (!opt || !kodePI) return rawId;
     const fd = new FormData();
+    fd.set("namaCustomer", opt.namaCustomer);
+    fd.set("spesialisasi", opt.spesialisasi);
     fd.set("kodePI", kodePI);
-    await createPoaStandarisasiAction(fd);
-    setPending(false);
+    if (opt.kodeCustomer) fd.set("kodeCustomer", opt.kodeCustomer);
+    const res = await createCustomerAction(fd);
+    if (!res.ok || !res.customerId) throw new Error(res.error ?? "Gagal mendaftarkan dokter.");
+    setDokterList((prev) => prev.map((d) => (d.id === rawId ? { ...d, id: res.customerId! } : d)));
+    return res.customerId;
+  }
+
+  function updateProduk(idx: number, patch: Partial<ProdukFormState>) {
+    setProdukList((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
+  }
+  function addProduk() {
+    setProdukList((prev) => [...prev, emptyProduk(prev[prev.length - 1])]);
+  }
+  function removeProduk(idx: number) {
+    setProdukList((prev) => prev.filter((_, i) => i !== idx));
+  }
+  async function addDokterToProduk(idx: number, rawId: string) {
+    if (!rawId) return;
+    const realId = await resolveDokterId(rawId);
+    setProdukList((prev) =>
+      prev.map((p, i) =>
+        i === idx && !p.dokterKlinis.some((dk) => dk.customerId === realId)
+          ? { ...p, dokterKlinis: [...p.dokterKlinis, { customerId: realId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" }] }
+          : p
+      )
+    );
+  }
+  function removeDokterFromProduk(idx: number, customerId: string) {
+    setProdukList((prev) => prev.map((p, i) => (i === idx ? { ...p, dokterKlinis: p.dokterKlinis.filter((dk) => dk.customerId !== customerId) } : p)));
+  }
+  function updateDokterKlinis(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) {
+    setProdukList((prev) =>
+      prev.map((p, i) =>
+        i === idx ? { ...p, dokterKlinis: p.dokterKlinis.map((dk) => (dk.customerId === customerId ? { ...dk, ...patch } : dk)) } : p
+      )
+    );
+  }
+
+  function handleSubmit() {
+    if (!kodePI) { setError("Outlet wajib dipilih."); return; }
+    if (!kpdmId) { setError("KPDM wajib dipilih."); return; }
+    setError(null);
+    startTransition(async () => {
+      try {
+        await createPoaStandarisasiAction({
+          kodePI,
+          kpdmId,
+          kpdmNama,
+          jabatanId,
+          jabatanNama: jabatanNama || null,
+          kpdmEntertainEstimasi: kpdmEntertainEstimasi || null,
+          tipeStandarisasi,
+          periodeBulan: tipeStandarisasi === "PERMANEN" ? null : periodeBulan || null,
+          jumlahBedRs: jumlahBedRs || null,
+          estimasiTimelineSelesai: estimasiTimelineSelesai || null,
+          produk: produkList
+            .filter((p) => p.kodeProduk)
+            .map(
+              (p): PlanningProdukInput => ({
+                id: p.id,
+                kodeProduk: p.kodeProduk,
+                estimasiDiskonPct: p.estimasiDiskonPct || null,
+                estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
+                dokterKlinis: p.dokterKlinis.map((dk) => ({
+                  customerId: dk.customerId,
+                  jumlahPasien: dk.jumlahPasien || null,
+                  resepPerPasienSt: dk.resepPerPasienSt || null,
+                  entertainRp: dk.entertainRp || null,
+                })),
+              })
+            ),
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Terjadi kesalahan.");
+      }
+    });
   }
 
   return (
-    <Card>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-            Nama Outlet <span style={{ color: "var(--color-error)" }}>*</span>
-          </span>
-          <Combobox
-            name="kodePI"
-            options={outletOptions}
-            value={kodePI}
-            onChange={setKodePI}
-            placeholder="Cari outlet…"
-            required
-            emptyMessage="Tidak ada outlet di coverage Anda."
-          />
-        </div>
+    <div className="max-w-5xl">
+      <div className="mb-4">
+        <h1>Pengajuan Standarisasi Baru</h1>
+        <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+          POA Standarisasi (Produk × Outlet) — wizard 4 phase.
+        </p>
+      </div>
 
-        <div className="flex gap-3 pt-1">
-          <Button type="submit" disabled={pending || !kodePI}>
-            {pending ? "Membuat…" : "Buat Draft"}
-          </Button>
-          <Link href="/dashboard">
-            <Button type="button" variant="secondary">Batal</Button>
-          </Link>
+      <Stepper currentIdx={0} />
+
+      {error && (
+        <div className="mb-4 rounded px-3 py-2 text-sm" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
+          {error}
         </div>
-      </form>
-    </Card>
+      )}
+
+      <PlanningPhase
+        canEdit={true}
+        kodePI={kodePI}
+        namaOutlet=""
+        outletPicker={{ options: outletOptions, onChange: handleKodePIChange }}
+        kpdmList={kpdmList}
+        setKpdmList={setKpdmList}
+        jabatanList={jabatanList}
+        setJabatanList={setJabatanList}
+        kpdmId={kpdmId}
+        setKpdmId={setKpdmId}
+        kpdmNama={kpdmNama}
+        setKpdmNama={setKpdmNama}
+        jabatanId={jabatanId}
+        setJabatanId={setJabatanId}
+        jabatanNama={jabatanNama}
+        setJabatanNama={setJabatanNama}
+        kpdmEntertainEstimasi={kpdmEntertainEstimasi}
+        setKpdmEntertainEstimasi={setKpdmEntertainEstimasi}
+        tipeStandarisasi={tipeStandarisasi}
+        setTipeStandarisasi={setTipeStandarisasi}
+        periodeBulan={periodeBulan}
+        setPeriodeBulan={setPeriodeBulan}
+        jumlahBedRs={jumlahBedRs}
+        setJumlahBedRs={setJumlahBedRs}
+        estimasiTimelineSelesai={estimasiTimelineSelesai}
+        setEstimasiTimelineSelesai={setEstimasiTimelineSelesai}
+        produkList={produkList}
+        productOptions={productOptions}
+        productByKode={productByKode}
+        dokterList={dokterList}
+        dokterById={dokterById}
+        updateProduk={updateProduk}
+        addProduk={addProduk}
+        removeProduk={removeProduk}
+        addDokterToProduk={addDokterToProduk}
+        removeDokterFromProduk={removeDokterFromProduk}
+        updateDokterKlinis={updateDokterKlinis}
+      />
+
+      <div className="flex gap-3 pt-1">
+        <Button type="button" disabled={pending || !kodePI || !kpdmId} onClick={handleSubmit}>
+          {pending ? "Membuat…" : "Buat & Simpan"}
+        </Button>
+        <Link href="/dashboard">
+          <Button type="button" variant="secondary">Batal</Button>
+        </Link>
+      </div>
+    </div>
   );
 }

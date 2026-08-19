@@ -26,7 +26,7 @@ import {
   type PlanningProdukInput,
 } from "@/app/actions/poaStandarisasi";
 
-const PHASES = [
+export const PHASES = [
   { id: "PLANNING", label: "Planning Standarisasi" },
   { id: "APPROVAL_ATASAN", label: "Approval Atasan" },
   { id: "APPROVAL_USER_DOKTER", label: "Approval User / Dokter" },
@@ -38,36 +38,170 @@ function formatRp(n: number | null | undefined): string {
   return "Rp " + Math.round(n).toLocaleString("id-ID");
 }
 
+/**
+ * Rp input — plain text field (not type="number") so it can show live thousand-
+ * separator formatting ("2.500.000") and never gets the browser's up/down
+ * spinner arrows, which only belong on the diskon (%) fields.
+ */
+function RpInput({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label?: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    onChange(e.target.value.replace(/\D/g, ""));
+  }
+  const display = value ? Number(value).toLocaleString("id-ID") : "";
+  return (
+    <div className="flex flex-col gap-1">
+      {label && <span className="text-sm font-medium" style={{ color: "var(--color-text)" }}>{label}</span>}
+      <div
+        className="flex items-stretch rounded-md overflow-hidden"
+        style={{ border: "1px solid var(--color-border-strong)", background: disabled ? "var(--color-bg-subtle)" : "var(--color-surface, #fff)" }}
+      >
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="0"
+          value={display}
+          onChange={handleChange}
+          disabled={disabled}
+          className="flex-1 min-w-0 w-0 px-3 py-2 text-sm text-right outline-none"
+          style={{ background: "transparent", color: "var(--color-text)" }}
+        />
+        <span style={{ width: 1, background: "var(--color-border-strong)" }} />
+        <span
+          className="flex items-center px-2.5 text-xs font-medium whitespace-nowrap"
+          style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
+        >
+          Rp
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Standarisasi Periodic only offers these fixed periods (TODO #8) — Sisipan stays free-entry (TODO #9). */
+const PERIODE_PERIODIC_OPTIONS = [6, 12, 18, 24, 30, 36];
+
+/** Fixed set, matches the DistributorPilihan enum — not master data. */
+const DISTRIBUTOR_OPTIONS = ["AMS", "PPG", "MPI"] as const;
+
+/** Plain numeric input with a unit badge (e.g. "Bulan") — same box styling as RpInput, no thousand-separator formatting. */
+function UnitCountInput({
+  label,
+  unit,
+  value,
+  onChange,
+  disabled,
+}: {
+  label?: string;
+  unit: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value;
+    if (v === "" || /^\d*\.?\d*$/.test(v)) onChange(v);
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {label && <span className="text-sm font-medium" style={{ color: "var(--color-text)" }}>{label}</span>}
+      <div
+        className="flex items-stretch rounded-md overflow-hidden"
+        style={{ border: "1px solid var(--color-border-strong)", background: disabled ? "var(--color-bg-subtle)" : "var(--color-surface, #fff)" }}
+      >
+        <input
+          type="text"
+          inputMode="decimal"
+          placeholder="0"
+          value={value}
+          onChange={handleChange}
+          disabled={disabled}
+          className="flex-1 min-w-0 w-0 px-3 py-2 text-sm text-right outline-none"
+          style={{ background: "transparent", color: "var(--color-text)" }}
+        />
+        <span style={{ width: 1, background: "var(--color-border-strong)" }} />
+        <span
+          className="flex items-center px-2.5 text-xs font-medium whitespace-nowrap"
+          style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
+        >
+          {unit}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+/** Month-only picker (TODO #10) — stores the 1st of the selected month as
+ * "yyyy-mm-01", not an exact date; range runs from the current month out to
+ * +36 (covers the longest Periodic option, see PERIODE_PERIODIC_OPTIONS). */
+function MonthYearSelect({ label, value, onChange, disabled }: { label?: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const options = useMemo(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return Array.from({ length: 37 }, (_, i) => {
+      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+      const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+      return { value: v, label: `${BULAN_ID[d.getMonth()]} ${d.getFullYear()}` };
+    });
+  }, []);
+  // Snap an exact-date value (old rows, or a value not on this list) down to its month so the select still shows something sensible.
+  const normalized = value ? `${value.slice(0, 7)}-01` : "";
+  return (
+    <div>
+      {label && <span className="text-sm font-medium block mb-1">{label}</span>}
+      <select className="input-field w-full" value={normalized} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+        <option value="">— pilih bulan —</option>
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function hargaSTFromProduct(p: Product): number {
   const hna = parseFloat(p.hna) || 0;
   const konversi = parseFloat(p.konversiPembagi ?? "1") || 1;
   return hna / konversi;
 }
 
-interface ProdukFormState {
-  id?: string;
-  kodeProduk: string;
+export interface DokterKlinisFormState {
+  customerId: string;
   jumlahPasien: string;
   resepPerPasienSt: string;
+  entertainRp: string;
+}
+
+export interface ProdukFormState {
+  id?: string;
+  kodeProduk: string;
   estimasiDiskonPct: string;
   estimasiBiayaListingRp: string;
-  estimasiEntertainRp: string;
-  dokterCustomerIds: string[];
+  dokterKlinis: DokterKlinisFormState[];
   finalDiscountPct: string;
   diskonDistributorPct: string;
   finalBiayaListingRp: string;
   dokterUser: { customerId: string; jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }[];
 }
 
-function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
+export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
   return {
     kodeProduk: "",
-    jumlahPasien: "",
-    resepPerPasienSt: "",
     estimasiDiskonPct: "",
     estimasiBiayaListingRp: "",
-    estimasiEntertainRp: "",
-    dokterCustomerIds: inherit ? [...inherit.dokterCustomerIds] : [],
+    // New product inherits WHICH dokter to consider, not their estimate figures.
+    dokterKlinis: inherit
+      ? inherit.dokterKlinis.map((dk) => ({ customerId: dk.customerId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" }))
+      : [],
     finalDiscountPct: "",
     diskonDistributorPct: "",
     finalBiayaListingRp: "",
@@ -79,12 +213,14 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
   return {
     id: p.id,
     kodeProduk: p.kodeProduk,
-    jumlahPasien: p.jumlahPasien != null ? String(p.jumlahPasien) : "",
-    resepPerPasienSt: p.resepPerPasienSt != null ? String(p.resepPerPasienSt) : "",
     estimasiDiskonPct: p.estimasiDiskonPct != null ? String(p.estimasiDiskonPct) : "",
     estimasiBiayaListingRp: p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
-    estimasiEntertainRp: p.estimasiEntertainRp != null ? String(p.estimasiEntertainRp) : "",
-    dokterCustomerIds: p.dokterApproval.map((d) => d.customerId),
+    dokterKlinis: p.dokterApproval.map((d) => ({
+      customerId: d.customerId,
+      jumlahPasien: d.jumlahPasien != null ? String(d.jumlahPasien) : "",
+      resepPerPasienSt: d.resepPerPasienSt != null ? String(d.resepPerPasienSt) : "",
+      entertainRp: d.entertainRp != null ? String(d.entertainRp) : "",
+    })),
     finalDiscountPct: p.finalDiscountPct != null ? String(p.finalDiscountPct) : "",
     diskonDistributorPct: p.diskonDistributorPct != null ? String(p.diskonDistributorPct) : "",
     finalBiayaListingRp: p.finalBiayaListingRp != null ? String(p.finalBiayaListingRp) : "",
@@ -96,10 +232,17 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
             resepPerPasienSt: d.resepPerPasienSt != null ? String(d.resepPerPasienSt) : "",
             entertainRp: d.entertainRp != null ? String(d.entertainRp) : "",
           }))
-        : // Default candidates: dokter who already signed (sudahTtd) in Phase 3.
+        : // Default candidates: dokter who already signed (sudahTtd) in Phase 3,
+          // pre-filled with what was already entered at Planning so Finalisasi is
+          // actually a TWEAK of those numbers, not starting over from blank.
           p.dokterApproval
             .filter((d) => d.sudahTtd)
-            .map((d) => ({ customerId: d.customerId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" })),
+            .map((d) => ({
+              customerId: d.customerId,
+              jumlahPasien: d.jumlahPasien != null ? String(d.jumlahPasien) : "",
+              resepPerPasienSt: d.resepPerPasienSt != null ? String(d.resepPerPasienSt) : "",
+              entertainRp: d.entertainRp != null ? String(d.entertainRp) : "",
+            })),
   };
 }
 
@@ -121,7 +264,6 @@ export function PoaStandarisasiWizard({
   productOptions,
   kpdmOptions,
   jabatanOptions,
-  distributorOptions,
   dokterOptions,
   canEdit,
   canApproveAsm,
@@ -132,7 +274,6 @@ export function PoaStandarisasiWizard({
   productOptions: Product[];
   kpdmOptions: { id: string; nama: string; jabatanId: string | null }[];
   jabatanOptions: { id: string; nama: string }[];
-  distributorOptions: { id: string; nama: string }[];
   dokterOptions: CustomerOption[];
   canEdit: boolean;
   canApproveAsm: boolean;
@@ -144,6 +285,13 @@ export function PoaStandarisasiWizard({
   const [error, setError] = useState<string | null>(null);
 
   const currentStepIdx = PHASES.findIndex((p) => p.id === pengajuan.currentPhase);
+
+  // Which phase's content is shown — lets the Stepper navigate back to review
+  // an already-completed phase without changing pengajuan.currentPhase itself.
+  // Defaults to the actual current phase.
+  const [viewedPhaseId, setViewedPhaseId] = useState<PoaStandarisasiDetail["currentPhase"]>(pengajuan.currentPhase);
+  const viewedStepIdx = PHASES.findIndex((p) => p.id === viewedPhaseId);
+  const isViewingCurrentPhase = viewedPhaseId === pengajuan.currentPhase;
 
   // ── Local mutable master data (grows when "+ Tambah baru" is used) ───────
   const [kpdmList, setKpdmList] = useState(kpdmOptions);
@@ -174,7 +322,7 @@ export function PoaStandarisasiWizard({
   });
 
   // ── Phase 4 state ──────────────────────────────────────────────────────
-  const [distributorId, setDistributorId] = useState(pengajuan.distributorId ?? "");
+  const [distributors, setDistributors] = useState<string[]>(pengajuan.distributors ?? []);
   const [kpdmEntertainFinal, setKpdmEntertainFinal] = useState(
     pengajuan.kpdmEntertainFinal != null ? String(pengajuan.kpdmEntertainFinal) : kpdmEntertainEstimasi
   );
@@ -227,12 +375,14 @@ export function PoaStandarisasiWizard({
           (p): PlanningProdukInput => ({
             id: p.id,
             kodeProduk: p.kodeProduk,
-            jumlahPasien: p.jumlahPasien || null,
-            resepPerPasienSt: p.resepPerPasienSt || null,
             estimasiDiskonPct: p.estimasiDiskonPct || null,
             estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
-            estimasiEntertainRp: p.estimasiEntertainRp || null,
-            dokterCustomerIds: p.dokterCustomerIds,
+            dokterKlinis: p.dokterKlinis.map((dk) => ({
+              customerId: dk.customerId,
+              jumlahPasien: dk.jumlahPasien || null,
+              resepPerPasienSt: dk.resepPerPasienSt || null,
+              entertainRp: dk.entertainRp || null,
+            })),
           })
         ),
     };
@@ -280,7 +430,7 @@ export function PoaStandarisasiWizard({
 
   function buildFinalisasiPayload() {
     return {
-      distributorId: distributorId || null,
+      distributors,
       kpdmEntertainFinal: kpdmEntertainFinal || null,
       produk: produkList
         .filter((p) => p.id)
@@ -326,11 +476,22 @@ export function PoaStandarisasiWizard({
     if (!rawId) return;
     const realId = await resolveDokterId(rawId);
     setProdukList((prev) =>
-      prev.map((p, i) => (i === idx && !p.dokterCustomerIds.includes(realId) ? { ...p, dokterCustomerIds: [...p.dokterCustomerIds, realId] } : p))
+      prev.map((p, i) =>
+        i === idx && !p.dokterKlinis.some((dk) => dk.customerId === realId)
+          ? { ...p, dokterKlinis: [...p.dokterKlinis, { customerId: realId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" }] }
+          : p
+      )
     );
   }
   function removeDokterFromProduk(idx: number, customerId: string) {
-    setProdukList((prev) => prev.map((p, i) => (i === idx ? { ...p, dokterCustomerIds: p.dokterCustomerIds.filter((c) => c !== customerId) } : p)));
+    setProdukList((prev) => prev.map((p, i) => (i === idx ? { ...p, dokterKlinis: p.dokterKlinis.filter((dk) => dk.customerId !== customerId) } : p)));
+  }
+  function updateDokterKlinis(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) {
+    setProdukList((prev) =>
+      prev.map((p, i) =>
+        i === idx ? { ...p, dokterKlinis: p.dokterKlinis.map((dk) => (dk.customerId === customerId ? { ...dk, ...patch } : dk)) } : p
+      )
+    );
   }
 
   // ── Dokter-user mutators (Phase 4) ────────────────────────────────────
@@ -365,11 +526,23 @@ export function PoaStandarisasiWizard({
         </p>
       </div>
 
-      <Stepper currentIdx={currentStepIdx} />
+      <Stepper
+        currentIdx={currentStepIdx}
+        viewedIdx={viewedStepIdx}
+        onSelect={(idx) => {
+          if (idx <= currentStepIdx) setViewedPhaseId(PHASES[idx].id);
+        }}
+      />
 
       {!isOwner && (
         <div className="mb-4 rounded px-3 py-2 text-xs" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
           Anda melihat pengajuan ini sebagai atasan (bukan pembuat) — hanya bagian Approval Atasan yang bisa Anda tindak lanjuti.
+        </div>
+      )}
+
+      {!isViewingCurrentPhase && (
+        <div className="mb-4 rounded px-3 py-2 text-xs" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
+          Anda melihat histori tahap &quot;{PHASES[viewedStepIdx]?.label}&quot; — tidak bisa diedit dari sini. Klik &quot;{PHASES[currentStepIdx]?.label}&quot; di atas untuk kembali ke tahap yang sedang berjalan.
         </div>
       )}
 
@@ -382,10 +555,11 @@ export function PoaStandarisasiWizard({
         </div>
       )}
 
-      {pengajuan.currentPhase === "PLANNING" && (
+      {viewedPhaseId === "PLANNING" && (
         <PlanningPhase
-          canEdit={canEdit}
+          canEdit={canEdit && isViewingCurrentPhase}
           kodePI={pengajuan.kodePI}
+          namaOutlet={pengajuan.outlet.namaOutlet}
           kpdmList={kpdmList}
           setKpdmList={setKpdmList}
           jabatanList={jabatanList}
@@ -418,21 +592,22 @@ export function PoaStandarisasiWizard({
           removeProduk={removeProduk}
           addDokterToProduk={addDokterToProduk}
           removeDokterFromProduk={removeDokterFromProduk}
+          updateDokterKlinis={updateDokterKlinis}
         />
       )}
 
-      {pengajuan.currentPhase === "APPROVAL_ATASAN" && (
+      {viewedPhaseId === "APPROVAL_ATASAN" && (
         <ApprovalAtasanPhase
           pengajuan={pengajuan}
-          canApproveAsm={canApproveAsm}
-          canApproveSm={canApproveSm}
+          canApproveAsm={canApproveAsm && isViewingCurrentPhase}
+          canApproveSm={canApproveSm && isViewingCurrentPhase}
           onApprove={handleApprove}
         />
       )}
 
-      {pengajuan.currentPhase === "APPROVAL_USER_DOKTER" && (
+      {viewedPhaseId === "APPROVAL_USER_DOKTER" && (
         <ApprovalUserDokterPhase
-          canEdit={canEdit}
+          canEdit={canEdit && isViewingCurrentPhase}
           pengajuan={pengajuan}
           jadwalMeetingKft={jadwalMeetingKft}
           setJadwalMeetingKft={setJadwalMeetingKft}
@@ -441,17 +616,16 @@ export function PoaStandarisasiWizard({
         />
       )}
 
-      {pengajuan.currentPhase === "FINALISASI" && (
+      {viewedPhaseId === "FINALISASI" && (
         <FinalisasiPhase
-          canEdit={canEdit}
+          canEdit={canEdit && isViewingCurrentPhase}
           pengajuan={pengajuan}
           produkList={produkList}
           productByKode={productByKode}
           dokterList={dokterList}
           dokterById={dokterById}
-          distributorOptions={distributorOptions}
-          distributorId={distributorId}
-          setDistributorId={setDistributorId}
+          distributors={distributors}
+          setDistributors={setDistributors}
           kpdmEntertainFinal={kpdmEntertainFinal}
           setKpdmEntertainFinal={setKpdmEntertainFinal}
           updateProduk={updateProduk}
@@ -466,19 +640,19 @@ export function PoaStandarisasiWizard({
       <div className="flex justify-between mt-4">
         <div />
         <div className="flex gap-2">
-          {pengajuan.currentPhase === "PLANNING" && canEdit && (
+          {isViewingCurrentPhase && pengajuan.currentPhase === "PLANNING" && canEdit && (
             <>
               <Button variant="secondary" disabled={pending} onClick={handleSavePlanning}>Simpan Draft</Button>
               <Button disabled={pending} onClick={handleAdvanceToApprovalAtasan}>Lanjut ke Approval Atasan</Button>
             </>
           )}
-          {pengajuan.currentPhase === "APPROVAL_USER_DOKTER" && canEdit && (
+          {isViewingCurrentPhase && pengajuan.currentPhase === "APPROVAL_USER_DOKTER" && canEdit && (
             <>
               <Button variant="secondary" disabled={pending} onClick={handleSavePhase3}>Simpan</Button>
               <Button disabled={pending} onClick={handleAdvanceToFinalisasi}>Lanjut ke Finalisasi</Button>
             </>
           )}
-          {pengajuan.currentPhase === "FINALISASI" && canEdit && !pengajuan.submittedAt && (
+          {isViewingCurrentPhase && pengajuan.currentPhase === "FINALISASI" && canEdit && !pengajuan.submittedAt && (
             <>
               <Button variant="secondary" disabled={pending} onClick={handleSaveFinalisasi}>Simpan</Button>
               <Button disabled={pending} onClick={handleSubmit}>Submit untuk Approval Standarisasi</Button>
@@ -497,12 +671,21 @@ export function PoaStandarisasiWizard({
 
 // ─── Stepper ─────────────────────────────────────────────────────────────────
 
-function Stepper({ currentIdx }: { currentIdx: number }) {
+/**
+ * currentIdx = actual server-side progress (drives the ✓/blue-line "done" state).
+ * viewedIdx = which phase's content is currently shown (drives the "active"
+ * highlight) — lets a step already reached (i <= currentIdx) be clicked to
+ * review it without changing pengajuan.currentPhase. Defaults to currentIdx
+ * for callers (e.g. the "new" create form) that have no navigation concept.
+ */
+export function Stepper({ currentIdx, viewedIdx, onSelect }: { currentIdx: number; viewedIdx?: number; onSelect?: (idx: number) => void }) {
+  const activeIdx = viewedIdx ?? currentIdx;
   return (
     <div className="flex items-start gap-2 mb-6 max-w-3xl">
       {PHASES.map((p, i) => {
         const done = i < currentIdx;
-        const active = i === currentIdx;
+        const active = i === activeIdx;
+        const selectable = !!onSelect && i <= currentIdx;
         return (
           <div key={p.id} className="flex-1 flex flex-col items-center relative">
             {i > 0 && (
@@ -511,23 +694,30 @@ function Stepper({ currentIdx }: { currentIdx: number }) {
                 style={{ left: "-50%", right: "50%", background: i <= currentIdx ? "var(--color-blue)" : "var(--color-border)" }}
               />
             )}
-            <div
+            <button
+              type="button"
+              disabled={!selectable}
+              onClick={() => onSelect?.(i)}
               className="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-semibold z-10"
               style={{
                 borderColor: done || active ? "var(--color-blue)" : "var(--color-border)",
                 background: done ? "var(--color-blue)" : "#fff",
                 color: done ? "#fff" : active ? "var(--color-blue)" : "var(--color-text-faint)",
                 boxSizing: "border-box",
+                cursor: selectable ? "pointer" : "default",
               }}
             >
               {done ? "✓" : i + 1}
-            </div>
-            <span
+            </button>
+            <button
+              type="button"
+              disabled={!selectable}
+              onClick={() => onSelect?.(i)}
               className="text-xs font-semibold mt-1.5 text-center max-w-[110px]"
-              style={{ color: active ? "var(--color-text)" : "var(--color-text-faint)" }}
+              style={{ color: active ? "var(--color-text)" : "var(--color-text-faint)", cursor: selectable ? "pointer" : "default", background: "none", border: "none" }}
             >
               {p.label}
-            </span>
+            </button>
           </div>
         );
       })}
@@ -537,9 +727,12 @@ function Stepper({ currentIdx }: { currentIdx: number }) {
 
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
 
-function PlanningPhase(props: {
+export function PlanningPhase(props: {
   canEdit: boolean;
   kodePI: string;
+  namaOutlet: string;
+  /** When set, "Nama Outlet" renders as an editable Combobox instead of a read-only box — used by the "new" (create) form, where outlet isn't fixed yet. */
+  outletPicker?: { options: { value: string; label: string; sublabel?: string }[]; onChange: (v: string) => void };
   kpdmList: { id: string; nama: string; jabatanId: string | null }[];
   setKpdmList: React.Dispatch<React.SetStateAction<{ id: string; nama: string; jabatanId: string | null }[]>>;
   jabatanList: { id: string; nama: string }[];
@@ -572,14 +765,15 @@ function PlanningPhase(props: {
   removeProduk: (idx: number) => void;
   addDokterToProduk: (idx: number, rawId: string) => Promise<void>;
   removeDokterFromProduk: (idx: number, customerId: string) => void;
+  updateDokterKlinis: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) => void;
 }) {
   const {
-    canEdit, kodePI, kpdmList, setKpdmList, jabatanList, setJabatanList,
+    canEdit, kodePI, namaOutlet, outletPicker, kpdmList, setKpdmList, jabatanList, setJabatanList,
     kpdmId, setKpdmId, setKpdmNama, jabatanId, setJabatanId, setJabatanNama,
     kpdmEntertainEstimasi, setKpdmEntertainEstimasi, tipeStandarisasi, setTipeStandarisasi,
     periodeBulan, setPeriodeBulan, jumlahBedRs, setJumlahBedRs, estimasiTimelineSelesai, setEstimasiTimelineSelesai,
     produkList, productOptions, productByKode, dokterList, dokterById, updateProduk, addProduk, removeProduk,
-    addDokterToProduk, removeDokterFromProduk,
+    addDokterToProduk, removeDokterFromProduk, updateDokterKlinis,
   } = props;
 
   const [newKpdmName, setNewKpdmName] = useState("");
@@ -615,6 +809,22 @@ function PlanningPhase(props: {
     <>
       <Card className="mb-4">
         <CardHeader><CardTitle>Planning Standarisasi</CardTitle></CardHeader>
+        <div className="max-w-lg mb-4">
+          <span className="text-sm font-medium block mb-1">Nama Outlet {outletPicker && <span style={{ color: "var(--color-error)" }}>*</span>}</span>
+          {outletPicker ? (
+            <Combobox
+              name="kodePI"
+              options={outletPicker.options}
+              value={kodePI}
+              onChange={outletPicker.onChange}
+              placeholder="Cari outlet…"
+              required
+              emptyMessage="Tidak ada outlet di coverage Anda."
+            />
+          ) : (
+            <div className="rounded px-3 py-2 text-sm" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>{namaOutlet}</div>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <span className="text-sm font-medium block mb-1">KPDM Standarisasi <span style={{ color: "var(--color-error)" }}>*</span></span>
@@ -671,11 +881,10 @@ function PlanningPhase(props: {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <Input
-            label="Entertain Estimasi (KPDM) — Rp"
-            type="number"
+          <RpInput
+            label="Entertain Estimasi (KPDM)"
             value={kpdmEntertainEstimasi}
-            onChange={(e) => setKpdmEntertainEstimasi(e.target.value)}
+            onChange={setKpdmEntertainEstimasi}
             disabled={disabled}
           />
         </div>
@@ -691,27 +900,36 @@ function PlanningPhase(props: {
             >
               <option value="PERIODIC">Standarisasi Periodic</option>
               <option value="SISIPAN">Standarisasi Sisipan</option>
-              <option value="PERMANEN">Standarisasi Permanen</option>
+              <option value="PERMANEN">Standarisasi Non Periodic</option>
             </select>
           </div>
-          {tipeStandarisasi !== "PERMANEN" && (
-            <Input
-              label="Periode (bulan)"
-              type="number"
-              value={periodeBulan}
-              onChange={(e) => setPeriodeBulan(e.target.value)}
-              disabled={disabled}
-            />
+          {tipeStandarisasi === "PERIODIC" && (
+            <div>
+              <span className="text-sm font-medium block mb-1">Periode <span style={{ color: "var(--color-error)" }}>*</span></span>
+              <select
+                className="input-field w-full"
+                value={periodeBulan}
+                disabled={disabled}
+                onChange={(e) => setPeriodeBulan(e.target.value)}
+              >
+                <option value="">— pilih periode —</option>
+                {PERIODE_PERIODIC_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n} Bulan</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {tipeStandarisasi === "SISIPAN" && (
+            <UnitCountInput label="Periode" unit="Bulan" value={periodeBulan} onChange={setPeriodeBulan} disabled={disabled} />
           )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input label="Jumlah Bed RS" type="number" value={jumlahBedRs} onChange={(e) => setJumlahBedRs(e.target.value)} disabled={disabled} />
-          <Input
+          <MonthYearSelect
             label="Target Penyelesaian Standarisasi"
-            type="date"
             value={estimasiTimelineSelesai}
-            onChange={(e) => setEstimasiTimelineSelesai(e.target.value)}
+            onChange={setEstimasiTimelineSelesai}
             disabled={disabled}
           />
         </div>
@@ -727,8 +945,9 @@ function PlanningPhase(props: {
       {produkList.map((p, idx) => {
         const product = productByKode.get(p.kodeProduk);
         const hst = product ? hargaSTFromProduct(product) : 0;
-        const qty = (parseFloat(p.jumlahPasien) || 0) * (parseFloat(p.resepPerPasienSt) || 0);
-        const nilai = qty * hst;
+        const totalQty = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.resepPerPasienSt) || 0), 0);
+        const totalSales = totalQty * hst;
+        const totalEntertain = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.entertainRp) || 0), 0);
         return (
           <Card key={idx} className="mb-4" style={{ background: "var(--color-bg-subtle)" }}>
             <div className="flex justify-between items-start mb-2">
@@ -755,54 +974,81 @@ function PlanningPhase(props: {
             )}
 
             <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
-            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Estimasi Standarisasi (per bulan)</span>
-            <div className="grid grid-cols-2 gap-3 mb-2">
-              <Input label="Jumlah Pasien" type="number" value={p.jumlahPasien} onChange={(e) => updateProduk(idx, { jumlahPasien: e.target.value })} disabled={disabled} />
-              <Input
-                label={`Resep per Pasien${product?.satuanTerkecil ? ` (${product.satuanTerkecil})` : ""}`}
-                type="number"
-                value={p.resepPerPasienSt}
-                onChange={(e) => updateProduk(idx, { resepPerPasienSt: e.target.value })}
-                disabled={disabled}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3 mb-3 text-sm">
-              <div className="rounded px-3 py-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
-                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Qty / bulan</div>
-                <div>{qty ? qty.toLocaleString("id-ID") : "-"} {product?.satuanTerkecil ?? ""}</div>
-              </div>
-              <div className="rounded px-3 py-2" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
-                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Estimasi Sales / bulan</div>
-                <div>{formatRp(nilai)}</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3 mb-3">
+            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Estimasi Biaya (per bulan)</span>
+            <div className="grid grid-cols-2 gap-3 mb-3">
               <Input label="Estimasi Discount (%)" type="number" value={p.estimasiDiskonPct} onChange={(e) => updateProduk(idx, { estimasiDiskonPct: e.target.value })} disabled={disabled} />
-              <Input label="Estimasi Biaya Listing (Rp)" type="number" value={p.estimasiBiayaListingRp} onChange={(e) => updateProduk(idx, { estimasiBiayaListingRp: e.target.value })} disabled={disabled} />
-              <Input label="Estimasi Entertain (Rp)" type="number" value={p.estimasiEntertainRp} onChange={(e) => updateProduk(idx, { estimasiEntertainRp: e.target.value })} disabled={disabled} />
+              <RpInput label="Estimasi Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
             </div>
 
             <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
-            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Dokter Klinis</span>
-            {p.dokterCustomerIds.map((cid) => {
-              const d = dokterById.get(cid);
-              return (
-                <div key={cid} className="flex items-center justify-between gap-2 rounded px-3 py-2 mb-1.5" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
-                  <span className="text-sm">{d?.namaCustomer ?? cid}</span>
-                  {p.kodeProduk && <GolonganBadge kodeCustomer={d?.kodeCustomer ?? ""} kodePI={kodePI} kodeProduk={p.kodeProduk} />}
-                  {!disabled && (
-                    <button type="button" className="text-xs shrink-0" style={{ color: "var(--color-error)" }} onClick={() => removeDokterFromProduk(idx, cid)}>Hapus</button>
-                  )}
-                </div>
-              );
-            })}
+            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Dokter User</span>
+            {p.dokterKlinis.length === 0 ? (
+              <p className="text-xs italic mb-2" style={{ color: "var(--color-text-faint)" }}>Belum ada dokter user untuk produk ini.</p>
+            ) : (
+              <div className="overflow-x-auto mb-2">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ color: "var(--color-text-faint)" }}>
+                      <th className="text-left py-1">Dokter</th>
+                      <th className="text-right py-1">Jumlah Pasien</th>
+                      <th className="text-right py-1">Resep/Pasien</th>
+                      <th className="text-right py-1">Est. Qty/bln</th>
+                      <th className="text-right py-1">Est. Sales/bln</th>
+                      <th className="text-right py-1">Entertain</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {p.dokterKlinis.map((dk) => {
+                      const d = dokterById.get(dk.customerId);
+                      const dq = (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.resepPerPasienSt) || 0);
+                      return (
+                        <tr key={dk.customerId} style={{ borderTop: "1px solid var(--color-border)" }}>
+                          <td className="py-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span>{d?.namaCustomer ?? dk.customerId}</span>
+                              {p.kodeProduk && <GolonganBadge kodeCustomer={d?.kodeCustomer ?? ""} kodePI={kodePI} kodeProduk={p.kodeProduk} />}
+                            </div>
+                          </td>
+                          <td className="py-1.5"><input type="number" className="input-field text-right w-20" value={dk.jumlahPasien} disabled={disabled} onChange={(e) => updateDokterKlinis(idx, dk.customerId, { jumlahPasien: e.target.value })} /></td>
+                          <td className="py-1.5"><input type="number" className="input-field text-right w-20" value={dk.resepPerPasienSt} disabled={disabled} onChange={(e) => updateDokterKlinis(idx, dk.customerId, { resepPerPasienSt: e.target.value })} /></td>
+                          <td className="py-1.5 text-right">{dq ? dq.toLocaleString("id-ID") : "-"}</td>
+                          <td className="py-1.5 text-right">{formatRp(dq * hst)}</td>
+                          <td className="py-1.5">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              className="input-field text-right w-24"
+                              value={dk.entertainRp ? Number(dk.entertainRp).toLocaleString("id-ID") : ""}
+                              placeholder="0"
+                              disabled={disabled}
+                              onChange={(e) => updateDokterKlinis(idx, dk.customerId, { entertainRp: e.target.value.replace(/\D/g, "") })}
+                            />
+                          </td>
+                          <td>{!disabled && <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeDokterFromProduk(idx, dk.customerId)}>✕</button>}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ borderTop: "2px solid var(--color-border-strong, var(--color-border))", fontWeight: 700 }}>
+                      <td colSpan={3} className="py-1.5">Total</td>
+                      <td className="py-1.5 text-right">{totalQty.toLocaleString("id-ID")}</td>
+                      <td className="py-1.5 text-right">{formatRp(totalSales)}</td>
+                      <td className="py-1.5 text-right">{formatRp(totalEntertain)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
             {!disabled && (
               <Combobox
                 name={`dokter-add-${idx}`}
-                options={dokterList.filter((d) => !p.dokterCustomerIds.includes(d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi }))}
+                options={dokterList.filter((d) => !p.dokterKlinis.some((dk) => dk.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi }))}
                 value=""
                 onChange={(v) => addDokterToProduk(idx, v)}
-                placeholder="+ Tambah dokter klinis…"
+                placeholder="+ Tambah dokter user…"
               />
             )}
           </Card>
@@ -999,9 +1245,8 @@ function FinalisasiPhase({
   productByKode,
   dokterList,
   dokterById,
-  distributorOptions,
-  distributorId,
-  setDistributorId,
+  distributors,
+  setDistributors,
   kpdmEntertainFinal,
   setKpdmEntertainFinal,
   updateProduk,
@@ -1015,9 +1260,8 @@ function FinalisasiPhase({
   productByKode: Map<string, Product>;
   dokterList: CustomerOption[];
   dokterById: Map<string, CustomerOption>;
-  distributorOptions: { id: string; nama: string }[];
-  distributorId: string;
-  setDistributorId: (v: string) => void;
+  distributors: string[];
+  setDistributors: React.Dispatch<React.SetStateAction<string[]>>;
   kpdmEntertainFinal: string;
   setKpdmEntertainFinal: (v: string) => void;
   updateProduk: (idx: number, patch: Partial<ProdukFormState>) => void;
@@ -1058,7 +1302,7 @@ function FinalisasiPhase({
           <span className="text-xs font-medium block mb-1">Jabatan</span>
           <div className="rounded px-3 py-2 text-sm" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>{pengajuan.jabatanNamaSnapshot ?? "-"}</div>
         </div>
-        <Input label="Entertain Final (KPDM) — Rp" type="number" value={kpdmEntertainFinal} onChange={(e) => setKpdmEntertainFinal(e.target.value)} disabled={disabled} />
+        <RpInput label="Entertain Final (KPDM)" value={kpdmEntertainFinal} onChange={setKpdmEntertainFinal} disabled={disabled} />
       </div>
 
       <div className="mb-4">
@@ -1086,12 +1330,23 @@ function FinalisasiPhase({
         </div>
       </div>
 
-      <div className="max-w-sm mb-6">
-        <span className="text-sm font-medium block mb-1">Distributor yang Akan Digunakan</span>
-        <select className="input-field w-full" value={distributorId} disabled={disabled} onChange={(e) => setDistributorId(e.target.value)}>
-          <option value="">— pilih distributor —</option>
-          {distributorOptions.map((d) => <option key={d.id} value={d.id}>{d.nama}</option>)}
-        </select>
+      <div className="mb-6">
+        <span className="text-sm font-medium block mb-2">Distributor yang Akan Digunakan</span>
+        <div className="flex gap-4">
+          {DISTRIBUTOR_OPTIONS.map((d) => (
+            <label key={d} className="flex items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={distributors.includes(d)}
+                disabled={disabled}
+                onChange={(e) =>
+                  setDistributors((prev) => (e.target.checked ? [...prev, d] : prev.filter((x) => x !== d)))
+                }
+              />
+              {d}
+            </label>
+          ))}
+        </div>
       </div>
 
       {produkList.filter((p) => p.id).map((p) => {
@@ -1108,7 +1363,7 @@ function FinalisasiPhase({
             <div className="grid grid-cols-3 gap-3 mb-4">
               <Input label="Discount Final (%)" type="number" value={p.finalDiscountPct} onChange={(e) => updateProduk(idx, { finalDiscountPct: e.target.value })} disabled={disabled} />
               <Input label="Diskon Distributor (%)" type="number" value={p.diskonDistributorPct} onChange={(e) => updateProduk(idx, { diskonDistributorPct: e.target.value })} disabled={disabled} />
-              <Input label="Biaya Listing Final (Rp)" type="number" value={p.finalBiayaListingRp} onChange={(e) => updateProduk(idx, { finalBiayaListingRp: e.target.value })} disabled={disabled} />
+              <RpInput label="Biaya Listing Final" value={p.finalBiayaListingRp} onChange={(v) => updateProduk(idx, { finalBiayaListingRp: v })} disabled={disabled} />
             </div>
 
             <span className="text-xs font-medium block mb-2">Dokter yang Akan Menjadi User</span>
@@ -1138,7 +1393,17 @@ function FinalisasiPhase({
                           <td className="py-1.5"><input type="number" className="input-field text-right w-20" value={d.resepPerPasienSt} disabled={disabled} onChange={(e) => updateDokterUser(idx, d.customerId, { resepPerPasienSt: e.target.value })} /></td>
                           <td className="py-1.5 text-right">{dq ? dq.toLocaleString("id-ID") : "-"}</td>
                           <td className="py-1.5 text-right">{formatRp(dq * hst)}</td>
-                          <td className="py-1.5"><input type="number" className="input-field text-right w-24" value={d.entertainRp} disabled={disabled} onChange={(e) => updateDokterUser(idx, d.customerId, { entertainRp: e.target.value })} /></td>
+                          <td className="py-1.5">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              className="input-field text-right w-24"
+                              value={d.entertainRp ? Number(d.entertainRp).toLocaleString("id-ID") : ""}
+                              placeholder="0"
+                              disabled={disabled}
+                              onChange={(e) => updateDokterUser(idx, d.customerId, { entertainRp: e.target.value.replace(/\D/g, "") })}
+                            />
+                          </td>
                           <td>{!disabled && <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeDokterUser(idx, d.customerId)}>✕</button>}</td>
                         </tr>
                       );
@@ -1180,11 +1445,11 @@ function RingkasanPoa({ produkList, productByKode, kpdmEntertain }: { produkList
     .map((p) => {
       const product = productByKode.get(p.kodeProduk);
       const hst = product ? hargaSTFromProduct(product) : 0;
-      const qty = (parseFloat(p.jumlahPasien) || 0) * (parseFloat(p.resepPerPasienSt) || 0);
+      const qty = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.resepPerPasienSt) || 0), 0);
       const nilai = qty * hst;
       const discountPct = parseFloat(p.estimasiDiskonPct) || 0;
       const listingRp = parseFloat(p.estimasiBiayaListingRp) || 0;
-      const entertainRp = parseFloat(p.estimasiEntertainRp) || 0;
+      const entertainRp = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.entertainRp) || 0), 0);
       const listingPct = nilai ? (listingRp / nilai) * 100 : 0;
       const entertainPct = nilai ? (entertainRp / nilai) * 100 : 0;
       const totalBudgetPct = discountPct + listingPct + entertainPct;

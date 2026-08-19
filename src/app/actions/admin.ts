@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { hashSecret } from "@/lib/secretHash";
 import { Prisma, Role, PoaStatus } from "@prisma/client";
 
 export interface AdminActionResult {
@@ -740,4 +741,46 @@ export async function searchAllPoaAction(query: string, period?: string, status?
     target: p.target ? parseFloat(p.target.toString()) : null,
     updatedAt: p.updatedAt.toISOString(),
   }));
+}
+
+// ─── /api/poa-doctors Basic Auth credential (2026-08-19) ──────────────────────
+//
+// DB-backed instead of an env var so an ADMIN can rotate it from the Admin
+// page without a redeploy — see PoaDoctorsApiCredential in schema.prisma and
+// apiBasicAuth.ts. Password is hashed (scrypt) before it ever reaches the DB;
+// the state action below deliberately never returns it, hashed or not — the
+// UI only shows whether a credential is configured, not its value.
+
+export interface PoaDoctorsApiCredentialState {
+  configured: boolean;
+  username: string | null;
+  updatedAt: string | null;
+}
+
+export async function getPoaDoctorsApiCredentialStateAction(): Promise<PoaDoctorsApiCredentialState> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return { configured: false, username: null, updatedAt: null };
+
+  const row = await prisma.poaDoctorsApiCredential.findUnique({ where: { id: 1 } });
+  if (!row) return { configured: false, username: null, updatedAt: null };
+  return { configured: true, username: row.username, updatedAt: row.updatedAt.toISOString() };
+}
+
+/** Sets/rotates the Basic Auth credential external apps use to call /api/poa-doctors. */
+export async function setPoaDoctorsApiCredentialAction(formData: FormData): Promise<AdminActionResult> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return authCheck;
+  const session = await getCurrentUser();
+
+  const username = str(formData, "username");
+  const password = str(formData, "password");
+  if (!username || !password) return { ok: false, error: "Username dan password wajib diisi." };
+
+  const { hash, salt } = hashSecret(password);
+  await prisma.poaDoctorsApiCredential.upsert({
+    where: { id: 1 },
+    update: { username, passwordHash: hash, passwordSalt: salt, updatedByNip: session?.userId },
+    create: { id: 1, username, passwordHash: hash, passwordSalt: salt, updatedByNip: session?.userId },
+  });
+  return { ok: true };
 }

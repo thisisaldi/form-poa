@@ -15,7 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
-import { hargaST } from "@/components/poa/LineItemEditor";
+import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
 import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
@@ -51,10 +51,6 @@ export async function listJabatanOptions() {
   return prisma.jabatanStandarisasi.findMany({ orderBy: { nama: "asc" }, select: { id: true, nama: true } });
 }
 
-export async function listDistributorOptions() {
-  return prisma.distributor.findMany({ where: { isActive: true }, orderBy: { nama: "asc" }, select: { id: true, nama: true } });
-}
-
 export async function findOrCreateKpdmAction(nama: string): Promise<{ id: string; nama: string; jabatanId: string | null }> {
   await requireSession();
   const trimmed = nama.trim();
@@ -87,44 +83,54 @@ export async function setKpdmJabatanAction(kpdmId: string, jabatanId: string | n
 
 // ─── Create ──────────────────────────────────────────────────────────────────
 
-export async function createPoaStandarisasiAction(formData: FormData): Promise<void> {
+/**
+ * Creates the pengajuan AND saves the full Planning Standarisasi payload in one
+ * shot (outlet, KPDM, jabatan, tipe, produk, dokter klinis) — the "new" form is
+ * literally the same Planning Standarisasi form as Phase 1 of the wizard, not a
+ * separate outlet-only pre-step (2026-08-19 redesign).
+ */
+export async function createPoaStandarisasiAction(input: PlanningInput & { kodePI: string }): Promise<void> {
   const session = await requireSession();
   // ADMIN-only while this feature is under review (2026-08-14), same
   // convention as /monitoring — bypasses the normal MR/ASM/SM/NSM
   // eligibility check below entirely until this is opened back up.
   if (session.role !== "ADMIN") redirect("/dashboard");
 
-  const kodePI = (formData.get("kodePI") as string | null)?.trim() ?? "";
-  if (!kodePI) redirect("/poa-standarisasi/new?error=" + encodeURIComponent("Outlet wajib dipilih."));
+  const kodePI = input.kodePI.trim();
+  if (!kodePI) throw new Error("Outlet wajib dipilih.");
 
   // Same eligibility as POA Estimasi (MR with an assignment, or ASM/SM/NSM
   // covering a vacant-team outlet) — resolved Q3, docs/poa-standarisasi/01-business-rules.md §7.
   if (!(await canCreatePoa(session.userId))) redirect("/dashboard?error=no_outlets");
 
   const outlet = await prisma.outlet.findUnique({ where: { kodePI } });
-  if (!outlet) redirect("/poa-standarisasi/new?error=" + encodeURIComponent("Outlet tidak ditemukan."));
+  if (!outlet) throw new Error("Outlet tidak ditemukan.");
 
-  // Placeholder KPDM row — filled in properly once the wizard's Phase 1 loads
-  // (createPoaStandarisasiAction only exists to mint an id and redirect,
-  // same pattern as createPoaAction for POA Estimasi).
-  const placeholderKpdm = await prisma.kpdmStandarisasi.upsert({
-    where: { nama: "(belum diisi)" },
-    update: {},
-    create: { nama: "(belum diisi)" },
+  validatePlanningInput(input);
+
+  const kpdm = await prisma.kpdmStandarisasi.findUnique({ where: { id: input.kpdmId } });
+  if (!kpdm) throw new Error("KPDM tidak valid.");
+
+  const pengajuanId = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const pengajuan = await tx.poaStandarisasi.create({
+      data: {
+        ownerId: session.userId,
+        kodePI,
+        kpdmId: input.kpdmId,
+        kpdmNamaSnapshot: input.kpdmNama,
+        jabatanNamaSnapshot: input.jabatanNama,
+        kpdmEntertainEstimasi: toNum(input.kpdmEntertainEstimasi),
+        tipeStandarisasi: input.tipeStandarisasi,
+        periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
+        jumlahBedRs: toNum(input.jumlahBedRs) ?? outlet.jumlahBed,
+        estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,
+      },
+    });
+    await applyPlanningProduk(tx, pengajuan.id, input.produk);
+    return pengajuan.id;
   });
 
-  const pengajuan = await prisma.poaStandarisasi.create({
-    data: {
-      ownerId: session.userId,
-      kodePI,
-      kpdmId: placeholderKpdm.id,
-      kpdmNamaSnapshot: placeholderKpdm.nama,
-      tipeStandarisasi: "PERIODIC",
-      jumlahBedRs: outlet!.jumlahBed,
-    },
-  });
-
-  redirect(`/poa-standarisasi/${pengajuan.id}`);
+  redirect(`/poa-standarisasi/${pengajuanId}`);
 }
 
 // ─── Read ────────────────────────────────────────────────────────────────────
@@ -132,7 +138,6 @@ export async function createPoaStandarisasiAction(formData: FormData): Promise<v
 const detailInclude = {
   outlet: true,
   kpdm: true,
-  distributor: true,
   produk: {
     include: {
       product: true,
@@ -156,15 +161,10 @@ function serializeDetail(p: RawDetail) {
     kpdmEntertainFinal: d(p.kpdmEntertainFinal),
     outlet: { ...p.outlet },
     kpdm: p.kpdm,
-    distributor: p.distributor,
     produk: p.produk.map((prod) => ({
       ...prod,
-      resepPerPasienSt: d(prod.resepPerPasienSt),
-      estimasiQtyPerBulan: d(prod.estimasiQtyPerBulan),
-      estimasiNilaiRpPerBulan: d(prod.estimasiNilaiRpPerBulan),
       estimasiDiskonPct: d(prod.estimasiDiskonPct),
       estimasiBiayaListingRp: d(prod.estimasiBiayaListingRp),
-      estimasiEntertainRp: d(prod.estimasiEntertainRp),
       finalDiscountPct: d(prod.finalDiscountPct),
       diskonDistributorPct: d(prod.diskonDistributorPct),
       finalBiayaListingRp: d(prod.finalBiayaListingRp),
@@ -176,7 +176,13 @@ function serializeDetail(p: RawDetail) {
         qtyPerRxPasien: prod.product.qtyPerRxPasien?.toString() ?? null,
         jumlahPemberianPerHari: prod.product.jumlahPemberianPerHari?.toString() ?? null,
       },
-      dokterApproval: prod.dokterApproval,
+      dokterApproval: prod.dokterApproval.map((da) => ({
+        ...da,
+        resepPerPasienSt: d(da.resepPerPasienSt),
+        estimasiQtyPerBulan: d(da.estimasiQtyPerBulan),
+        estimasiNilaiRpPerBulan: d(da.estimasiNilaiRpPerBulan),
+        entertainRp: d(da.entertainRp),
+      })),
       dokterUser: prod.dokterUser.map((du) => ({
         ...du,
         resepPerPasienSt: d(du.resepPerPasienSt),
@@ -224,15 +230,19 @@ export async function getDokterOptionsAction(kodePI: string) {
 
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
 
+export interface PlanningDokterKlinisInput {
+  customerId: string;
+  jumlahPasien: number | string | null;
+  resepPerPasienSt: number | string | null;
+  entertainRp: number | string | null;
+}
+
 export interface PlanningProdukInput {
   id?: string;
   kodeProduk: string;
-  jumlahPasien: number | string | null;
-  resepPerPasienSt: number | string | null;
   estimasiDiskonPct: number | string | null;
   estimasiBiayaListingRp: number | string | null;
-  estimasiEntertainRp: number | string | null;
-  dokterCustomerIds: string[];
+  dokterKlinis: PlanningDokterKlinisInput[];
 }
 
 export interface PlanningInput {
@@ -280,15 +290,64 @@ async function computeEstimasiPerBulan(kodeProduk: string, jumlahPasien: number 
   return { estimasiQtyPerBulan: qty, estimasiNilaiRpPerBulan: Math.round(qty * hst) };
 }
 
+function validatePlanningInput(input: PlanningInput) {
+  if ((input.tipeStandarisasi === "PERIODIC" || input.tipeStandarisasi === "SISIPAN") && !toNum(input.periodeBulan)) {
+    throw new Error("Periode wajib diisi untuk tipe Periodic/Sisipan.");
+  }
+}
+
+/** Upserts produk + per-dokter estimasi rows for a pengajuan — shared between
+ * savePlanningAction (existing pengajuan, may delete removed produk) and
+ * createPoaStandarisasiAction (freshly created pengajuan, produk are all new). */
+async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, produk: PlanningProdukInput[]) {
+  for (const p of produk) {
+    const data = {
+      kodeProduk: p.kodeProduk,
+      estimasiDiskonPct: toNum(p.estimasiDiskonPct),
+      estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
+    };
+
+    const produkRow = p.id
+      ? await tx.poaStandarisasiProduk.update({ where: { id: p.id }, data })
+      : await tx.poaStandarisasiProduk.create({ data: { ...data, pengajuanId } });
+
+    const existingDokter = await tx.poaStandarisasiDokterApproval.findMany({ where: { produkId: produkRow.id }, select: { customerId: true } });
+    const existingSet = new Set(existingDokter.map((d) => d.customerId));
+    const wantSet = new Set(p.dokterKlinis.map((dk) => dk.customerId));
+
+    const toRemove = [...existingSet].filter((cid) => !wantSet.has(cid));
+    if (toRemove.length > 0) {
+      await tx.poaStandarisasiDokterApproval.deleteMany({ where: { produkId: produkRow.id, customerId: { in: toRemove } } });
+    }
+
+    for (const dk of p.dokterKlinis) {
+      const jumlahPasien = toNum(dk.jumlahPasien);
+      const resepPerPasienSt = toNum(dk.resepPerPasienSt);
+      const { estimasiQtyPerBulan, estimasiNilaiRpPerBulan } = await computeEstimasiPerBulan(p.kodeProduk, jumlahPasien, resepPerPasienSt);
+      const dokterData = {
+        jumlahPasien: jumlahPasien != null ? Math.round(jumlahPasien) : null,
+        resepPerPasienSt,
+        estimasiQtyPerBulan,
+        estimasiNilaiRpPerBulan,
+        entertainRp: toNum(dk.entertainRp),
+      };
+
+      if (existingSet.has(dk.customerId)) {
+        await tx.poaStandarisasiDokterApproval.updateMany({ where: { produkId: produkRow.id, customerId: dk.customerId }, data: dokterData });
+      } else {
+        await tx.poaStandarisasiDokterApproval.create({ data: { ...dokterData, produkId: produkRow.id, customerId: dk.customerId, wajib: true } });
+      }
+    }
+  }
+}
+
 export async function savePlanningAction(id: string, input: PlanningInput): Promise<void> {
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
 
-  if ((input.tipeStandarisasi === "PERIODIC" || input.tipeStandarisasi === "SISIPAN") && !toNum(input.periodeBulan)) {
-    throw new Error("Periode wajib diisi untuk tipe Periodic/Sisipan.");
-  }
+  validatePlanningInput(input);
 
   const kpdm = await prisma.kpdmStandarisasi.findUnique({ where: { id: input.kpdmId } });
   if (!kpdm) throw new Error("KPDM tidak valid.");
@@ -315,39 +374,7 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
       await tx.poaStandarisasiProduk.deleteMany({ where: { id: { in: toDelete } } });
     }
 
-    for (const p of input.produk) {
-      const jumlahPasien = toNum(p.jumlahPasien);
-      const resepPerPasienSt = toNum(p.resepPerPasienSt);
-      const { estimasiQtyPerBulan, estimasiNilaiRpPerBulan } = await computeEstimasiPerBulan(p.kodeProduk, jumlahPasien, resepPerPasienSt);
-
-      const data = {
-        kodeProduk: p.kodeProduk,
-        jumlahPasien: jumlahPasien != null ? Math.round(jumlahPasien) : null,
-        resepPerPasienSt,
-        estimasiQtyPerBulan,
-        estimasiNilaiRpPerBulan,
-        estimasiDiskonPct: toNum(p.estimasiDiskonPct),
-        estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
-        estimasiEntertainRp: toNum(p.estimasiEntertainRp),
-      };
-
-      const produkRow = p.id
-        ? await tx.poaStandarisasiProduk.update({ where: { id: p.id }, data })
-        : await tx.poaStandarisasiProduk.create({ data: { ...data, pengajuanId: id } });
-
-      const existingDokter = await tx.poaStandarisasiDokterApproval.findMany({ where: { produkId: produkRow.id }, select: { customerId: true } });
-      const existingSet = new Set(existingDokter.map((d) => d.customerId));
-      const wantSet = new Set(p.dokterCustomerIds);
-
-      const toRemove = [...existingSet].filter((cid) => !wantSet.has(cid));
-      if (toRemove.length > 0) {
-        await tx.poaStandarisasiDokterApproval.deleteMany({ where: { produkId: produkRow.id, customerId: { in: toRemove } } });
-      }
-      const toAdd = [...wantSet].filter((cid) => !existingSet.has(cid));
-      for (const customerId of toAdd) {
-        await tx.poaStandarisasiDokterApproval.create({ data: { produkId: produkRow.id, customerId, wajib: true } });
-      }
-    }
+    await applyPlanningProduk(tx, id, input.produk);
   });
 
   revalidatePath(`/poa-standarisasi/${id}`);
@@ -362,7 +389,7 @@ export async function advanceToApprovalAtasanAction(id: string): Promise<void> {
   if (pengajuan.currentPhase !== "PLANNING") throw new Error("Pengajuan sudah melewati fase Planning.");
   if (pengajuan.produk.length === 0) throw new Error("Tambahkan minimal 1 produk sebelum lanjut.");
   if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => p.dokterApproval.length === 0)) {
-    throw new Error("Setiap produk wajib punya minimal 1 dokter klinis.");
+    throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
   }
 
   await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_ATASAN" } });
@@ -462,10 +489,12 @@ export interface FinalisasiProdukInput {
 }
 
 export interface FinalisasiInput {
-  distributorId: string | null;
+  distributors: string[];
   kpdmEntertainFinal: number | string | null;
   produk: FinalisasiProdukInput[];
 }
+
+const DISTRIBUTOR_PILIHAN = ["AMS", "PPG", "MPI"] as const;
 
 export async function saveFinalisasiAction(id: string, input: FinalisasiInput): Promise<void> {
   const { actor } = await requireActor();
@@ -474,12 +503,14 @@ export async function saveFinalisasiAction(id: string, input: FinalisasiInput): 
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "FINALISASI") throw new Error("Pengajuan tidak sedang di fase Finalisasi.");
 
+  const distributors = input.distributors.filter((d): d is (typeof DISTRIBUTOR_PILIHAN)[number] => (DISTRIBUTOR_PILIHAN as readonly string[]).includes(d));
+
   const produkByKode = new Map<string, string>(pengajuan.produk.map((p: (typeof pengajuan.produk)[number]) => [p.id, p.kodeProduk] as const));
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.poaStandarisasi.update({
       where: { id },
-      data: { distributorId: input.distributorId, kpdmEntertainFinal: toNum(input.kpdmEntertainFinal) },
+      data: { distributors, kpdmEntertainFinal: toNum(input.kpdmEntertainFinal) },
     });
 
     for (const p of input.produk) {

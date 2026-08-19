@@ -6,7 +6,6 @@ import {
   getPoaStandarisasiDetail,
   listKpdmOptions,
   listJabatanOptions,
-  listDistributorOptions,
   getDokterOptionsAction,
 } from "@/app/actions/poaStandarisasi";
 import { canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
@@ -25,11 +24,10 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
 
-  const [productOptions, kpdmOptions, jabatanOptions, distributorOptions, dokterOptions, canApproveAsm, canApproveSm] = await Promise.all([
+  const [productOptions, kpdmOptions, jabatanOptions, dokterOptions, canApproveAsm, canApproveSm] = await Promise.all([
     getProducts(),
     listKpdmOptions(),
     listJabatanOptions(),
-    listDistributorOptions(),
     getDokterOptionsAction(pengajuan.kodePI),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "ASM"),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "SM"),
@@ -43,7 +41,6 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
       productOptions={productOptions}
       kpdmOptions={kpdmOptions}
       jabatanOptions={jabatanOptions}
-      distributorOptions={distributorOptions}
       dokterOptions={dokterOptions}
       canEdit={canEdit}
       canApproveAsm={canApproveAsm}

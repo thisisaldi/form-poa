@@ -1138,6 +1138,21 @@ model MaintenanceMode {
   updatedAt    DateTime @updatedAt
 }
 
+// Singleton credential for /api/poa-doctors's HTTP Basic Auth path (2026-08-19)
+// — lets an external app call that endpoint without a session cookie. DB-backed
+// instead of an env var so an ADMIN can rotate it from the Admin page without a
+// redeploy (see setPoaDoctorsApiCredentialAction, admin/page.tsx). Password
+// stored as a scrypt hash+salt (src/lib/secretHash.ts), never plaintext — same
+// singleton-row pattern as MaintenanceMode above.
+model PoaDoctorsApiCredential {
+  id           Int      @id @default(1)
+  username     String
+  passwordHash String
+  passwordSalt String
+  updatedByNip String?
+  updatedAt    DateTime @updatedAt
+}
+
 // Cross-replica mutex for in-process schedulers (see
 // salesHistoryMonthlyScheduler.ts) — multiple pods each run their own
 // setTimeout/setInterval, so without this every replica would re-run the
@@ -1186,6 +1201,15 @@ enum DokumenStandarisasiJenis {
   SP_NON_SALES
 }
 
+// Fixed set, not master data — checkbox multi-select in Finalisasi (2026-08-19,
+// replaces the old single-select Distributor master-data dropdown, which had
+// no rows and no other callers).
+enum DistributorPilihan {
+  AMS
+  PPG
+  MPI
+}
+
 model KpdmStandarisasi {
   id        String               @id @default(uuid())
   nama      String               @unique
@@ -1206,18 +1230,6 @@ model JabatanStandarisasi {
 
   kpdm      KpdmStandarisasi[]
   createdAt DateTime           @default(now())
-}
-
-// Master distributor — dropdown biasa (bukan creatable seperti KPDM/Jabatan),
-// dikelola ADMIN. Dikonfirmasi tidak ada tabel serupa lain di schema ini
-// (docs/poa-standarisasi/02-data-model.md).
-model Distributor {
-  id       String  @id @default(uuid())
-  nama     String  @unique
-  isActive Boolean @default(true)
-
-  pengajuan PoaStandarisasi[]
-  createdAt DateTime          @default(now())
 }
 
 // Header pengajuan — satu row = satu Outlet, berisi N produk.
@@ -1260,8 +1272,7 @@ model PoaStandarisasi {
 
   jadwalMeetingKft DateTime?
 
-  distributorId String?
-  distributor   Distributor? @relation(fields: [distributorId], references: [id])
+  distributors DistributorPilihan[] @default([])
 
   // Satu file untuk seluruh pengajuan (asumsi kerja, lihat
   // 01-business-rules.md §7 Q6 — belum dikonfirmasi tim bisnis).
@@ -1292,19 +1303,12 @@ model PoaStandarisasiProduk {
   // di-resolve LIVE per dokter via getSurveyRekomendasiInfo() di server
   // action (sama pola dengan PoaLineItem, yang juga tidak menyimpan FK ini).
 
-  // ── Estimasi Standarisasi (Planning) — input mentah ─────────────────────
-  jumlahPasien     Int?
-  resepPerPasienSt Decimal? @db.Decimal(10, 2)
-
-  // Nilai PER BULAN (bukan total periode, lihat 01-business-rules.md §3/§7
-  // Q4) — computed di server dari jumlahPasien × resepPerPasienSt ×
-  // hargaST(product), tidak trust dari client.
-  estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
-  estimasiNilaiRpPerBulan Decimal? @db.Decimal(18, 2)
-
+  // Jumlah Pasien/Resep per Pasien/Entertain TIDAK di sini — dipindah ke
+  // level dokter (PoaStandarisasiDokterApproval, sama pola dengan Finalisasi's
+  // PoaStandarisasiDokterUser) karena estimasinya memang berbeda per dokter,
+  // bukan satu angka gabungan per produk.
   estimasiDiskonPct      Decimal? @db.Decimal(10, 4)
   estimasiBiayaListingRp Decimal? @db.Decimal(18, 2)
-  estimasiEntertainRp    Decimal? @db.Decimal(18, 2)
 
   // ── Finalisasi Biaya ──────────────────────────────────────────────────
   finalDiscountPct     Decimal? @db.Decimal(10, 4)
@@ -1339,6 +1343,18 @@ model PoaStandarisasiDokterApproval {
 
   wajib    Boolean @default(true)
   sudahTtd Boolean @default(false)
+
+  // ── Estimasi Standarisasi (Planning) — per dokter, bukan per produk ─────
+  jumlahPasien     Int?
+  resepPerPasienSt Decimal? @db.Decimal(10, 2)
+
+  // Nilai PER BULAN (bukan total periode, lihat 01-business-rules.md §3/§7
+  // Q4) — computed di server dari jumlahPasien × resepPerPasienSt ×
+  // hargaST(product), tidak trust dari client.
+  estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
+  estimasiNilaiRpPerBulan Decimal? @db.Decimal(18, 2)
+
+  entertainRp Decimal? @db.Decimal(18, 2) // manual, tidak ada formula
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

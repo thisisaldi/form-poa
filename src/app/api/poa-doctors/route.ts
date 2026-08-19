@@ -16,7 +16,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { currentQuarter } from "@/lib/quarterUtils";
+import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
+import { verifyBasicAuth } from "@/lib/apiBasicAuth";
+import { getActivePsspByOutlets } from "@/app/actions/customer";
+import { computeActivePsspStats } from "@/lib/activePssp";
 
 function doctorKey(item: { kodePI: string | null; namaCust: string }): string {
   return `${item.kodePI ?? ""}|${item.namaCust}`;
@@ -36,8 +39,22 @@ function computeEstimasiNilaiPssp(item: { rencanaTotalBiaya: unknown; persenPssp
 }
 
 export async function GET(req: NextRequest) {
+  // Two credential paths (2026-08-19): the app's own browser calls carry a
+  // session cookie (getCurrentUser); an external app has no session, so it
+  // authenticates with HTTP Basic Auth instead, checked against the
+  // admin-managed PoaDoctorsApiCredential row (see apiBasicAuth.ts,
+  // admin/page.tsx). Either is sufficient — the DB lookup only runs when
+  // there's no session, so the app's own normal traffic pays no extra cost.
   const session = await getCurrentUser();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session) {
+    const credential = await prisma.poaDoctorsApiCredential.findUnique({ where: { id: 1 } });
+    if (!verifyBasicAuth(req, credential)) {
+      return NextResponse.json({ error: "Unauthorized" }, {
+        status: 401,
+        headers: { "WWW-Authenticate": 'Basic realm="poa-doctors"' },
+      });
+    }
+  }
 
   const nip = req.nextUrl.searchParams.get("nip")?.trim();
   if (!nip) return NextResponse.json({ error: "NIP wajib diisi." }, { status: 400 });
@@ -46,6 +63,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "User tidak ditemukan." }, { status: 404 });
 
   const quarter = currentQuarter();
+  const quarterMonths = quarterToMonths(quarter);
 
   const poas = await prisma.poaForm.findMany({
     where: { ownerId: nip, period: quarter },
@@ -75,6 +93,19 @@ export async function GET(req: NextRequest) {
   });
 
   type Poa = (typeof poas)[number];
+
+  // Estimasi Aktif per dokter (PSSP contract yang masih berjalan, terpisah
+  // dari estimasi rencana di atas yang bersumber dari PoaLineItem) — sama
+  // sumber & cara tercacah-nya dengan doctorPsspInfo di poa/[id]/page.tsx
+  // (docs/TODO.md #17, 2026-08-13): matched by kdOutlet+kdCust, diapportion
+  // ke bulan-bulan kuartal berjalan.
+  type Item = Poa["items"][number];
+  const allKodePI: string[] = poas.flatMap((poa: Poa) =>
+    poa.items.map((it: Item) => it.kodePI).filter((k: string | null): k is string => !!k)
+  );
+  const outletKodes: string[] = Array.from(new Set(allKodePI));
+  const activePsspRows = outletKodes.length > 0 ? await getActivePsspByOutlets(outletKodes) : [];
+
   const result = poas.flatMap((poa: Poa) => {
     type Doctor = {
       // First line item id encountered for this doctor — same "anchor item"
@@ -133,22 +164,33 @@ export async function GET(req: NextRequest) {
       poa.doctorApprovals.map((a: DoctorApproval) => [doctorKey(a), a.status])
     );
 
-    return [...doctorMap.entries()].map(([key, dokter]) => ({
-      uidPoa: poa.id,
-      uidCustomer: dokter.anchorItemId,
-      path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
-      approveUntil: approvalStatusByKey.get(key) ?? poa.status,
-      dokter: {
-        kodeCust: dokter.kodeCust,
-        namaCust: dokter.namaCust,
-        spesialisasi: dokter.spesialisasi,
-        kodePI: dokter.kodePI,
-        namaOutlet: dokter.namaOutlet,
-      },
-      estimasi: dokter.estimasiTotal,
-      nilaiPssp: dokter.nilaiPsspTotal,
-      produk: dokter.produk,
-    }));
+    return [...doctorMap.entries()].map(([key, dokter]) => {
+      const aktifStats = dokter.kodeCust && dokter.kodePI
+        ? computeActivePsspStats(
+            activePsspRows.filter((r) => r.kdOutlet === dokter.kodePI && r.kdCust === dokter.kodeCust),
+            quarterMonths
+          )
+        : null;
+
+      return {
+        uidPoa: poa.id,
+        uidCustomer: dokter.anchorItemId,
+        path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
+        approveUntil: approvalStatusByKey.get(key) ?? poa.status,
+        dokter: {
+          kodeCust: dokter.kodeCust,
+          namaCust: dokter.namaCust,
+          spesialisasi: dokter.spesialisasi,
+          kodePI: dokter.kodePI,
+          namaOutlet: dokter.namaOutlet,
+        },
+        estimasi: dokter.estimasiTotal,
+        nilaiPssp: dokter.nilaiPsspTotal,
+        estimasiAktif: aktifStats?.estBarisTercacah ?? 0,
+        nilaiPsspAktif: aktifStats?.nilaiTercacah ?? 0,
+        produk: dokter.produk,
+      };
+    });
   });
 
   return NextResponse.json(result);
