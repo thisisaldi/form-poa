@@ -33,9 +33,35 @@ export interface DoctorActions {
   cancelAction: (formData: FormData) => Promise<void>;
 }
 
+/**
+ * Per-doctor edit-lock + request-edit state (docs/poa-per-doctor-approval/,
+ * 2026-08-18: "tidak ada approval, request edit, dan revisi yang by draft" —
+ * this used to be one whole-draft banner at the top of poa/[id]/page.tsx;
+ * every doctor now carries its own lock/request state, same granularity as
+ * approve/reject in DoctorActions above). Computed for EVERY doctor in the
+ * draft (not filtered like DoctorActions), since the owner needs to see
+ * their own lock/request state even with zero atasan rights.
+ */
+export interface DoctorEditRequestInfo {
+  /** Role label this doctor is locked at (e.g. "SM"), null when not locked. */
+  editLockRoleLabel: string | null;
+  /** True when the most recent audit entry for this doctor is a pending REQUEST_EDIT. */
+  pendingEditRequest: boolean;
+  pendingEditRequestNote: string | null;
+  /** "Nama (Role)" of whoever a request would go to / is pending with, null if nobody has approved yet this cycle. */
+  lastApproverLabel: string | null;
+  /** Only true for the owner, only when locked and no request is already pending. */
+  canRequestEdit: boolean;
+  /** Only true for the specific person a pending request is addressed to. */
+  canRespondEditRequest: boolean;
+  requestEditAction: (formData: FormData) => Promise<void>;
+  grantEditRequestAction: () => Promise<void>;
+  declineEditRequestAction: (formData: FormData) => Promise<void>;
+}
+
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
-  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorActions,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -49,12 +75,18 @@ export function PoaDetailTabs({
    * per-doctor "Ajukan" button (docs/poa-per-doctor-approval/, OQ-2). A
    * doctor with no row yet (never submitted this cycle) is simply absent. */
   doctorStatuses?: Record<string, PoaStatus>;
+  /** kodePI|namaCust -> that doctor's own PoaDoctorApproval.version, for the
+   * "Version X" chip next to that doctor's StatusBadge. Absent key means
+   * never submitted this cycle (no chip shown). */
+  doctorVersions?: Record<string, number>;
   /** kodePI|namaCust -> this viewer's approve/reject/fast-track/cancel rights
    * + bound server actions for that one doctor (2026-08-14: merged into the
    * doctor row instead of a separate "Tindakan Per Dokter" list — see
    * poa/[id]/page.tsx). Absent key means no atasan action available for that
    * doctor to this viewer. */
   doctorActions?: Record<string, DoctorActions>;
+  /** kodePI|namaCust -> that doctor's edit-lock/request-edit state, computed for every doctor. */
+  doctorEditRequests?: Record<string, DoctorEditRequestInfo>;
   activePssp?: ActivePsspRow[];
   /** Per-outlet stats for "Informasi PSSP Outlet" dropdown (2026-08-10) —
    * server-computed in poa/[id]/page.tsx, batched once (not per-row). */
@@ -165,7 +197,9 @@ export function PoaDetailTabs({
               salesSummary={salesSummary}
               targetArea={targetArea}
               doctorStatuses={doctorStatuses}
+              doctorVersions={doctorVersions}
               doctorActions={doctorActions}
+              doctorEditRequests={doctorEditRequests}
             />
           )}
         </div>

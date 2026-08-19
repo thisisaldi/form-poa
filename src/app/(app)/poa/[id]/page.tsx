@@ -2,17 +2,19 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canFastTrackApprove, canCancelApproved, getEditLockRoleLabel, canRequestEdit, canRespondEditRequest, getLastApprover, getSubordinateMRNips, NON_DRAFT_STATUSES,
-  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor } from "@/lib/authz";
+import { canView, canEdit, canEditDoctor, getSubordinateMRNips, NON_DRAFT_STATUSES,
+  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor,
+  canRequestEditDoctor, canRespondEditRequestDoctor, getEditLockRoleLabelForDoctor, getLastApproverForDoctor } from "@/lib/authz";
 import { computeMonthlyBreakdown, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
-import { requestEditAction, grantEditRequestAction, declineEditRequestAction,
-  approveDoctorAction, rejectDoctorAction, fastTrackApproveDoctorAction, cancelApprovedByNsmDoctorAction } from "@/app/actions/poa";
+import {
+  approveDoctorAction, rejectDoctorAction, fastTrackApproveDoctorAction, cancelApprovedByNsmDoctorAction,
+  requestEditDoctorAction, grantEditRequestDoctorAction, declineEditRequestDoctorAction } from "@/app/actions/poa";
 import type { PoaDoctorApproval } from "@prisma/client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { PoaDetailTabs, type DoctorActions } from "@/components/poa/PoaDetailTabs";
+import { Card } from "@/components/ui/Card";
+import { PoaDetailTabs, type DoctorActions, type DoctorEditRequestInfo } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
 import { computeKontesProductTargetsSummary } from "@/lib/targetCalculation";
 import { displayRole } from "@/lib/role";
@@ -83,12 +85,6 @@ export default async function PoaDetailPage({
   if (!hasAccess) redirect("/dashboard");
 
   const userCanEdit = await canEdit(actor, poa);
-  // Lock Edit Logic (2026-07-27): only worth explaining to roles that could
-  // otherwise have edited (MR/ASM/SM/NSM) — GM/SFE/ADMIN never hit this path
-  // (GM is always read-only, ADMIN always passes canEdit regardless).
-  const editLockRoleLabel = !userCanEdit && (["MR", "ASM", "SM", "NSM"] as string[]).includes(session.role)
-    ? await getEditLockRoleLabel(poa)
-    : null;
 
   // Per-doctor approval (docs/poa-per-doctor-approval/, 2026-08-13) — build
   // one row per doctor in this draft (from its line items), joined with its
@@ -105,20 +101,73 @@ export default async function PoaDetailPage({
   const doctorStatuses: Record<string, PoaStatus> = Object.fromEntries(
     [...doctorApprovalByKey.entries()].map(([key, a]) => [key, a.status])
   );
+  // Same twin, just the version — feeds the "Version X" chip next to each
+  // doctor's own StatusBadge (per-doctor now, not one whole-draft badge —
+  // see DraftChecklist's DoctorRow).
+  const doctorVersions: Record<string, number> = Object.fromEntries(
+    [...doctorApprovalByKey.entries()].map(([key, a]) => [key, a.version])
+  );
   const doctorKeysInDraft = new Map<string, { kodePI: string; namaCust: string }>();
   for (const it of poa.items as PoaLineItem[]) {
     if (!it.kodePI) continue;
     doctorKeysInDraft.set(`${it.kodePI}|${it.namaCust}`, { kodePI: it.kodePI, namaCust: it.namaCust });
   }
+  const isOwnerEarly = poa.ownerId === session.userId;
+  // Audit logs grouped by doctorApprovalId (already fetched, ascending by
+  // createdAt) — used below to detect each doctor's own pending edit request
+  // without a fresh query per doctor.
+  const auditLogsByDoctorApprovalId = new Map<string, typeof poa.auditLogs>();
+  for (const log of poa.auditLogs) {
+    if (!log.doctorApprovalId) continue;
+    const arr = auditLogsByDoctorApprovalId.get(log.doctorApprovalId) ?? [];
+    arr.push(log);
+    auditLogsByDoctorApprovalId.set(log.doctorApprovalId, arr);
+  }
+
   const doctorRows = await Promise.all(
     [...doctorKeysInDraft.values()].map(async ({ kodePI, namaCust }) => {
       const approval = doctorApprovalByKey.get(`${kodePI}|${namaCust}`) ?? null;
       const canApproveThis = approval ? canApproveDoctor(actor, approval) : false;
       const canFastTrackThis = approval ? await canFastTrackApproveDoctor(actor, poa, approval) : false;
       const canCancelThis = approval ? await canCancelApprovedDoctor(actor, poa, approval) : false;
-      return { kodePI, namaCust, approval, canApproveThis, canFastTrackThis, canCancelThis };
+
+      // Per-doctor edit request (docs/poa-per-doctor-approval/, 2026-08-18:
+      // "tidak ada approval, request edit, dan revisi yang by draft" — this
+      // used to be one whole-draft banner at the top of the page; now every
+      // doctor has its own lock/request-edit state, same as approve/reject.
+      const editLockRoleLabelThis = !canApproveThis && (["MR", "ASM", "SM", "NSM"] as string[]).includes(session.role)
+        ? await getEditLockRoleLabelForDoctor(poa, approval)
+        : null;
+      const userCanEditThis = await canEditDoctor(actor, poa, approval);
+      const canRequestEditThis = isOwnerEarly && !userCanEditThis && (await canRequestEditDoctor(actor, poa, approval));
+      const logsForDoctor = approval ? auditLogsByDoctorApprovalId.get(approval.id) ?? [] : [];
+      const lastLogForDoctor = logsForDoctor[logsForDoctor.length - 1];
+      const pendingEditRequestThis = lastLogForDoctor?.action === "REQUEST_EDIT";
+      const lastApproverThis = (canRequestEditThis || pendingEditRequestThis) && approval
+        ? await getLastApproverForDoctor(approval.id)
+        : null;
+      const canRespondEditRequestThis = pendingEditRequestThis && approval
+        ? await canRespondEditRequestDoctor(actor, approval)
+        : false;
+
+      return {
+        kodePI, namaCust, approval, canApproveThis, canFastTrackThis, canCancelThis,
+        editLockRoleLabelThis, canRequestEditThis, pendingEditRequestThis, lastApproverThis, canRespondEditRequestThis,
+        pendingEditRequestNote: pendingEditRequestThis && lastLogForDoctor?.snapshot && typeof lastLogForDoctor.snapshot === "object" && "notes" in lastLogForDoctor.snapshot
+          ? (lastLogForDoctor.snapshot as { notes?: string }).notes ?? null
+          : null,
+      };
     })
   );
+
+  // Batch-resolve names for every doctor's last-approver, instead of one
+  // findUnique per doctor (docs/PERFORMANCE.md — batch, don't query in a loop).
+  const approverNips = [...new Set(doctorRows.map((d) => d.lastApproverThis?.actorId).filter((v): v is string => !!v))];
+  const approverUsers = approverNips.length > 0
+    ? await prisma.user.findMany({ where: { nip: { in: approverNips } }, select: { nip: true, name: true } })
+    : [];
+  const approverNameByNip = new Map(approverUsers.map((u: { nip: string; name: string }) => [u.nip, u.name]));
+
   // Atasan actions (approve/reject/fast-track/cancel), keyed the same way as
   // doctorStatuses so DraftChecklist's DoctorRow can render them inline in
   // the same row instead of a separate "Tindakan Per Dokter" list (2026-08-14
@@ -140,34 +189,32 @@ export default async function PoaDetailPage({
       }])
   );
 
-  const isMR = session.role === "MR";
+  // Per-doctor edit-lock/request-edit info — computed for EVERY doctor (not
+  // filtered like doctorActions above), since the owner needs to see their
+  // own lock/request state even when they have zero atasan rights.
+  const doctorEditRequests: Record<string, DoctorEditRequestInfo> = Object.fromEntries(
+    doctorRows.map((d) => [`${d.kodePI}|${d.namaCust}`, {
+      editLockRoleLabel: d.editLockRoleLabelThis,
+      pendingEditRequest: d.pendingEditRequestThis,
+      pendingEditRequestNote: d.pendingEditRequestNote,
+      lastApproverLabel: d.lastApproverThis
+        ? `${approverNameByNip.get(d.lastApproverThis.actorId) ?? d.lastApproverThis.actorId} (${displayRole(d.lastApproverThis.role)})`
+        : null,
+      canRequestEdit: d.canRequestEditThis,
+      canRespondEditRequest: d.canRespondEditRequestThis,
+      requestEditAction: requestEditDoctorAction.bind(null, id, d.kodePI, d.namaCust),
+      grantEditRequestAction: grantEditRequestDoctorAction.bind(null, id, d.kodePI, d.namaCust),
+      declineEditRequestAction: declineEditRequestDoctorAction.bind(null, id, d.kodePI, d.namaCust),
+    }])
+  );
+
   // Whoever owns this POA drives the submit/checklist UI — normally an MR, but
   // an ASM/SM/NSM can own one themselves when their team is vacant (see
-  // canCreatePoa in authz.ts). isMR alone would wrongly hide those controls.
-  const isOwner = poa.ownerId === session.userId;
+  // canCreatePoa in authz.ts).
+  const isOwner = isOwnerEarly;
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
   const isRevisi = poa.status === "REVISI";
-
-  // Edit request (2026-07-28): once locked out (someone above has already
-  // approved this cycle), the owner can ask that last approver — whoever
-  // approved most recently, e.g. the SM if it's already past them and
-  // sitting with NSM — to unlock editing, instead of just waiting for a
-  // spontaneous Reject/Cancel. The most recent audit log entry being
-  // REQUEST_EDIT is the "pending" signal (no separate stored flag).
-  const userCanRequestEdit = isOwner && !userCanEdit && (await canRequestEdit(actor, poa));
-  const lastAuditLog = poa.auditLogs[poa.auditLogs.length - 1];
-  const pendingEditRequest = lastAuditLog?.action === "REQUEST_EDIT";
-  // Needed both to label the "Ajukan Edit ke X" button before a request
-  // exists, and to show who a pending request is waiting on afterward.
-  const lastApprover = (userCanRequestEdit || pendingEditRequest) ? await getLastApprover(poa.id) : null;
-  const lastApproverUser = lastApprover
-    ? await prisma.user.findUnique({ where: { nip: lastApprover.actorId } })
-    : null;
-  const userCanRespondEditRequest = pendingEditRequest && (await canRespondEditRequest(actor, poa));
-  const requestEditWithId = requestEditAction.bind(null, id);
-  const grantEditRequestWithId = grantEditRequestAction.bind(null, id);
-  const declineEditRequestWithId = declineEditRequestAction.bind(null, id);
 
   const allItems = (poa as typeof poa & { items: PoaLineItem[] }).items;
   const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -405,76 +452,11 @@ export default async function PoaDetailPage({
         </a>
       </div>
 
-      {editLockRoleLabel && (
-        <div className="rounded-md px-4 py-3 text-sm font-medium space-y-3"
-          style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #f59e0b)" }}>
-          <p>
-            POA ini terkunci untuk diedit - sudah ada tindakan (approve/edit) dari level {displayRole(editLockRoleLabel)} ke atas.
-            {" "}
-            {pendingEditRequest
-              ? "Menunggu persetujuan permintaan edit di bawah ini."
-              : "Tunggu sampai direject/dibatalkan, atau ajukan permintaan edit di bawah ini."}
-          </p>
-          {pendingEditRequest && isOwner && (
-            <p className="font-normal">
-              Menunggu persetujuan {lastApproverUser ? `${lastApproverUser.name} (${displayRole(lastApprover?.role ?? "")})` : "atasan"} untuk membuka kembali akses edit.
-            </p>
-          )}
-          {userCanRequestEdit && !pendingEditRequest && (
-            <form action={requestEditWithId} className="space-y-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-normal">
-                  Alasan permintaan edit (opsional) — akan dikirim ke {lastApprover ? displayRole(lastApprover.role) : "atasan"} yang terakhir approve
-                </span>
-                <textarea
-                  name="reason"
-                  rows={2}
-                  placeholder="mis. ada koreksi jumlah/estimasi yang perlu diperbaiki…"
-                  className="input-field text-sm" />
-              </label>
-              <Button type="submit" size="sm" variant="secondary">
-                Ajukan Edit{lastApprover ? ` ke ${displayRole(lastApprover.role)}` : ""}
-              </Button>
-            </form>
-          )}
-        </div>
-      )}
-
-      {/* Permintaan edit dari owner — hanya muncul untuk approver terakhir yang dituju */}
-      {userCanRespondEditRequest && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Permintaan Edit</CardTitle>
-          </CardHeader>
-          <p className="text-sm mb-3" style={{ color: "var(--color-text-muted)" }}>
-            {poa.owner.name} meminta izin untuk mengedit kembali POA ini yang sudah Anda setujui.
-            {lastAuditLog?.snapshot && typeof lastAuditLog.snapshot === "object" && "notes" in lastAuditLog.snapshot && lastAuditLog.snapshot.notes
-              ? ` Alasan: "${lastAuditLog.snapshot.notes}"`
-              : ""}
-          </p>
-          <div className="flex flex-wrap items-center gap-3 mb-4">
-            <form action={grantEditRequestWithId}>
-              <Button type="submit" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
-                Setujui Permintaan Edit (kembali ke Revisi)
-              </Button>
-            </form>
-          </div>
-          <form action={declineEditRequestWithId} className="pt-3 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Menolak</span>
-              <textarea
-                name="reason"
-                required
-                rows={2}
-                placeholder="Jelaskan alasan menolak permintaan edit ini…"
-                className="input-field text-sm" />
-            </label>
-            <Button type="submit" variant="danger">
-              Tolak Permintaan Edit
-            </Button>
-          </form>
-        </Card>
-      )}
+      {/* Edit-lock / request-edit is per-doctor now (docs/poa-per-doctor-approval/,
+          2026-08-18) — rendered inline in each doctor's own row inside
+          PoaDetailTabs/DraftChecklist via doctorEditRequests below, same
+          pattern as the per-doctor Approval panel. Nothing to render at this
+          whole-draft level anymore. */}
 
       {/* Drafting / Produk Kontes / History PSSP Aktif tabs */}
       <PoaDetailTabs
@@ -487,7 +469,9 @@ export default async function PoaDetailPage({
         userCanEdit={userCanEdit}
         selectable={isOwner}
         doctorStatuses={doctorStatuses}
+        doctorVersions={doctorVersions}
         doctorActions={doctorActions}
+        doctorEditRequests={doctorEditRequests}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}
         doctorPsspInfo={doctorPsspInfo}
@@ -560,7 +544,7 @@ export default async function PoaDetailPage({
                     )}
                     {snapshot?.notes && (
                       <p className="mt-1 text-xs italic" style={{ color: "var(--color-text-muted)" }}>
-                        "{snapshot.notes}"
+                        &quot;{snapshot.notes}&quot;
                       </p>
                     )}
                     {hasDetail && (

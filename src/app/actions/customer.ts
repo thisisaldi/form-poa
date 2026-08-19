@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { getVisitCountByCustomerOutlet, lastNMonthsRange } from "@/lib/exodusApi";
+import { nexusAuthHeaders } from "@/lib/nexusAuth";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -595,7 +596,7 @@ async function fetchNexusCustomersByOutlet(kodePI: string): Promise<NexusCustome
     const timeout = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(
       `https://api-nexus.pharos.id/api/r/poa/get_customer_by_outlet?outlet_code=${encodeURIComponent(kodePI)}`,
-      { signal: controller.signal }
+      { signal: controller.signal, headers: nexusAuthHeaders() }
     );
     clearTimeout(timeout);
     if (!res.ok) return [];

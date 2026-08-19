@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import type { PoaForm, PoaLineItem, User } from "@prisma/client";
+import type { PoaDoctorApproval, PoaForm, PoaLineItem, User } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -13,11 +12,11 @@ import {
   computeDummyTarget, computeDummySales,
 } from "@/components/poa/DraftChecklist";
 import type { ActivePsspRow } from "@/app/actions/customer";
-import { bulkApprovePoaAction } from "@/app/actions/poa";
 
 export interface PendingPoaRow extends PoaForm {
   owner: User;
   items: PoaLineItem[];
+  doctorApprovals: PoaDoctorApproval[];
 }
 
 // ─── MR row ─────────────────────────────────────────────────────────────────
@@ -25,6 +24,13 @@ export interface PendingPoaRow extends PoaForm {
 function MrRow({ poa, checked, onToggle }: { poa: PendingPoaRow; checked: boolean; onToggle: () => void }) {
   const est = poa.items.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
   const doctorCount = new Set(poa.items.map(doctorKey)).size;
+  // Per-doctor approve progress (2026-08-19 bug fix follow-up: "di samping
+  // button review ada count berapa yang belum approve dan yang sudah") —
+  // "disetujui" = fully approved to the end (APPROVED_BY_NSM); everything
+  // else (still mid-chain, in REVISI, or not yet submitted at all) counts as
+  // belum, regardless of which stage it's stuck at.
+  const approvedCount = poa.doctorApprovals.filter((a) => a.status === "APPROVED_BY_NSM").length;
+  const belumCount = doctorCount - approvedCount;
 
   return (
     <div className="flex items-center gap-3 py-3 px-2 rounded-lg" style={{ opacity: checked ? 1 : 0.5 }}>
@@ -51,6 +57,11 @@ function MrRow({ poa, checked, onToggle }: { poa: PendingPoaRow; checked: boolea
           <p className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
             {doctorCount} user · {est > 0 ? formatRp(est) : "-"}
           </p>
+          <p className="text-xs mt-0.5">
+            <span style={{ color: "var(--color-status-approved)" }}>{approvedCount} disetujui</span>
+            <span style={{ color: "var(--color-text-faint)" }}> · </span>
+            <span style={{ color: "var(--color-status-pending)" }}>{belumCount} belum</span>
+          </p>
         </div>
         <Link href={`/poa/${poa.id}`}>
           <Button size="sm" variant="secondary">Review</Button>
@@ -62,39 +73,13 @@ function MrRow({ poa, checked, onToggle }: { poa: PendingPoaRow; checked: boolea
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function ApprovalsChecklist({ pending, activePssp = [], actorRole }: {
+export function ApprovalsChecklist({ pending, activePssp = [] }: {
   pending: PendingPoaRow[];
   /** Still-active PSSP contracts for the doctors across all pending POAs, for the ringkasan. */
   activePssp?: ActivePsspRow[];
-  /** Bulk-approve is only offered to SM/NSM — see bulkApprovePoaAction. */
-  actorRole?: string;
 }) {
-  const router = useRouter();
   const allKeys = useMemo(() => pending.map((p) => p.id), [pending]);
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allKeys));
-  const [bulkApproving, setBulkApproving] = useState(false);
-  const [bulkResult, setBulkResult] = useState<{ approved: number; failed: { poaId: string; error: string }[] } | null>(null);
-
-  // Bulk approval DISABLED (docs/TODO.md — daftar 13 task 2026-08-10, item #11).
-  // Was: actorRole === "SM" || actorRole === "NSM" — kept as a comment so this is
-  // easy to re-enable, matching the flag in bulkApprovePoaAction (src/app/actions/poa.ts).
-  const canBulkApprove = false;
-
-  async function handleBulkApprove() {
-    if (checked.size === 0) return;
-    const confirmed = window.confirm(`Setujui ${checked.size} POA yang dipilih sekaligus?`);
-    if (!confirmed) return;
-
-    setBulkApproving(true);
-    setBulkResult(null);
-    try {
-      const result = await bulkApprovePoaAction([...checked]);
-      setBulkResult(result);
-      router.refresh();
-    } finally {
-      setBulkApproving(false);
-    }
-  }
 
   function toggle(id: string) {
     setChecked((prev) => {
@@ -162,9 +147,7 @@ export function ApprovalsChecklist({ pending, activePssp = [], actorRole }: {
             <div>
               <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Daftar MR</p>
               <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                {canBulkApprove
-                  ? "Centang MR yang ingin disetujui atau dihitung statistiknya"
-                  : "Centang MR yang ingin dihitung statistiknya"}
+                Centang MR yang ingin dihitung statistiknya. Klik &quot;Review&quot; untuk approve/reject per dokter.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -176,33 +159,8 @@ export function ApprovalsChecklist({ pending, activePssp = [], actorRole }: {
               >
                 {allChecked ? "Unselect All" : "Select All"}
               </button>
-              {canBulkApprove && (
-                <Button
-                  size="sm"
-                  onClick={handleBulkApprove}
-                  disabled={checked.size === 0 || bulkApproving}
-                >
-                  {bulkApproving ? "Menyetujui..." : `Approve Terpilih (${checked.size})`}
-                </Button>
-              )}
             </div>
           </div>
-
-          {bulkResult && (
-            <div
-              className="mb-3 text-xs px-3 py-2 rounded-md"
-              style={{
-                background: bulkResult.failed.length > 0 ? "var(--color-error-bg)" : "var(--color-green-light)",
-                color: bulkResult.failed.length > 0 ? "var(--color-error)" : "var(--color-green)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              {bulkResult.approved} POA berhasil disetujui.
-              {bulkResult.failed.length > 0 && (
-                <> {bulkResult.failed.length} gagal: {bulkResult.failed.map((f) => f.error).join(", ")}</>
-              )}
-            </div>
-          )}
 
           <div className="space-y-0.5">
             {pending.map((poa) => (

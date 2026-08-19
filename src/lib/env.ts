@@ -34,6 +34,14 @@ const envSchema = z.object({
   // unset, same pattern as EXODUS_* above.
   GOOGLE_SERVICE_ACCOUNT_KEY: z.string().optional(),
   GOOGLE_DRIVE_SURVEY_FOLDER_ID: z.string().optional(),
+  // Optional — Nexus API (api-nexus.pharos.id) now requires HTTP Basic Auth
+  // (2026-08-18) — used by fetchNexusCustomersByOutlet (customer.ts) and
+  // outletSync.ts's per-NIP outlet fetch. Same degrade-gracefully pattern as
+  // EXODUS_*/GOOGLE_* above: unset means requests go out unauthenticated
+  // (will just get 401'd by Nexus, treated as "no data" by the existing
+  // try/catch — never a hard failure), not an env validation error.
+  NEXUS_API_USERNAME: z.string().optional(),
+  NEXUS_API_PASSWORD: z.string().optional(),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
@@ -72,6 +80,8 @@ function validateEnv(): Env {
         EXODUS_API_BASE_URL: undefined,
         GOOGLE_SERVICE_ACCOUNT_KEY: undefined,
         GOOGLE_DRIVE_SURVEY_FOLDER_ID: undefined,
+        NEXUS_API_USERNAME: undefined,
+        NEXUS_API_PASSWORD: undefined,
         NODE_ENV: (process.env.NODE_ENV as Env["NODE_ENV"]) ?? "production",
       };
     }

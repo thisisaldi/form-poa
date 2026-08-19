@@ -17,6 +17,7 @@ import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import { prisma } from "../src/lib/prisma";
+import { nexusAuthHeaders } from "../src/lib/nexusAuth";
 
 const NEXUS_BASE = "https://api-nexus.pharos.id/api/r/poa";
 const CONCURRENCY = 10;
@@ -25,7 +26,7 @@ interface NexusOutlet { code: string; name: string }
 interface NexusEmployee { nip: string; nama: string; position: string }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: nexusAuthHeaders() });
   if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }

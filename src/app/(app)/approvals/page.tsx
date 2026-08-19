@@ -26,6 +26,7 @@ export default async function ApprovalsPage() {
     include: {
       owner: true,
       items: { orderBy: { createdAt: "asc" } },
+      doctorApprovals: true,
     },
     orderBy: { updatedAt: "asc" },
   });
@@ -57,7 +58,7 @@ export default async function ApprovalsPage() {
           </div>
         </Card>
       ) : (
-        <ApprovalsChecklist pending={pending} activePssp={activePssp} actorRole={actor.role} />
+        <ApprovalsChecklist pending={pending} activePssp={activePssp} />
       )}
     </div>
   );

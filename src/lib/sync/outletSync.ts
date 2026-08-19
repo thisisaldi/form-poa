@@ -20,6 +20,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { nexusAuthHeaders } from "@/lib/nexusAuth";
 
 const NEXUS_BASE = "https://api-nexus.pharos.id/api/r/poa";
 const CONCURRENCY = 10;
@@ -55,6 +56,7 @@ async function fetchOutletsForNip(nip: string, attempt = 0): Promise<NexusOutlet
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const res = await fetch(`${NEXUS_BASE}/get_outlet_by_nip?nip=${encodeURIComponent(nip)}`, {
       signal: controller.signal,
+      headers: nexusAuthHeaders(),
     });
     clearTimeout(timeout);
     if (!res.ok) {

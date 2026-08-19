@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
 import { submitPoaWithSelectionAction, submitDoctorAction } from "@/app/actions/poa";
-import type { DoctorActions } from "@/components/poa/PoaDetailTabs";
+import type { DoctorActions, DoctorEditRequestInfo } from "@/components/poa/PoaDetailTabs";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
@@ -17,6 +17,7 @@ import { computeActivePsspStats, apportion } from "@/lib/activePssp";
 import { computeMonthlyBreakdown, formatPeriode, formatPeriodeRange, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
 import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
 import { formatCurrency } from "@/lib/format";
+import { displayRole } from "@/lib/role";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -707,7 +708,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorActions,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -734,8 +735,12 @@ function DoctorRow({
   showSubmit?: boolean;
   /** This doctor's own PoaDoctorApproval.status — undefined means never submitted this cycle. */
   doctorStatus?: PoaStatus;
+  /** This doctor's own PoaDoctorApproval.version — feeds the "Version X" chip next to its StatusBadge. */
+  doctorVersion?: number;
   /** This viewer's atasan actions for this doctor — see DraftChecklist's own prop doc. */
   doctorActions?: DoctorActions;
+  /** This doctor's edit-lock/request-edit state — see DraftChecklist's own prop doc. */
+  doctorEditRequest?: DoctorEditRequestInfo;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -959,6 +964,12 @@ function DoctorRow({
         </div>
 
         <div className="flex flex-col items-end gap-1 shrink-0">
+          {/* Per-doctor status (docs/poa-per-doctor-approval/, 2026-08-18) —
+              approval is per-doctor now, not per-draft, so the badge belongs
+              here rather than as one whole-draft summary at the checklist
+              header. Undefined doctorStatus means no PoaDoctorApproval row
+              yet this cycle, same DRAFT state the rollup treats it as. */}
+          <StatusBadge status={doctorStatus ?? "DRAFT"} version={doctorVersion} />
           <p className="text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
             {doctorItems.length} produk
           </p>
@@ -1049,6 +1060,77 @@ function DoctorRow({
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setDoctorSubmitOpen(false)}>Batal</Button>
           </div>
+        </div>
+      )}
+
+      {/* Edit-lock / request-edit — per doctor (docs/poa-per-doctor-approval/,
+          2026-08-18: "tidak ada approval, request edit, dan revisi yang by
+          draft" — used to be one whole-draft banner at the top of
+          poa/[id]/page.tsx, now scoped to this one doctor). Always visible
+          when relevant, not behind the "Approval" toggle below, since it
+          concerns the OWNER (locked out) as much as the atasan (responding). */}
+      {doctorEditRequest?.editLockRoleLabel && (
+        <div className="mt-2.5 rounded-lg px-3 py-2.5 text-xs font-medium space-y-2"
+          style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #f59e0b)" }}>
+          <p>
+            Dokter ini terkunci untuk diedit — sudah ada tindakan (approve/edit) dari level {displayRole(doctorEditRequest.editLockRoleLabel)} ke atas.
+            {" "}
+            {doctorEditRequest.pendingEditRequest
+              ? "Menunggu persetujuan permintaan edit di bawah ini."
+              : "Tunggu sampai direject/dibatalkan, atau ajukan permintaan edit di bawah ini."}
+          </p>
+          {doctorEditRequest.pendingEditRequest && (
+            <p className="font-normal">
+              Menunggu persetujuan {doctorEditRequest.lastApproverLabel ?? "atasan"} untuk membuka kembali akses edit.
+            </p>
+          )}
+          {doctorEditRequest.canRequestEdit && !doctorEditRequest.pendingEditRequest && (
+            <form action={doctorEditRequest.requestEditAction} className="space-y-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-normal">
+                  Alasan permintaan edit (opsional) — akan dikirim ke {doctorEditRequest.lastApproverLabel ?? "atasan"} yang terakhir approve
+                </span>
+                <textarea
+                  name="reason"
+                  rows={2}
+                  placeholder="mis. ada koreksi jumlah/estimasi yang perlu diperbaiki…"
+                  className="input-field text-xs" />
+              </label>
+              <Button type="submit" size="sm" variant="secondary">
+                Ajukan Edit{doctorEditRequest.lastApproverLabel ? ` ke ${doctorEditRequest.lastApproverLabel}` : ""}
+              </Button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Permintaan edit dari MR — hanya muncul untuk approver terakhir yang dituju */}
+      {doctorEditRequest?.canRespondEditRequest && (
+        <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-blue)" }}>
+          <p className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Permintaan Edit</p>
+          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            {censorName(first.namaCust)} — MR meminta izin untuk mengedit kembali dokter ini yang sudah Anda setujui.
+            {doctorEditRequest.pendingEditRequestNote ? ` Alasan: "${doctorEditRequest.pendingEditRequestNote}"` : ""}
+          </p>
+          <form action={doctorEditRequest.grantEditRequestAction}>
+            <Button type="submit" size="sm" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+              Setujui Permintaan Edit (kembali ke Revisi)
+            </Button>
+          </form>
+          <form action={doctorEditRequest.declineEditRequestAction} className="pt-2 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Menolak</span>
+              <textarea
+                name="reason"
+                required
+                rows={2}
+                placeholder="Jelaskan alasan menolak permintaan edit ini…"
+                className="input-field text-xs" />
+            </label>
+            <Button type="submit" size="sm" variant="danger">
+              Tolak Permintaan Edit
+            </Button>
+          </form>
         </div>
       )}
 
@@ -1197,7 +1279,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorActions = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1246,10 +1328,16 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
    * per-doctor "Ajukan" button (docs/poa-per-doctor-approval/, OQ-2) — see
    * PoaDetailTabs' own prop doc. Absent key means never submitted this cycle. */
   doctorStatuses?: Record<string, PoaStatus>;
+  /** kodePI|namaCust -> that doctor's own PoaDoctorApproval.version, for the
+   * "Version X" chip next to that doctor's StatusBadge — see PoaDetailTabs'
+   * own prop doc. */
+  doctorVersions?: Record<string, number>;
   /** kodePI|namaCust -> this viewer's atasan actions for that one doctor
    * (approve/reject/fast-track/cancel) — see PoaDetailTabs' own prop doc.
    * Absent key means nothing to show for that doctor to this viewer. */
   doctorActions?: Record<string, DoctorActions>;
+  /** kodePI|namaCust -> that doctor's edit-lock/request-edit state — see PoaDetailTabs' own prop doc. Computed for every doctor. */
+  doctorEditRequests?: Record<string, DoctorEditRequestInfo>;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -1366,7 +1454,11 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {poaStatus && <StatusBadge status={poaStatus} version={poaVersion} />}
+              {/* No whole-draft StatusBadge here anymore (docs/poa-per-doctor-approval/,
+                  2026-08-18) — approval is per-doctor now, poaStatus is only a
+                  best-effort rollup (resolvePoaRollup in poaWorkflow.ts) that
+                  can't represent a draft with doctors at different stages.
+                  Each DoctorRow below shows its own real status instead. */}
               {canEditNow && poaId && (
                 <Link href={`/poa/${poaId}/edit`}
                   className="text-xs px-2.5 py-1 rounded-md font-medium"
@@ -1405,7 +1497,9 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 doctorPsspInfo={doctorPsspInfo[key]}
                 showSubmit={showSubmit}
                 doctorStatus={doctorStatuses[key]}
+                doctorVersion={doctorVersions[key]}
                 doctorActions={doctorActions[key]}
+                doctorEditRequest={doctorEditRequests[key]}
               />
             ))}
           </div>

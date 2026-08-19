@@ -17,6 +17,7 @@
 
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
+import { nexusAuthHeaders } from "../src/lib/nexusAuth";
 
 const NEXUS_BASE = "https://api-nexus.pharos.id/api/r/poa";
 const CONCURRENCY = 10;
@@ -37,7 +38,7 @@ async function fetchNexusWithStatus(kodePI: string): Promise<{ ok: boolean; list
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
     const res = await fetch(
       `${NEXUS_BASE}/get_customer_by_outlet?outlet_code=${encodeURIComponent(kodePI)}`,
-      { signal: controller.signal }
+      { signal: controller.signal, headers: nexusAuthHeaders() }
     );
     clearTimeout(timeout);
     if (!res.ok) return { ok: false, list: [] };

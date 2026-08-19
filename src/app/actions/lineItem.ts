@@ -4,13 +4,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canEdit } from "@/lib/authz";
+import { canEditDoctor } from "@/lib/authz";
 import { flagRevisionOnEditDoctor } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
 import { isWriteBlocked } from "@/lib/maintenance";
-import { StatusStandarisasi, JenisPssp, PihakPssp, PsSp, BentukPssp, Prisma } from "@prisma/client";
+import { StatusStandarisasi, JenisPssp, PihakPssp, PsSp, BentukPssp, Prisma, type PoaForm, type User } from "@prisma/client";
 
-async function requireEditorOnPoa(poaId: string) {
+/** Session/POA fetch only — no edit-rights check yet, since that's per-doctor (see assertCanEditDoctor below) and the doctor being touched isn't always known this early (addLineItemAction resolves it partway through). */
+async function requireSessionAndPoa(poaId: string) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
   if (await isWriteBlocked(session.role)) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Sistem sedang mode view-only untuk maintenance. Coba lagi nanti."));
@@ -21,13 +22,31 @@ async function requireEditorOnPoa(poaId: string) {
   ]);
 
   if (!poa) redirect("/dashboard");
-  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
 
   return { poa, actor };
 }
 
+/**
+ * Per-doctor edit rights (2026-08-18 fix) — these 3 actions each touch ONE
+ * doctor's line item(s), but used to gate on canEdit(actor, poa), the
+ * whole-draft rollup. That meant a doctor legitimately still editable (e.g.
+ * sitting in REVISI, or never submitted this cycle) could get silently
+ * redirected away because SOME OTHER doctor in the same draft had moved
+ * further along in approval — and vice versa, a doctor already locked via
+ * approval could still get edited because the draft-level rollup said yes.
+ * canEditDoctor reads this doctor's own PoaDoctorApproval row instead.
+ */
+async function assertCanEditDoctor(poa: PoaForm, actor: User, kodePI: string | null, namaCust: string) {
+  const doctorApproval = kodePI
+    ? await prisma.poaDoctorApproval.findUnique({
+        where: { poaId_kodePI_namaCust: { poaId: poa.id, kodePI, namaCust } },
+      })
+    : null;
+  if (!(await canEditDoctor(actor, poa, doctorApproval))) redirect(`/poa/${poa.id}`);
+}
+
 export async function addLineItemAction(poaId: string, formData: FormData): Promise<void> {
-  const { actor } = await requireEditorOnPoa(poaId);
+  const { poa, actor } = await requireSessionAndPoa(poaId);
 
   const customerId = (formData.get("customerId") as string | null)?.trim() ?? "";
   const kodePI = (formData.get("kodePI") as string | null)?.trim() ?? "";
@@ -112,6 +131,8 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const namaCust = isDirect ? directNamaCust : customerResult!.namaCustomer;
   const kodeCust = isDirect ? directKodeCust : customerResult!.kodeCustomer;
   const spesialisasi = isDirect ? directSpesialisasi : customerResult!.spesialisasi;
+
+  await assertCanEditDoctor(poa, actor, kodePI, namaCust);
 
   // Same doctor (outlet + name) can't have the same product added twice.
   const existingForDoctor: { kodeProduk: string; isManualCustomer: boolean }[] = await prisma.poaLineItem.findMany({
@@ -212,7 +233,7 @@ export async function updateLineItemAction(
   lineItemId: string,
   formData: FormData
 ): Promise<void> {
-  const { actor } = await requireEditorOnPoa(poaId);
+  const { poa, actor } = await requireSessionAndPoa(poaId);
 
   const kodeProduk = (formData.get("kodeProduk") as string | null)?.trim() ?? "";
   const rencanaTotalBiayaRaw = (formData.get("rencanaTotalBiaya") as string | null)?.trim() ?? "0";
@@ -234,6 +255,8 @@ export async function updateLineItemAction(
     kodeProduk ? getProductByKode(kodeProduk) : Promise.resolve(null),
     prisma.poaLineItem.findUnique({ where: { id: lineItemId } }),
   ]);
+  if (!current) redirect(`/poa/${poaId}`);
+  await assertCanEditDoctor(poa, actor, current.kodePI, current.namaCust);
 
   if (product && current) {
     const duplicate = await prisma.poaLineItem.findFirst({
@@ -339,12 +362,14 @@ export async function updateLineItemAction(
 }
 
 export async function deleteLineItemAction(poaId: string, lineItemId: string): Promise<void> {
-  const { actor } = await requireEditorOnPoa(poaId);
+  const { poa, actor } = await requireSessionAndPoa(poaId);
 
   const item = await prisma.poaLineItem.findUnique({ where: { id: lineItemId } });
+  if (!item) redirect(`/poa/${poaId}`);
+  await assertCanEditDoctor(poa, actor, item.kodePI, item.namaCust);
 
   // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
-  await flagRevisionOnEditDoctor(poaId, item?.kodePI ?? "", item?.namaCust ?? "", actor.nip, { customer: item?.namaCust, product: item?.namaProduk, op: "delete" });
+  await flagRevisionOnEditDoctor(poaId, item.kodePI ?? "", item.namaCust, actor.nip, { customer: item.namaCust, product: item.namaProduk, op: "delete" });
 
   await prisma.poaLineItem.delete({ where: { id: lineItemId } });
 

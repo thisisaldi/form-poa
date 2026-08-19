@@ -261,52 +261,25 @@ async function getEditLockLevel(poaId: string, ownerId: string): Promise<number>
 }
 
 /**
- * Who was the most recent approver in this POA's current review cycle — the
- * highest level reached so far (approvals only ever move upward, so "most
- * recent APPROVE log" and "highest level" are the same entry). Null if nobody
- * has approved yet this cycle (fresh cycle or still waiting on the first
- * review). Same scan shape/cycle-reset rule as getEditLockLevel above.
- *
- * Used to resolve who a locked-out owner's "Ajukan Edit" request should go
- * to — see requestEdit/grantEditRequest/declineEditRequest in poaWorkflow.ts.
- */
-export async function getLastApprover(poaId: string): Promise<{ actorId: string; role: string } | null> {
-  const logs = await prisma.poaAuditLog.findMany({
-    where: { poaId },
-    orderBy: { createdAt: "desc" },
-    select: { action: true, toStatus: true, actorId: true, actor: { select: { role: true } } },
-  });
-  for (const log of logs) {
-    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
-    if (log.action === AuditAction.APPROVE) return { actorId: log.actorId, role: log.actor.role };
-  }
-  return null;
-}
-
-/** True once anyone above the owner has approved this POA in its current review cycle. */
-export async function hasApprovalThisCycle(poaId: string): Promise<boolean> {
-  return (await getLastApprover(poaId)) !== null;
-}
-
-/**
- * Can this user edit this specific POA right now?
+ * Can this user edit this specific POA right now? Still whole-draft-level —
+ * legitimately so, since it only gates draft-wide structural actions that
+ * have no per-doctor analog (deleting the whole draft, changing its quarter,
+ * showing the "+ Tambah User" entry point) — NOT approval/edit-request/
+ * revisi, which are per-doctor-only now (canEditDoctor and its siblings
+ * below; see docs/poa-per-doctor-approval/, 2026-08-18 cleanup removed the
+ * whole-draft canApprove/canRequestEdit/canRespondEditRequest and their
+ * poaWorkflow.ts/poa.ts counterparts entirely — there is no by-draft
+ * approve/reject/request-edit path left in this codebase).
  *
  * MR: their own POA, any status/time — editing it while still waiting on its
  *     first review (submitted, nobody above has approved yet this cycle) just
  *     saves in place, no bounce. Only once someone above has already approved
- *     does an edit bounce it back to REVISI via flagRevisionOnEdit and require
- *     resubmission — though in practice the Lock Edit Logic gate below already
- *     blocks the MR from reaching that point (see hasApprovalThisCycle above).
- *     Once locked, the owner can proactively ask the last approver to unlock
- *     it — see canRequestEdit/requestEdit — instead of just waiting for a
- *     spontaneous Reject/Cancel.
+ *     does an edit bounce it back to REVISI via flagRevisionOnEditDoctor and
+ *     require resubmission — though in practice the Lock Edit Logic gate below
+ *     already blocks the MR from reaching that point.
  * ASM/SM/NSM: any POA visible to them (already submitted + in their subtree),
  *     any time — not only while it's specifically their turn to review. The
- *     edit button is meant to always be there. Editing doesn't skip anyone:
- *     an ASM/SM's edit still needs their own atasan's approval next via the
- *     normal Approve step (see flagRevisionOnEdit in poaWorkflow.ts) — only
- *     the ACT of approving & forwarding is restricted to the current holder,
- *     which is what canApprove() below is for.
+ *     edit button is meant to always be there.
  *
  * Lock Edit Logic gate runs FIRST (ADMIN excepted): if someone above this
  * user's role level has already approved/edited this POA this cycle, this
@@ -332,97 +305,6 @@ export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
   }
 
   return false;
-}
-
-/**
- * UI-friendly companion to the Lock Edit Logic gate above — used to show a
- * "terkunci karena X" message instead of silently hiding the edit button.
- * Returns null when nobody is locked (fresh cycle, or POA still DRAFT/REVISI).
- */
-export async function getEditLockRoleLabel(poa: PoaForm): Promise<string | null> {
-  const lockLevel = await getEditLockLevel(poa.id, poa.ownerId);
-  const label = Object.entries(ROLE_LEVEL).find(([, level]) => level === lockLevel)?.[0];
-  return label ?? null;
-}
-
-/**
- * Can this user approve & forward this specific POA right now?
- * Stricter than canEdit — only the current holder (whoever it's actually
- * sitting with for review) may complete the approve action.
- */
-export function canApprove(user: User, poa: PoaForm): boolean {
-  if (user.role === Role.ADMIN) return true;
-  // GM is deliberately excluded here too — read-only oversight only.
-
-  return (
-    ([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role) &&
-    poa.currentHolderId === user.nip
-  );
-}
-
-/** Statuses where a POA is genuinely still awaiting someone's approval. */
-const PENDING_APPROVAL_STATUSES: PoaStatus[] = [
-  PoaStatus.SUBMITTED_TO_ASM,
-  PoaStatus.SUBMITTED_TO_SM,
-  PoaStatus.SUBMITTED_TO_NSM,
-];
-
-/**
- * NSM-only override: approve a POA straight to fully-approved, regardless of
- * which stage it's actually at (SUBMITTED_TO_ASM/SM/NSM) and regardless of
- * who the current holder is — skips ASM/SM review entirely. Unlike
- * canApprove, this deliberately does NOT check currentHolderId; it only
- * requires the POA to (a) genuinely be pending somewhere in the chain, not
- * a draft/already-fully-approved, and (b) be in the NSM's own subtree
- * (same rule as canView). Business owner, 2026-07-23: "NSM bisa langsung
- * approve tanpa harus ke ASM atau SM dulu".
- */
-export async function canFastTrackApprove(user: User, poa: PoaForm): Promise<boolean> {
-  if (user.role !== Role.NSM) return false;
-  if (!PENDING_APPROVAL_STATUSES.includes(poa.status)) return false;
-  return canView(user, poa);
-}
-
-/**
- * NSM-only: undo their own already-completed approval, sending the POA back
- * to REVISI (see cancelApprovedByNsm in poaWorkflow.ts). Deliberately gated to
- * APPROVED_BY_NSM only — unlike canFastTrackApprove (which covers the whole
- * pending chain), this reverses a decision already made, not a pending one.
- * Same subtree-ownership gate as canFastTrackApprove.
- */
-export async function canCancelApproved(user: User, poa: PoaForm): Promise<boolean> {
-  if (user.role !== Role.NSM) return false;
-  if (poa.status !== PoaStatus.APPROVED_BY_NSM) return false;
-  return canView(user, poa);
-}
-
-/**
- * Can this user ask the last approver to unlock editing? Only the owner, and
- * only once locked out by an actual approval (someone above has approved
- * this cycle — while still waiting on the first review canEdit already lets
- * them straight through, no request needed). The extra hasApprovalThisCycle
- * check matters because getEditLockLevel can also lock on a non-owner's bare
- * UPDATE (an ASM editing before they've approved) — that has no "last
- * approver" to route a request to, so no request button in that case; the
- * owner just waits for that reviewer's own Approve/Reject. See requestEdit
- * in poaWorkflow.ts.
- */
-export async function canRequestEdit(user: User, poa: PoaForm): Promise<boolean> {
-  if (poa.ownerId !== user.nip) return false;
-  if (await canEdit(user, poa)) return false;
-  return hasApprovalThisCycle(poa.id);
-}
-
-/**
- * Can this user grant/decline a pending edit request? Only the specific
- * person who approved most recently this cycle (the one an "Ajukan Edit"
- * request is addressed to) — not just anyone at that role level, and not the
- * current holder (who may be a level higher and hasn't reviewed yet). See
- * grantEditRequest/declineEditRequest in poaWorkflow.ts.
- */
-export async function canRespondEditRequest(user: User, poa: PoaForm): Promise<boolean> {
-  const lastApprover = await getLastApprover(poa.id);
-  return lastApprover?.actorId === user.nip;
 }
 
 /**
@@ -477,8 +359,15 @@ export function getPendingActionFilter(user: User): Prisma.PoaFormWhereInput {
   if (user.role === Role.MR) {
     return { ownerId: user.nip, status: { in: [PoaStatus.DRAFT, PoaStatus.REVISI] } };
   }
-  // For managers: POAs where they are the current holder
-  return { currentHolderId: user.nip };
+  // For managers: POAs with AT LEAST ONE doctor currently sitting with them.
+  // PoaForm.currentHolderId (the whole-draft rollup) only reflects the LEAST
+  // advanced doctor — e.g. ASM approved 2 of 3 doctors (now with SM) but the
+  // 3rd is still pending ASM: the rollup's currentHolderId stays the ASM, so
+  // filtering on it hid this draft from the SM's inbox entirely until ALL
+  // doctors caught up (bug report 2026-08-19: "kalau semua poa line ... sudah
+  // diapprove" baru muncul). Checking the PoaDoctorApproval rows directly
+  // instead surfaces the draft to SM as soon as ANY doctor reaches them.
+  return { doctorApprovals: { some: { currentHolderId: user.nip } } };
 }
 
 // ─── Per-doctor approval (docs/poa-per-doctor-approval/) ──────────────────────
@@ -587,7 +476,14 @@ export function canApproveDoctor(user: User, doctor: PoaDoctorApproval): boolean
   );
 }
 
-/** Doctor-scoped twin of canFastTrackApprove — NSM-only, skips ASM/SM for THIS doctor only. */
+/** Statuses where a doctor is genuinely still awaiting someone's approval. */
+const PENDING_APPROVAL_STATUSES: PoaStatus[] = [
+  PoaStatus.SUBMITTED_TO_ASM,
+  PoaStatus.SUBMITTED_TO_SM,
+  PoaStatus.SUBMITTED_TO_NSM,
+];
+
+/** NSM-only, skips ASM/SM review for THIS doctor only — same "NSM bisa langsung approve" business rule as the (removed) whole-draft version. */
 export async function canFastTrackApproveDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval): Promise<boolean> {
   if (user.role !== Role.NSM) return false;
   if (!PENDING_APPROVAL_STATUSES.includes(doctor.status)) return false;

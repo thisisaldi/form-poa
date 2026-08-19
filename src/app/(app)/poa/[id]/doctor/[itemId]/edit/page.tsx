@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canEdit, canView } from "@/lib/authz";
+import { canEditDoctor, canView } from "@/lib/authz";
 import { getProducts } from "@/lib/masterData";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Card";
@@ -27,19 +27,34 @@ export default async function EditDoctorPage({
   ]);
 
   if (!poa || !anchorItem || anchorItem.poaId !== id) notFound();
-  const userCanEdit = await canEdit(actor, poa);
+
+  // Same-doctor group: all line items sharing this outlet + customer name (mirrors DraftChecklist's doctorKey).
+  const [items, doctorApproval] = await Promise.all([
+    prisma.poaLineItem.findMany({
+      where: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust },
+      orderBy: { createdAt: "asc" },
+    }),
+    anchorItem.kodePI
+      ? prisma.poaDoctorApproval.findUnique({
+          where: { poaId_kodePI_namaCust: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust } },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  // Per-doctor edit rights (2026-08-18 fix) — this page already scopes the
+  // FORM to just this one doctor's line items, but the permission check was
+  // still canEdit(actor, poa), the whole-draft rollup. That meant a doctor
+  // legitimately still editable (e.g. sitting in REVISI, or never submitted
+  // this cycle) could be blocked because SOME OTHER doctor in the same draft
+  // had moved further along in approval — and vice versa. canEditDoctor
+  // reads this doctor's own PoaDoctorApproval row instead.
+  const userCanEdit = await canEditDoctor(actor, poa, doctorApproval);
   // Anyone who can VIEW this POA (not just edit it) can open this page too —
   // read-only (all fields disabled via fieldset, no Simpan button) rather
   // than redirected back to the lightweight checklist summary (2026-07-31:
   // VIEWER/GM/SFE need the SAME full per-product detail an editor sees —
   // Histori PSSP, Kriteria Produk, every field — not just a summary table).
   if (!userCanEdit && !(await canView(actor, poa))) redirect(`/poa/${id}`);
-
-  // Same-doctor group: all line items sharing this outlet + customer name (mirrors DraftChecklist's doctorKey).
-  const items = await prisma.poaLineItem.findMany({
-    where: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust },
-    orderBy: { createdAt: "asc" },
-  });
 
   const backUrl = `/poa/${id}`;
 

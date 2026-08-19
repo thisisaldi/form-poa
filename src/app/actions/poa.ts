@@ -4,12 +4,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import {
-  createPoaDraft, approvePoa, rejectPoa, fastTrackApprove, cancelApprovedByNsm, requestEdit, grantEditRequest, declineEditRequest,
+  createPoaDraft,
   submitAllDoctorsInDraft, submitDoctor, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
 } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
 import {
-  canEdit, canApprove, canCreatePoa, canFastTrackApprove, canCancelApproved, canRequestEdit, canRespondEditRequest,
+  canEdit, canCreatePoa,
   canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor, canRequestEditDoctor, canRespondEditRequestDoctor,
 } from "@/lib/authz";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
@@ -44,24 +44,6 @@ export async function createPoaAction(formData: FormData): Promise<void> {
 
   const poa = await createPoaDraft(session.userId, period);
   redirect(`/poa/${poa.id}/edit`);
-}
-
-export async function submitPoaAction(poaId: string, formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
-
-  const notes = (formData.get("notes") as string | null)?.trim() || undefined;
-  // Per-doctor submit (docs/poa-per-doctor-approval/, OQ-2) — one click still
-  // submits every eligible doctor in the draft, but each gets its own
-  // PoaDoctorApproval row so ASM/SM/NSM can approve/reject them independently
-  // afterward. See submitAllDoctorsInDraft's doc comment in poaWorkflow.ts.
-  await submitAllDoctorsInDraft(poaId, session.userId, notes);
-  redirect(`/poa/${poaId}`);
 }
 
 // Called from DraftChecklist client component — submits only checked items.
@@ -110,169 +92,14 @@ export async function submitDoctorAction(
   revalidatePath(`/poa/${poaId}`);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function approvePoaAction(poaId: string, _formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!canApprove(actor, poa)) redirect(`/poa/${poaId}`);
-
-  await approvePoa(poaId, session.userId);
-  redirect(`/poa/${poaId}`);
-}
-
-// NSM-only override — approve straight to fully-approved, skipping ASM/SM
-// review. See canFastTrackApprove/fastTrackApprove for the authorization
-// rule and exact behavior.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function fastTrackApproveAction(poaId: string, _formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canFastTrackApprove(actor, poa))) redirect(`/poa/${poaId}`);
-
-  await fastTrackApprove(poaId, session.userId);
-  redirect(`/poa/${poaId}`);
-}
-
-// Bulk approval for SM/NSM — approves each selected POA the same way approvePoaAction
-// does, one at a time (each has its own next-holder resolution and audit row), and
-// reports back which ones failed instead of throwing on the first bad one so a single
-// stale/already-moved POA doesn't block approving the rest of the batch.
-//
-// DISABLED via the flag below (docs/TODO.md — daftar 13 task 2026-08-10, item #11
-// "Fitur Bulk Approval (dimatikan)"). Logic kept intact, easy to re-enable by
-// flipping the flag — see ApprovalsChecklist.tsx for the matching UI-side gate.
-const BULK_APPROVE_ENABLED = false;
-
-export async function bulkApprovePoaAction(
-  poaIds: string[]
-): Promise<{ approved: number; failed: { poaId: string; error: string }[] }> {
-  const session = await requireSession();
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-
-  if (!BULK_APPROVE_ENABLED) {
-    throw new Error("Bulk approval sedang dimatikan.");
-  }
-
-  if (!(["SM", "NSM"] as string[]).includes(actor.role)) {
-    throw new Error("Bulk approval hanya tersedia untuk SM dan NSM.");
-  }
-
-  let approved = 0;
-  const failed: { poaId: string; error: string }[] = [];
-
-  for (const poaId of poaIds) {
-    try {
-      const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-      if (!poa) throw new Error("POA tidak ditemukan.");
-      if (!canApprove(actor, poa)) throw new Error("Tidak berwenang menyetujui POA ini.");
-      await approvePoa(poaId, session.userId);
-      approved++;
-    } catch (err) {
-      failed.push({ poaId, error: err instanceof Error ? err.message : "Gagal menyetujui." });
-    }
-  }
-
-  revalidatePath("/approvals");
-  return { approved, failed };
-}
-
-export async function rejectPoaAction(poaId: string, formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!canApprove(actor, poa)) redirect(`/poa/${poaId}`);
-
-  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
-  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan reject wajib diisi."));
-
-  await rejectPoa(poaId, session.userId, reason);
-  redirect(`/poa/${poaId}`);
-}
-
-// NSM-only — undo their own already-completed approval, sending the POA back
-// to REVISI. See canCancelApproved/cancelApprovedByNsm for the authorization
-// rule and exact behavior.
-export async function cancelApprovedByNsmAction(poaId: string, formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canCancelApproved(actor, poa))) redirect(`/poa/${poaId}`);
-
-  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
-  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan pembatalan wajib diisi."));
-
-  await cancelApprovedByNsm(poaId, session.userId, reason);
-  redirect(`/poa/${poaId}`);
-}
-
-// Owner asks the last approver to unlock editing — see canRequestEdit/requestEdit.
-export async function requestEditAction(poaId: string, formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canRequestEdit(actor, poa))) redirect(`/poa/${poaId}`);
-
-  const reason = (formData.get("reason") as string | null)?.trim() || undefined;
-  await requestEdit(poaId, session.userId, reason);
-  redirect(`/poa/${poaId}`);
-}
-
-// Last approver grants the owner's pending edit request — see
-// canRespondEditRequest/grantEditRequest.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function grantEditRequestAction(poaId: string, _formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canRespondEditRequest(actor, poa))) redirect(`/poa/${poaId}`);
-
-  await grantEditRequest(poaId, session.userId);
-  redirect(`/poa/${poaId}`);
-}
-
-// Last approver declines the owner's pending edit request — see
-// canRespondEditRequest/declineEditRequest.
-export async function declineEditRequestAction(poaId: string, formData: FormData): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canRespondEditRequest(actor, poa))) redirect(`/poa/${poaId}`);
-
-  const reason = (formData.get("reason") as string | null)?.trim() ?? "";
-  if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan menolak permintaan edit wajib diisi."));
-
-  await declineEditRequest(poaId, session.userId, reason);
-  redirect(`/poa/${poaId}`);
-}
-
 // ─── Per-doctor approval actions (docs/poa-per-doctor-approval/) ──────────────
-// Doctor-scoped twins of the whole-draft actions above — approve/reject/etc.
-// target ONE doctor (kodePI + namaCust, same doctorKey used by
-// DraftChecklist.tsx) within the draft instead of the entire draft. The
-// whole-draft actions above are kept for any caller not yet migrated.
+// approve/reject/fast-track/cancel/request-edit all target ONE doctor
+// (kodePI + namaCust, same doctorKey used by DraftChecklist.tsx) within the
+// draft — the whole-draft versions these were generalized from (approvePoaAction,
+// rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction,
+// requestEditAction, grantEditRequestAction, declineEditRequestAction,
+// bulkApprovePoaAction, submitPoaAction) were removed entirely 2026-08-18 —
+// every caller had already migrated, and there is no by-draft path left.
 
 export async function approveDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<void> {
   const session = await requireSession();
