@@ -59,9 +59,26 @@ export interface DoctorEditRequestInfo {
   declineEditRequestAction: (formData: FormData) => Promise<void>;
 }
 
+/**
+ * Rejection label per doctor (2026-08-19: "si MR bisa liat mana line yang di
+ * reject") — only present for a doctor currently sitting in REVISI because of
+ * a REJECT (or an atasan's CANCEL of an earlier approval), so the owner can
+ * see why right on that doctor's own row instead of digging through the
+ * collapsed whole-draft "Riwayat Aktivitas" log to find which doctor it was
+ * about. Absent key means this doctor's REVISI (if any) came from something
+ * else (GRANT_EDIT, or the owner's own edit) with no rejection behind it.
+ */
+export interface DoctorRejectInfo {
+  action: "REJECT" | "CANCEL";
+  /** Localized PoaRejectCategory label, null for a CANCEL (no category on that action). */
+  category: string | null;
+  reason: string | null;
+  rejectedByLabel: string;
+}
+
 export function PoaDetailTabs({
   items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
-  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -87,6 +104,8 @@ export function PoaDetailTabs({
   doctorActions?: Record<string, DoctorActions>;
   /** kodePI|namaCust -> that doctor's edit-lock/request-edit state, computed for every doctor. */
   doctorEditRequests?: Record<string, DoctorEditRequestInfo>;
+  /** kodePI|namaCust -> that doctor's rejection reason/category, only present for a doctor in REVISI because of a REJECT/CANCEL. */
+  doctorRejectInfo?: Record<string, DoctorRejectInfo>;
   activePssp?: ActivePsspRow[];
   /** Per-outlet stats for "Informasi PSSP Outlet" dropdown (2026-08-10) —
    * server-computed in poa/[id]/page.tsx, batched once (not per-row). */
@@ -200,6 +219,7 @@ export function PoaDetailTabs({
               doctorVersions={doctorVersions}
               doctorActions={doctorActions}
               doctorEditRequests={doctorEditRequests}
+              doctorRejectInfo={doctorRejectInfo}
             />
           )}
         </div>

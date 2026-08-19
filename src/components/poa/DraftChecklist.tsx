@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
 import { submitPoaWithSelectionAction, submitDoctorAction } from "@/app/actions/poa";
-import type { DoctorActions, DoctorEditRequestInfo } from "@/components/poa/PoaDetailTabs";
+import type { DoctorActions, DoctorEditRequestInfo, DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
@@ -708,7 +708,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -741,6 +741,8 @@ function DoctorRow({
   doctorActions?: DoctorActions;
   /** This doctor's edit-lock/request-edit state — see DraftChecklist's own prop doc. */
   doctorEditRequest?: DoctorEditRequestInfo;
+  /** This doctor's rejection reason/category — see DraftChecklist's own prop doc. */
+  doctorRejectInfo?: DoctorRejectInfo;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -1063,6 +1065,21 @@ function DoctorRow({
         </div>
       )}
 
+      {/* Rejection label (2026-08-19: "si MR bisa liat mana line yang di
+          reject") — shown whenever this doctor's current REVISI came from a
+          REJECT or CANCEL, right on the row, instead of buried in the
+          whole-draft audit log. */}
+      {doctorRejectInfo && (
+        <div className="mt-2.5 rounded-lg px-3 py-2.5 text-xs space-y-1"
+          style={{ background: "var(--color-status-revisi-bg)", color: "var(--color-status-revisi)" }}>
+          <p className="font-semibold">
+            {doctorRejectInfo.action === "REJECT" ? "Ditolak" : "Dibatalkan"} oleh {doctorRejectInfo.rejectedByLabel}
+            {doctorRejectInfo.category ? ` — ${doctorRejectInfo.category}` : ""}
+          </p>
+          {doctorRejectInfo.reason && <p className="font-normal italic">&quot;{doctorRejectInfo.reason}&quot;</p>}
+        </div>
+      )}
+
       {/* Edit-lock / request-edit — per doctor (docs/poa-per-doctor-approval/,
           2026-08-18: "tidak ada approval, request edit, dan revisi yang by
           draft" — used to be one whole-draft banner at the top of
@@ -1279,7 +1296,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1338,6 +1355,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
   doctorActions?: Record<string, DoctorActions>;
   /** kodePI|namaCust -> that doctor's edit-lock/request-edit state — see PoaDetailTabs' own prop doc. Computed for every doctor. */
   doctorEditRequests?: Record<string, DoctorEditRequestInfo>;
+  /** kodePI|namaCust -> that doctor's rejection reason/category — see PoaDetailTabs' own prop doc. Absent key means no rejection behind this doctor's current state. */
+  doctorRejectInfo?: Record<string, DoctorRejectInfo>;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -1500,6 +1519,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
                 doctorVersion={doctorVersions[key]}
                 doctorActions={doctorActions[key]}
                 doctorEditRequest={doctorEditRequests[key]}
+                doctorRejectInfo={doctorRejectInfo[key]}
               />
             ))}
           </div>

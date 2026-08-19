@@ -14,7 +14,7 @@ import type { PoaDoctorApproval } from "@prisma/client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { PoaDetailTabs, type DoctorActions, type DoctorEditRequestInfo } from "@/components/poa/PoaDetailTabs";
+import { PoaDetailTabs, type DoctorActions, type DoctorEditRequestInfo, type DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
 import { computeKontesProductTargetsSummary } from "@/lib/targetCalculation";
 import { displayRole } from "@/lib/role";
@@ -150,12 +150,26 @@ export default async function PoaDetailPage({
         ? await canRespondEditRequestDoctor(actor, approval)
         : false;
 
+      // Rejection label (2026-08-19: "si MR bisa liat mana line yang di
+      // reject") — a doctor sitting in REVISI whose most recent log is a
+      // REJECT (or an atasan CANCEL of an earlier approval) came back for a
+      // reason; surface that reason/category on the row itself instead of
+      // making the owner dig through the collapsed whole-draft "Riwayat
+      // Aktivitas" log to find which of possibly many doctors it applies to.
+      // A REVISI reached via GRANT_EDIT or the owner's own edit (REVISE) has
+      // no rejection behind it, so those are deliberately excluded.
+      const rejectLogThis = approval?.status === "REVISI" && lastLogForDoctor
+        && (lastLogForDoctor.action === "REJECT" || lastLogForDoctor.action === "CANCEL")
+        ? lastLogForDoctor
+        : null;
+
       return {
         kodePI, namaCust, approval, canApproveThis, canFastTrackThis, canCancelThis,
         editLockRoleLabelThis, canRequestEditThis, pendingEditRequestThis, lastApproverThis, canRespondEditRequestThis,
         pendingEditRequestNote: pendingEditRequestThis && lastLogForDoctor?.snapshot && typeof lastLogForDoctor.snapshot === "object" && "notes" in lastLogForDoctor.snapshot
           ? (lastLogForDoctor.snapshot as { notes?: string }).notes ?? null
           : null,
+        rejectLogThis,
       };
     })
   );
@@ -206,6 +220,24 @@ export default async function PoaDetailPage({
       grantEditRequestAction: grantEditRequestDoctorAction.bind(null, id, d.kodePI, d.namaCust),
       declineEditRequestAction: declineEditRequestDoctorAction.bind(null, id, d.kodePI, d.namaCust),
     }])
+  );
+
+  // Per-doctor rejection info — only present for a doctor currently in REVISI
+  // because of a REJECT/CANCEL (see rejectLogThis above), keyed the same way
+  // as doctorStatuses/doctorEditRequests for DraftChecklist's DoctorRow.
+  const doctorRejectInfo: Record<string, DoctorRejectInfo> = Object.fromEntries(
+    doctorRows
+      .filter((d) => d.rejectLogThis)
+      .map((d) => {
+        const log = d.rejectLogThis!;
+        const snapshot = log.snapshot as { notes?: string } | null;
+        return [`${d.kodePI}|${d.namaCust}`, {
+          action: log.action as "REJECT" | "CANCEL",
+          category: log.rejectCategory ? (REJECT_CATEGORY_LABELS[log.rejectCategory] ?? log.rejectCategory) : null,
+          reason: snapshot?.notes ?? null,
+          rejectedByLabel: `${log.actor.name} (${displayRole(log.actor.role)})`,
+        }];
+      })
   );
 
   // Whoever owns this POA drives the submit/checklist UI — normally an MR, but
@@ -472,6 +504,7 @@ export default async function PoaDetailPage({
         doctorVersions={doctorVersions}
         doctorActions={doctorActions}
         doctorEditRequests={doctorEditRequests}
+        doctorRejectInfo={doctorRejectInfo}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}
         doctorPsspInfo={doctorPsspInfo}
