@@ -245,6 +245,7 @@ model Customer {
   psspHospinetSnapshots          PsspHospinetSnapshot[]
   poaStandarisasiDokterApprovals PoaStandarisasiDokterApproval[]
   poaStandarisasiDokterUsers     PoaStandarisasiDokterUser[]
+  poaStandarisasiAsKpdm          PoaStandarisasi[]
 
   @@index([spesialisasi])
   @@index([namaCustomer])
@@ -1178,12 +1179,19 @@ model SyncLock {
 // POA Estimasi (existing, di atas) di-scope Dokter × Produk; POA Standarisasi
 // di-scope Produk × Outlet (satu PoaStandarisasi = satu outlet, berisi banyak
 // PoaStandarisasiProduk — dokter jadi sub-entity pendukung per produk, bukan
-// sumbu baris utama). Wizard 4-phase: Planning Standarisasi → Approval Atasan
-// → Approval User/Dokter → Finalisasi.
+// sumbu baris utama). Wizard 5-phase: Planning Standarisasi → Approval Atasan
+// → Approval User/Dokter → Menunggu Meeting KFT → Finalisasi (2026-08-19 —
+// Menunggu Meeting KFT dipisah jadi step sendiri, SETELAH tracking TTD dokter,
+// untuk upload dokumen standarisasi (NIE/CPOB/KFA/SP Non Sales, read-only di
+// sini — diupload dari tempat lain) + Form Approval Standarisasi + jadwal
+// meeting; 2026-08-20 urutan dikoreksi — sebelumnya kebalik ditaruh sebelum
+// Approval User/Dokter. Enum value order below is unrelated to app phase
+// order — the app compares by name, not ordinal position, so it's left as-is.
 
 enum PoaStandarisasiPhase {
   PLANNING
   APPROVAL_ATASAN
+  MENUNGGU_MEETING_KFT
   APPROVAL_USER_DOKTER
   FINALISASI
 }
@@ -1216,28 +1224,6 @@ enum DistributorPilihan {
   MPI
 }
 
-model KpdmStandarisasi {
-  id        String               @id @default(uuid())
-  nama      String               @unique
-  jabatanId String?
-  jabatan   JabatanStandarisasi? @relation(fields: [jabatanId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  pengajuan PoaStandarisasi[]
-
-  @@index([nama])
-}
-
-model JabatanStandarisasi {
-  id   String @id @default(uuid())
-  nama String @unique
-
-  kpdm      KpdmStandarisasi[]
-  createdAt DateTime           @default(now())
-}
-
 // Header pengajuan — satu row = satu Outlet, berisi N produk.
 model PoaStandarisasi {
   id String @id @default(uuid())
@@ -1248,13 +1234,21 @@ model PoaStandarisasi {
   kodePI String
   outlet Outlet @relation(fields: [kodePI], references: [kodePI])
 
-  kpdmId String
-  kpdm   KpdmStandarisasi @relation(fields: [kpdmId], references: [id])
+  // KPDM = customer/dokter (Nexus-backed, sama pool dengan Dokter Klinis) di
+  // outlet ini, BUKAN master data terpisah lagi (2026-08-20 — dulu
+  // KpdmStandarisasi/JabatanStandarisasi, dropped: "Jabatan" sekarang live
+  // dari Customer.spesialisasi, bukan entity yang bisa dipilih sendiri).
+  // Nullable karena histori pengajuan lama (era KpdmStandarisasi) tidak
+  // punya Customer.id yang valid untuk field ini — snapshot di bawah tetap
+  // menyimpan nama/jabatan apa adanya saat itu.
+  kpdmId String?
+  kpdm   Customer? @relation(fields: [kpdmId], references: [id])
 
-  // Snapshot nama/jabatan di waktu pengajuan dibuat — KpdmStandarisasi bisa
-  // berubah jabatannya di masa depan, tapi histori pengajuan yang sudah
-  // dibuat harus tetap merefer ke apa yang berlaku SAAT pengajuan dibuat
-  // (sama alasan dengan PoaLineItem.namaCust/namaProduk sebagai snapshot).
+  // Snapshot nama/jabatan di waktu pengajuan dibuat — Customer.spesialisasi
+  // bisa berubah di masa depan (atau kpdm-nya sendiri berganti orang), tapi
+  // histori pengajuan yang sudah dibuat harus tetap merefer ke apa yang
+  // berlaku SAAT pengajuan dibuat (sama alasan dengan
+  // PoaLineItem.namaCust/namaProduk sebagai snapshot).
   kpdmNamaSnapshot    String
   jabatanNamaSnapshot String?
 
@@ -1273,8 +1267,10 @@ model PoaStandarisasi {
 
   statusApprovalAsm  StatusApprovalAtasan @default(MENUNGGU)
   statusApprovalSm   StatusApprovalAtasan @default(MENUNGGU)
+  statusApprovalNsm  StatusApprovalAtasan @default(MENUNGGU)
   tanggalApprovalAsm DateTime?
   tanggalApprovalSm  DateTime?
+  tanggalApprovalNsm DateTime?
 
   jadwalMeetingKft DateTime?
 

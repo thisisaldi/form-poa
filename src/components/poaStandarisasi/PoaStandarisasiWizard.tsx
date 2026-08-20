@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useRef, useTransition } from "react";
+import { useMemo, useState, useRef, useEffect, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -10,28 +11,35 @@ import type { Product } from "@/lib/masterData";
 import type { CustomerOption } from "@/app/actions/customer";
 import { createCustomerAction } from "@/app/actions/customer";
 import { GolonganBadge } from "@/components/poaStandarisasi/GolonganBadge";
+import { PHASES } from "@/lib/poaStandarisasiPhases";
 import {
   savePlanningAction,
   advanceToApprovalAtasanAction,
   approvePoaStandarisasiAtasanAction,
   saveApprovalUserDokterAction,
+  advanceToMenungguMeetingKftAction,
+  saveMenungguMeetingKftAction,
   advanceToFinalisasiAction,
   saveFinalisasiAction,
   submitPoaStandarisasiAction,
-  findOrCreateKpdmAction,
-  findOrCreateJabatanAction,
   uploadPoaStandarisasiFileAction,
   type PoaStandarisasiDetail,
   type PlanningInput,
   type PlanningProdukInput,
 } from "@/app/actions/poaStandarisasi";
 
-export const PHASES = [
-  { id: "PLANNING", label: "Planning Standarisasi" },
-  { id: "APPROVAL_ATASAN", label: "Approval Atasan" },
-  { id: "APPROVAL_USER_DOKTER", label: "Approval User / Dokter" },
-  { id: "FINALISASI", label: "Finalisasi" },
-] as const;
+export { PHASES };
+
+const DOKUMEN_JENIS: { jenis: string; label: string }[] = [
+  { jenis: "NIE", label: "NIE" },
+  { jenis: "CPOB", label: "CPOB" },
+  { jenis: "KFA", label: "KFA" },
+  { jenis: "SP_NON_SALES", label: "Permintaan SP Non Sales" },
+];
+
+function driveViewUrl(driveFileId: string): string {
+  return `https://drive.google.com/file/d/${driveFileId}/view`;
+}
 
 function formatRp(n: number | null | undefined): string {
   if (n == null) return "-";
@@ -48,11 +56,13 @@ function RpInput({
   value,
   onChange,
   disabled,
+  dense,
 }: {
   label?: string;
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
+  dense?: boolean;
 }) {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     onChange(e.target.value.replace(/\D/g, ""));
@@ -72,12 +82,12 @@ function RpInput({
           value={display}
           onChange={handleChange}
           disabled={disabled}
-          className="flex-1 min-w-0 w-0 px-3 py-2 text-sm text-right outline-none"
+          className={dense ? "flex-1 min-w-0 w-0 px-2 py-1 text-xs text-right outline-none" : "flex-1 min-w-0 w-0 px-3 py-2 text-sm text-right outline-none"}
           style={{ background: "transparent", color: "var(--color-text)" }}
         />
         <span style={{ width: 1, background: "var(--color-border-strong)" }} />
         <span
-          className="flex items-center px-2.5 text-xs font-medium whitespace-nowrap"
+          className={dense ? "flex items-center px-1.5 text-[10px] font-medium whitespace-nowrap" : "flex items-center px-2.5 text-xs font-medium whitespace-nowrap"}
           style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
         >
           Rp
@@ -93,19 +103,27 @@ const PERIODE_PERIODIC_OPTIONS = [6, 12, 18, 24, 30, 36];
 /** Fixed set, matches the DistributorPilihan enum — not master data. */
 const DISTRIBUTOR_OPTIONS = ["AMS", "PPG", "MPI"] as const;
 
-/** Plain numeric input with a unit badge (e.g. "Bulan") — same box styling as RpInput, no thousand-separator formatting. */
+/**
+ * Plain numeric input with a unit badge (e.g. "Bulan", "Pasien", "%") — same
+ * box styling as RpInput, no thousand-separator formatting. Digits-only regex
+ * means it can never go negative (no "-" allowed), unlike the native
+ * type="number" inputs it replaces. `dense` shrinks padding/font for use
+ * inside table cells (e.g. the dokter tables).
+ */
 function UnitCountInput({
   label,
   unit,
   value,
   onChange,
   disabled,
+  dense,
 }: {
   label?: string;
   unit: string;
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
+  dense?: boolean;
 }) {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value;
@@ -125,12 +143,12 @@ function UnitCountInput({
           value={value}
           onChange={handleChange}
           disabled={disabled}
-          className="flex-1 min-w-0 w-0 px-3 py-2 text-sm text-right outline-none"
+          className={dense ? "flex-1 min-w-0 w-0 px-2 py-1 text-xs text-right outline-none" : "flex-1 min-w-0 w-0 px-3 py-2 text-sm text-right outline-none"}
           style={{ background: "transparent", color: "var(--color-text)" }}
         />
         <span style={{ width: 1, background: "var(--color-border-strong)" }} />
         <span
-          className="flex items-center px-2.5 text-xs font-medium whitespace-nowrap"
+          className={dense ? "flex items-center px-1.5 text-[10px] font-medium whitespace-nowrap" : "flex items-center px-2.5 text-xs font-medium whitespace-nowrap"}
           style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
         >
           {unit}
@@ -142,28 +160,64 @@ function UnitCountInput({
 
 const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
-/** Month-only picker (TODO #10) — stores the 1st of the selected month as
- * "yyyy-mm-01", not an exact date; range runs from the current month out to
- * +36 (covers the longest Periodic option, see PERIODE_PERIODIC_OPTIONS). */
-function MonthYearSelect({ label, value, onChange, disabled }: { label?: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
-  const options = useMemo(() => {
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    return Array.from({ length: 37 }, (_, i) => {
-      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
-      const v = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-      return { value: v, label: `${BULAN_ID[d.getMonth()]} ${d.getFullYear()}` };
-    });
+/** Month-only picker (TODO #10) — separate Bulan + Tahun selects (not one long
+ * combined dropdown) that together store the 1st of the selected month as
+ * "yyyy-mm-01", not an exact date. Year range covers the longest Periodic
+ * option (see PERIODE_PERIODIC_OPTIONS) plus buffer. */
+function MonthYearPicker({ label, value, onChange, disabled }: { label?: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const years = useMemo(() => {
+    const y = new Date().getFullYear();
+    return Array.from({ length: 4 }, (_, i) => y + i);
   }, []);
-  // Snap an exact-date value (old rows, or a value not on this list) down to its month so the select still shows something sensible.
-  const normalized = value ? `${value.slice(0, 7)}-01` : "";
+
+  // Tracked as their OWN state (not derived solely from `value`) so picking
+  // just one of the two visibly sticks right away — deriving purely from
+  // `value` meant picking only the month (with no year yet) computed back to
+  // "" every render, since the combined date isn't complete until both are
+  // set, making the Bulan dropdown look like it never responded to a click.
+  const [mm, setMm] = useState(value ? value.slice(5, 7) : "");
+  const [yyyy, setYyyy] = useState(value ? value.slice(0, 4) : "");
+
+  // Stay in sync if the parent resets/loads `value` from elsewhere (e.g. an existing pengajuan).
+  useEffect(() => {
+    setMm(value ? value.slice(5, 7) : "");
+    setYyyy(value ? value.slice(0, 4) : "");
+  }, [value]);
+
+  function handleMonth(v: string) {
+    setMm(v);
+    onChange(v && yyyy ? `${yyyy}-${v}-01` : "");
+  }
+  function handleYear(v: string) {
+    setYyyy(v);
+    onChange(mm && v ? `${v}-${mm}-01` : "");
+  }
+
   return (
     <div>
       {label && <span className="text-sm font-medium block mb-1">{label}</span>}
-      <select className="input-field w-full" value={normalized} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-        <option value="">— pilih bulan —</option>
-        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
+      <div className="flex gap-2 min-w-0">
+        <div className="flex-1 min-w-0">
+          <Combobox
+            name="targetBulan"
+            options={BULAN_ID.map((b, i) => ({ value: String(i + 1).padStart(2, "0"), label: b }))}
+            value={mm}
+            onChange={handleMonth}
+            disabled={disabled}
+            placeholder="Bulan…"
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <Combobox
+            name="targetTahun"
+            options={years.map((y) => ({ value: String(y), label: String(y) }))}
+            value={yyyy}
+            onChange={handleYear}
+            disabled={disabled}
+            placeholder="Tahun…"
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -262,22 +316,20 @@ function isoDatetimeLocalInput(v: string | Date | null): string {
 export function PoaStandarisasiWizard({
   pengajuan,
   productOptions,
-  kpdmOptions,
-  jabatanOptions,
   dokterOptions,
   canEdit,
   canApproveAsm,
   canApproveSm,
+  canApproveNsm,
   isOwner,
 }: {
   pengajuan: PoaStandarisasiDetail;
   productOptions: Product[];
-  kpdmOptions: { id: string; nama: string; jabatanId: string | null }[];
-  jabatanOptions: { id: string; nama: string }[];
   dokterOptions: CustomerOption[];
   canEdit: boolean;
   canApproveAsm: boolean;
   canApproveSm: boolean;
+  canApproveNsm: boolean;
   isOwner: boolean;
 }) {
   const router = useRouter();
@@ -293,16 +345,23 @@ export function PoaStandarisasiWizard({
   const viewedStepIdx = PHASES.findIndex((p) => p.id === viewedPhaseId);
   const isViewingCurrentPhase = viewedPhaseId === pengajuan.currentPhase;
 
-  // ── Local mutable master data (grows when "+ Tambah baru" is used) ───────
-  const [kpdmList, setKpdmList] = useState(kpdmOptions);
-  const [jabatanList, setJabatanList] = useState(jabatanOptions);
+  // Clicking "Lanjut ke ..." advances pengajuan.currentPhase server-side and
+  // router.refresh()es this same component instance — state (viewedPhaseId)
+  // survives a refresh, so without this the view stayed stuck on the phase
+  // just left instead of following the newly-advanced phase.
+  useEffect(() => {
+    setViewedPhaseId(pengajuan.currentPhase);
+  }, [pengajuan.currentPhase]);
+
+  // ── Local mutable master data (grows when a "nexus:" id gets materialized) ─
   const [dokterList, setDokterList] = useState(dokterOptions);
 
   // ── Phase 1 state ──────────────────────────────────────────────────────
-  const [kpdmId, setKpdmId] = useState(pengajuan.kpdmId);
+  // KPDM is a customer/dokter at this outlet (Nexus-backed, same pool as
+  // Dokter Klinis below) — not a separate master-data entity anymore
+  // (2026-08-20). Jabatan is that customer's spesialisasi, read-only.
+  const [kpdmId, setKpdmId] = useState(pengajuan.kpdmId ?? "");
   const [kpdmNama, setKpdmNama] = useState(pengajuan.kpdmNamaSnapshot);
-  const initialKpdm = kpdmOptions.find((k) => k.id === pengajuan.kpdmId);
-  const [jabatanId, setJabatanId] = useState<string | null>(initialKpdm?.jabatanId ?? null);
   const [jabatanNama, setJabatanNama] = useState(pengajuan.jabatanNamaSnapshot ?? "");
   const [kpdmEntertainEstimasi, setKpdmEntertainEstimasi] = useState(pengajuan.kpdmEntertainEstimasi != null ? String(pengajuan.kpdmEntertainEstimasi) : "");
   const [tipeStandarisasi, setTipeStandarisasi] = useState(pengajuan.tipeStandarisasi);
@@ -358,11 +417,22 @@ export function PoaStandarisasiWizard({
     return res.customerId;
   }
 
+  /** KPDM is picked from the same outlet customer pool as Dokter Klinis — jabatan is that customer's spesialisasi, not independently pickable. */
+  async function handleSelectKpdm(rawId: string) {
+    if (!rawId) { setKpdmId(""); setKpdmNama(""); setJabatanNama(""); return; }
+    const opt = dokterById.get(rawId);
+    const realId = await resolveDokterId(rawId);
+    setKpdmId(realId);
+    if (opt) {
+      setKpdmNama(opt.namaCustomer);
+      setJabatanNama(opt.spesialisasi);
+    }
+  }
+
   function buildPlanningPayload(): PlanningInput {
     return {
       kpdmId,
       kpdmNama,
-      jabatanId,
       jabatanNama: jabatanNama || null,
       kpdmEntertainEstimasi: kpdmEntertainEstimasi || null,
       tipeStandarisasi,
@@ -399,31 +469,35 @@ export function PoaStandarisasiWizard({
     });
   }
 
-  function handleApprove(level: "ASM" | "SM", decision: "DISETUJUI" | "DITOLAK") {
+  function handleApprove(level: "ASM" | "SM" | "NSM", decision: "DISETUJUI" | "DITOLAK") {
     run(async () => approvePoaStandarisasiAtasanAction(pengajuan.id, level, decision));
   }
 
+  function sudahTtdRows() {
+    return Object.entries(sudahTtdMap).map(([key, sudahTtd]) => {
+      const [produkId, customerId] = key.split(":");
+      return { produkId, customerId, sudahTtd };
+    });
+  }
+
   function handleSavePhase3() {
-    run(async () =>
-      saveApprovalUserDokterAction(pengajuan.id, {
-        jadwalMeetingKft: jadwalMeetingKft ? new Date(jadwalMeetingKft).toISOString() : null,
-        sudahTtd: Object.entries(sudahTtdMap).map(([key, sudahTtd]) => {
-          const [produkId, customerId] = key.split(":");
-          return { produkId, customerId, sudahTtd };
-        }),
-      })
-    );
+    run(async () => saveApprovalUserDokterAction(pengajuan.id, { sudahTtd: sudahTtdRows() }));
+  }
+
+  function handleAdvanceToMenungguKft() {
+    run(async () => {
+      await saveApprovalUserDokterAction(pengajuan.id, { sudahTtd: sudahTtdRows() });
+      await advanceToMenungguMeetingKftAction(pengajuan.id);
+    });
+  }
+
+  function handleSaveMenungguKft() {
+    run(async () => saveMenungguMeetingKftAction(pengajuan.id, { jadwalMeetingKft: jadwalMeetingKft ? new Date(jadwalMeetingKft).toISOString() : null }));
   }
 
   function handleAdvanceToFinalisasi() {
     run(async () => {
-      await saveApprovalUserDokterAction(pengajuan.id, {
-        jadwalMeetingKft: jadwalMeetingKft ? new Date(jadwalMeetingKft).toISOString() : null,
-        sudahTtd: Object.entries(sudahTtdMap).map(([key, sudahTtd]) => {
-          const [produkId, customerId] = key.split(":");
-          return { produkId, customerId, sudahTtd };
-        }),
-      });
+      await saveMenungguMeetingKftAction(pengajuan.id, { jadwalMeetingKft: jadwalMeetingKft ? new Date(jadwalMeetingKft).toISOString() : null });
       await advanceToFinalisasiAction(pengajuan.id);
     });
   }
@@ -520,9 +594,12 @@ export function PoaStandarisasiWizard({
   return (
     <div className="max-w-5xl">
       <div className="mb-4">
-        <h1>Pengajuan Standarisasi — {pengajuan.outlet.namaOutlet}</h1>
+        <Link href="/poa-standarisasi" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+          ← Daftar POA Standarisasi
+        </Link>
+        <h1 className="mt-1">Pengajuan Standarisasi — {pengajuan.outlet.namaOutlet}</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          POA Standarisasi (Produk × Outlet) — wizard 4 phase.
+          POA Standarisasi (Produk × Outlet) — wizard 5 phase.
         </p>
       </div>
 
@@ -560,18 +637,9 @@ export function PoaStandarisasiWizard({
           canEdit={canEdit && isViewingCurrentPhase}
           kodePI={pengajuan.kodePI}
           namaOutlet={pengajuan.outlet.namaOutlet}
-          kpdmList={kpdmList}
-          setKpdmList={setKpdmList}
-          jabatanList={jabatanList}
-          setJabatanList={setJabatanList}
           kpdmId={kpdmId}
-          setKpdmId={setKpdmId}
-          kpdmNama={kpdmNama}
-          setKpdmNama={setKpdmNama}
-          jabatanId={jabatanId}
-          setJabatanId={setJabatanId}
+          onSelectKpdm={handleSelectKpdm}
           jabatanNama={jabatanNama}
-          setJabatanNama={setJabatanNama}
           kpdmEntertainEstimasi={kpdmEntertainEstimasi}
           setKpdmEntertainEstimasi={setKpdmEntertainEstimasi}
           tipeStandarisasi={tipeStandarisasi}
@@ -601,6 +669,7 @@ export function PoaStandarisasiWizard({
           pengajuan={pengajuan}
           canApproveAsm={canApproveAsm && isViewingCurrentPhase}
           canApproveSm={canApproveSm && isViewingCurrentPhase}
+          canApproveNsm={canApproveNsm && isViewingCurrentPhase}
           onApprove={handleApprove}
         />
       )}
@@ -609,10 +678,17 @@ export function PoaStandarisasiWizard({
         <ApprovalUserDokterPhase
           canEdit={canEdit && isViewingCurrentPhase}
           pengajuan={pengajuan}
-          jadwalMeetingKft={jadwalMeetingKft}
-          setJadwalMeetingKft={setJadwalMeetingKft}
           sudahTtdMap={sudahTtdMap}
           setSudahTtdMap={setSudahTtdMap}
+        />
+      )}
+
+      {viewedPhaseId === "MENUNGGU_MEETING_KFT" && (
+        <MenungguMeetingKftPhase
+          canEdit={canEdit && isViewingCurrentPhase}
+          pengajuan={pengajuan}
+          jadwalMeetingKft={jadwalMeetingKft}
+          setJadwalMeetingKft={setJadwalMeetingKft}
         />
       )}
 
@@ -649,6 +725,12 @@ export function PoaStandarisasiWizard({
           {isViewingCurrentPhase && pengajuan.currentPhase === "APPROVAL_USER_DOKTER" && canEdit && (
             <>
               <Button variant="secondary" disabled={pending} onClick={handleSavePhase3}>Simpan</Button>
+              <Button disabled={pending} onClick={handleAdvanceToMenungguKft}>Lanjut ke Menunggu Meeting KFT</Button>
+            </>
+          )}
+          {isViewingCurrentPhase && pengajuan.currentPhase === "MENUNGGU_MEETING_KFT" && canEdit && (
+            <>
+              <Button variant="secondary" disabled={pending} onClick={handleSaveMenungguKft}>Simpan</Button>
               <Button disabled={pending} onClick={handleAdvanceToFinalisasi}>Lanjut ke Finalisasi</Button>
             </>
           )}
@@ -733,18 +815,11 @@ export function PlanningPhase(props: {
   namaOutlet: string;
   /** When set, "Nama Outlet" renders as an editable Combobox instead of a read-only box — used by the "new" (create) form, where outlet isn't fixed yet. */
   outletPicker?: { options: { value: string; label: string; sublabel?: string }[]; onChange: (v: string) => void };
-  kpdmList: { id: string; nama: string; jabatanId: string | null }[];
-  setKpdmList: React.Dispatch<React.SetStateAction<{ id: string; nama: string; jabatanId: string | null }[]>>;
-  jabatanList: { id: string; nama: string }[];
-  setJabatanList: React.Dispatch<React.SetStateAction<{ id: string; nama: string }[]>>;
+  /** Customer.id of the selected KPDM — picked from the same outlet customer pool as Dokter Klinis (dokterList below), not a separate master-data entity. */
   kpdmId: string;
-  setKpdmId: (v: string) => void;
-  kpdmNama: string;
-  setKpdmNama: (v: string) => void;
-  jabatanId: string | null;
-  setJabatanId: (v: string | null) => void;
+  onSelectKpdm: (rawId: string) => Promise<void>;
+  /** Read-only, derived from the selected KPDM customer's spesialisasi. */
   jabatanNama: string;
-  setJabatanNama: (v: string) => void;
   kpdmEntertainEstimasi: string;
   setKpdmEntertainEstimasi: (v: string) => void;
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
@@ -768,42 +843,17 @@ export function PlanningPhase(props: {
   updateDokterKlinis: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) => void;
 }) {
   const {
-    canEdit, kodePI, namaOutlet, outletPicker, kpdmList, setKpdmList, jabatanList, setJabatanList,
-    kpdmId, setKpdmId, setKpdmNama, jabatanId, setJabatanId, setJabatanNama,
+    canEdit, kodePI, namaOutlet, outletPicker,
+    kpdmId, onSelectKpdm, jabatanNama,
     kpdmEntertainEstimasi, setKpdmEntertainEstimasi, tipeStandarisasi, setTipeStandarisasi,
     periodeBulan, setPeriodeBulan, jumlahBedRs, setJumlahBedRs, estimasiTimelineSelesai, setEstimasiTimelineSelesai,
     produkList, productOptions, productByKode, dokterList, dokterById, updateProduk, addProduk, removeProduk,
     addDokterToProduk, removeDokterFromProduk, updateDokterKlinis,
   } = props;
 
-  const [newKpdmName, setNewKpdmName] = useState("");
-  const [addingKpdm, setAddingKpdm] = useState(false);
-  const [newJabatanName, setNewJabatanName] = useState("");
-  const [addingJabatan, setAddingJabatan] = useState(false);
   const disabled = !canEdit;
 
   const productComboOptions = productOptions.map((p) => ({ value: p.kodeProduk, label: p.namaProduk, sublabel: p.namaGroupBrand }));
-
-  async function handleAddKpdm() {
-    if (!newKpdmName.trim()) return;
-    const kpdm = await findOrCreateKpdmAction(newKpdmName.trim());
-    setKpdmList((prev) => (prev.some((k) => k.id === kpdm.id) ? prev : [...prev, kpdm]));
-    setKpdmId(kpdm.id);
-    setKpdmNama(kpdm.nama);
-    setJabatanId(kpdm.jabatanId);
-    setNewKpdmName("");
-    setAddingKpdm(false);
-  }
-
-  async function handleAddJabatan() {
-    if (!newJabatanName.trim()) return;
-    const jab = await findOrCreateJabatanAction(newJabatanName.trim());
-    setJabatanList((prev) => (prev.some((j) => j.id === jab.id) ? prev : [...prev, jab]));
-    setJabatanId(jab.id);
-    setJabatanNama(jab.nama);
-    setNewJabatanName("");
-    setAddingJabatan(false);
-  }
 
   return (
     <>
@@ -830,53 +880,19 @@ export function PlanningPhase(props: {
             <span className="text-sm font-medium block mb-1">KPDM Standarisasi <span style={{ color: "var(--color-error)" }}>*</span></span>
             <Combobox
               name="kpdmId"
-              options={kpdmList.map((k) => ({ value: k.id, label: k.nama }))}
+              options={dokterList.map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi }))}
               value={kpdmId}
-              onChange={(v) => {
-                setKpdmId(v);
-                const k = kpdmList.find((x) => x.id === v);
-                if (k) { setKpdmNama(k.nama); setJabatanId(k.jabatanId); }
-              }}
+              onChange={onSelectKpdm}
               disabled={disabled}
-              placeholder="Cari KPDM…"
+              placeholder="Cari customer di outlet ini…"
+              emptyMessage="Tidak ada customer terdaftar di outlet ini."
             />
-            {!addingKpdm ? (
-              <button type="button" disabled={disabled} className="text-xs mt-1" style={{ color: "var(--color-blue)" }} onClick={() => setAddingKpdm(true)}>
-                + Tambah KPDM baru
-              </button>
-            ) : (
-              <div className="flex gap-1 mt-1">
-                <Input value={newKpdmName} onChange={(e) => setNewKpdmName(e.target.value)} placeholder="Nama KPDM baru" className="text-xs" />
-                <Button type="button" size="sm" onClick={handleAddKpdm}>Tambah</Button>
-              </div>
-            )}
           </div>
           <div>
-            <span className="text-sm font-medium block mb-1">Jabatan <span style={{ color: "var(--color-error)" }}>*</span></span>
-            <select
-              className="input-field w-full"
-              value={jabatanId ?? ""}
-              disabled={disabled}
-              onChange={(e) => {
-                const v = e.target.value;
-                setJabatanId(v || null);
-                const j = jabatanList.find((x) => x.id === v);
-                setJabatanNama(j?.nama ?? "");
-              }}
-            >
-              <option value="">— pilih jabatan —</option>
-              {jabatanList.map((j) => <option key={j.id} value={j.id}>{j.nama}</option>)}
-            </select>
-            {!addingJabatan ? (
-              <button type="button" disabled={disabled} className="text-xs mt-1" style={{ color: "var(--color-blue)" }} onClick={() => setAddingJabatan(true)}>
-                + Tambah Jabatan baru…
-              </button>
-            ) : (
-              <div className="flex gap-1 mt-1">
-                <Input value={newJabatanName} onChange={(e) => setNewJabatanName(e.target.value)} placeholder="Nama jabatan baru" className="text-xs" />
-                <Button type="button" size="sm" onClick={handleAddJabatan}>Tambah</Button>
-              </div>
-            )}
+            <span className="text-sm font-medium block mb-1">Jabatan</span>
+            <div className="rounded px-3 py-2 text-sm" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+              {jabatanNama || <span style={{ color: "var(--color-text-faint)" }}>— pilih KPDM dahulu —</span>}
+            </div>
           </div>
         </div>
 
@@ -892,31 +908,29 @@ export function PlanningPhase(props: {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <span className="text-sm font-medium block mb-1">Tipe Standarisasi <span style={{ color: "var(--color-error)" }}>*</span></span>
-            <select
-              className="input-field w-full"
+            <Combobox
+              name="tipeStandarisasi"
+              options={[
+                { value: "PERIODIC", label: "Standarisasi Periodic" },
+                { value: "SISIPAN", label: "Standarisasi Sisipan" },
+                { value: "PERMANEN", label: "Standarisasi Non Periodic" },
+              ]}
               value={tipeStandarisasi}
+              onChange={(v) => setTipeStandarisasi(v as "PERIODIC" | "SISIPAN" | "PERMANEN")}
               disabled={disabled}
-              onChange={(e) => setTipeStandarisasi(e.target.value as "PERIODIC" | "SISIPAN" | "PERMANEN")}
-            >
-              <option value="PERIODIC">Standarisasi Periodic</option>
-              <option value="SISIPAN">Standarisasi Sisipan</option>
-              <option value="PERMANEN">Standarisasi Non Periodic</option>
-            </select>
+            />
           </div>
           {tipeStandarisasi === "PERIODIC" && (
             <div>
               <span className="text-sm font-medium block mb-1">Periode <span style={{ color: "var(--color-error)" }}>*</span></span>
-              <select
-                className="input-field w-full"
+              <Combobox
+                name="periodeBulan"
+                options={PERIODE_PERIODIC_OPTIONS.map((n) => ({ value: String(n), label: `${n} Bulan` }))}
                 value={periodeBulan}
+                onChange={setPeriodeBulan}
                 disabled={disabled}
-                onChange={(e) => setPeriodeBulan(e.target.value)}
-              >
-                <option value="">— pilih periode —</option>
-                {PERIODE_PERIODIC_OPTIONS.map((n) => (
-                  <option key={n} value={n}>{n} Bulan</option>
-                ))}
-              </select>
+                placeholder="Pilih periode…"
+              />
             </div>
           )}
           {tipeStandarisasi === "SISIPAN" && (
@@ -925,8 +939,8 @@ export function PlanningPhase(props: {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input label="Jumlah Bed RS" type="number" value={jumlahBedRs} onChange={(e) => setJumlahBedRs(e.target.value)} disabled={disabled} />
-          <MonthYearSelect
+          <UnitCountInput label="Jumlah Bed RS" unit="Bed" value={jumlahBedRs} onChange={setJumlahBedRs} disabled={disabled} />
+          <MonthYearPicker
             label="Target Penyelesaian Standarisasi"
             value={estimasiTimelineSelesai}
             onChange={setEstimasiTimelineSelesai}
@@ -976,7 +990,7 @@ export function PlanningPhase(props: {
             <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Estimasi Biaya (per bulan)</span>
             <div className="grid grid-cols-2 gap-3 mb-3">
-              <Input label="Estimasi Discount (%)" type="number" value={p.estimasiDiskonPct} onChange={(e) => updateProduk(idx, { estimasiDiskonPct: e.target.value })} disabled={disabled} />
+              <UnitCountInput label="Estimasi Discount" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
               <RpInput label="Estimasi Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
             </div>
 
@@ -1010,21 +1024,11 @@ export function PlanningPhase(props: {
                               {p.kodeProduk && <GolonganBadge kodeCustomer={d?.kodeCustomer ?? ""} kodePI={kodePI} kodeProduk={p.kodeProduk} />}
                             </div>
                           </td>
-                          <td className="py-1.5"><input type="number" className="input-field text-right w-20" value={dk.jumlahPasien} disabled={disabled} onChange={(e) => updateDokterKlinis(idx, dk.customerId, { jumlahPasien: e.target.value })} /></td>
-                          <td className="py-1.5"><input type="number" className="input-field text-right w-20" value={dk.resepPerPasienSt} disabled={disabled} onChange={(e) => updateDokterKlinis(idx, dk.customerId, { resepPerPasienSt: e.target.value })} /></td>
+                          <td className="py-1.5"><UnitCountInput unit="Pasien" value={dk.jumlahPasien} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { jumlahPasien: v })} disabled={disabled} dense /></td>
+                          <td className="py-1.5"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={dk.resepPerPasienSt} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { resepPerPasienSt: v })} disabled={disabled} dense /></td>
                           <td className="py-1.5 text-right">{dq ? dq.toLocaleString("id-ID") : "-"}</td>
                           <td className="py-1.5 text-right">{formatRp(dq * hst)}</td>
-                          <td className="py-1.5">
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              className="input-field text-right w-24"
-                              value={dk.entertainRp ? Number(dk.entertainRp).toLocaleString("id-ID") : ""}
-                              placeholder="0"
-                              disabled={disabled}
-                              onChange={(e) => updateDokterKlinis(idx, dk.customerId, { entertainRp: e.target.value.replace(/\D/g, "") })}
-                            />
-                          </td>
+                          <td className="py-1.5"><RpInput value={dk.entertainRp} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { entertainRp: v })} disabled={disabled} dense /></td>
                           <td>{!disabled && <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeDokterFromProduk(idx, dk.customerId)}>✕</button>}</td>
                         </tr>
                       );
@@ -1069,18 +1073,20 @@ function ApprovalAtasanPhase({
   pengajuan,
   canApproveAsm,
   canApproveSm,
+  canApproveNsm,
   onApprove,
 }: {
   pengajuan: PoaStandarisasiDetail;
   canApproveAsm: boolean;
   canApproveSm: boolean;
-  onApprove: (level: "ASM" | "SM", decision: "DISETUJUI" | "DITOLAK") => void;
+  canApproveNsm: boolean;
+  onApprove: (level: "ASM" | "SM" | "NSM", decision: "DISETUJUI" | "DITOLAK") => void;
 }) {
   return (
     <Card className="mb-4">
       <CardHeader><CardTitle>Approval Atasan</CardTitle></CardHeader>
       <p className="text-sm mb-4" style={{ color: "var(--color-blue)" }}>
-        Pengajuan ini perlu disetujui ASM lalu SM sebelum lanjut ke Approval User/Dokter.
+        Pengajuan ini perlu disetujui ASM, lalu SM, lalu NSM sebelum lanjut ke Approval User/Dokter.
       </p>
       <div className="rounded p-4 mb-2" style={{ background: "var(--color-bg-subtle)" }}>
         <ApprovalRow label="Approval ASM" status={pengajuan.statusApprovalAsm} canAct={canApproveAsm} onApprove={(d) => onApprove("ASM", d)} />
@@ -1089,6 +1095,12 @@ function ApprovalAtasanPhase({
           status={pengajuan.statusApprovalSm}
           canAct={canApproveSm && pengajuan.statusApprovalAsm === "DISETUJUI"}
           onApprove={(d) => onApprove("SM", d)}
+        />
+        <ApprovalRow
+          label="Approval NSM"
+          status={pengajuan.statusApprovalNsm}
+          canAct={canApproveNsm && pengajuan.statusApprovalSm === "DISETUJUI"}
+          onApprove={(d) => onApprove("NSM", d)}
         />
       </div>
       <p className="text-xs mt-3" style={{ color: "var(--color-text-faint)" }}>
@@ -1129,22 +1141,18 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-// ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
+// ─── Phase 4: Menunggu Meeting KFT ──────────────────────────────────────────
 
-function ApprovalUserDokterPhase({
+function MenungguMeetingKftPhase({
   canEdit,
   pengajuan,
   jadwalMeetingKft,
   setJadwalMeetingKft,
-  sudahTtdMap,
-  setSudahTtdMap,
 }: {
   canEdit: boolean;
   pengajuan: PoaStandarisasiDetail;
   jadwalMeetingKft: string;
   setJadwalMeetingKft: (v: string) => void;
-  sudahTtdMap: Record<string, boolean>;
-  setSudahTtdMap: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 }) {
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [uploading, setUploading] = useState<string | null>(null);
@@ -1168,7 +1176,7 @@ function ApprovalUserDokterPhase({
 
   return (
     <Card className="mb-4">
-      <CardHeader><CardTitle>Approval User / Dokter</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Menunggu Meeting KFT</CardTitle></CardHeader>
       <div className="max-w-xs mb-4">
         <Input
           label="Jadwal Meeting KFT"
@@ -1178,8 +1186,101 @@ function ApprovalUserDokterPhase({
           disabled={!canEdit}
         />
       </div>
+
+      {pengajuan.produk.map((p) => (
+        <div key={p.id} className="mb-6">
+          <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>
+            Dokumen Standarisasi — {p.product.namaProduk}
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+            {DOKUMEN_JENIS.map(({ jenis, label }) => {
+              const doc = p.dokumen.find((d) => d.jenis === jenis);
+              return (
+                <div key={jenis} className="rounded-lg p-3" style={{ border: "1px solid var(--color-border)" }}>
+                  <div className="text-sm font-semibold">{label}</div>
+                  {doc ? (
+                    <>
+                      <div className="text-xs mt-0.5 truncate" style={{ color: "var(--color-text-faint)" }}>{doc.namaFile}</div>
+                      <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium mt-1 inline-block" style={{ color: "var(--color-blue)" }}>
+                        ↓ Download
+                      </a>
+                    </>
+                  ) : (
+                    <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>Belum diupload</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div>
+            <span className="text-sm font-medium block mb-1">
+              Form Approval Standarisasi <span style={{ color: "var(--color-error)" }}>*</span>
+            </span>
+            <input
+              ref={(el) => { fileInputRefs.current[p.id] = el; }}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(p.id, f); }}
+            />
+            <div
+              onClick={() => canEdit && uploading !== p.id && fileInputRefs.current[p.id]?.click()}
+              className="w-full rounded-lg text-center py-5 px-4"
+              style={{ border: "2px dashed var(--color-border)", background: "var(--color-surface, #fff)", cursor: canEdit ? "pointer" : "default" }}
+            >
+              {uploading === p.id ? (
+                <div className="text-sm font-medium" style={{ color: "var(--color-text-faint)" }}>Mengupload…</div>
+              ) : p.formApprovalFilePath && p.formApprovalDriveFileId ? (
+                <>
+                  <a
+                    href={driveViewUrl(p.formApprovalDriveFileId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-sm font-medium"
+                    style={{ color: "var(--color-text)" }}
+                  >
+                    {p.formApprovalFilePath}
+                  </a>
+                  <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
+                    {canEdit ? "Klik untuk ganti file" : "PDF atau JPG, maks 10MB"}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+                    {canEdit ? "Klik untuk upload" : "Belum diupload"}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>PDF atau JPG, maks 10MB</div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+// ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
+
+function ApprovalUserDokterPhase({
+  canEdit,
+  pengajuan,
+  sudahTtdMap,
+  setSudahTtdMap,
+}: {
+  canEdit: boolean;
+  pengajuan: PoaStandarisasiDetail;
+  sudahTtdMap: Record<string, boolean>;
+  setSudahTtdMap: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+}) {
+  return (
+    <Card className="mb-4">
+      <CardHeader><CardTitle>Approval User / Dokter</CardTitle></CardHeader>
       <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-        Dokter di bawah ini sudah dipilih saat Planning Standarisasi — centang &quot;Sudah TTD&quot; untuk yang tanda tangannya sudah didapat, lalu upload Form Approval Standarisasi sebagai bukti.
+        Dokter di bawah ini sudah dipilih saat Planning Standarisasi — centang &quot;Sudah TTD&quot; untuk yang tanda tangannya sudah didapat.
       </p>
 
       {pengajuan.produk.map((p) => (
@@ -1208,35 +1309,13 @@ function ApprovalUserDokterPhase({
               </div>
             );
           })}
-          <div className="flex items-center gap-3 mt-2">
-            <span className="text-xs font-medium">Form Approval Standarisasi:</span>
-            {p.formApprovalFilePath ? (
-              <span className="text-xs" style={{ color: "var(--color-status-approved, #008f42)" }}>✓ {p.formApprovalFilePath}</span>
-            ) : (
-              <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum diupload</span>
-            )}
-            {canEdit && (
-              <>
-                <input
-                  ref={(el) => { fileInputRefs.current[p.id] = el; }}
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(p.id, f); }}
-                />
-                <Button type="button" size="sm" variant="secondary" disabled={uploading === p.id} onClick={() => fileInputRefs.current[p.id]?.click()}>
-                  {uploading === p.id ? "Mengupload…" : p.formApprovalFilePath ? "Ganti file" : "Upload"}
-                </Button>
-              </>
-            )}
-          </div>
         </div>
       ))}
     </Card>
   );
 }
 
-// ─── Phase 4: Finalisasi ─────────────────────────────────────────────────────
+// ─── Phase 5: Finalisasi ─────────────────────────────────────────────────────
 
 function FinalisasiPhase({
   canEdit,
@@ -1361,8 +1440,8 @@ function FinalisasiPhase({
             <div className="text-sm font-bold mb-3" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</div>
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Finalisasi Biaya</span>
             <div className="grid grid-cols-3 gap-3 mb-4">
-              <Input label="Discount Final (%)" type="number" value={p.finalDiscountPct} onChange={(e) => updateProduk(idx, { finalDiscountPct: e.target.value })} disabled={disabled} />
-              <Input label="Diskon Distributor (%)" type="number" value={p.diskonDistributorPct} onChange={(e) => updateProduk(idx, { diskonDistributorPct: e.target.value })} disabled={disabled} />
+              <UnitCountInput label="Discount Final" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled={disabled} />
+              <UnitCountInput label="Diskon Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled={disabled} />
               <RpInput label="Biaya Listing Final" value={p.finalBiayaListingRp} onChange={(v) => updateProduk(idx, { finalBiayaListingRp: v })} disabled={disabled} />
             </div>
 
@@ -1389,21 +1468,11 @@ function FinalisasiPhase({
                       return (
                         <tr key={d.customerId} style={{ borderTop: "1px solid var(--color-border)" }}>
                           <td className="py-1.5">{dokterById.get(d.customerId)?.namaCustomer ?? d.customerId}</td>
-                          <td className="py-1.5"><input type="number" className="input-field text-right w-20" value={d.jumlahPasien} disabled={disabled} onChange={(e) => updateDokterUser(idx, d.customerId, { jumlahPasien: e.target.value })} /></td>
-                          <td className="py-1.5"><input type="number" className="input-field text-right w-20" value={d.resepPerPasienSt} disabled={disabled} onChange={(e) => updateDokterUser(idx, d.customerId, { resepPerPasienSt: e.target.value })} /></td>
+                          <td className="py-1.5"><UnitCountInput unit="Pasien" value={d.jumlahPasien} onChange={(v) => updateDokterUser(idx, d.customerId, { jumlahPasien: v })} disabled={disabled} dense /></td>
+                          <td className="py-1.5"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={d.resepPerPasienSt} onChange={(v) => updateDokterUser(idx, d.customerId, { resepPerPasienSt: v })} disabled={disabled} dense /></td>
                           <td className="py-1.5 text-right">{dq ? dq.toLocaleString("id-ID") : "-"}</td>
                           <td className="py-1.5 text-right">{formatRp(dq * hst)}</td>
-                          <td className="py-1.5">
-                            <input
-                              type="text"
-                              inputMode="numeric"
-                              className="input-field text-right w-24"
-                              value={d.entertainRp ? Number(d.entertainRp).toLocaleString("id-ID") : ""}
-                              placeholder="0"
-                              disabled={disabled}
-                              onChange={(e) => updateDokterUser(idx, d.customerId, { entertainRp: e.target.value.replace(/\D/g, "") })}
-                            />
-                          </td>
+                          <td className="py-1.5"><RpInput value={d.entertainRp} onChange={(v) => updateDokterUser(idx, d.customerId, { entertainRp: v })} disabled={disabled} dense /></td>
                           <td>{!disabled && <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeDokterUser(idx, d.customerId)}>✕</button>}</td>
                         </tr>
                       );

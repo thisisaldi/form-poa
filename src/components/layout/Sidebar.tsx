@@ -34,11 +34,14 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["MR", "ADMIN"]
   },
   {
-    href: "/poa-standarisasi/new",
-    label: "New POA Standarisasi",
+    href: "/poa-standarisasi",
+    label: "POA Standarisasi",
     icon: <IconPlus />,
     // Hidden from everyone but ADMIN for now (2026-08-14) — same
     // ADMIN-only-while-under-review convention as /monitoring below.
+    // Points at the list page (not /new directly, 2026-08-20) — same
+    // "list page holds its own create button" convention as Dashboard for
+    // POA Estimasi, so submitted pengajuan are actually reachable again.
     roles: ["ADMIN"],
   },
   {

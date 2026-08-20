@@ -544,12 +544,14 @@ export async function canRespondEditRequestDoctor(user: User, doctor: PoaDoctorA
 interface PoaStandarisasiApprovers {
   asmNip: string | null;
   smNip: string | null;
+  nsmNip: string | null;
 }
 
 async function getPoaStandarisasiApprovers(ownerNip: string, kodePI: string): Promise<PoaStandarisasiApprovers> {
   const owner = await prisma.user.findUnique({ where: { nip: ownerNip }, select: { nipAtasan: true } });
   let asmNip = owner?.nipAtasan ?? null;
   let smNip: string | null = null;
+  let nsmNip: string | null = null;
 
   if (asmNip) {
     const asm = await prisma.user.findUnique({ where: { nip: asmNip }, select: { role: true, nipAtasan: true } });
@@ -559,25 +561,34 @@ async function getPoaStandarisasiApprovers(ownerNip: string, kodePI: string): Pr
     smNip = asm?.nipAtasan ?? null;
   }
 
-  if (!asmNip || !smNip) {
+  if (smNip) {
+    const sm = await prisma.user.findUnique({ where: { nip: smNip }, select: { role: true, nipAtasan: true } });
+    // Same vacant-level pattern one level up — only trust smNip as the real
+    // SM approver if that person actually holds the SM role.
+    if (sm?.role !== Role.SM) smNip = null;
+    nsmNip = sm?.nipAtasan ?? null;
+  }
+
+  if (!asmNip || !smNip || !nsmNip) {
     const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { coveredByNip: true, coveredByRole: true } });
     if (!asmNip && outlet?.coveredByRole === Role.ASM) asmNip = outlet.coveredByNip;
     if (!smNip && outlet?.coveredByRole === Role.SM) smNip = outlet.coveredByNip;
+    if (!nsmNip && outlet?.coveredByRole === Role.NSM) nsmNip = outlet.coveredByNip;
   }
 
-  return { asmNip, smNip };
+  return { asmNip, smNip, nsmNip };
 }
 
-/** Can this user see this pengajuan at all? Owner, resolved ASM/SM approver, or company-wide read-only roles. */
+/** Can this user see this pengajuan at all? Owner, resolved ASM/SM/NSM approver, or company-wide read-only roles. */
 export async function canViewPoaStandarisasi(
   user: User,
   pengajuan: { ownerId: string; kodePI: string }
 ): Promise<boolean> {
   if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) return true;
   if (pengajuan.ownerId === user.nip) return true;
-  if (user.role === Role.ASM || user.role === Role.SM) {
-    const { asmNip, smNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
-    return user.nip === asmNip || user.nip === smNip;
+  if (user.role === Role.ASM || user.role === Role.SM || user.role === Role.NSM) {
+    const { asmNip, smNip, nsmNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
+    return user.nip === asmNip || user.nip === smNip || user.nip === nsmNip;
   }
   return false;
 }
@@ -589,18 +600,19 @@ export function canEditPoaStandarisasi(user: User, pengajuan: { ownerId: string;
 
 /**
  * Can this user approve/reject the given Phase 2 level right now? Sequential —
- * SM can only act after ASM has already approved (resolved Q2: blocking,
- * stops at SM, no NSM escalation).
+ * SM can only act after ASM has approved, NSM only after SM has approved
+ * (2026-08-20: chain extended ASM → SM → NSM).
  */
 export async function canApprovePoaStandarisasiAtasan(
   user: User,
-  pengajuan: { ownerId: string; kodePI: string; statusApprovalAsm: string },
-  level: "ASM" | "SM"
+  pengajuan: { ownerId: string; kodePI: string; statusApprovalAsm: string; statusApprovalSm: string },
+  level: "ASM" | "SM" | "NSM"
 ): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
-  const { asmNip, smNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
+  const { asmNip, smNip, nsmNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
   if (level === "ASM") return user.role === Role.ASM && user.nip === asmNip;
-  return user.role === Role.SM && user.nip === smNip && pengajuan.statusApprovalAsm === "DISETUJUI";
+  if (level === "SM") return user.role === Role.SM && user.nip === smNip && pengajuan.statusApprovalAsm === "DISETUJUI";
+  return user.role === Role.NSM && user.nip === nsmNip && pengajuan.statusApprovalSm === "DISETUJUI";
 }
 
 export async function canRequestEdit(user: User, poa: any): Promise<boolean> {

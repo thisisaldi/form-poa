@@ -3,10 +3,10 @@
 /**
  * POA Standarisasi — server actions. See docs/poa-standarisasi/ for the spec
  * this implements (business rules, data model, role/access). Produk × Outlet
- * sub-form, wizard 4-phase: Planning Standarisasi → Approval Atasan →
- * Approval User/Dokter → Finalisasi. All estimasi fields are PER BULAN
- * (resolved Q4, docs/poa-standarisasi/01-business-rules.md §7) — never
- * multiplied by periodeBulan here.
+ * sub-form, wizard 5-phase: Planning Standarisasi → Approval Atasan →
+ * Approval User/Dokter → Menunggu Meeting KFT → Finalisasi. All estimasi
+ * fields are PER BULAN (resolved Q4, docs/poa-standarisasi/01-business-rules.md
+ * §7) — never multiplied by periodeBulan here.
  */
 
 import { redirect } from "next/navigation";
@@ -41,46 +41,6 @@ function toNum(v: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
-// ─── Master data pickers ────────────────────────────────────────────────────
-
-export async function listKpdmOptions() {
-  return prisma.kpdmStandarisasi.findMany({ orderBy: { nama: "asc" }, select: { id: true, nama: true, jabatanId: true } });
-}
-
-export async function listJabatanOptions() {
-  return prisma.jabatanStandarisasi.findMany({ orderBy: { nama: "asc" }, select: { id: true, nama: true } });
-}
-
-export async function findOrCreateKpdmAction(nama: string): Promise<{ id: string; nama: string; jabatanId: string | null }> {
-  await requireSession();
-  const trimmed = nama.trim();
-  if (!trimmed) throw new Error("Nama KPDM wajib diisi.");
-  return prisma.kpdmStandarisasi.upsert({
-    where: { nama: trimmed },
-    update: {},
-    create: { nama: trimmed },
-    select: { id: true, nama: true, jabatanId: true },
-  });
-}
-
-export async function findOrCreateJabatanAction(nama: string): Promise<{ id: string; nama: string }> {
-  await requireSession();
-  const trimmed = nama.trim();
-  if (!trimmed) throw new Error("Nama jabatan wajib diisi.");
-  return prisma.jabatanStandarisasi.upsert({
-    where: { nama: trimmed },
-    update: {},
-    create: { nama: trimmed },
-    select: { id: true, nama: true },
-  });
-}
-
-/** Set (or clear) the jabatan a KPDM is remembered with, for future auto-fill. */
-export async function setKpdmJabatanAction(kpdmId: string, jabatanId: string | null): Promise<void> {
-  await requireSession();
-  await prisma.kpdmStandarisasi.update({ where: { id: kpdmId }, data: { jabatanId } });
-}
-
 // ─── Create ──────────────────────────────────────────────────────────────────
 
 /**
@@ -108,8 +68,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
 
   validatePlanningInput(input);
 
-  const kpdm = await prisma.kpdmStandarisasi.findUnique({ where: { id: input.kpdmId } });
-  if (!kpdm) throw new Error("KPDM tidak valid.");
+  if (!input.kpdmId) throw new Error("KPDM wajib dipilih.");
 
   const pengajuanId = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const pengajuan = await tx.poaStandarisasi.create({
@@ -137,7 +96,6 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
 
 const detailInclude = {
   outlet: true,
-  kpdm: true,
   produk: {
     include: {
       product: true,
@@ -160,7 +118,6 @@ function serializeDetail(p: RawDetail) {
     kpdmEntertainEstimasi: d(p.kpdmEntertainEstimasi),
     kpdmEntertainFinal: d(p.kpdmEntertainFinal),
     outlet: { ...p.outlet },
-    kpdm: p.kpdm,
     produk: p.produk.map((prod) => ({
       ...prod,
       estimasiDiskonPct: d(prod.estimasiDiskonPct),
@@ -248,7 +205,6 @@ export interface PlanningProdukInput {
 export interface PlanningInput {
   kpdmId: string;
   kpdmNama: string;
-  jabatanId: string | null;
   jabatanNama: string | null;
   kpdmEntertainEstimasi: number | string | null;
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
@@ -349,8 +305,7 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
 
   validatePlanningInput(input);
 
-  const kpdm = await prisma.kpdmStandarisasi.findUnique({ where: { id: input.kpdmId } });
-  if (!kpdm) throw new Error("KPDM tidak valid.");
+  if (!input.kpdmId) throw new Error("KPDM wajib dipilih.");
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.poaStandarisasi.update({
@@ -396,11 +351,11 @@ export async function advanceToApprovalAtasanAction(id: string): Promise<void> {
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
-// ─── Phase 2: Approval Atasan (blocking, stops at SM — resolved Q2) ────────
+// ─── Phase 2: Approval Atasan (blocking, sequential ASM → SM → NSM) ────────
 
 export async function approvePoaStandarisasiAtasanAction(
   id: string,
-  level: "ASM" | "SM",
+  level: "ASM" | "SM" | "NSM",
   decision: "DISETUJUI" | "DITOLAK"
 ): Promise<void> {
   const { actor } = await requireActor();
@@ -414,12 +369,14 @@ export async function approvePoaStandarisasiAtasanAction(
   const data =
     level === "ASM"
       ? { statusApprovalAsm: decision, tanggalApprovalAsm: new Date() }
-      : { statusApprovalSm: decision, tanggalApprovalSm: new Date() };
+      : level === "SM"
+      ? { statusApprovalSm: decision, tanggalApprovalSm: new Date() }
+      : { statusApprovalNsm: decision, tanggalApprovalNsm: new Date() };
 
   const updated = await prisma.poaStandarisasi.update({ where: { id }, data });
 
-  // Blocking, sequential: only advance to Phase 3 once BOTH are DISETUJUI.
-  if (updated.statusApprovalAsm === "DISETUJUI" && updated.statusApprovalSm === "DISETUJUI") {
+  // Blocking, sequential: only advance to Phase 3 once ALL THREE are DISETUJUI.
+  if (updated.statusApprovalAsm === "DISETUJUI" && updated.statusApprovalSm === "DISETUJUI" && updated.statusApprovalNsm === "DISETUJUI") {
     await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_USER_DOKTER" } });
   }
 
@@ -429,7 +386,6 @@ export async function approvePoaStandarisasiAtasanAction(
 // ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
 
 export interface ApprovalUserDokterInput {
-  jadwalMeetingKft: string | null; // ISO datetime
   sudahTtd: { produkId: string; customerId: string; sudahTtd: boolean }[];
 }
 
@@ -441,10 +397,6 @@ export async function saveApprovalUserDokterAction(id: string, input: ApprovalUs
   if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase ini.");
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.poaStandarisasi.update({
-      where: { id },
-      data: { jadwalMeetingKft: input.jadwalMeetingKft ? new Date(input.jadwalMeetingKft) : null },
-    });
     for (const row of input.sudahTtd) {
       await tx.poaStandarisasiDokterApproval.updateMany({
         where: { produkId: row.produkId, customerId: row.customerId },
@@ -456,13 +408,49 @@ export async function saveApprovalUserDokterAction(id: string, input: ApprovalUs
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
-/** Phase 3 → Phase 4. Requires "Form Approval Standarisasi" uploaded for every produk. */
+/** Phase 3 → Phase 4. */
+export async function advanceToMenungguMeetingKftAction(id: string): Promise<void> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase Approval User/Dokter.");
+
+  await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "MENUNGGU_MEETING_KFT" } });
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+// ─── Phase 4: Menunggu Meeting KFT ──────────────────────────────────────────
+// Dokumen standarisasi (NIE/CPOB/KFA/SP Non Sales) ditampilkan read-only di
+// sini — diupload dari tempat lain (bukan wizard MR ini), lihat
+// PoaStandarisasiDokumen. Yang diinput di sini cuma jadwal meeting + upload
+// "Form Approval Standarisasi" per produk (lewat uploadPoaStandarisasiFileAction).
+
+export interface MenungguMeetingKftInput {
+  jadwalMeetingKft: string | null; // ISO datetime
+}
+
+export async function saveMenungguMeetingKftAction(id: string, input: MenungguMeetingKftInput): Promise<void> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (pengajuan.currentPhase !== "MENUNGGU_MEETING_KFT") throw new Error("Pengajuan tidak sedang di fase ini.");
+
+  await prisma.poaStandarisasi.update({
+    where: { id },
+    data: { jadwalMeetingKft: input.jadwalMeetingKft ? new Date(input.jadwalMeetingKft) : null },
+  });
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+/** Phase 4 → Phase 5. Requires "Form Approval Standarisasi" uploaded for every produk. */
 export async function advanceToFinalisasiAction(id: string): Promise<void> {
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id }, include: { produk: true } });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
-  if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase Approval User/Dokter.");
+  if (pengajuan.currentPhase !== "MENUNGGU_MEETING_KFT") throw new Error("Pengajuan tidak sedang di fase Menunggu Meeting KFT.");
   if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
     throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum lanjut.");
   }
@@ -471,7 +459,7 @@ export async function advanceToFinalisasiAction(id: string): Promise<void> {
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
-// ─── Phase 4: Finalisasi ────────────────────────────────────────────────────
+// ─── Phase 5: Finalisasi ────────────────────────────────────────────────────
 
 export interface FinalisasiDokterUserInput {
   customerId: string;

@@ -2,12 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getProducts } from "@/lib/masterData";
-import {
-  getPoaStandarisasiDetail,
-  listKpdmOptions,
-  listJabatanOptions,
-  getDokterOptionsAction,
-} from "@/app/actions/poaStandarisasi";
+import { getPoaStandarisasiDetail, getDokterOptionsAction } from "@/app/actions/poaStandarisasi";
 import { canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
 import { PoaStandarisasiWizard } from "@/components/poaStandarisasi/PoaStandarisasiWizard";
 
@@ -24,13 +19,12 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
 
-  const [productOptions, kpdmOptions, jabatanOptions, dokterOptions, canApproveAsm, canApproveSm] = await Promise.all([
+  const [productOptions, dokterOptions, canApproveAsm, canApproveSm, canApproveNsm] = await Promise.all([
     getProducts(),
-    listKpdmOptions(),
-    listJabatanOptions(),
     getDokterOptionsAction(pengajuan.kodePI),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "ASM"),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "SM"),
+    canApprovePoaStandarisasiAtasan(actor, pengajuan, "NSM"),
   ]);
 
   const canEdit = canEditPoaStandarisasi(actor, pengajuan);
@@ -39,12 +33,11 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
     <PoaStandarisasiWizard
       pengajuan={pengajuan}
       productOptions={productOptions}
-      kpdmOptions={kpdmOptions}
-      jabatanOptions={jabatanOptions}
       dokterOptions={dokterOptions}
       canEdit={canEdit}
       canApproveAsm={canApproveAsm}
       canApproveSm={canApproveSm}
+      canApproveNsm={canApproveNsm}
       isOwner={pengajuan.ownerId === session.userId}
     />
   );

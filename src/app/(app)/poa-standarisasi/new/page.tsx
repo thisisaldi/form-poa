@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getOutletsByUser, getProducts } from "@/lib/masterData";
-import { listKpdmOptions, listJabatanOptions } from "@/app/actions/poaStandarisasi";
 import { NewPoaStandarisasiForm } from "@/components/poaStandarisasi/NewPoaStandarisasiForm";
 
 export default async function NewPoaStandarisasiPage() {
@@ -11,11 +10,9 @@ export default async function NewPoaStandarisasiPage() {
   // convention as /monitoring.
   if (session.role !== "ADMIN") redirect("/dashboard");
 
-  const [outlets, productOptions, kpdmOptions, jabatanOptions] = await Promise.all([
+  const [outlets, productOptions] = await Promise.all([
     getOutletsByUser(session.userId),
     getProducts(),
-    listKpdmOptions(),
-    listJabatanOptions(),
   ]);
 
   // Chain-first sort, group name shown as sublabel — same convention as the
@@ -33,8 +30,6 @@ export default async function NewPoaStandarisasiPage() {
     <NewPoaStandarisasiForm
       outletOptions={outletOptions}
       productOptions={productOptions}
-      kpdmOptions={kpdmOptions}
-      jabatanOptions={jabatanOptions}
     />
   );
 }
