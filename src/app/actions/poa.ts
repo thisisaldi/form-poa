@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import {
   createPoaDraft,
-  submitAllDoctorsInDraft, submitDoctor, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
+  submitDoctor, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
 } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
 import {
@@ -44,30 +44,6 @@ export async function createPoaAction(formData: FormData): Promise<void> {
 
   const poa = await createPoaDraft(session.userId, period);
   redirect(`/poa/${poa.id}/edit`);
-}
-
-// Called from DraftChecklist client component — submits only checked items.
-export async function submitPoaWithSelectionAction(
-  poaId: string,
-  keepItemIds: string[],
-  notes?: string,
-): Promise<void> {
-  const session = await requireSession();
-
-  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
-  if (!poa) redirect("/dashboard");
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
-
-  if (keepItemIds.length > 0) {
-    await prisma.poaLineItem.deleteMany({
-      where: { poaId, id: { notIn: keepItemIds } },
-    });
-  }
-
-  await submitAllDoctorsInDraft(poaId, session.userId, notes?.trim() || undefined);
-  redirect(`/poa/${poaId}`);
 }
 
 // MR submits ONE doctor within the draft (docs/poa-per-doctor-approval/,

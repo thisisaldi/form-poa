@@ -304,41 +304,6 @@ export async function submitDoctor(
   return applyDoctorTransition(poaId, kodePI, namaCust, actingUserId, transition, fromStatus, AuditAction.SUBMIT, existing, notes);
 }
 
-/**
- * Convenience wrapper preserving the existing one-click "Ajukan ke Atasan"
- * UX: submits every doctor in this draft that's currently eligible (no
- * PoaDoctorApproval row yet, or sitting in REVISI) in one call — each still
- * gets its own PoaDoctorApproval row and can be approved/rejected
- * independently afterward. Doctors already mid-review or fully approved are
- * left untouched.
- */
-export async function submitAllDoctorsInDraft(
-  poaId: string,
-  actingUserId: string,
-  notes?: string
-): Promise<PoaDoctorApproval[]> {
-  const [doctorKeys, approvals] = await Promise.all([
-    prisma.poaLineItem.findMany({
-      where: { poaId },
-      distinct: ["kodePI", "namaCust"],
-      select: { kodePI: true, namaCust: true },
-    }),
-    prisma.poaDoctorApproval.findMany({ where: { poaId } }),
-  ]);
-  const approvalByDoctor = new Map<string, PoaDoctorApproval>(
-    approvals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}`, a])
-  );
-
-  const results: PoaDoctorApproval[] = [];
-  for (const { kodePI, namaCust } of doctorKeys) {
-    if (!kodePI) continue;
-    const existing = approvalByDoctor.get(`${kodePI}|${namaCust}`);
-    if (existing && existing.status !== PoaStatus.REVISI) continue; // already submitted/approved this cycle
-    results.push(await submitDoctor(poaId, kodePI, namaCust, actingUserId, notes));
-  }
-  return results;
-}
-
 /** Doctor-scoped twin of approvePoa. */
 export async function approveDoctor(
   poaId: string,

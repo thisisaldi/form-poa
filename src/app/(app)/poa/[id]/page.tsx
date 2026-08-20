@@ -495,8 +495,6 @@ export default async function PoaDetailPage({
         items={allItems}
         poaId={id}
         poaPeriod={poa.period}
-        poaStatus={poa.status}
-        poaVersion={poa.version}
         showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
         userCanEdit={userCanEdit}
         selectable={isOwner}

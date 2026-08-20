@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
-import { submitPoaWithSelectionAction, submitDoctorAction } from "@/app/actions/poa";
+import { submitDoctorAction } from "@/app/actions/poa";
 import type { DoctorActions, DoctorEditRequestInfo, DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
 import { deleteLineItemAction } from "@/app/actions/lineItem";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
@@ -1296,12 +1296,10 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
-  poaStatus?: PoaStatus;
-  poaVersion?: number;
   showSubmit?: boolean;
   /** Whether this user can edit right now — server-computed (canEdit in
    * authz.ts), already accounts for Lock Edit Logic (someone above having
@@ -1424,22 +1422,6 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
     [selectedItems],
   );
 
-  const [isSubmitting, startSubmit] = useTransition();
-  const [submitNotes, setSubmitNotes] = useState("");
-  // Resubmitting from Revisi means an approver bounced this back with feedback —
-  // notes explaining what changed is required here, unlike a normal first-time
-  // submission (2026-07-23 request).
-  const notesRequired = poaStatus === "REVISI";
-  const notesMissing = notesRequired && !submitNotes.trim();
-
-  function handleSubmit() {
-    if (!poaId || checked.size === 0 || notesMissing) return;
-    const keepIds = items
-      .filter((it) => checked.has(doctorKey(it)))
-      .map((it) => it.id);
-    startSubmit(() => submitPoaWithSelectionAction(poaId, keepIds, submitNotes));
-  }
-
   if (items.length === 0) return null;
 
   const allChecked = checked.size === allKeys.length;
@@ -1524,47 +1506,6 @@ export function DraftChecklist({ items, poaId, poaPeriod, poaStatus, poaVersion,
             ))}
           </div>
         </Card>
-
-        {showSubmit && poaId && (
-          <div className="rounded-lg border p-4"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-            <p className="text-sm font-medium mb-1" style={{ color: "var(--color-text)" }}>
-              Ajukan ke Atasan
-            </p>
-            <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
-              {checked.size === allKeys.length
-                ? `Semua ${allKeys.length} user akan diajukan.`
-                : checked.size === 0
-                ? "Pilih minimal 1 user untuk diajukan."
-                : `${checked.size} dari ${allKeys.length} user dipilih - ${allKeys.length - checked.size} user tidak dicentang akan dihapus dari POA.`}
-            </p>
-            <label className="flex flex-col gap-1 mb-3">
-              <span className="text-xs" style={{ color: notesMissing ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                {notesRequired
-                  ? "Notes - jelaskan apa yang diubah dari revisi sebelumnya"
-                  : "Notes tambahan untuk perkuat argumen pengajuan (opsional)"}
-                {notesRequired && <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>}
-              </span>
-              <div style={notesMissing ? { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } : undefined}>
-                <textarea
-                  value={submitNotes}
-                  onChange={(e) => setSubmitNotes(e.target.value)}
-                  rows={2}
-                  placeholder={notesRequired
-                    ? "Jelaskan perubahan yang dilakukan untuk menjawab catatan revisi…"
-                    : "mis. konteks tambahan yang tidak terlihat dari angka…"}
-                  className="input-field text-xs" />
-              </div>
-              {notesMissing && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-            </label>
-            <Button
-              type="button"
-              disabled={checked.size === 0 || isSubmitting || notesMissing}
-              onClick={handleSubmit}>
-              {isSubmitting ? "Mengajukan…" : "Ajukan ke Atasan"}
-            </Button>
-          </div>
-        )}
       </div>
 
       {/* Right: stats panel — sticky, scrollable internally so it never enlarges the page */}

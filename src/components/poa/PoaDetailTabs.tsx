@@ -77,14 +77,12 @@ export interface DoctorRejectInfo {
 }
 
 export function PoaDetailTabs({
-  items, poaId, poaPeriod, poaStatus, poaVersion, showSubmit, userCanEdit,
+  items, poaId, poaPeriod, showSubmit, userCanEdit,
   selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo,
 }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
-  poaStatus?: PoaStatus;
-  poaVersion?: number;
   showSubmit?: boolean;
   userCanEdit?: boolean;
   selectable?: boolean;
@@ -204,8 +202,6 @@ export function PoaDetailTabs({
               items={items}
               poaId={poaId}
               poaPeriod={poaPeriod}
-              poaStatus={poaStatus}
-              poaVersion={poaVersion}
               showSubmit={showSubmit}
               userCanEdit={userCanEdit}
               selectable={selectable}

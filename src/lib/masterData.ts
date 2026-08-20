@@ -6,39 +6,15 @@
 
 import type { MockCustomer } from "./mock/data";
 import type { Role, User } from "@prisma/client";
+import type { Product } from "./hargaST";
 
 export type { MockCustomer as Customer };
 
-export interface Product {
-  kodeProduk: string;
-  namaGroupBrand: string;
-  namaProduk: string;
-  zatAktif: string | null;
-  satuan: string;           // SJ (Satuan Jual), e.g. "BOX"
-  hna: string;              // HNA per SJ
-  nilaiRPersen: string | null;
-  satuanTerkecil: string | null;   // ST unit name, e.g. "TABLET", "BOTOL"
-  konversiPembagi: string | null;  // how many ST per SJ
-  // Dosis reference data — from "List Product pharos.xlsx"
-  dosisKekuatanSediaan: string | null;
-  qtyPerRxPasien: string | null;
-  lamaPemberianHari: number | null;
-  jumlahPemberianPerHari: string | null;
-  bentukSediaan: string | null;
-  packing: string | null;
-  indikasi: string | null;
-  spesialisasiRekomendasi: string[];
-}
-
-/** Harga per ST (satuan terkecil) = HNA per SJ / konversiPembagi. Plain helper
- * (not "use client") so both server actions and client components can call it
- * directly — importing from a "use client" module makes every export a client
- * reference, which throws when invoked from server code. */
-export function hargaST(product: Product): number {
-  const hna = parseFloat(product.hna) || 0;
-  const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
-  return hna / konversi;
-}
+// Product/hargaST live in ./hargaST (client-safe, no prisma import) — see
+// that file's doc comment. Re-exported here so existing server-side callers
+// of `@/lib/masterData` keep working unchanged.
+export type { Product } from "./hargaST";
+export { hargaST } from "./hargaST";
 
 // ─── Outlet queries ───────────────────────────────────────────────────────────
 
