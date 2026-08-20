@@ -308,6 +308,28 @@ export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
 }
 
 /**
+ * Can this user add a BRAND-NEW doctor to this POA right now? Deliberately
+ * NOT gated by getEditLockLevel the way canEdit above is (2026-08-20 bug fix:
+ * "kalau sudah fully approve semua barisnya, si MR tetep bisa buat baris baru
+ * ... tidak terikat by draft lagi") — that lock exists to stop the owner from
+ * silently mutating an EXISTING doctor's data after someone approved it, but
+ * a brand-new doctor has no approval history to protect. It has no per-doctor
+ * analog to gate against (canEditDoctor already lets addLineItemAction through
+ * for a doctor with no PoaDoctorApproval row yet — see assertCanEditDoctor in
+ * lineItem.ts), so the entry points (the "+ Tambah User" link, `/poa/[id]/edit`)
+ * shouldn't be blocked by it either. Same ownership/subtree rule as canEdit,
+ * just without the lock check.
+ */
+export async function canAddNewDoctor(user: User, poa: PoaForm): Promise<boolean> {
+  if (user.role === Role.ADMIN) return true;
+  if (poa.ownerId === user.nip) return true;
+  if (([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role)) {
+    return canView(user, poa);
+  }
+  return false;
+}
+
+/**
  * Can this user create a new POA?
  *
  * Normal case: an MR (leaf, no subordinates) who holds at least one outlet.

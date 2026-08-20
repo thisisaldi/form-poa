@@ -1296,7 +1296,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1309,6 +1309,10 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
    * 2026-07-31 — it required an extra click even before anyone had approved
    * anything, which is exactly when editing should just work immediately). */
   userCanEdit?: boolean;
+  /** Whether this user can add a BRAND-NEW doctor right now — see
+   * PoaDetailTabs' own prop doc. Controls the "+ Tambah User" link only;
+   * everything else here still keys off userCanEdit. */
+  canAddDoctor?: boolean;
   /** False for approvers viewing the checklist read-only — no checkboxes, all items count toward the summary. */
   selectable?: boolean;
   /** Still-active PSSP contracts for the doctors on this POA, for the ringkasan. */
@@ -1460,7 +1464,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
                   best-effort rollup (resolvePoaRollup in poaWorkflow.ts) that
                   can't represent a draft with doctors at different stages.
                   Each DoctorRow below shows its own real status instead. */}
-              {canEditNow && poaId && (
+              {!!canAddDoctor && poaId && (
                 <Link href={`/poa/${poaId}/edit`}
                   className="text-xs px-2.5 py-1 rounded-md font-medium"
                   style={{ background: "var(--color-blue)", color: "#fff" }}>

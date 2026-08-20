@@ -97,6 +97,12 @@ Customer/dokter yang terhubung ke outlet ini (gabungan data lokal dan live Nexus
 ### `GET /api/poa-doctors?nip={nip}`
 List dokter (1 baris per pasangan kodePI+namaCust, grouping sama dengan `PoaDoctorApproval`/`DraftChecklist.tsx`) di PoaForm milik satu NIP pada **kuartal kalender berjalan saja** (`PoaForm.period`, format `YYYY-QN`, dibandingkan dengan `currentQuarter()` — bukan kuartal lain, tidak ada override). Satu NIP biasanya cuma punya 1 PoaForm per kuartal, tapi response tetap flat array untuk jaga-jaga. NIP dikirim sebagai query param (bukan `/[nip]/` di path) — tetap GET karena ini murni operasi baca, tanpa side-effect.
 - **Auth**: session login (role apapun) **ATAU** HTTP Basic Auth — dua-duanya cukup, tidak ada yang wajib di atas yang lain. Basic Auth ditambahkan 2026-08-19 supaya aplikasi eksternal bisa panggil endpoint ini tanpa session cookie. Kredensialnya DB-backed (`PoaDoctorsApiCredential`, satu baris singleton, password di-hash pakai scrypt — lihat `src/lib/apiBasicAuth.ts`/`secretHash.ts`), diatur ADMIN dari halaman Admin (`setPoaDoctorsApiCredentialAction`), bukan env var — supaya bisa dirotasi tanpa redeploy. Belum pernah diset (baris belum ada) → Basic Auth selalu gagal (fallback ke session-only).
+  - **Cara set/rotate kredensial**: login sebagai ADMIN → halaman Admin → panel "API Basic Auth — /api/poa-doctors" (`PoaDoctorsApiCredentialPanel.tsx`) → isi Username + Password baru → Simpan/Ganti Kredensial. Password **tidak pernah ditampilkan lagi** setelah disimpan (cuma hash yang disimpan di DB) — untuk mengganti, isi ulang kedua field, bukan edit yang lama. Kredensial ini SENGAJA tidak didokumentasikan nilainya di sini (atau di file mana pun yang ter-commit ke repo) — kalau butuh tahu nilainya, cek langsung ke yang men-set/rotate terakhir kali (lihat "diperbarui oleh" di panel Admin), jangan disimpan sebagai plaintext di dokumen.
+  - **Contoh pemanggilan** (ganti `<username>`/`<password>` dengan kredensial yang sudah diset di atas):
+    ```bash
+    curl -u '<username>:<password>' \
+      "https://staging-form-poa.chc.pharmalink.id/api/poa-doctors?nip=12345"
+    ```
 - **Query param**: `nip` (wajib)
 - **Response 200**: array `{ uidPoa, uidCustomer, path, approveUntil, dokter: { kodeCust, namaCust, spesialisasi, kodePI, namaOutlet }, estimasi, nilaiPssp, estimasiAktif, nilaiPsspAktif, produk: [{ kodeProduk, namaProduk, estimasi, nilaiPssp }] }`.
   - `uidPoa`: `PoaForm.id`.

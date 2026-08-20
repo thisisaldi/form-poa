@@ -77,7 +77,7 @@ export interface DoctorRejectInfo {
 }
 
 export function PoaDetailTabs({
-  items, poaId, poaPeriod, showSubmit, userCanEdit,
+  items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor,
   selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo,
 }: {
   items: PoaLineItem[];
@@ -85,6 +85,11 @@ export function PoaDetailTabs({
   poaPeriod: string;
   showSubmit?: boolean;
   userCanEdit?: boolean;
+  /** Whether this user can add a BRAND-NEW doctor right now — deliberately
+   * separate from userCanEdit, since it's not subject to the whole-draft edit
+   * lock (see canAddNewDoctor in authz.ts). Controls the "+ Tambah User" entry
+   * point specifically. */
+  canAddDoctor?: boolean;
   selectable?: boolean;
   /** kodePI|namaCust -> that doctor's own PoaDoctorApproval.status, for the
    * per-doctor "Ajukan" button (docs/poa-per-doctor-approval/, OQ-2). A
@@ -192,7 +197,7 @@ export function PoaDetailTabs({
           {items.length === 0 ? (
             <Card>
               <p className="text-sm py-4" style={{ color: "var(--color-text-muted)" }}>
-                {userCanEdit
+                {canAddDoctor
                   ? <a href={`/poa/${poaId}/edit`} style={{ color: "var(--color-blue)" }}>+ Tambah rencana pertama</a>
                   : "Belum ada baris."}
               </p>
@@ -204,6 +209,7 @@ export function PoaDetailTabs({
               poaPeriod={poaPeriod}
               showSubmit={showSubmit}
               userCanEdit={userCanEdit}
+              canAddDoctor={canAddDoctor}
               selectable={selectable}
               activePssp={activePssp}
               outletPsspInfo={outletPsspInfo}

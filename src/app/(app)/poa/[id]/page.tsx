@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canEditDoctor, getSubordinateMRNips, NON_DRAFT_STATUSES,
+import { canView, canEdit, canAddNewDoctor, canEditDoctor, getSubordinateMRNips, NON_DRAFT_STATUSES,
   canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor,
   canRequestEditDoctor, canRespondEditRequestDoctor, getEditLockRoleLabelForDoctor, getLastApproverForDoctor } from "@/lib/authz";
 import { computeMonthlyBreakdown, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
@@ -85,6 +85,10 @@ export default async function PoaDetailPage({
   if (!hasAccess) redirect("/dashboard");
 
   const userCanEdit = await canEdit(actor, poa);
+  // Adding a brand-new doctor is deliberately unbound from the whole-draft
+  // edit lock canEdit enforces (2026-08-20 fix) — see canAddNewDoctor's own
+  // doc comment.
+  const canAddDoctor = await canAddNewDoctor(actor, poa);
 
   // Per-doctor approval (docs/poa-per-doctor-approval/, 2026-08-13) — build
   // one row per doctor in this draft (from its line items), joined with its
@@ -497,6 +501,7 @@ export default async function PoaDetailPage({
         poaPeriod={poa.period}
         showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
         userCanEdit={userCanEdit}
+        canAddDoctor={canAddDoctor}
         selectable={isOwner}
         doctorStatuses={doctorStatuses}
         doctorVersions={doctorVersions}

@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canEdit } from "@/lib/authz";
+import { canAddNewDoctor } from "@/lib/authz";
 import { getOutletsByUser, getProducts } from "@/lib/masterData";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -34,7 +34,7 @@ export default async function EditPoaPage({
     .map((o) => ({ kodePI: o.kodePI as string, namaOutlet: o.namaOutlet, groupRS: o.groupRS ?? null }));
 
   if (!poa) notFound();
-  if (!(await canEdit(actor, poa))) redirect(`/poa/${id}`);
+  if (!(await canAddNewDoctor(actor, poa))) redirect(`/poa/${id}`);
 
   return (
     <div className="max-w-3xl space-y-5">
