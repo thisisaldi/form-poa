@@ -23,12 +23,10 @@ import {
   saveFinalisasiAction,
   submitPoaStandarisasiAction,
   uploadPoaStandarisasiFileAction,
-  getKpdmSurveyAction,
   type PoaStandarisasiDetail,
   type PlanningInput,
   type PlanningProdukInput,
 } from "@/app/actions/poaStandarisasi";
-import type { SurveyRekomendasiRow } from "@/app/actions/customer";
 
 export { PHASES };
 
@@ -266,7 +264,8 @@ function kpdmFromDetail(k: PoaStandarisasiDetail["kpdmList"][number]): KpdmFormS
     nama: k.namaSnapshot,
     jabatan: k.jabatanSnapshot ?? "",
     entertainEstimasi: k.entertainEstimasi != null ? String(k.entertainEstimasi) : "",
-    entertainFinal: k.entertainFinal != null ? String(k.entertainFinal) : "",
+    // Final defaults to the estimate already entered at Planning — Finalisasi tweaks it, doesn't start blank.
+    entertainFinal: k.entertainFinal != null ? String(k.entertainFinal) : k.entertainEstimasi != null ? String(k.entertainEstimasi) : "",
   };
 }
 
@@ -310,9 +309,12 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
       resepPerPasienSt: d.resepPerPasienSt != null ? String(d.resepPerPasienSt) : "",
       entertainRp: d.entertainRp != null ? String(d.entertainRp) : "",
     })),
-    finalDiscountPct: p.finalDiscountPct != null ? String(p.finalDiscountPct) : "",
+    // Final fields default to what was already entered as the estimate at Planning — Finalisasi tweaks those numbers, not starting blank.
+    finalDiscountPct:
+      p.finalDiscountPct != null ? String(p.finalDiscountPct) : p.estimasiDiskonPct != null ? String(p.estimasiDiskonPct) : "",
     diskonDistributorPct: p.diskonDistributorPct != null ? String(p.diskonDistributorPct) : "",
-    finalBiayaListingRp: p.finalBiayaListingRp != null ? String(p.finalBiayaListingRp) : "",
+    finalBiayaListingRp:
+      p.finalBiayaListingRp != null ? String(p.finalBiayaListingRp) : p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
     dokterUser:
       p.dokterUser.length > 0
         ? p.dokterUser.map((d) => ({
@@ -841,42 +843,6 @@ export function Stepper({ currentIdx, viewedIdx, onSelect }: { currentIdx: numbe
   );
 }
 
-/** "Data Survey" helper — every SurveyRekomendasi row for this KPDM at this outlet (same data/query POA Estimasi's sidebar shows for a dokter). */
-function KpdmSurveyPanel({ kodeCustomer, kodePI }: { kodeCustomer: string | null; kodePI: string }) {
-  const [rows, setRows] = useState<SurveyRekomendasiRow[] | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    if (!kodeCustomer) { setRows([]); setLoading(false); return; }
-    getKpdmSurveyAction(kodeCustomer, kodePI).then((r) => { if (!cancelled) { setRows(r); setLoading(false); } });
-    return () => { cancelled = true; };
-  }, [kodeCustomer, kodePI]);
-
-  return (
-    <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
-      <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Data Survey</span>
-      {loading ? (
-        <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Memuat…</p>
-      ) : !rows || rows.length === 0 ? (
-        <p className="text-xs italic" style={{ color: "var(--color-text-faint)" }}>Tidak ada data survey untuk customer ini.</p>
-      ) : (
-        <div className="space-y-1.5">
-          {rows.map((r) => (
-            <div key={r.kodeProduk} className="flex items-center justify-between text-xs rounded px-2 py-1.5" style={{ background: "var(--color-bg-subtle)" }}>
-              <span className="font-medium">{r.namaProdukRekomendasi}</span>
-              <span style={{ color: "var(--color-text-faint)" }}>
-                {r.potensiBulan != null ? `Potensi: ${formatRp(r.potensiBulan)}/bln` : "-"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
 
 export function PlanningPhase(props: {
@@ -923,8 +889,6 @@ export function PlanningPhase(props: {
 
   const productComboOptions = productOptions.map((p) => ({ value: p.kodeProduk, label: p.namaProduk, sublabel: p.namaGroupBrand }));
 
-  const [surveyOpenFor, setSurveyOpenFor] = useState<string | null>(null);
-
   return (
     <>
       <Card className="mb-4">
@@ -962,21 +926,10 @@ export function PlanningPhase(props: {
                     <div className="w-40">
                       <RpInput label="Entertain Estimasi" value={k.entertainEstimasi} onChange={(v) => updateKpdmEntertainEstimasi(k.customerId, v)} disabled={disabled} />
                     </div>
-                    <button
-                      type="button"
-                      className="text-xs font-medium"
-                      style={{ color: "var(--color-blue)" }}
-                      onClick={() => setSurveyOpenFor(surveyOpenFor === k.customerId ? null : k.customerId)}
-                    >
-                      {surveyOpenFor === k.customerId ? "Sembunyikan Data Survey" : "Lihat Data Survey"}
-                    </button>
                     {!disabled && (
                       <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeKpdm(k.customerId)}>Hapus</button>
                     )}
                   </div>
-                  {surveyOpenFor === k.customerId && (
-                    <KpdmSurveyPanel kodeCustomer={dokterById.get(k.customerId)?.kodeCustomer ?? null} kodePI={kodePI} />
-                  )}
                 </div>
               ))}
             </div>

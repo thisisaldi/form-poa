@@ -17,7 +17,7 @@ import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
-import { getSurveyRekomendasiInfo, getCustomersByOutlet, getSurveyRekomendasiByOutlet } from "@/app/actions/customer";
+import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
 import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
@@ -182,11 +182,6 @@ export async function getGolonganSaatIniAction(kodeCustomer: string, kodePI: str
 
 export async function getDokterOptionsAction(kodePI: string) {
   return getCustomersByOutlet(kodePI);
-}
-
-/** "Data Survey" helper panel for a KPDM (or dokter) — same per-doctor-per-outlet recommendation data POA Estimasi shows, reused as-is (getSurveyRekomendasiByOutlet keys on kodeCustomer+kodePI, same shape here). */
-export async function getKpdmSurveyAction(kodeCustomer: string, kodePI: string) {
-  return getSurveyRekomendasiByOutlet(kodeCustomer, kodePI);
 }
 
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
