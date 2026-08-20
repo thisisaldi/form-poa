@@ -2409,8 +2409,16 @@ function AddPanel({
   // from this doctor's own MOST RECENT contract rather than a 3-month window.
   const customerOptions = useMemo(() => {
     const quarterEndIndex = yyyymmIndex(currentQuarterMonths()[2]);
+    // Matched by normalized PM label, not raw string equality (2026-08-20 bug
+    // report) — the same specialty can arrive from Nexus under different raw
+    // spellings (e.g. "UMUM (GP)" vs "DOKTER UMUM", both -> spesLabel "DOKTER
+    // UMUM"), which specOptions' "N dokter terdaftar" count above already
+    // accounts for by counting on spesLabel(). A raw-equality filter here
+    // silently dropped doctors under the other spelling, so the dropdown
+    // showed fewer entries than its own sublabel promised.
+    const spesialisasiLabel = spesialisasi ? spesLabel(spesialisasi) : null;
     return customerList
-    .filter((c) => !spesialisasi || c.spesialisasi === spesialisasi)
+    .filter((c) => !spesialisasiLabel || spesLabel(c.spesialisasi) === spesialisasiLabel)
     .map((c) => {
       const psspStatus = c.kodeCustomer ? psspStatusByCust.get(c.kodeCustomer) : undefined;
       const pct = psspStatus?.latestPelunasanPct ?? null;
