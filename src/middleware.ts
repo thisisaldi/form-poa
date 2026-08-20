@@ -20,7 +20,12 @@ import { NextResponse, type NextRequest } from "next/server";
 const STAGING_HOST = "staging-form-poa.chc.pharmalink.id";
 const PRODUCTION_HOST = "form-poa.chc.pharmalink.id";
 
+// Redirect disabled (2026-08-20) — needed staging reachable directly again
+// for testing. Logic kept below, not deleted, in case it needs to come back.
+const STAGING_REDIRECT_ENABLED = false;
+
 export function middleware(req: NextRequest) {
+  if (!STAGING_REDIRECT_ENABLED) return NextResponse.next();
   if (req.method !== "GET" && req.method !== "HEAD") return NextResponse.next();
 
   const host = req.headers.get("host");
