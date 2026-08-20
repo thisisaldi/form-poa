@@ -10,7 +10,16 @@ Trigger SDD yang terpenuhi (`docs/sdd/01-when-and-workflow.md`): migrasi ini men
 
 ## Status
 
-🟡 **Spec sudah divalidasi kuat terhadap data nyata, implementasi belum dimulai.** OQ-1 (validitas algoritma rekonstruksi `nipAtasan`) dan OQ-2 (cakupan `project=ethical` vs divisi MSSQL) sudah RESOLVED lewat dry-run penuh 2026-08-18 terhadap seluruh 375 employee + perbandingan langsung ke MSSQL production: **197/198 (99.5%) `nipAtasan` hasil inferensi cocok** dengan hasil sync MSSQL yang berjalan sekarang, satu-satunya selisih sudah dijelaskan sepenuhnya (bukan bug). Sisa 3 open question (OQ-3 status aktif/nonaktif, OQ-4 scope GM, OQ-5 cutover-vs-paralel) adalah keputusan bisnis/risk-tolerance yang butuh konfirmasi pengguna, bukan sesuatu yang bisa dijawab lewat eksplorasi API lagi — lihat `01-business-rules.md` §5. Kode implementasi (`orgStructureSync.ts`) belum disentuh — `User`/`nipAtasan` masih 100% dari MSSQL sampai OQ-3/4/5 terjawab.
+🟢 **v1 (dry-run pembanding) diimplementasikan 2026-08-20.** OQ-1/OQ-2 RESOLVED lewat dry-run 2026-08-18 (lihat `01-business-rules.md` §5). OQ-3/4/5 dikonfirmasi pengguna 2026-08-20:
+- **OQ-3**: ikuti pola MSSQL yang sudah ada (deactivate-by-absence) — hilang dari `get_employees` = `isActive=false`.
+- **OQ-4**: GM tetap di luar scope migrasi ini (tetap manual via `importStrukturVerifiedKAM.ts`).
+- **OQ-5**: **jalan paralel/dry-run dulu**, BUKAN cutover langsung. `orgStructureSync.ts` TETAP menulis dari MSSQL seperti sekarang — TIDAK disentuh.
+
+**Yang dibangun**: `src/lib/sync/orgNexusInference.ts` (algoritma §3 — fetch `get_employees` + `get_subordinates` per manager, infer `nipAtasan` lewat closest-enclosing-ancestor, terapkan skip-Supervisor rule, map `position`→`Role`) dan `scripts/compareOrgNexusVsMssql.ts` (read-only, tidak menulis apa pun — diff hasil inferensi terhadap `User` yang berjalan sekarang, jalankan manual: `npx tsx scripts/compareOrgNexusVsMssql.ts`). `npx tsc --noEmit` bersih.
+
+**Hasil run pertama (2026-08-20, live terhadap Nexus + Postgres staging)**: 374 employee dari Nexus, 0 gagal fetch. Role match 366/367 (1 selisih: `P240138` MSSQL=MR vs Nexus=ASM — kemungkinan promosi yang belum ke-sync MSSQL). `nipAtasan` match 354/367 (96.5%) — lebih rendah dari 99.5% dry-run 08-18, kemungkinan drift organisasi wajar dalam 2 hari (bukan diinvestigasi lebih lanjut, ini justru tujuan "jalan paralel beberapa siklus" — lihat 13 mismatch sample di output script). ⚠️ **Temuan penting**: 364 user aktif Postgres tidak muncul di Nexus `project=ethical` — TAPI 331 dari itu ternyata `User.project='omega'` (Sales Counter/apotek, lihat branch `POA_SC_CREATE`, kolom `project` belum ada di schema branch ini) — bukan gap struktural, cuma project Nexus yang berbeda. Sisa gap sesungguhnya jauh lebih kecil (~33). Script sengaja tidak query kolom `project` (belum resmi di schema branch ini) — cuma dicatat di sini sebagai konteks supaya angka "364" tidak disalahbaca sebagai bug.
+
+Siap dijalankan ulang tiap siklus sync sesuai OQ-5. Belum ada perubahan pada `orgStructureSync.ts`/`User.nipAtasan` yang sungguhan — itu baru masuk kalau beberapa siklus dry-run ini sudah stabil dan pengguna memutuskan cutover.
 
 ## Temuan penting (mengoreksi catatan lama)
 
