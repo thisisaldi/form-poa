@@ -245,7 +245,7 @@ model Customer {
   psspHospinetSnapshots          PsspHospinetSnapshot[]
   poaStandarisasiDokterApprovals PoaStandarisasiDokterApproval[]
   poaStandarisasiDokterUsers     PoaStandarisasiDokterUser[]
-  poaStandarisasiAsKpdm          PoaStandarisasi[]
+  poaStandarisasiAsKpdm          PoaStandarisasiKpdm[]
 
   @@index([spesialisasi])
   @@index([namaCustomer])
@@ -1234,26 +1234,11 @@ model PoaStandarisasi {
   kodePI String
   outlet Outlet @relation(fields: [kodePI], references: [kodePI])
 
-  // KPDM = customer/dokter (Nexus-backed, sama pool dengan Dokter Klinis) di
-  // outlet ini, BUKAN master data terpisah lagi (2026-08-20 — dulu
-  // KpdmStandarisasi/JabatanStandarisasi, dropped: "Jabatan" sekarang live
-  // dari Customer.spesialisasi, bukan entity yang bisa dipilih sendiri).
-  // Nullable karena histori pengajuan lama (era KpdmStandarisasi) tidak
-  // punya Customer.id yang valid untuk field ini — snapshot di bawah tetap
-  // menyimpan nama/jabatan apa adanya saat itu.
-  kpdmId String?
-  kpdm   Customer? @relation(fields: [kpdmId], references: [id])
-
-  // Snapshot nama/jabatan di waktu pengajuan dibuat — Customer.spesialisasi
-  // bisa berubah di masa depan (atau kpdm-nya sendiri berganti orang), tapi
-  // histori pengajuan yang sudah dibuat harus tetap merefer ke apa yang
-  // berlaku SAAT pengajuan dibuat (sama alasan dengan
-  // PoaLineItem.namaCust/namaProduk sebagai snapshot).
-  kpdmNamaSnapshot    String
-  jabatanNamaSnapshot String?
-
-  kpdmEntertainEstimasi Decimal? @db.Decimal(18, 2)
-  kpdmEntertainFinal    Decimal? @db.Decimal(18, 2)
+  // KPDM — bisa LEBIH DARI SATU per outlet (2026-08-20: was single
+  // kpdmId/kpdmNamaSnapshot/jabatanNamaSnapshot/kpdmEntertainEstimasi/
+  // kpdmEntertainFinal scalar fields, now PoaStandarisasiKpdm child rows,
+  // same "list of customer + own entertain" shape as Dokter Klinis).
+  kpdmList PoaStandarisasiKpdm[]
 
   tipeStandarisasi TipeStandarisasi
   // Wajib utk PERIODIC/SISIPAN, null utk PERMANEN — kondisional, divalidasi
@@ -1329,6 +1314,31 @@ model PoaStandarisasiProduk {
   dokumen        PoaStandarisasiDokumen[]
 
   @@unique([pengajuanId, kodeProduk])
+  @@index([pengajuanId])
+}
+
+// KPDM — bisa lebih dari satu orang per pengajuan (2026-08-20). Sama pola
+// dengan PoaStandarisasiDokterApproval: customerId Nexus-backed, nama/jabatan
+// disnapshot di waktu pengajuan dibuat, entertain PER ORANG (bukan shared).
+model PoaStandarisasiKpdm {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasi @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  namaSnapshot    String
+  jabatanSnapshot String?
+
+  entertainEstimasi Decimal? @db.Decimal(18, 2)
+  entertainFinal    Decimal? @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pengajuanId, customerId])
   @@index([pengajuanId])
 }
 

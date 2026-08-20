@@ -16,6 +16,7 @@ import {
   PlanningPhase,
   emptyProduk,
   type ProdukFormState,
+  type KpdmFormState,
 } from "@/components/poaStandarisasi/PoaStandarisasiWizard";
 
 /**
@@ -39,13 +40,10 @@ export function NewPoaStandarisasiForm({
   const [kodePI, setKodePI] = useState("");
   const [dokterList, setDokterList] = useState<CustomerOption[]>([]);
 
-  // KPDM is a customer/dokter at the selected outlet (Nexus-backed, same
-  // dokterList as Dokter Klinis) — not a separate master-data entity.
-  // Jabatan is derived from that customer's spesialisasi, read-only.
-  const [kpdmId, setKpdmId] = useState("");
-  const [kpdmNama, setKpdmNama] = useState("");
-  const [jabatanNama, setJabatanNama] = useState("");
-  const [kpdmEntertainEstimasi, setKpdmEntertainEstimasi] = useState("");
+  // KPDM is a list of customers/dokter at the selected outlet (Nexus-backed,
+  // same dokterList as Dokter Klinis) — not a separate master-data entity,
+  // can be more than one. Jabatan per person is derived from spesialisasi.
+  const [kpdmList, setKpdmList] = useState<KpdmFormState[]>([]);
   const [tipeStandarisasi, setTipeStandarisasi] = useState<"PERIODIC" | "SISIPAN" | "PERMANEN">("PERIODIC");
   const [periodeBulan, setPeriodeBulan] = useState("");
   const [jumlahBedRs, setJumlahBedRs] = useState("");
@@ -58,8 +56,8 @@ export function NewPoaStandarisasiForm({
   async function handleKodePIChange(v: string) {
     setKodePI(v);
     setDokterList(v ? await getDokterOptionsAction(v) : []);
-    // Outlet changed — the previously selected KPDM (a customer at the OLD outlet) no longer applies.
-    setKpdmId(""); setKpdmNama(""); setJabatanNama("");
+    // Outlet changed — the previously selected KPDM (customers at the OLD outlet) no longer apply.
+    setKpdmList([]);
   }
 
   /** Materializes a "nexus:<...>" synthetic id into a real Customer row before it's used as a FK — same pattern as the real wizard's resolveDokterId. */
@@ -78,15 +76,22 @@ export function NewPoaStandarisasiForm({
     return res.customerId;
   }
 
-  async function handleSelectKpdm(rawId: string) {
-    if (!rawId) { setKpdmId(""); setKpdmNama(""); setJabatanNama(""); return; }
+  async function addKpdm(rawId: string) {
+    if (!rawId) return;
     const opt = dokterById.get(rawId);
     const realId = await resolveDokterId(rawId);
-    setKpdmId(realId);
-    if (opt) {
-      setKpdmNama(opt.namaCustomer);
-      setJabatanNama(opt.spesialisasi);
-    }
+    if (!opt) return;
+    setKpdmList((prev) =>
+      prev.some((k) => k.customerId === realId)
+        ? prev
+        : [...prev, { customerId: realId, nama: opt.namaCustomer, jabatan: opt.spesialisasi, entertainEstimasi: "", entertainFinal: "" }]
+    );
+  }
+  function removeKpdm(customerId: string) {
+    setKpdmList((prev) => prev.filter((k) => k.customerId !== customerId));
+  }
+  function updateKpdmEntertainEstimasi(customerId: string, v: string) {
+    setKpdmList((prev) => prev.map((k) => (k.customerId === customerId ? { ...k, entertainEstimasi: v } : k)));
   }
 
   function updateProduk(idx: number, patch: Partial<ProdukFormState>) {
@@ -122,16 +127,13 @@ export function NewPoaStandarisasiForm({
 
   function handleSubmit() {
     if (!kodePI) { setError("Outlet wajib dipilih."); return; }
-    if (!kpdmId) { setError("KPDM wajib dipilih."); return; }
+    if (kpdmList.length === 0) { setError("KPDM wajib dipilih minimal 1."); return; }
     setError(null);
     startTransition(async () => {
       try {
         await createPoaStandarisasiAction({
           kodePI,
-          kpdmId,
-          kpdmNama,
-          jabatanNama: jabatanNama || null,
-          kpdmEntertainEstimasi: kpdmEntertainEstimasi || null,
+          kpdmList: kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan || null, entertainEstimasi: k.entertainEstimasi || null })),
           tipeStandarisasi,
           periodeBulan: tipeStandarisasi === "PERMANEN" ? null : periodeBulan || null,
           jumlahBedRs: jumlahBedRs || null,
@@ -181,11 +183,10 @@ export function NewPoaStandarisasiForm({
         kodePI={kodePI}
         namaOutlet=""
         outletPicker={{ options: outletOptions, onChange: handleKodePIChange }}
-        kpdmId={kpdmId}
-        onSelectKpdm={handleSelectKpdm}
-        jabatanNama={jabatanNama}
-        kpdmEntertainEstimasi={kpdmEntertainEstimasi}
-        setKpdmEntertainEstimasi={setKpdmEntertainEstimasi}
+        kpdmList={kpdmList}
+        addKpdm={addKpdm}
+        removeKpdm={removeKpdm}
+        updateKpdmEntertainEstimasi={updateKpdmEntertainEstimasi}
         tipeStandarisasi={tipeStandarisasi}
         setTipeStandarisasi={setTipeStandarisasi}
         periodeBulan={periodeBulan}
@@ -208,7 +209,7 @@ export function NewPoaStandarisasiForm({
       />
 
       <div className="flex gap-3 pt-1">
-        <Button type="button" disabled={pending || !kodePI || !kpdmId} onClick={handleSubmit}>
+        <Button type="button" disabled={pending || !kodePI || kpdmList.length === 0} onClick={handleSubmit}>
           {pending ? "Membuat…" : "Buat & Simpan"}
         </Button>
         <Link href="/poa-standarisasi">
