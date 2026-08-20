@@ -842,7 +842,7 @@ function DoctorRow({
   // separate from the destructive "Ajukan ke Atasan" bulk flow below (which
   // deletes any unchecked doctor). Only offered when this doctor is actually
   // eligible: no PoaDoctorApproval row yet, or bounced back to REVISI.
-  const canSubmitThisDoctor = !!showSubmit && !!poaId && (!doctorStatus || doctorStatus === "REVISI");
+  const canSubmitThisDoctor = !!showSubmit && !!poaId && !!userCanEdit && (!doctorStatus || doctorStatus === "REVISI");
   const [isSubmittingDoctor, startSubmitDoctor] = useTransition();
   const [doctorSubmitOpen, setDoctorSubmitOpen] = useState(false);
   const [doctorSubmitNotes, setDoctorSubmitNotes] = useState("");
@@ -1296,7 +1296,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1359,6 +1359,12 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
   doctorEditRequests?: Record<string, DoctorEditRequestInfo>;
   /** kodePI|namaCust -> that doctor's rejection reason/category — see PoaDetailTabs' own prop doc. Absent key means no rejection behind this doctor's current state. */
   doctorRejectInfo?: Record<string, DoctorRejectInfo>;
+  /** kodePI|namaCust -> per-doctor canEditDoctor result — see PoaDetailTabs'
+   * own prop doc. This is what actually gates each row's Edit/Hapus/Ajukan
+   * controls now, NOT the whole-draft `userCanEdit` above (docs/poa-per-doctor-approval/
+   * OQ-3 — a sibling doctor being approved must never lock this one). Falls
+   * back to `userCanEdit` for a doctor absent from the map. */
+  doctorCanEdit?: Record<string, boolean>;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -1494,7 +1500,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
                 selectable={selectable}
                 totalEstimasi={selectedEstimasi}
                 poaId={poaId}
-                userCanEdit={canEditNow}
+                userCanEdit={doctorCanEdit[key] ?? canEditNow}
                 quarterMonths={quarterMonths}
                 everPsspKodeCust={everPsspKodeCustSet}
                 otherDoctorsAtOutletCount={(doctorCountByOutlet.get(key.split("|")[0]) ?? 1) - 1}

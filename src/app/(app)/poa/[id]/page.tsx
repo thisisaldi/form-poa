@@ -170,6 +170,7 @@ export default async function PoaDetailPage({
       return {
         kodePI, namaCust, approval, canApproveThis, canFastTrackThis, canCancelThis,
         editLockRoleLabelThis, canRequestEditThis, pendingEditRequestThis, lastApproverThis, canRespondEditRequestThis,
+        userCanEditThis,
         pendingEditRequestNote: pendingEditRequestThis && lastLogForDoctor?.snapshot && typeof lastLogForDoctor.snapshot === "object" && "notes" in lastLogForDoctor.snapshot
           ? (lastLogForDoctor.snapshot as { notes?: string }).notes ?? null
           : null,
@@ -229,6 +230,18 @@ export default async function PoaDetailPage({
   // Per-doctor rejection info — only present for a doctor currently in REVISI
   // because of a REJECT/CANCEL (see rejectLogThis above), keyed the same way
   // as doctorStatuses/doctorEditRequests for DraftChecklist's DoctorRow.
+  // Per-doctor edit capability — computed for EVERY doctor (docs/poa-per-doctor-approval/
+  // OQ-3: "begitu 1 dokter di-approve/diedit pihak lain, HANYA baris-baris
+  // dokter itu yang terkunci; dokter lain di draft yang sama tetap bebas
+  // diedit MR"). The whole-draft `userCanEdit` above is intentionally NOT
+  // reused here — it scans PoaAuditLog across the whole poaId, so one doctor
+  // being approved forward would incorrectly lock every OTHER doctor's Edit/
+  // Hapus/Ajukan affordances too. This is the actual per-doctor value that
+  // must gate those per-row controls.
+  const doctorCanEdit: Record<string, boolean> = Object.fromEntries(
+    doctorRows.map((d) => [`${d.kodePI}|${d.namaCust}`, d.userCanEditThis])
+  );
+
   const doctorRejectInfo: Record<string, DoctorRejectInfo> = Object.fromEntries(
     doctorRows
       .filter((d) => d.rejectLogThis)
@@ -499,7 +512,7 @@ export default async function PoaDetailPage({
         items={allItems}
         poaId={id}
         poaPeriod={poa.period}
-        showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
+        showSubmit={isOwner}
         userCanEdit={userCanEdit}
         canAddDoctor={canAddDoctor}
         selectable={isOwner}
@@ -508,6 +521,7 @@ export default async function PoaDetailPage({
         doctorActions={doctorActions}
         doctorEditRequests={doctorEditRequests}
         doctorRejectInfo={doctorRejectInfo}
+        doctorCanEdit={doctorCanEdit}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}
         doctorPsspInfo={doctorPsspInfo}
