@@ -602,3 +602,20 @@ export async function canApprovePoaStandarisasiAtasan(
   if (level === "ASM") return user.role === Role.ASM && user.nip === asmNip;
   return user.role === Role.SM && user.nip === smNip && pengajuan.statusApprovalAsm === "DISETUJUI";
 }
+
+export async function canRequestEdit(user: User, poa: any): Promise<boolean> {
+  return false;
+}
+
+export async function canRespondEditRequest(user: User, poa: any): Promise<boolean> {
+  return false;
+}
+
+export async function getEditLockRoleLabel(poa: any): Promise<string | null> {
+  return null;
+}
+
+export async function getLastApprover(poaId: string): Promise<{ actorId: string; role: string } | null> {
+  return null;
+}
+

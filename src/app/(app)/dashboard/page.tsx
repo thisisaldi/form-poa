@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import type { SessionData } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -58,6 +59,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const session = (await getCurrentUser())!;
   const actor = await prisma.user.findUnique({ where: { nip: session.userId } });
   if (!actor) return null;
+
+  if (actor.project === "OMEGA") {
+    redirect("/sc/dashboard");
+  }
 
   const params = await searchParams;
   const isMR = session.role === "MR";
@@ -338,7 +343,11 @@ async function DashboardContent({
           <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
         )}
         {eligible && (
-          <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
+          actor.project === "OMEGA" ? (
+            <Link href="/sc/new"><Button>+ Buat POA Baru</Button></Link>
+          ) : (
+            <Link href="/poa/new"><Button>+ Buat POA Baru</Button></Link>
+          )
         )}
         {/* SFE used to be excluded here (2026-07-24, "monitoring-only") since
             the full team export goes well past what /summary shows — reversed
@@ -489,7 +498,7 @@ async function DashboardContent({
               Tidak ada POA untuk pencarian &quot;{q}&quot;.
             </p>
           ) : (
-            <EmptyState eligible={eligible} role={displayRole(session.role, session.jabatan)} />
+            <EmptyState eligible={eligible} role={displayRole(session.role, session.jabatan)} project={actor.project} />
           )
         ) : (
           <div className="overflow-x-auto">
@@ -614,7 +623,7 @@ async function DashboardContent({
   );
 }
 
-function EmptyState({ eligible, role }: { eligible: boolean; role: string }) {
+function EmptyState({ eligible, role, project }: { eligible: boolean; role: string; project?: string | null }) {
   return (
     <div className="py-10 text-center">
       <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -623,7 +632,7 @@ function EmptyState({ eligible, role }: { eligible: boolean; role: string }) {
           : `Belum ada POA yang perlu ditinjau sebagai ${role}.`}
       </p>
       {eligible && (
-        <Link href="/poa/new" className="mt-3 inline-block">
+        <Link href={project === "OMEGA" ? "/sc/new" : "/poa/new"} className="mt-3 inline-block">
           <Button size="sm">Buat POA</Button>
         </Link>
       )}
