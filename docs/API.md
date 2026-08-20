@@ -138,7 +138,7 @@ Export Excel gabungan — seluruh POA dari subordinate MR di bawah user yang log
 
 3 endpoint berikut dipanggil dari luar (cron/job eksternal), BUKAN dari browser session — autentikasinya menggunakan header `X-Sync-Secret` yang harus cocok dengan env var `SYNC_SECRET`, bukan `getCurrentUser()`.
 
-⚠️ **Apabila `SYNC_SECRET` tidak di-set pada environment, pengecekannya di-skip sepenuhnya (endpoint menjadi terbuka bebas)** — pastikan env var ini selalu ter-set di staging/production. Ketiganya juga membutuhkan `MSSQL_CONNECTION_STRING` ter-set (500 apabila kosong).
+⚠️ **Apabila `SYNC_SECRET` tidak di-set pada environment, pengecekannya di-skip sepenuhnya (endpoint menjadi terbuka bebas)** — pastikan env var ini selalu ter-set di staging/production. `sales-history` dan `sales-value-monthly` juga membutuhkan `MSSQL_CONNECTION_STRING` ter-set (500 apabila kosong); `org-structure` **tidak lagi** — sudah cutover ke Nexus API 2026-08-20 (docs/org-nexus-migration/), auth-nya lewat `nexusAuthHeaders()`.
 
 ```bash
 curl -X POST https://staging-form-poa.chc.pharmalink.id/api/sync/org-structure \
@@ -146,8 +146,8 @@ curl -X POST https://staging-form-poa.chc.pharmalink.id/api/sync/org-structure \
 ```
 
 ### `POST /api/sync/org-structure`
-Sinkronisasi struktur organisasi dari MSSQL ke Postgres.
-- **Response 200**: `{ "ok": true, ...hasil dari runOrgSync }`. `500` apabila gagal atau `MSSQL_CONNECTION_STRING` tidak ter-set.
+Sinkronisasi struktur organisasi dari Nexus API (`get_employees`/`get_subordinates`) ke Postgres — cutover 2026-08-20, sebelumnya dari MSSQL (lihat `docs/org-nexus-migration/`). `nipAtasan` diinferensi lewat closest-enclosing-ancestor algorithm (`src/lib/sync/orgNexusInference.ts`), bukan field eksplisit dari API. GM di luar scope (tetap manual via `scripts/importStrukturVerifiedKAM.ts`).
+- **Response 200**: `{ "ok": true, ...hasil dari runOrgSync }`. `500` apabila gagal.
 
 ### `POST /api/sync/sales-history`
 Sinkronisasi histori sales outlet (`OutletSalesHistory`, 12 bulan terakhir per kodePI × itemKode) dari `mkt_insight.dbo.DIR10001B`.

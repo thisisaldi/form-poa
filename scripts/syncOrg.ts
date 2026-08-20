@@ -1,8 +1,9 @@
 /**
  * Standalone sync script — run via: npx tsx scripts/syncOrg.ts
  *
- * Syncs org structure (users + hierarchy, MSSQL) then outlet master data + MR assignments
- * (Nexus API, see docs/outlet-nexus-migration/). Reads env vars from .env file via dotenv.
+ * Syncs org structure (users + hierarchy) then outlet master data + MR assignments —
+ * both from Nexus API now (docs/org-nexus-migration/, docs/outlet-nexus-migration/).
+ * Reads env vars from .env file via dotenv.
  * Run order matters: outlet sync reads the NIP list from `User`, so org sync must run first.
  */
 
@@ -12,15 +13,9 @@ import { runOutletSync } from "../src/lib/sync/outletSync";
 import { prisma } from "../src/lib/prisma";
 
 async function main() {
-  const connectionString = process.env.MSSQL_CONNECTION_STRING;
-  if (!connectionString) {
-    console.error("MSSQL_CONNECTION_STRING is not set");
-    process.exit(1);
-  }
-
   // Step 1: org structure (users + hierarchy)
   console.log("\n[1/2] Syncing org structure...");
-  const orgResult = await runOrgSync(connectionString);
+  const orgResult = await runOrgSync();
   console.log(`  ✓ Upserted: ${orgResult.upserted} users, deactivated: ${orgResult.deactivated}`);
   if (orgResult.errors.length > 0) {
     console.warn(`  ⚠ Errors (${orgResult.errors.length}):`, orgResult.errors.slice(0, 5));

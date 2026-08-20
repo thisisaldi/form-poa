@@ -1,8 +1,10 @@
 /**
  * POST /api/sync/org-structure
  *
- * Trigger the MSSQL → PostgreSQL org sync externally (e.g. from a cron service).
+ * Trigger the Nexus → PostgreSQL org sync externally (e.g. from a cron service).
  * Secured by a shared secret header: X-Sync-Secret must match env SYNC_SECRET.
+ * Cutover 2026-08-20 (docs/org-nexus-migration/) — no longer needs
+ * MSSQL_CONNECTION_STRING; Nexus auth is handled by nexusAuthHeaders().
  *
  * TODO: Add SYNC_SECRET to env schema (lib/env.ts) when ready to lock down.
  */
@@ -19,16 +21,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const connectionString = process.env.MSSQL_CONNECTION_STRING;
-  if (!connectionString) {
-    return NextResponse.json(
-      { error: "MSSQL_CONNECTION_STRING not configured" },
-      { status: 500 }
-    );
-  }
-
   try {
-    const result = await runOrgSync(connectionString);
+    const result = await runOrgSync();
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error("[sync] org-structure failed:", err);

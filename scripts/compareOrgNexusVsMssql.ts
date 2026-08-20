@@ -1,15 +1,15 @@
 /**
- * Diagnostic (read-only, writes nothing): compares the Nexus-inferred org
- * hierarchy (src/lib/sync/orgNexusInference.ts) against the CURRENT
- * `User` table — still 100% MSSQL-sourced via orgStructureSync.ts.
+ * HISTORICAL — kept for reference from the v1 dry-run phase, not meaningful
+ * to run anymore. orgStructureSync.ts cut over to Nexus 2026-08-20 (same
+ * day as this script's first and only production-informing run — see
+ * docs/org-nexus-migration/README.md), so `User` is no longer MSSQL-sourced;
+ * running this now would diff the Nexus inference against itself.
  *
- * This is the "jalan paralel/dry-run dulu" step confirmed by the user
- * 2026-08-20 (OQ-5, docs/org-nexus-migration/01-business-rules.md §5) —
- * run this each sync cycle and watch the diff shrink/stabilize BEFORE
- * `orgStructureSync.ts` itself is ever pointed at Nexus. Nothing here writes
- * to Postgres.
- *
- * Run: npx tsx scripts/compareOrgNexusVsMssql.ts
+ * Original purpose (read-only, writes nothing): compare the Nexus-inferred
+ * org hierarchy (src/lib/sync/orgNexusInference.ts) against the CURRENT
+ * `User` table back when it was still 100% MSSQL-sourced, as the "jalan
+ * paralel/dry-run dulu" step (OQ-5) — superseded once the user decided to
+ * cut over directly instead of running further cycles.
  */
 
 import "dotenv/config";
