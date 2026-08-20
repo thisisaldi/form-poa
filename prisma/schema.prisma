@@ -120,6 +120,7 @@ model User {
   syncedAt  DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  project   String?
 
   // Territory assignment (derived from org structure CSV)
   // MR → GT, SPV (MR) → Sub, ASM → Area, SM → Reg
@@ -156,6 +157,11 @@ model User {
 
   // POA Standarisasi (see docs/poa-standarisasi/) — pembuat pengajuan
   poaStandarisasiOwned PoaStandarisasi[]
+
+  // ─── Tambahan Relasi Balik untuk Sales Counter ───
+  poaScOwned           PoaScForm[]          @relation("PoaScOwner")
+  poaScHeld            PoaScForm[]          @relation("PoaScCurrentHolder")
+  poaScAuditLogs       PoaScAuditLog[]
 
   @@index([nipAtasan])
   @@index([role])
@@ -1407,4 +1413,121 @@ model PoaStandarisasiDokumen {
 
   @@unique([produkId, jenis])
   @@index([produkId])
+}
+
+// ─── Sales Counter (Apotek/Retail) Models ───────────────────────────────────
+
+// 1. Dokumen Utama/Header (Per-Outlet Per-Kuartal)
+model PoaScForm {
+  id              String               @id @default(uuid())
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  // Kolom Periode & Waktu
+  period          String               // e.g. "2026-Q2" (Untuk grouping & filter)
+  periodeAwal     String               // e.g. "202604" (YYYYMM untuk lookup diskon)
+  lamaPeriode     Int                  // e.g. 3 (Durasi bulan untuk kalkulasi biaya)
+  
+  status          PoaStatus            @default(DRAFT)
+  version         Int                  @default(1)
+
+  kodePI          String               // e.g. "F1000271"
+  namaOutlet      String?              // e.g. "Apotek Kimia Farma"
+  hariKerjaBulan      Int                  @default(0)
+  rencanaVisitMinggu  Int                  @default(0)
+  surveyPasienHarian  Int                  @default(0)
+
+  ownerId         String               // NIP MR pembuat
+  owner           User                 @relation("PoaScOwner", fields: [ownerId], references: [nip])
+
+  currentHolderId String?              // NIP Atasan penanggung jawab approval saat ini
+  currentHolder   User?                @relation("PoaScCurrentHolder", fields: [currentHolderId], references: [nip])
+
+  products        PoaScProductItem[]   // Daftar Produk
+  persons         PoaScPersonItem[]    // Daftar Staff Canvasser
+  entertainItems  PoaScEntertainItem[] // Biaya Entertain per-outlet
+  auditLogs       PoaScAuditLog[]      // Log Aktivitas
+
+  @@unique([kodePI, periodeAwal, ownerId]) // Unik per outlet, per bulan mulai, per MR
+  @@index([ownerId])
+  @@index([currentHolderId])
+  @@index([status])
+}
+
+// 2. Detail Produk di Outlet Tersebut (Dihitung per-orang)
+model PoaScProductItem {
+  id                  String     @id @default(uuid())
+  poaScId             String
+  poaSc               PoaScForm  @relation(fields: [poaScId], references: [id], onDelete: Cascade)
+
+  kodeProduk          String
+  namaProduk          String
+  produkKompetitor    String?
+
+  // Parameter Rencana Penjualan per Produk (per-orang)
+  pembeliHari         Int        // Jumlah pembeli per hari
+  qtyCustomerBaru     Int        // Qty produk baru per pembeli
+
+  // Persentase Finansial & Insentif
+  persenMatriksSc     Decimal    @db.Decimal(5, 2)  // Nilai insentif SC dari HNA
+  persenDiskon        Decimal    @db.Decimal(5, 2)
+  persenCashback      Decimal    @db.Decimal(5, 2)
+
+  // Estimasi Biaya Rencana untuk 1 orang canvasser
+  rencanaTotalBiaya   Decimal    @db.Decimal(18, 2)
+
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  @@index([poaScId])
+  @@unique([poaScId, kodeProduk]) // Satu produk hanya boleh diinput 1 kali per outlet
+}
+
+// 3. Daftar Staff Canvasser / Sales Counter Person yang ditugaskan di Outlet
+model PoaScPersonItem {
+  id              String     @id @default(uuid())
+  poaScId         String
+  poaSc               PoaScForm  @relation(fields: [poaScId], references: [id], onDelete: Cascade)
+
+  // Data Staff Canvasser
+  nik_ktp         String     // NIK Staff SC
+  personName      String     // Nama Staff SC
+  positionName    String     // Jabatan (Apoteker, SPV, dll.)
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([poaScId])
+  @@unique([poaScId, nik_ktp]) // Satu staff hanya boleh terdaftar 1 kali per outlet
+}
+
+// 4. Biaya Rencana Entertain Bulanan (Per-Outlet Per-Bulan)
+model PoaScEntertainItem {
+  id              String     @id @default(uuid())
+  poaScId         String
+  poaSc           PoaScForm  @relation(fields: [poaScId], references: [id], onDelete: Cascade)
+
+  periodeMonth    String     // Format YYYYMM (e.g. "202604")
+  biayaEntertain  Decimal    @db.Decimal(18, 2)
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([poaScId, periodeMonth]) // Maksimal 1 entri entertain per bulan per outlet
+}
+
+// 5. Log Riwayat Audit
+model PoaScAuditLog {
+  id              String       @id @default(uuid())
+  poaScId         String
+  poaSc           PoaScForm    @relation(fields: [poaScId], references: [id], onDelete: Cascade)
+  actorId         String
+  actor           User         @relation(fields: [actorId], references: [nip])
+  action          AuditAction
+  fromStatus      PoaStatus?
+  toStatus        PoaStatus?
+  snapshot        Json         @default("{}") // Untuk notes revisi dari atasan
+  createdAt       DateTime     @default(now())
+
+  @@index([poaScId])
 }

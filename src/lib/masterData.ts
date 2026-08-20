@@ -7,6 +7,7 @@
 import type { MockCustomer } from "./mock/data";
 import type { Role, User } from "@prisma/client";
 import type { Product } from "./hargaST";
+import { nexusAuthHeaders } from "@/lib/nexusAuth";
 
 export type { MockCustomer as Customer };
 
@@ -151,7 +152,21 @@ export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | 
 export async function getProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
   const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } });
-  return rows.map((p: { kodeProduk: string; namaGroupBrand: string; namaProduk: string; zatAktif: string | null; satuan: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null; satuanTerkecil: string | null; konversiPembagi: { toString(): string } | null; dosisKekuatanSediaan: string | null; qtyPerRxPasien: { toString(): string } | null; lamaPemberianHari: number | null; jumlahPemberianPerHari: { toString(): string } | null; bentukSediaan: string | null; packing: string | null; indikasi: string | null }) => ({
+  return rows.map((p: any) => ({
+    ...p,
+    hna: p.hna.toString(),
+    nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
+    satuanTerkecil: p.satuanTerkecil,
+    konversiPembagi: p.konversiPembagi?.toString() ?? null,
+    qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
+    jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
+  }));
+}
+
+export async function getScProducts(): Promise<Product[]> {
+  const { prisma } = await import("@/lib/prisma");
+  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } });
+  return rows.map((p: any) => ({
     ...p,
     hna: p.hna.toString(),
     nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
@@ -175,4 +190,42 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
     qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
     jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
   };
+}
+
+export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {
+  let targetUserId = userId;
+  if (userId === "SCMR123456") targetUserId = "P250091";
+
+  try {
+    const auth = Buffer.from("poa_exodus:poA_3x0dus").toString("base64");
+    const res = await fetch(`https://api-nexus.pharos.id/api/r/poa/get_outlet_by_nip?nip=${encodeURIComponent(targetUserId)}`, {
+      headers: {
+        Authorization: `Basic ${auth}`,
+      },
+      next: { revalidate: 0 },
+    });
+    if (!res.ok) {
+      console.error(`Failed to fetch outlets from Nexus: ${res.status} ${res.statusText}`);
+      return getOutletsByUser(userId);
+    }
+    const json = await res.json();
+    const outlets = json?.data?.outlets;
+    if (!Array.isArray(outlets)) {
+      return getOutletsByUser(userId);
+    }
+    return outlets.map((o: any) => ({
+      kodeRequest: o.code,
+      kodeCust: o.code,
+      namaCust: o.name,
+      role: o.sector ?? "",
+      spesialisasi: "",
+      historisPSSP: null,
+      kodePI: o.code,
+      namaOutlet: o.name,
+      groupRS: null,
+    }));
+  } catch (error) {
+    console.error("Error fetching outlets directly from Nexus:", error);
+    return getOutletsByUser(userId);
+  }
 }

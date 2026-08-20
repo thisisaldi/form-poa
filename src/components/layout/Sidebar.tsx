@@ -28,6 +28,12 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["MR", "ADMIN"],
   },
   {
+    href: "/sc/new",
+    label: "New POA Sales Counter",
+    icon: <IconPlus />,
+    roles: ["MR", "ADMIN"]
+  },
+  {
     href: "/poa-standarisasi/new",
     label: "New POA Standarisasi",
     icon: <IconPlus />,
@@ -121,9 +127,10 @@ interface SidebarProps {
   userJabatan?: string | null;
   userName: string;
   userNip: string;
+  userProject?: string | null;
 }
 
-export function Sidebar({ userRole, userJabatan, userName, userNip }: SidebarProps) {
+export function Sidebar({ userRole, userJabatan, userName, userNip, userProject }: SidebarProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -136,9 +143,23 @@ export function Sidebar({ userRole, userJabatan, userName, userNip }: SidebarPro
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => !item.roles || item.roles.includes(userRole)
-  );
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.roles && !item.roles.includes(userRole)) {
+      return false;
+    }
+    if (item.href === "/poa/new" && userProject === "OMEGA") {
+      return false;
+    }
+    if (item.href === "/sc/new" && userProject !== "OMEGA") {
+      return false;
+    }
+    return true;
+  }).map((item) => {
+    if (item.href === "/dashboard" && userProject === "OMEGA") {
+      return { ...item, href: "/sc/dashboard" };
+    }
+    return item;
+  });
 
   // Highlight only the most specific matching item (longest href prefix),
   // so e.g. "/admin/target-produk" doesn't also light up the "/admin" item.

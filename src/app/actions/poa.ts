@@ -261,5 +261,12 @@ export async function updatePoaPeriodAction(poaId: string, newPeriod: string): P
 
   revalidatePath(`/poa/${poaId}`);
   revalidatePath(`/poa/${poaId}/edit`);
+
   return {};
 }
+
+// ─── Temporary Stubs for Sales Counter (Draft-Wide / Doctor Stubs) ───────────
+
+export async function requestEditAction(poaId: string, formData: FormData): Promise<void> {}
+export async function grantEditRequestAction(poaId: string): Promise<void> {}
+export async function declineEditRequestAction(poaId: string, formData: FormData): Promise<void> {}

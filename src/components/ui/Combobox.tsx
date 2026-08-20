@@ -179,7 +179,7 @@ export function Combobox({
           onKeyDown={handleKeyDown}
           disabled={disabled}
           placeholder={placeholder}
-          className="flex-1 bg-transparent outline-none text-sm px-3 py-2"
+          className="flex-1 min-w-0 bg-transparent outline-none text-sm px-3 py-2"
           style={{ color: "var(--color-text)" }}
           aria-expanded={open}
           aria-haspopup="listbox"

@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "PoaScForm" ADD COLUMN     "hariKerjaBulan" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "rencanaVisitMinggu" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "surveyPasienHarian" INTEGER NOT NULL DEFAULT 0;

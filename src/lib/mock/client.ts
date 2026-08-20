@@ -4,8 +4,6 @@
  * Write operations mutate the in-memory arrays for the session lifetime.
  */
 
-import fs from "fs";
-import path from "path";
 import {
   MOCK_USERS, MOCK_POAS, MOCK_AUDIT_LOGS, MOCK_LINE_ITEMS,
   MOCK_OUTLETS, MOCK_CUSTOMER_RECORDS, MOCK_CUSTOMER_OUTLETS, MOCK_MR_ASSIGNMENTS,
@@ -18,7 +16,10 @@ import type { MockOutlet, MockCustomerRecord, MockCustomerOutlet, MockMrAssignme
 // often absent — read it via fs at runtime (not require()) so bundlers don't
 // try to statically resolve it as a module and fail the build when missing.
 function loadGenerated<T>(key: string, fallback: T[]): T[] {
+  if (typeof window !== "undefined") return fallback;
   try {
+    const fs = require("fs");
+    const path = require("path");
     const filePath = path.join(process.cwd(), "src/lib/mock/generated-data.json");
     const gen = JSON.parse(fs.readFileSync(filePath, "utf-8"));
     return (gen[key] as T[]) ?? fallback;
