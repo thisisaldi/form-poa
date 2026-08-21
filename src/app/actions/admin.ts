@@ -69,6 +69,48 @@ export interface UserRow {
   nipAtasan: string | null; isActive: boolean; isDummy: boolean;
 }
 
+export interface MissingNexusUserRow {
+  nip: string; nama: string; position: string; status: "missing" | "inactive";
+}
+
+/**
+ * Diagnostic (read-only, no writes) for the "org sync isn't automated yet"
+ * gap (2026-08-21) — lets an admin check who Nexus already knows about but
+ * Postgres `User` doesn't yet reflect, without triggering a full runOrgSync()
+ * (which upserts/deactivates). Compares live get_employees?project=ethical
+ * against current `User` rows: "missing" = no User row at all for that NIP,
+ * "inactive" = row exists but isActive=false (would flip to true on next sync).
+ */
+export async function checkNexusMissingUsersAction(): Promise<{ ok: boolean; error?: string; rows?: MissingNexusUserRow[] }> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return authCheck;
+
+  let employees;
+  try {
+    const { fetchAllEmployees } = await import("@/lib/sync/orgNexusInference");
+    employees = await fetchAllEmployees();
+  } catch (err) {
+    return { ok: false, error: `Gagal ambil data dari Nexus: ${String(err)}` };
+  }
+
+  const nips = employees.map((e) => e.nip);
+  const existing = await prisma.user.findMany({
+    where: { nip: { in: nips } },
+    select: { nip: true, isActive: true },
+  });
+  const existingByNip = new Map(existing.map((u: { nip: string; isActive: boolean }) => [u.nip, u.isActive]));
+
+  const rows: MissingNexusUserRow[] = [];
+  for (const e of employees) {
+    const isActive = existingByNip.get(e.nip);
+    if (isActive === undefined) rows.push({ nip: e.nip, nama: e.nama, position: e.position, status: "missing" });
+    else if (!isActive) rows.push({ nip: e.nip, nama: e.nama, position: e.position, status: "inactive" });
+  }
+  rows.sort((a, b) => a.nama.localeCompare(b.nama));
+
+  return { ok: true, rows };
+}
+
 /** Search staff accounts by NIP or name — capped at 20 results. */
 export async function searchUsersAction(query: string): Promise<UserRow[]> {
   const q = query.trim();

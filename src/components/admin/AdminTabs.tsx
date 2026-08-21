@@ -14,6 +14,7 @@ import Link from "next/link";
 import {
   createUserAction, updateUserAction, renameUserNipAction, deleteUserAction, searchUsersAction, type UserRow,
   createDummyChainAction,
+  checkNexusMissingUsersAction, type MissingNexusUserRow,
   createOutletAction, updateOutletAction, deleteOutletAction, searchOutletsAction, type OutletRow,
   createProductAction, updateProductAction, deleteProductAction, searchProductsAction, type ProductRow,
   updateCustomerAction, deleteCustomerAction, searchCustomersAction, type CustomerRow,
@@ -141,6 +142,63 @@ function DummyChainCard() {
           {isPending ? "Membuat…" : "Buat 4 Akun"}
         </Button>
       </form>
+    </Card>
+  );
+}
+
+// ─── Cek User Belum Sync dari Nexus ─────────────────────────────────────────
+// Read-only diagnostic (2026-08-21) — org sync (get_employees?project=ethical
+// → User.nipAtasan) belum otomatis lewat cron, jadi ini cara ngecek siapa
+// yang udah muncul di Nexus tapi belum ke-refresh ke Postgres, tanpa harus
+// jalanin full sync (yang nulis data).
+
+function MissingNexusUsersCard() {
+  const [rows, setRows] = useState<MissingNexusUserRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function runCheck() {
+    setError(null);
+    startTransition(async () => {
+      const result = await checkNexusMissingUsersAction();
+      if (result.ok) setRows(result.rows ?? []);
+      else { setError(result.error ?? "Gagal cek data Nexus."); setRows(null); }
+    });
+  }
+
+  return (
+    <Card>
+      <p className="font-semibold text-sm mb-1" style={{ color: "var(--color-text)" }}>Cek User Belum Sync dari Nexus</p>
+      <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
+        Bandingkan langsung ke Nexus (<code>get_employees</code>) vs data user saat ini — nunjukin siapa yang
+        belum ada akunnya atau masih nonaktif di sini. Read-only, tidak mengubah data apa pun; kalau org sync
+        belum otomatis (belum ada cron), pakai ini buat ngecek berkala.
+      </p>
+      {error && <p className="text-sm px-3 py-2 rounded-md mb-3" style={{ background: "var(--color-red-light)", color: "var(--color-red)" }}>{error}</p>}
+      <Button type="button" size="sm" variant="secondary" onClick={runCheck} disabled={isPending}>
+        {isPending ? "Mengecek…" : "Cek Sekarang"}
+      </Button>
+      {rows !== null && (
+        <div className="mt-3">
+          {rows.length === 0 ? (
+            <p className="text-xs py-2" style={{ color: "var(--color-text-faint)" }}>Semua user di Nexus sudah ada &amp; aktif di sini.</p>
+          ) : (
+            <div className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+              {rows.map((r) => (
+                <div key={r.nip} className="flex items-center justify-between gap-2 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate" style={{ color: "var(--color-text)" }}>{r.nama} <span style={{ color: "var(--color-text-faint)" }}>({r.nip})</span></p>
+                    <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{r.position}</p>
+                  </div>
+                  <span className="text-xs font-medium shrink-0" style={{ color: r.status === "missing" ? "var(--color-red)" : "var(--color-warning, #f59e0b)" }}>
+                    {r.status === "missing" ? "Belum ada akun" : "Nonaktif"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
@@ -287,6 +345,8 @@ function UserTab() {
       </Card>
 
       <DummyChainCard />
+
+      <MissingNexusUsersCard />
 
       <Card>
         <p className="font-semibold text-sm mb-3" style={{ color: "var(--color-text)" }}>Cari / Kelola User</p>

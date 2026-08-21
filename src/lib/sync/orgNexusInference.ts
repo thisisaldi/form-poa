@@ -94,7 +94,7 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
  * deactivated all 1831 real users in one shot. Throws instead so the sync
  * fails loud and never reaches the deactivate pass.
  */
-async function fetchAllEmployees(): Promise<NexusEmployee[]> {
+export async function fetchAllEmployees(): Promise<NexusEmployee[]> {
   const resp = await fetchJsonWithRetry<{ data: { employees: NexusEmployee[] } }>(
     `${NEXUS_BASE}/get_employees?project=ethical`
   );
