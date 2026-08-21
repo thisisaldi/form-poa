@@ -989,7 +989,7 @@ export function PlanningPhase(props: {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <UnitCountInput label="Jumlah Bed RS" unit="Bed" value={jumlahBedRs} onChange={setJumlahBedRs} disabled={disabled} />
           <MonthYearPicker
-            label="Target Penyelesaian Standarisasi"
+            label="Target Finalisasi Standarisasi"
             value={estimasiTimelineSelesai}
             onChange={setEstimasiTimelineSelesai}
             disabled={disabled}
