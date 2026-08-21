@@ -34,7 +34,7 @@ export default async function SalesCounterDashboardPage() {
 
   // Collect all product codes across forms to fetch master product HNA
   const allProductCodes = Array.from(
-    new Set(scForms.flatMap((f) => f.products.map((p) => p.kodeProduk)).filter(Boolean))
+    new Set(scForms.flatMap((f: any) => f.products.map((p: any) => p.kodeProduk)).filter(Boolean))
   );
 
   const masterProducts = allProductCodes.length > 0
@@ -44,11 +44,11 @@ export default async function SalesCounterDashboardPage() {
       })
     : [];
 
-  const masterProductMap = new Map(
-    masterProducts.map((p) => [p.kodeProduk, p])
+  const masterProductMap = new Map<string, any>(
+    masterProducts.map((p: any) => [p.kodeProduk, p])
   );
 
-  const outletCodes = Array.from(new Set(scForms.map((f) => f.kodePI).filter(Boolean))) as string[];
+  const outletCodes = Array.from(new Set(scForms.map((f: any) => f.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
 
   const [cashbackData] = await Promise.all([
@@ -90,13 +90,13 @@ export default async function SalesCounterDashboardPage() {
 
     const cbDetails = calculateCashbackDetails({
       cashbackData,
-      selectedProducts: f.products.map((p) => ({
+      selectedProducts: f.products.map((p: any) => ({
         kodeProduk: p.kodeProduk,
         pembeliHari: String(p.pembeliHari || 0),
         qtyCustomerBaru: String(p.qtyCustomerBaru || 0),
         persenCashback: String(p.persenCashback || 0),
       })),
-      masterProducts: f.products.map((p) => {
+      masterProducts: f.products.map((p: any) => {
         const mp = masterProductMap.get(p.kodeProduk);
         return {
           kodeProduk: p.kodeProduk,
@@ -148,7 +148,7 @@ export default async function SalesCounterDashboardPage() {
     }
 
     const totalEnt = f.entertainItems.reduce(
-      (sum, e) => sum + Number(e.biayaEntertain?.toString() || 0),
+      (sum: number, e: any) => sum + Number(e.biayaEntertain?.toString() || 0),
       0
     );
     fBudgetSc += totalEnt;
