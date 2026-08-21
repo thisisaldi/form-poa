@@ -101,6 +101,7 @@ export interface MockCustomer {
   namaOutlet: string;
   groupRS?: string | null;
   is_sc?: boolean;
+  jumlah_sc?: number | null;
   isBlastIn?: boolean;
 }
 

@@ -1545,3 +1545,17 @@ model OutletBlastIn {
   updatedAt DateTime @updatedAt
 }
 
+// Reference table for DPL/DPF discounts by product code and period
+model DiskonDplDpf {
+  id        String   @id @default(uuid())
+  proCode   String
+  diskon    Decimal  @db.Decimal(10, 4)
+  periode   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([proCode])
+  @@index([periode])
+}
+
+

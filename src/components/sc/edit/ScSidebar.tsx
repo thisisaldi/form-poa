@@ -419,10 +419,19 @@ export function ScSidebar({
                         const realisasiVal = parseFloat(item.realisasi_sell_in_value ?? item.actual ?? 0) || 0;
                         const insentifVal = parseFloat(item.total_insentif ?? item.insentif ?? 0) || 0;
                         return (
-                          <div key={idx} className="p-1.5 rounded border text-[10px] leading-tight space-y-0.5" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+                          <div
+                            key={idx}
+                            className="p-1.5 rounded border text-[10px] leading-tight space-y-0.5"
+                            style={{
+                              background: "var(--color-bg)",
+                              borderColor: "var(--color-border)",
+                            }}
+                          >
                             <div className="flex justify-between font-medium items-baseline gap-1">
                               <span className="truncate" style={{ color: "var(--color-text)" }}>{item.pro_name || item.namaProduk}</span>
-                              <span className="shrink-0 font-semibold" style={{ color: "var(--color-success, #16a34a)" }}>{formatRp(insentifVal)}</span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="font-semibold" style={{ color: "var(--color-success, #16a34a)" }}>{formatRp(insentifVal)}</span>
+                              </div>
                             </div>
                             {targetVal > 0 || realisasiVal > 0 ? (
                               <div className="text-[9px]" style={{ color: "var(--color-text-faint)" }}>

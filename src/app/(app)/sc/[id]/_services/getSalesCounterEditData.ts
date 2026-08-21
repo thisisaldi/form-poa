@@ -45,6 +45,7 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
       sector: (o as any).sector ?? (o as any).sektor ?? null,
       subSektor: (o as any).subSektor ?? (o as any).subsektor ?? null,
       is_sc: !!(o as any).is_sc,
+      jumlah_sc: (o as any).jumlah_sc ?? null,
       isBlastIn: blastInSet.has(o.kodePI as string),
     }));
 

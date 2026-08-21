@@ -16,7 +16,7 @@ import { getScOutletB3SalesAction } from "@/app/actions/canvasser";
 interface SalesCounterLineItemEditorProps {
   poaId: string;
   poaPeriod: string;
-  outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null }[];
+  outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null; is_sc?: boolean; jumlah_sc?: number | null; isBlastIn?: boolean }[];
   products: Product[];
   savedDrafts?: any[];
 }
@@ -318,6 +318,21 @@ export function SalesCounterLineItemEditor({
   const totalEstimasiBudget = totalNilaiSc + totalCashbackVal + totalEntertainVal + totalDiskonVal;
   const costRatio = totalEstimasiSales > 0 ? (totalEstimasiBudget / totalEstimasiSales) * 100 : 0;
 
+  let totalAvgB3Bln = 0;
+  let hasB3Data = false;
+  for (const row of selectedProducts) {
+    if (!row.kodeProduk) continue;
+    const avgSales = b3SalesMap.get(row.kodeProduk);
+    if (avgSales != null && avgSales > 0) {
+      totalAvgB3Bln += avgSales;
+      hasB3Data = true;
+    }
+  }
+  const totalEstSalesBln = totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1);
+  const totalGrowthPct = hasB3Data && totalAvgB3Bln > 0
+    ? ((totalEstSalesBln - totalAvgB3Bln) / totalAvgB3Bln) * 100
+    : null;
+
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-6 p-6 max-w-5xl">
@@ -337,18 +352,27 @@ export function SalesCounterLineItemEditor({
               <div style={errors.outletId ? ERR_RING : undefined}>
                 <Combobox
                   name="outletId"
-                  options={outlets.map((o) => {
-                    const isSc = !!(o as any).is_sc;
-                    const isBlastIn = !!(o as any).isBlastIn;
-                    return {
-                      value: o.kodePI,
-                      label: `${o.kodePI} · ${o.namaOutlet}${o.groupRS ? ` (${o.groupRS})` : ""}`,
-                      tag: isSc ? "INS - SC" : undefined,
-                      tagColor: isSc ? ("yellow" as const) : undefined,
-                      tag2: isBlastIn ? "BLAST-IN" : undefined,
-                      tag2Color: isBlastIn ? ("lime" as const) : undefined,
-                    };
-                  })}
+                  options={outlets
+                    .map((o) => {
+                      const isSc = !!(o as any).is_sc;
+                      const isBlastIn = !!(o as any).isBlastIn;
+                      const statusCount = (isSc ? 1 : 0) + (isBlastIn ? 1 : 0);
+                      const jumlahSc = (o as any).jumlah_sc;
+                      return {
+                        value: o.kodePI,
+                        label: `${o.kodePI} · ${o.namaOutlet}${o.groupRS ? ` (${o.groupRS})` : ""}`,
+                        sublabel: isSc && jumlahSc != null ? `Jumlah Sales Counter: ${jumlahSc}` : undefined,
+                        tag: isSc ? "INS - SC" : undefined,
+                        tagColor: isSc ? ("yellow" as const) : undefined,
+                        tag2: isBlastIn ? "BLAST-IN" : undefined,
+                        tag2Color: isBlastIn ? ("lime" as const) : undefined,
+                        statusCount,
+                      };
+                    })
+                    .sort((a, b) => {
+                      if (b.statusCount !== a.statusCount) return b.statusCount - a.statusCount;
+                      return a.label.localeCompare(b.label);
+                    })}
                   value={outletId}
                   onChange={setOutletId}
                   placeholder="Cari outlet..."
@@ -617,6 +641,8 @@ export function SalesCounterLineItemEditor({
             lamaPeriode={lamaPeriode}
             surveyPasienHarian={surveyPasienHarian}
             error={errors.products}
+            b3SalesMap={b3SalesMap}
+            b3RangeLabel={b3RangeLabel}
           />
         </div>
 
@@ -655,7 +681,7 @@ export function SalesCounterLineItemEditor({
                   <div>DISKON : <strong>Rp {Math.round(totalDiskonVal).toLocaleString("id-ID")}</strong></div>
                 </div>
               </div>
-              <div className="shrink-0 min-w-[180px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+              <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
                 <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                   TOTAL % COST RATIO
                 </div>
@@ -664,6 +690,37 @@ export function SalesCounterLineItemEditor({
                 </div>
                 <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                   Total Budget / Total Sales
+                </div>
+
+                <div className="pt-2 mt-2 border-t space-y-0.5" style={{ borderColor: "var(--color-border)" }}>
+                  <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                    TOTAL GROWTH
+                  </div>
+                  {totalGrowthPct != null ? (
+                    <>
+                      <div
+                        className="text-xl font-bold whitespace-nowrap mt-0.5"
+                        style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
+                      >
+                        {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
+                      </div>
+                      <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                        Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                      </div>
+                      <div
+                        className="text-[11px] font-semibold mt-0.5"
+                        style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
+                      >
+                        {totalGrowthPct > 0
+                          ? "✓ Intensifikasi naik"
+                          : "⚠️ Intensifikasi kurang"}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      Belum ada data SC sebelumnya
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

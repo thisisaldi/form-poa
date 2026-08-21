@@ -376,7 +376,24 @@ export function useSalesCounterEditor({
   };
 
   const removeProductRow = (index: number) => {
-    setProducts((prev) => prev.filter((_, i) => i !== index));
+    setProducts((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) {
+        return [
+          {
+            kodeProduk: "",
+            produkKompetitor: "",
+            pembeliHari: "",
+            qtyCustomerBaru: "",
+            persenMatriksSc: "",
+            persenDiskon: "",
+            persenCashback: "",
+            rencanaTotalBiaya: 0,
+          },
+        ];
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -426,7 +443,24 @@ export function useSalesCounterEditor({
     if (!code) return;
     setProducts((prev) => {
       const alreadyExists = prev.some((p) => p.kodeProduk === code);
-      if (alreadyExists) return prev;
+      if (alreadyExists) {
+        const filtered = prev.filter((p) => p.kodeProduk !== code);
+        if (filtered.length === 0) {
+          return [
+            {
+              kodeProduk: "",
+              produkKompetitor: "",
+              pembeliHari: "",
+              qtyCustomerBaru: "",
+              persenMatriksSc: "",
+              persenDiskon: "",
+              persenCashback: "",
+              rencanaTotalBiaya: 0,
+            },
+          ];
+        }
+        return filtered;
+      }
 
       const emptyIdx = prev.findIndex((p) => !p.kodeProduk);
       let targetIndex = emptyIdx;
@@ -472,6 +506,14 @@ export function useSalesCounterEditor({
       updatedRow.rencanaTotalBiaya = calculateRowCost(updatedRow, lamaPeriode);
 
       nextList[targetIndex] = updatedRow;
+
+      setTimeout(() => {
+        const el = document.getElementById(`sc-product-row-${code}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
+
       return nextList;
     });
   };

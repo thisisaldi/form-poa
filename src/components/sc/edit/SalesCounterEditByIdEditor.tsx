@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction } from "@/app/actions/scActions";
 import { ProductSelector } from "./ProductSelector";
+import { ScSidebar } from "./ScSidebar";
 import { UnitInput } from "./UnitInput";
 import { Button } from "@/components/ui/Button";
 import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
@@ -17,7 +18,9 @@ import {
   getScInsentifHistoryAction,
   getPrincodeProductsAction,
   getScCashbackPoaAction,
+  getScOutletB3SalesAction,
 } from "@/app/actions/canvasser";
+import { getB3PeriodInfo } from "@/lib/b3Utils";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
 
 function formatCashbackPct(rawVal: number | string | undefined | null): string {
@@ -63,6 +66,7 @@ interface Person {
   nik_ktp: string;
   personName: string;
   positionName: string;
+  tipeUploadSc?: string;
 }
 
 interface SalesCounterEditByIdEditorProps {
@@ -190,9 +194,35 @@ export function SalesCounterEditByIdEditor({
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
   const [cashbackMatrix, setCashbackMatrix] = useState<any[]>([]);
   const [rawCashbackData, setRawCashbackData] = useState<any>(null);
+  const [productsMenang, setProductsMenang] = useState<any[]>([]);
+  const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
+  const [insentifHistory, setInsentifHistory] = useState<any>(null);
+  const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
+  const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Load canvasser products for the outlet
+  useEffect(() => {
+    if (!kodePI) return;
+    const selectedCodes = products.map((p) => p.kodeProduk).filter(Boolean);
+    if (selectedCodes.length === 0) return;
+
+    const b3Info = getB3PeriodInfo(poaPeriod);
+    setB3RangeLabel(b3Info.rangeLabel);
+
+    getScOutletB3SalesAction(b3Info.period, kodePI, selectedCodes).then((res) => {
+      const map = new Map<string, number>();
+      if (res?.data && Array.isArray(res.data)) {
+        for (const item of res.data) {
+          if (item.pro_code) {
+            map.set(item.pro_code, item.average_sales || 0);
+          }
+        }
+      }
+      setB3SalesMap(map);
+    });
+  }, [kodePI, products, poaPeriod]);
+
+  // Load canvasser products & sidebar data for the outlet
   useEffect(() => {
     if (!kodePI) return;
     getSalesCounterProductsAction(kodePI).then((res) => {
@@ -201,6 +231,9 @@ export function SalesCounterEditByIdEditor({
     getPrincodeProductsAction().then((res) => {
       if (res?.data) setPrincodeProducts(res.data);
     });
+    getScProductMenangAction(kodePI).then((res) => setProductsMenang(res?.data || []));
+    getScProductWithInsentifAction(kodePI).then((res) => setProductsInsentif(res?.data || []));
+    getScInsentifHistoryAction(kodePI).then((res) => setInsentifHistory(res?.data || null));
     getScCashbackPoaAction().then((res) => {
       setRawCashbackData(res);
       const array = Array.isArray(res?.matrix)
@@ -230,6 +263,86 @@ export function SalesCounterEditByIdEditor({
     );
   }, [cashbackMatrix]);
 
+  const selectProductFromSidebar = (code: string) => {
+    if (!code) return;
+    setProducts((prev) => {
+      const alreadyExists = prev.some((p) => p.kodeProduk === code);
+      if (alreadyExists) {
+        const filtered = prev.filter((p) => p.kodeProduk !== code);
+        if (filtered.length === 0) {
+          return [
+            {
+              kodeProduk: "",
+              produkKompetitor: "",
+              pembeliHari: "",
+              qtyCustomerBaru: "",
+              persenMatriksSc: "",
+              persenDiskon: "",
+              persenCashback: "",
+              rencanaTotalBiaya: 0,
+            },
+          ];
+        }
+        return filtered;
+      }
+
+      const emptyIdx = prev.findIndex((p) => !p.kodeProduk);
+      let targetIndex = emptyIdx;
+      const nextList = [...prev];
+
+      if (emptyIdx < 0) {
+        targetIndex = nextList.length;
+        nextList.push({
+          kodeProduk: "",
+          produkKompetitor: "",
+          pembeliHari: "",
+          qtyCustomerBaru: "",
+          persenMatriksSc: "",
+          persenDiskon: "",
+          persenCashback: "",
+          rencanaTotalBiaya: 0,
+        });
+      }
+
+      const canvasserProd = canvasserProducts.find((p) => p.pro_code === code);
+      const masterProd = masterProducts.find((p) => p.kodeProduk === code);
+
+      let pctMatriksSc = nextList[targetIndex].persenMatriksSc;
+      if (canvasserProd && masterProd) {
+        const hna = parseFloat(masterProd.hna) || 0;
+        const val = canvasserProd.sales_counter_value || 0;
+        const pct = hna > 0 ? (val / hna) * 100 : 0;
+        pctMatriksSc = pct > 0 ? pct.toFixed(2) : "0";
+      }
+
+      let pctCashback = nextList[targetIndex].persenCashback;
+      const matrixItem = findCashbackItem(cashbackMatrix, code);
+      if (matrixItem) {
+        const getVal = (m: any) =>
+          m?.cashback_percentage ?? m?.cashback_percent ?? m?.cashback ?? m?.persenCashback ?? m?.persen_cashback;
+        pctCashback = formatCashbackPct(getVal(matrixItem));
+      }
+
+      const updatedRow = {
+        ...nextList[targetIndex],
+        kodeProduk: code,
+        persenMatriksSc: pctMatriksSc,
+        persenCashback: pctCashback,
+      };
+
+      nextList[targetIndex] = updatedRow;
+
+      setTimeout(() => {
+        const el = document.getElementById(`sc-product-row-${code}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
+
+      return nextList;
+    });
+  };
+
   // Quarter info
   const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
   const quarterMatch = poaPeriod.match(/-Q([1-4])/);
@@ -239,20 +352,65 @@ export function SalesCounterEditByIdEditor({
 
   const productOptions = useMemo(() => {
     const scCodes = new Set(canvasserProducts.map((p) => p.pro_code));
-    const scOptions = canvasserProducts.map((p) => ({
-      value: p.pro_code,
-      label: `${p.pro_code} · ${p.pro_name} (Produk SC)`,
-      isScProduct: true,
-    }));
+    const menangCodes = new Set([
+      ...(productsMenang || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
+      ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
+    ].filter(Boolean));
+
+    const scOptions = canvasserProducts.map((p) => {
+      const masterP = masterProducts.find((mp) => mp.kodeProduk === p.pro_code);
+      const isMenang = menangCodes.has(p.pro_code);
+      return {
+        value: p.pro_code,
+        label: p.pro_name,
+        sublabel: `${p.pro_code} · ${masterP?.namaGroupBrand || "Produk SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
+        group: isMenang ? "PERNAH SC" : "PRODUK SC",
+        tag: "Produk SC",
+        tagColor: "orange" as any,
+        tag2: isMenang ? "Pernah SC" : undefined,
+        tag2Color: isMenang ? ("green" as any) : undefined,
+      };
+    });
+
     const otherOptions = princodeProducts
       .filter((p) => !scCodes.has(p.code))
-      .map((p) => ({
-        value: p.code,
-        label: `${p.code} · ${p.name}`,
-        isScProduct: false,
-      }));
-    return [...scOptions, ...otherOptions];
-  }, [canvasserProducts, princodeProducts]);
+      .map((p) => {
+        const masterP = masterProducts.find((mp) => mp.kodeProduk === p.code);
+        const isMenang = menangCodes.has(p.code);
+        return {
+          value: p.code,
+          label: p.name,
+          sublabel: `${p.code} · ${masterP?.namaGroupBrand || "Master Produk"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
+          group: isMenang ? "PERNAH SC" : "PRODUK LAINNYA",
+          tag2: isMenang ? "Pernah SC" : undefined,
+          tag2Color: isMenang ? ("green" as any) : undefined,
+        };
+      });
+
+    const existingValues = new Set([
+      ...scOptions.map((o) => o.value),
+      ...otherOptions.map((o) => o.value),
+    ]);
+
+    const menangExtraOptions: any[] = [];
+    menangCodes.forEach((code) => {
+      if (!existingValues.has(code)) {
+        const masterP = masterProducts.find((mp) => mp.kodeProduk === code);
+        menangExtraOptions.push({
+          value: code,
+          label: masterP?.namaProduk || code,
+          sublabel: `${code} · ${masterP?.namaGroupBrand || "Rekomendasi SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
+          group: "PERNAH SC",
+          tag: "Pernah SC",
+          tagColor: "green" as any,
+          tag2: "Pernah SC",
+          tag2Color: "green" as any,
+        });
+      }
+    });
+
+    return [...menangExtraOptions, ...scOptions, ...otherOptions];
+  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, masterProducts]);
 
   const totalEstimasiSales = products.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
@@ -321,6 +479,21 @@ export function SalesCounterEditByIdEditor({
   const totalEstimasiBudget = totalNilaiSc + totalCashbackVal + totalEntertainVal + totalDiskonVal;
   const costRatio = totalEstimasiSales > 0 ? (totalEstimasiBudget / totalEstimasiSales) * 100 : 0;
 
+  let totalAvgB3Bln = 0;
+  let hasB3Data = false;
+  for (const row of products) {
+    if (!row.kodeProduk) continue;
+    const avgSales = b3SalesMap.get(row.kodeProduk);
+    if (avgSales != null && avgSales > 0) {
+      totalAvgB3Bln += avgSales;
+      hasB3Data = true;
+    }
+  }
+  const totalEstSalesBln = totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1);
+  const totalGrowthPct = hasB3Data && totalAvgB3Bln > 0
+    ? ((totalEstSalesBln - totalAvgB3Bln) / totalAvgB3Bln) * 100
+    : null;
+
   const updateEntertainValue = (month: string, val: string) => {
     setEntertainList((prev) => prev.map((item) => item.month === month ? { ...item, value: val } : item));
   };
@@ -333,7 +506,24 @@ export function SalesCounterEditByIdEditor({
   };
 
   const removeProductRow = (index: number) => {
-    setProducts((prev) => prev.filter((_, i) => i !== index));
+    setProducts((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) {
+        return [
+          {
+            kodeProduk: "",
+            produkKompetitor: "",
+            pembeliHari: "",
+            qtyCustomerBaru: "",
+            persenMatriksSc: "",
+            persenDiskon: "",
+            persenCashback: "",
+            rencanaTotalBiaya: 0,
+          },
+        ];
+      }
+      return next;
+    });
   };
 
   const updateProductRow = (index: number, fields: Partial<ProductRow>) => {
@@ -411,7 +601,8 @@ export function SalesCounterEditByIdEditor({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 p-6 max-w-5xl">
+    <>
+      <form onSubmit={handleSubmit} className="space-y-6 p-6 max-w-5xl">
       {readOnly && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
@@ -453,7 +644,7 @@ export function SalesCounterEditByIdEditor({
                     <tr style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-bg-subtle)" }}>
                       <th className="py-2 px-3 font-semibold" style={{ color: "var(--color-text-muted)" }}>Nama</th>
                       <th className="py-2 px-3 font-semibold" style={{ color: "var(--color-text-muted)" }}>Jabatan</th>
-                      <th className="py-2 px-3 font-semibold" style={{ color: "var(--color-text-muted)" }}>NIK</th>
+                      <th className="py-2 px-3 font-semibold" style={{ color: "var(--color-text-muted)" }}>Tipe Upload</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -461,7 +652,7 @@ export function SalesCounterEditByIdEditor({
                       <tr key={p.id} style={{ borderBottom: "1px solid var(--color-border)" }}>
                         <td className="py-2 px-3 font-medium" style={{ color: "var(--color-text)" }}>{p.personName}</td>
                         <td className="py-2 px-3" style={{ color: "var(--color-text-muted)" }}>{p.positionName}</td>
-                        <td className="py-2 px-3 font-mono" style={{ color: "var(--color-text-faint)" }}>{p.nik_ktp}</td>
+                        <td className="py-2 px-3" style={{ color: "var(--color-text-muted)" }}>{p.tipeUploadSc || "-"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -574,6 +765,8 @@ export function SalesCounterEditByIdEditor({
             lamaPeriode={lamaPeriode}
             error={errors.products}
             readOnly={readOnly}
+            b3SalesMap={b3SalesMap}
+            b3RangeLabel={b3RangeLabel}
           />
         </div>
 
@@ -606,7 +799,7 @@ export function SalesCounterEditByIdEditor({
                 <div>DISKON : <strong>Rp {Math.round(totalDiskonVal).toLocaleString("id-ID")}</strong></div>
               </div>
             </div>
-            <div className="shrink-0 min-w-[180px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+            <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                 TOTAL % COST RATIO
               </div>
@@ -615,6 +808,37 @@ export function SalesCounterEditByIdEditor({
               </div>
               <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                 Total Budget / Total Sales
+              </div>
+
+              <div className="pt-2 mt-2 border-t space-y-0.5" style={{ borderColor: "var(--color-border)" }}>
+                <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                  TOTAL GROWTH
+                </div>
+                {totalGrowthPct != null ? (
+                  <>
+                    <div
+                      className="text-xl font-bold whitespace-nowrap mt-0.5"
+                      style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
+                    >
+                      {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
+                    </div>
+                    <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                    </div>
+                    <div
+                      className="text-[11px] font-semibold mt-0.5"
+                      style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
+                    >
+                      {totalGrowthPct > 0
+                        ? "✓ Intensifikasi naik"
+                        : "⚠️ Intensifikasi kurang"}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                    Belum ada data SC sebelumnya
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -639,5 +863,16 @@ export function SalesCounterEditByIdEditor({
         )}
       </div>
     </form>
+    {kodePI && (
+      <ScSidebar
+        doctorName={namaOutlet || undefined}
+        productsMenang={productsMenang}
+        productsInsentif={productsInsentif}
+        insentifHistory={insentifHistory}
+        selectedProductCodes={new Set(products.map((p) => p.kodeProduk).filter(Boolean))}
+        onSelectProduct={selectProductFromSidebar}
+      />
+    )}
+    </>
   );
 }
