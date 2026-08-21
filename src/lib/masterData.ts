@@ -192,40 +192,50 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
   };
 }
 
+import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { getBlastInOutletSet } from "@/lib/outletBlastIn";
+
 export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {
   let targetUserId = userId;
   if (userId === "SCMR123456") targetUserId = "P250091";
 
   try {
-    const auth = Buffer.from("poa_exodus:poA_3x0dus").toString("base64");
-    const res = await fetch(`https://api-nexus.pharos.id/api/r/poa/get_outlet_by_nip?nip=${encodeURIComponent(targetUserId)}`, {
-      headers: {
-        Authorization: `Basic ${auth}`,
-      },
+    const url = `${CANVASSER_API_BASE_URL}/api/get-sc-poa-outlet-by-nip?nip=${encodeURIComponent(targetUserId)}`;
+    const res = await fetch(url, {
       next: { revalidate: 0 },
     });
     if (!res.ok) {
-      console.error(`Failed to fetch outlets from Nexus: ${res.status} ${res.statusText}`);
+      console.error(`Failed to fetch outlets from Canvasser API: ${res.status} ${res.statusText}`);
       return getOutletsByUser(userId);
     }
     const json = await res.json();
-    const outlets = json?.data?.outlets;
-    if (!Array.isArray(outlets)) {
+    const rawOutlets = Array.isArray(json?.data)
+      ? json.data
+      : Array.isArray(json?.data?.outlets)
+      ? json.data.outlets
+      : [];
+    if (!Array.isArray(rawOutlets) || rawOutlets.length === 0) {
       return getOutletsByUser(userId);
     }
-    return outlets.map((o: any) => ({
+    const blastInSet = await getBlastInOutletSet();
+
+    return rawOutlets.map((o: any) => ({
       kodeRequest: o.code,
       kodeCust: o.code,
       namaCust: o.name,
-      role: o.sector ?? "",
+      role: o.sector ?? o.sektor ?? "",
       spesialisasi: "",
       historisPSSP: null,
       kodePI: o.code,
       namaOutlet: o.name,
       groupRS: null,
+      sector: o.sector ?? o.sektor ?? null,
+      subSektor: o.subsector ?? null,
+      is_sc: !!o.is_sc,
+      isBlastIn: blastInSet.has(o.code),
     }));
   } catch (error) {
-    console.error("Error fetching outlets directly from Nexus:", error);
+    console.error("Error fetching outlets directly from Canvasser API:", error);
     return getOutletsByUser(userId);
   }
 }

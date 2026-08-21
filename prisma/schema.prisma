@@ -1537,3 +1537,11 @@ model PoaScAuditLog {
 
   @@index([poaScId])
 }
+
+// Model penyimpan daftar Kode PI untuk Blast-In
+model OutletBlastIn {
+  kodePI    String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+

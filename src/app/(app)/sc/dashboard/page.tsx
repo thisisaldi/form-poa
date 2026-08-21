@@ -9,6 +9,9 @@ import { NotReadyButton } from "@/components/ui/NotReadyButton";
 import { DeletePoaScButton } from "@/components/sc/DeletePoaScButton";
 import { formatCurrency as formatRp } from "@/lib/format";
 import type { PoaStatus } from "@prisma/client";
+import { getScCashbackPoa } from "../[id]/_services/getScCashbackPoa";
+import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
+import { calculateCashbackDetails } from "@/components/sc/edit/hooks/useSalesCounterCashback";
 
 export const metadata = { title: "Dashboard POA Sales Counter · Form POA" };
 
@@ -23,11 +26,51 @@ export default async function SalesCounterDashboardPage() {
     where: { ownerId: session.userId },
     include: {
       owner: true,
-      products: { select: { rencanaTotalBiaya: true } },
-      entertainItems: { select: { biayaEntertain: true } },
+      products: true,
+      entertainItems: true,
     },
     orderBy: { updatedAt: "desc" },
   });
+
+  // Collect all product codes across forms to fetch master product HNA
+  const allProductCodes = Array.from(
+    new Set(scForms.flatMap((f) => f.products.map((p) => p.kodeProduk)).filter(Boolean))
+  );
+
+  const masterProducts = allProductCodes.length > 0
+    ? await prisma.product.findMany({
+        where: { kodeProduk: { in: allProductCodes } },
+        select: { kodeProduk: true, hna: true, konversiPembagi: true },
+      })
+    : [];
+
+  const masterProductMap = new Map(
+    masterProducts.map((p) => [p.kodeProduk, p])
+  );
+
+  const outletCodes = Array.from(new Set(scForms.map((f) => f.kodePI).filter(Boolean))) as string[];
+  const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
+
+  const [cashbackData] = await Promise.all([
+    getScCashbackPoa(),
+    Promise.all(
+      outletCodes.map(async (kodePI: string) => {
+        try {
+          const res = await getSalesCounterProduct(kodePI);
+          if (res?.data) {
+            for (const cp of res.data) {
+              canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
+                sales_counter_value: cp.sales_counter_value || 0,
+                sales_counter_minimum: cp.sales_counter_minimum || 0,
+              });
+            }
+          }
+        } catch (err) {
+          console.error(`Error fetching SC products for ${kodePI}:`, err);
+        }
+      })
+    ),
+  ]);
 
   // Group forms by period
   const periodsMap = new Map<string, {
@@ -35,28 +78,89 @@ export default async function SalesCounterDashboardPage() {
     status: PoaStatus;
     version: number;
     owner: typeof actor;
-    _totalProd: number;
-    _totalEnt: number;
-    _grandTotal: number;
+    _totalEstSales: number;
+    _totalBudgetSc: number;
     _outletCount: number;
     updatedAt: Date;
   }>();
 
   for (const f of scForms) {
-    const totalProd = f.products.reduce((sum: number, p: any) => sum + (parseFloat(p.rencanaTotalBiaya.toString()) || 0), 0);
-    const totalEnt = f.entertainItems.reduce((sum: number, e: any) => sum + (parseFloat(e.biayaEntertain.toString()) || 0), 0);
-    const fEst = totalProd + totalEnt;
+    const days = f.hariKerjaBulan || 0;
+    const lama = f.lamaPeriode || 3;
+
+    const cbDetails = calculateCashbackDetails({
+      cashbackData,
+      selectedProducts: f.products.map((p) => ({
+        kodeProduk: p.kodeProduk,
+        pembeliHari: String(p.pembeliHari || 0),
+        qtyCustomerBaru: String(p.qtyCustomerBaru || 0),
+        persenCashback: String(p.persenCashback || 0),
+      })),
+      masterProducts: f.products.map((p) => {
+        const mp = masterProductMap.get(p.kodeProduk);
+        return {
+          kodeProduk: p.kodeProduk,
+          hna: String(mp ? Number(mp.hna.toString()) : 0),
+          konversiPembagi: String(mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1),
+        };
+      }),
+      hariKerjaBulan: days,
+      lamaPeriode: lama,
+    });
+
+    let fEstSales = 0;
+    let fBudgetSc = 0;
+
+    for (const p of f.products) {
+      if (!p.kodeProduk) continue;
+      const mp = masterProductMap.get(p.kodeProduk);
+      const cp = canvasserProductMap.get(`${f.kodePI}_${p.kodeProduk}`);
+      const hnaSJ = mp ? Number(mp.hna.toString()) : 0;
+      const konv = mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1;
+      const hnaST = hnaSJ / konv;
+
+      const pembeli = p.pembeliHari || 0;
+      const qty = p.qtyCustomerBaru || 0;
+
+      const estSalesPerMonth = pembeli * qty * days * hnaST;
+      const estSalesFull = estSalesPerMonth * lama;
+
+      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+      const scVal = cp?.sales_counter_value;
+      const scMin = cp?.sales_counter_minimum || 0;
+
+      let nilaiScPerMonth = 0;
+      if (scVal != null && scVal > 0) {
+        nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      } else {
+        const pctMatriks = Number(p.persenMatriksSc?.toString() || 0);
+        nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+      }
+      const nilaiScFull = nilaiScPerMonth * lama;
+
+      const diskonFull = estSalesFull * (Number(p.persenDiskon?.toString() || 0) / 100);
+      const cashbackFull = cashbackData
+        ? (cbDetails.resultMap.get(p.kodeProduk) ?? 0)
+        : estSalesFull * (Number(p.persenCashback?.toString() || 0) / 100);
+
+      fEstSales += estSalesFull;
+      fBudgetSc += nilaiScFull + diskonFull + cashbackFull;
+    }
+
+    const totalEnt = f.entertainItems.reduce(
+      (sum, e) => sum + Number(e.biayaEntertain?.toString() || 0),
+      0
+    );
+    fBudgetSc += totalEnt;
 
     const existing = periodsMap.get(f.period);
     if (existing) {
-      existing._totalProd += totalProd;
-      existing._totalEnt += totalEnt;
-      existing._grandTotal += fEst;
+      existing._totalEstSales += fEstSales;
+      existing._totalBudgetSc += fBudgetSc;
       existing._outletCount += 1;
       if (f.updatedAt > existing.updatedAt) {
         existing.updatedAt = f.updatedAt;
       }
-      // Keep lowest/most active status to show progress
       if (f.status === "DRAFT" || (f.status === "SUBMITTED_TO_ASM" && existing.status !== "DRAFT")) {
         existing.status = f.status;
       }
@@ -66,9 +170,8 @@ export default async function SalesCounterDashboardPage() {
         status: f.status,
         version: f.version,
         owner: f.owner,
-        _totalProd: totalProd,
-        _totalEnt: totalEnt,
-        _grandTotal: fEst,
+        _totalEstSales: fEstSales,
+        _totalBudgetSc: fBudgetSc,
         _outletCount: 1,
         updatedAt: f.updatedAt,
       });
@@ -122,7 +225,6 @@ export default async function SalesCounterDashboardPage() {
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Target</th>
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Estimasi</th>
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Ratio %</th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>% Budget</th>
                   <th className="pb-3" />
                 </tr>
               </thead>
@@ -130,6 +232,7 @@ export default async function SalesCounterDashboardPage() {
                 {recentPeriods.map((p) => {
                   const isDraft = p.status === "DRAFT";
                   const isRevisi = p.status === "REVISI";
+                  const ratioPct = p._totalEstSales > 0 ? (p._totalBudgetSc / p._totalEstSales) * 100 : 0;
                   return (
                     <tr key={p.period} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/20">
                       <td className="py-3">
@@ -144,13 +247,10 @@ export default async function SalesCounterDashboardPage() {
                         -
                       </td>
                       <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text)" }}>
-                        {p._grandTotal > 0 ? formatRp(p._grandTotal) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
+                        {p._totalEstSales > 0 ? formatRp(p._totalEstSales) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                       </td>
-                      <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>
-                        -
-                      </td>
-                      <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>
-                        -
+                      <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text)" }}>
+                        {ratioPct > 0 ? `${ratioPct.toFixed(2)}%` : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                       </td>
                       <td className="py-3 text-right">
                         <div className="flex items-center justify-end gap-3">

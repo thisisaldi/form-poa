@@ -1,6 +1,7 @@
 import type { PoaStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSalesCounterOutletsDirect, getScProducts } from "@/lib/masterData";
+import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 
 export async function getSalesCounterEditData(id: string, periodParam: string | undefined, sessionUserId: string) {
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: sessionUserId } });
@@ -29,17 +30,30 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
     poa.version = savedDrafts[0].version;
   }
 
-  const [rawOutlets, products] = await Promise.all([
+  const [rawOutlets, products, blastInSet] = await Promise.all([
     getSalesCounterOutletsDirect(sessionUserId),
     getScProducts(),
+    getBlastInOutletSet(),
   ]);
 
   const outlets = rawOutlets
     .filter((o) => o.kodePI != null)
-    .map((o) => ({ kodePI: o.kodePI as string, namaOutlet: o.namaOutlet, groupRS: o.groupRS ?? null }));
+    .map((o) => ({
+      kodePI: o.kodePI as string,
+      namaOutlet: o.namaOutlet,
+      groupRS: o.groupRS ?? null,
+      sector: (o as any).sector ?? (o as any).sektor ?? null,
+      subSektor: (o as any).subSektor ?? (o as any).subsektor ?? null,
+      is_sc: !!(o as any).is_sc,
+      isBlastIn: blastInSet.has(o.kodePI as string),
+    }));
+
+  const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!(o as any).is_sc]));
 
   const serializedDrafts = savedDrafts.map((draft: any) => ({
     ...draft,
+    is_sc: outletScMap.get(draft.kodePI) ?? false,
+    isBlastIn: blastInSet.has(draft.kodePI),
     products: draft.products.map((p: any) => ({
       ...p,
       persenMatriksSc: Number(p.persenMatriksSc.toString()),

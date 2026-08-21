@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { SalesCounterEditByIdEditor } from "@/components/sc/edit/SalesCounterEditByIdEditor";
 import { getSalesCounterFormById } from "./_services/getSalesCounterFormById";
 
@@ -18,11 +19,10 @@ export default async function EditSalesCounterByIdPage({
 
   const { id: period, scId } = await params;
 
-  const data = await getSalesCounterFormById(scId, session.userId);
+  const data = await getSalesCounterFormById(scId, session.userId, session.role);
   if (!data) notFound();
-  if (!data.userCanEdit) redirect(`/sc/${period}`);
 
-  const { form, products } = data;
+  const { form, products, userCanEdit } = data;
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -32,16 +32,18 @@ export default async function EditSalesCounterByIdPage({
           className="text-xs mb-1 inline-flex items-center gap-1"
           style={{ color: "var(--color-text-faint)" }}
         >
-          ← Kembali ke Draft
+          ← Kembali ke Detail
         </Link>
         <div className="flex items-start justify-between">
           <div>
-            <h1>Edit Rencana POA Sales Counter</h1>
+            <h1>{userCanEdit ? "Edit Rencana POA Sales Counter" : "Detail Rencana POA Sales Counter"}</h1>
             <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
               Periode {form.period} · {form.owner.name}
             </p>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-faint)" }}>
-              Outlet: <strong>{form.namaOutlet || form.kodePI}</strong>
+            <p className="mt-0.5 text-xs flex items-center gap-1.5 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
+              <span>Outlet: <strong>{form.kodePI ? `${form.kodePI} · ` : ""}{form.namaOutlet || form.kodePI}</strong></span>
+              {form.is_sc && <InsScBadge />}
+              {form.isBlastIn && <BlastInBadge />}
               {form.persons.length > 0 && (
                 <> · SC: {form.persons.map((p: { personName: string }) => p.personName).join(", ")}</>
               )}
@@ -57,6 +59,8 @@ export default async function EditSalesCounterByIdPage({
           poaPeriod={form.period}
           kodePI={form.kodePI}
           namaOutlet={form.namaOutlet}
+          is_sc={form.is_sc}
+          isBlastIn={form.isBlastIn}
           persons={form.persons}
           initialProducts={form.products}
           initialEntertainItems={form.entertainItems}
@@ -66,6 +70,7 @@ export default async function EditSalesCounterByIdPage({
           initialRencanaVisitMinggu={form.rencanaVisitMinggu}
           initialSurveyPasienHarian={form.surveyPasienHarian}
           masterProducts={products}
+          readOnly={!userCanEdit}
         />
       </Card>
     </div>

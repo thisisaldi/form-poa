@@ -544,3 +544,84 @@ export async function deleteSalesCounterPeriodAction(period: string): Promise<{ 
     return { ok: false, error: error?.message || "Gagal menghapus data." };
   }
 }
+
+export async function updateSalesCounterPeriodAction(
+  currentPeriod: string,
+  newPeriod: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await getCurrentUser();
+  if (!session) redirect("/login");
+  if (await isWriteBlocked(session.role)) return { ok: false, error: WRITE_BLOCKED_MESSAGE };
+
+  const period = newPeriod.trim();
+  if (!/^\d{4}-Q[1-4]$/.test(period)) return { ok: false, error: "Format periode tidak valid." };
+  if (period === currentPeriod) return { ok: true };
+
+  const drafts = await prisma.poaScForm.findMany({
+    where: { ownerId: session.userId, period: currentPeriod },
+    include: { entertainItems: true },
+  });
+
+  if (drafts.length === 0) return { ok: false, error: "POA Sales Counter tidak ditemukan." };
+
+  const nonEditable = drafts.some((d: any) => d.status !== PoaStatus.DRAFT && d.status !== PoaStatus.REVISI);
+  if (nonEditable) {
+    return { ok: false, error: "Periode hanya bisa diubah selama status Draft/Revisi." };
+  }
+
+  const existingInNewPeriod = await prisma.poaScForm.findFirst({
+    where: { ownerId: session.userId, period },
+  });
+  if (existingInNewPeriod) {
+    return { ok: false, error: `Draft ${period} untuk Sales Counter sudah ada.` };
+  }
+
+  const mNew = period.match(/^(\d{4})-Q([1-4])$/);
+  if (!mNew) return { ok: false, error: "Format periode baru tidak valid." };
+  const newYear = parseInt(mNew[1], 10);
+  const newQ = parseInt(mNew[2], 10);
+  const newStartMonthNum = (newQ - 1) * 3 + 1;
+  const newPeriodeAwal = `${newYear}${String(newStartMonthNum).padStart(2, "0")}`;
+
+  const mOld = currentPeriod.match(/^(\d{4})-Q([1-4])$/);
+  const oldYear = mOld ? parseInt(mOld[1], 10) : newYear;
+  const oldQ = mOld ? parseInt(mOld[2], 10) : 1;
+  const oldStartMonthNum = (oldQ - 1) * 3 + 1;
+
+  const monthShift = (newYear - oldYear) * 12 + (newStartMonthNum - oldStartMonthNum);
+
+  try {
+    await prisma.$transaction(async (tx: any) => {
+      for (const draft of drafts) {
+        await tx.poaScForm.update({
+          where: { id: draft.id },
+          data: {
+            period,
+            periodeAwal: newPeriodeAwal,
+          },
+        });
+
+        for (const ent of draft.entertainItems) {
+          const yyyy = parseInt(ent.periodeMonth.slice(0, 4), 10);
+          const mm = parseInt(ent.periodeMonth.slice(4), 10);
+          const totalMonths = yyyy * 12 + (mm - 1) + monthShift;
+          const shiftedYyyy = Math.floor(totalMonths / 12);
+          const shiftedMm = (totalMonths % 12) + 1;
+          const newPeriodeMonth = `${shiftedYyyy}${String(shiftedMm).padStart(2, "0")}`;
+
+          await tx.poaScEntertainItem.update({
+            where: { id: ent.id },
+            data: { periodeMonth: newPeriodeMonth },
+          });
+        }
+      }
+    });
+
+    revalidatePath(`/sc/${currentPeriod}`);
+    revalidatePath(`/sc/${period}`);
+    return { ok: true };
+  } catch (error: any) {
+    console.error("Failed to update Sales Counter period:", error);
+    return { ok: false, error: error?.message || "Gagal memperbarui periode Sales Counter." };
+  }
+}

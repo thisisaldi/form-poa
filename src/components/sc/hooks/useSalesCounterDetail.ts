@@ -1,8 +1,8 @@
-"use client";
-
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useEffect, useTransition } from "react";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ScDraftFormItem } from "../types";
+import { getScCashbackPoaAction } from "@/app/actions/canvasser";
+import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
 
 export function useSalesCounterDetail({
   scDrafts = [],
@@ -14,6 +14,11 @@ export function useSalesCounterDetail({
   showSubmit?: boolean;
 }) {
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
+  const [cashbackData, setCashbackData] = useState<any>(null);
+
+  useEffect(() => {
+    getScCashbackPoaAction().then((res) => setCashbackData(res));
+  }, []);
 
   const allIds = useMemo(() => safeScDrafts.map((d) => d.id), [safeScDrafts]);
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allIds));
@@ -80,6 +85,23 @@ export function useSalesCounterDetail({
         }
       }
 
+      const cbDetails = calculateCashbackDetails({
+        cashbackData,
+        selectedProducts: draft.products.map((p) => ({
+          kodeProduk: p.kodeProduk,
+          pembeliHari: String(p.pembeliHari || 0),
+          qtyCustomerBaru: String(p.qtyCustomerBaru || 0),
+          persenCashback: String(p.persenCashback || 0),
+        })),
+        masterProducts: draft.products.map((p) => ({
+          kodeProduk: p.kodeProduk,
+          hna: String(p.hnaSJ || 0),
+          konversiPembagi: String(p.konversiPembagi || 1),
+        })),
+        hariKerjaBulan: draft.hariKerjaBulan,
+        lamaPeriode: draft.lamaPeriode,
+      });
+
       for (const p of draft.persons) {
         distinctPersons.add(p.nik_ktp);
       }
@@ -100,11 +122,22 @@ export function useSalesCounterDetail({
         const estSalesFull = estSalesPerMonth * lama;
 
         const pctMatriks = p.persenMatriksSc || 0;
-        const nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+        const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+        const scVal = p.salesCounterValue;
+        const scMin = p.salesCounterMinimum || 0;
+
+        let nilaiScPerMonth = 0;
+        if (scVal != null && scVal > 0) {
+          nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+        } else {
+          nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+        }
         const nilaiScFull = nilaiScPerMonth * lama;
 
         const diskonFull = estSalesFull * ((p.persenDiskon || 0) / 100);
-        const cashbackFull = estSalesFull * ((p.persenCashback || 0) / 100);
+        const cashbackFull = cashbackData
+          ? (cbDetails.resultMap.get(p.kodeProduk) ?? 0)
+          : estSalesFull * ((p.persenCashback || 0) / 100);
 
         totalEstimasiSales += estSalesFull;
         totalNilaiSc += nilaiScFull;
@@ -151,7 +184,7 @@ export function useSalesCounterDetail({
       personCount: distinctPersons.size,
       totalProductEntries,
     };
-  }, [selectedDrafts, quarterMonths]);
+  }, [selectedDrafts, quarterMonths, cashbackData]);
 
   const [isSubmitting, startSubmit] = useTransition();
   const [submitNotes, setSubmitNotes] = useState("");

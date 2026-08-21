@@ -4,6 +4,9 @@ import { getSubordinateMRNips } from "@/lib/authz";
 import { getMrSalesSummary } from "@/lib/salesSummary";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ScDraftFormItem } from "@/components/sc/types";
+import { getSalesCounterProduct } from "./getSalesCounterProduct";
+import { getBlastInOutletSet } from "@/lib/outletBlastIn";
+import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 
 interface MasterProductItem {
   kodeProduk: string;
@@ -102,6 +105,33 @@ export async function getSalesCounterDetailData(
     masterProducts.map((p: MasterProductItem) => [p.kodeProduk, p])
   );
 
+  const outletCodes = Array.from(new Set(drafts.map((d: any) => d.kodePI).filter(Boolean))) as string[];
+  const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
+
+  const [blastInSet, rawOutlets] = await Promise.all([
+    getBlastInOutletSet(),
+    getSalesCounterOutletsDirect(actor.nip),
+    Promise.all(
+      outletCodes.map(async (kodePI: string) => {
+        try {
+          const res = await getSalesCounterProduct(kodePI);
+          if (res?.data) {
+            for (const cp of res.data) {
+              canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
+                sales_counter_value: cp.sales_counter_value || 0,
+                sales_counter_minimum: cp.sales_counter_minimum || 0,
+              });
+            }
+          }
+        } catch (err) {
+          console.error(`Error fetching SC products for ${kodePI}:`, err);
+        }
+      })
+    ),
+  ]);
+
+  const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));
+
   // Build clean SC Draft Form items
   const scDrafts: ScDraftFormItem[] = drafts.map((d: any) => ({
     id: d.id,
@@ -116,6 +146,8 @@ export async function getSalesCounterDetailData(
     rencanaVisitMinggu: d.rencanaVisitMinggu,
     surveyPasienHarian: d.surveyPasienHarian,
     ownerId: d.ownerId,
+    is_sc: outletScMap.get(d.kodePI) ?? false,
+    isBlastIn: blastInSet.has(d.kodePI),
     persons: d.persons.map((p: any) => ({
       id: p.id,
       nik_ktp: p.nik_ktp,
@@ -124,6 +156,7 @@ export async function getSalesCounterDetailData(
     })),
     products: d.products.map((p: any) => {
       const mp = masterProductMap.get(p.kodeProduk);
+      const cp = canvasserProductMap.get(`${d.kodePI}_${p.kodeProduk}`);
       return {
         id: p.id,
         kodeProduk: p.kodeProduk,
@@ -139,6 +172,8 @@ export async function getSalesCounterDetailData(
         konversiPembagi: mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1,
         satuanTerkecil: mp?.satuanTerkecil || "ST",
         satuanSJ: mp?.satuan || "SJ",
+        salesCounterValue: cp?.sales_counter_value || 0,
+        salesCounterMinimum: cp?.sales_counter_minimum || 0,
       };
     }),
     entertainItems: d.entertainItems.map((e: any) => ({

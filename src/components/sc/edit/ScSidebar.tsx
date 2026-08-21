@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 function formatRp(val: number) {
   return "Rp " + Math.round(val).toLocaleString("id-ID");
@@ -95,13 +95,77 @@ export function ScSidebar({
   productsMenang = [],
   productsInsentif = [],
   insentifHistory,
+  selectedProductCodes = new Set<string>(),
+  onSelectProduct,
 }: {
   doctorName?: string;
   productsMenang?: any[];
   productsInsentif?: any[];
   insentifHistory?: any;
+  selectedProductCodes?: Set<string>;
+  onSelectProduct?: (code: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<SidebarTab | null>(null);
+
+  const recommendationList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        code: string;
+        name: string;
+        insentifValue?: number;
+        avgInsentif?: number;
+        avgSellout?: number;
+        totalSellout?: number;
+        activePeriods?: number[];
+        pct?: string;
+        period?: string;
+      }
+    >();
+
+    const processItem = (item: any) => {
+      if (!item) return;
+      const code = typeof item === "string"
+        ? item
+        : String(item.pro_code || item.kode_item || item.kodeProduk || item.code || "").trim();
+      const name = typeof item === "string"
+        ? item
+        : (item.pro_name || item.namaProduk || item.nama_produk || item.name || code);
+      const insentif = typeof item === "object"
+        ? (item.total_insentif ?? item.insentif ?? item.sales_counter_value)
+        : undefined;
+      const avgInsentif = typeof item === "object" ? item.average_insentif : undefined;
+      const avgSellout = typeof item === "object" ? item.average_sellout : undefined;
+      const totalSellout = typeof item === "object" ? item.total_sellout : undefined;
+      const activePeriods = typeof item === "object" ? item.active_periods : undefined;
+      const pct = typeof item === "object" ? (item.pct || item.pelunasan) : undefined;
+      const period = typeof item === "object" ? (item.period || item.periode) : undefined;
+
+      const key = code || name;
+      if (key && !map.has(key)) {
+        map.set(key, {
+          code,
+          name,
+          insentifValue: insentif != null ? Number(insentif) : undefined,
+          avgInsentif: avgInsentif != null ? Number(avgInsentif) : undefined,
+          avgSellout: avgSellout != null ? Number(avgSellout) : undefined,
+          totalSellout: totalSellout != null ? Number(totalSellout) : undefined,
+          activePeriods: Array.isArray(activePeriods) ? activePeriods : undefined,
+          pct,
+          period,
+        });
+      }
+    };
+
+    for (const item of productsMenang) {
+      processItem(item);
+    }
+    for (const item of productsInsentif) {
+      processItem(item);
+    }
+
+    return Array.from(map.values());
+  }, [productsMenang, productsInsentif]);
 
   if (activeTab === null) {
     return (
@@ -205,98 +269,174 @@ export function ScSidebar({
             </div>
           </div>
         ) : activeTab === "rekomendasi" ? (
-          <div className="space-y-4 animate-fade-in">
-            {/* Pernah SC & Menang */}
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>
-                Pernah SC &amp; Menang
+          <div className="space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                PERNAH SC ({recommendationList.length})
               </p>
-              <div className="rounded-lg border p-3 text-xs space-y-2" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                {productsMenang.length > 0 ? (
-                  productsMenang.map((p, i) => {
-                    const label = typeof p === "string" ? p : (p.namaProduk || p.pro_name || p.nama_produk || p.name || p.kodeProduk || "Produk");
-                    return (
-                      <div key={i} className="flex justify-between font-medium">
-                        <span>{label}</span>
-                        <span style={{ color: "var(--color-success, #16a34a)" }}>★ Menang</span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-[11px] text-center" style={{ color: "var(--color-text-faint)" }}>
-                    Tidak ada produk pernah SC &amp; menang.
-                  </p>
-                )}
-              </div>
             </div>
+            {recommendationList.length > 0 ? (
+              <div className="space-y-1.5">
+                {recommendationList.map((item, i) => {
+                  const targetCode = item.code || item.name;
+                  const isSelected = (item.code && selectedProductCodes.has(item.code)) || (item.name && selectedProductCodes.has(item.name));
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => targetCode && onSelectProduct?.(targetCode)}
+                      className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                        onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                      }`}
+                      style={{
+                        background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                        borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-1.5">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                            {item.name}
+                          </span>
 
-
-
-            {/* Ada Sales & Insentif SC */}
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>
-                Ada Sales &amp; Insentif SC
-              </p>
-              <div className="rounded-lg border p-3 text-xs space-y-2" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                {productsInsentif.length > 0 ? (
-                  productsInsentif.map((p, i) => {
-                    const label = typeof p === "string" ? p : (p.namaProduk || p.pro_name || p.nama_produk || p.name || p.kodeProduk || "Produk");
-                    return (
-                      <div key={i} className="flex justify-between font-medium">
-                        <span>{label}</span>
-                        <span style={{ color: "var(--color-text-muted)" }}>Insentif</span>
+                        </div>
+                        {isSelected && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                            style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
+                          >
+                            ✓ Terpilih
+                          </span>
+                        )}
                       </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-[11px] text-center" style={{ color: "var(--color-text-faint)" }}>
-                    Tidak ada produk sales &amp; insentif.
-                  </p>
-                )}
+
+                      <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
+                        {item.avgSellout != null && (
+                          <span
+                            className="font-medium px-1.5 py-0.5 rounded"
+                            style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
+                          >
+                            Avg Sellout: {item.avgSellout}
+                          </span>
+                        )}
+                        {item.avgInsentif != null && (
+                          <span
+                            className="font-medium px-1.5 py-0.5 rounded"
+                            style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
+                          >
+                            Avg Insentif: {formatRp(item.avgInsentif)}
+                          </span>
+                        )}
+                        {item.insentifValue != null && item.avgInsentif == null && (
+                          <span
+                            className="font-medium px-1.5 py-0.5 rounded"
+                            style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
+                          >
+                            Insentif: {formatRp(item.insentifValue)}
+                          </span>
+                        )}
+                        {item.activePeriods && item.activePeriods.length > 0 && (
+                          <span className="text-[9px]" style={{ color: "var(--color-text-faint)" }}>
+                            Periode: {item.activePeriods.join(", ")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4 animate-fade-in">
-            <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              Histori Sales Counter (SC)
-            </p>
-            {insentifHistory && Object.keys(insentifHistory.data || {}).length > 0 ? (
-              Object.entries(insentifHistory.data || {}).map(([monthKey, items]: [string, any]) => (
-                <div key={monthKey} className="space-y-2">
-                  <div className="text-[11px] font-semibold" style={{ color: "var(--color-text)" }}>
-                    {formatMonthKey(monthKey)}
-                  </div>
-                  <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-                    <table className="w-full text-[11px] text-left" style={{ borderCollapse: "collapse" }}>
-                      <thead>
-                        <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                          <th className="px-2 py-1.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Produk</th>
-                          <th className="px-2 py-1.5 font-medium text-right" style={{ color: "var(--color-text-muted)" }}>Total Insentif</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.map((item: any, idx: number) => (
-                          <tr key={idx} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                            <td className="px-2 py-2" style={{ color: "var(--color-text)" }}>
-                              <div className="font-medium">{item.pro_name}</div>
-                              <div className="text-[9px]" style={{ color: "var(--color-text-faint)" }}>{item.pro_code}</div>
-                            </td>
-                            <td className="px-2 py-2 text-right font-semibold" style={{ color: "var(--color-success, #16a34a)" }}>
-                              {formatRp(item.total_insentif)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))
             ) : (
               <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
-                Tidak ada data histori insentif untuk outlet ini.
+                Tidak ada produk rekomendasi untuk outlet ini.
               </div>
             )}
+          </div>
+        ) : (
+          <div className="space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Histori Sales Counter (SC)
+              </p>
+            </div>
+
+            {(() => {
+              const historyMap = insentifHistory?.data
+                ? insentifHistory.data
+                : (insentifHistory && typeof insentifHistory === "object" ? insentifHistory : null);
+              const entries = historyMap ? Object.entries(historyMap) : [];
+
+              if (entries.length === 0) {
+                return (
+                  <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                    Tidak ada data histori insentif untuk outlet ini.
+                  </div>
+                );
+              }
+
+              return entries.map(([monthKey, items]: [string, any]) => {
+                const itemList = Array.isArray(items) ? items : [];
+                const monthLabel = formatMonthKey(monthKey);
+                const totalTarget = itemList.reduce((sum: number, it: any) => sum + (parseFloat(it.target_sell_in_value ?? it.target ?? it.target_sales ?? 0) || 0), 0);
+                const totalActual = itemList.reduce((sum: number, it: any) => sum + (parseFloat(it.realisasi_sell_in_value ?? it.actual ?? it.actual_sales ?? 0) || 0), 0);
+                const totalInsentif = itemList.reduce((sum: number, it: any) => sum + (parseFloat(it.total_insentif ?? it.insentif ?? 0) || 0), 0);
+
+                return (
+                  <div key={monthKey} className="rounded-lg border space-y-2 p-2.5" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
+                    <div className="flex items-center justify-between border-b pb-1.5" style={{ borderColor: "var(--color-border)" }}>
+                      <span className="text-[11px] font-bold" style={{ color: "var(--color-text)" }}>
+                        {monthLabel}
+                      </span>
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}>
+                        SC Active
+                      </span>
+                    </div>
+
+                    {/* Metric Summary Header Card: Target / Realisasi / Insentif */}
+                    <div className="grid grid-cols-3 gap-1 rounded-md p-1.5 text-center" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+                      <div>
+                        <div className="text-[8px] uppercase font-semibold" style={{ color: "var(--color-text-faint)" }}>Target</div>
+                        <div className="text-[10px] font-bold" style={{ color: "var(--color-text)" }}>
+                          {totalTarget > 0 ? formatRp(totalTarget) : "-"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[8px] uppercase font-semibold" style={{ color: "var(--color-text-faint)" }}>Realisasi</div>
+                        <div className="text-[10px] font-bold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                          {totalActual > 0 ? formatRp(totalActual) : "-"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[8px] uppercase font-semibold" style={{ color: "var(--color-text-faint)" }}>Insentif</div>
+                        <div className="text-[10px] font-bold" style={{ color: "var(--color-success, #16a34a)" }}>
+                          {totalInsentif > 0 ? formatRp(totalInsentif) : "-"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* History Product Items List */}
+                    <div className="space-y-1 pt-0.5">
+                      {itemList.map((item: any, idx: number) => {
+                        const targetVal = parseFloat(item.target_sell_in_value ?? item.target ?? 0) || 0;
+                        const realisasiVal = parseFloat(item.realisasi_sell_in_value ?? item.actual ?? 0) || 0;
+                        const insentifVal = parseFloat(item.total_insentif ?? item.insentif ?? 0) || 0;
+                        return (
+                          <div key={idx} className="p-1.5 rounded border text-[10px] leading-tight space-y-0.5" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+                            <div className="flex justify-between font-medium items-baseline gap-1">
+                              <span className="truncate" style={{ color: "var(--color-text)" }}>{item.pro_name || item.namaProduk}</span>
+                              <span className="shrink-0 font-semibold" style={{ color: "var(--color-success, #16a34a)" }}>{formatRp(insentifVal)}</span>
+                            </div>
+                            {targetVal > 0 || realisasiVal > 0 ? (
+                              <div className="text-[9px]" style={{ color: "var(--color-text-faint)" }}>
+                                Target: {formatRp(targetVal)} | Realisasi: {formatRp(realisasiVal)}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         )}
       </div>

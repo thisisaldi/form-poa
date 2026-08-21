@@ -58,7 +58,7 @@ export default async function SalesCounterDetailPage({
           <h1>Detail POA Sales Counter</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
             {userCanEdit && (isDraft || isRevisi)
-              ? <EditQuarterControl poaId={poa.id} period={poa.period} />
+              ? <EditQuarterControl poaId={poa.id} period={poa.period} isSc={true} />
               : `Periode ${poa.period}`}
             {" "}· {poa.owner.name} ({poa.owner.nip})
             {poa.currentHolder && (
@@ -68,7 +68,7 @@ export default async function SalesCounterDetailPage({
             )}
           </p>
           <p className="mt-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
-            Note: Satuan nilai uang di halaman ini dalam Juta (dibagi 1.000.000)
+            Note: Nilai uang di halaman ini ditampilkan dalam format ringkas dengan suffix Jt (Juta) atau Rb (Ribu).
           </p>
         </div>
         <StatusBadge status={poa.status} version={poa.version} />

@@ -26,6 +26,8 @@ export interface ScProductItemData {
   konversiPembagi?: number;
   satuanTerkecil?: string;
   satuanSJ?: string;
+  salesCounterValue?: number;
+  salesCounterMinimum?: number;
 }
 
 export interface ScPersonItemData {
@@ -54,6 +56,8 @@ export interface ScDraftFormItem {
   rencanaVisitMinggu: number;
   surveyPasienHarian: number;
   ownerId: string;
+  is_sc?: boolean;
+  isBlastIn?: boolean;
   products: ScProductItemData[];
   persons: ScPersonItemData[];
   entertainItems: ScEntertainItemData[];

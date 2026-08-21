@@ -100,6 +100,8 @@ export interface MockCustomer {
   kodePI: string | null;
   namaOutlet: string;
   groupRS?: string | null;
+  is_sc?: boolean;
+  isBlastIn?: boolean;
 }
 
 export interface MockProduct {

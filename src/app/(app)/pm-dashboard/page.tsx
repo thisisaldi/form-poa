@@ -235,7 +235,7 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
           </div>
         )}
         <p className="mt-3 text-xs" style={{ color: "var(--color-text-faint)" }}>
-          * Target belum tersedia - akan diisi setelah data target area tersedia.
+          * Target belum tersedia - akan diisi setelah data target tersedia.
         </p>
       </Card>
     </div>

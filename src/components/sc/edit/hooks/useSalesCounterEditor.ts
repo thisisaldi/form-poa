@@ -11,9 +11,32 @@ import {
   getScProductWithInsentifAction,
   getScInsentifHistoryAction,
   getPrincodeProductsAction,
+  getScCashbackPoaAction,
 } from "@/app/actions/canvasser";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction } from "@/app/actions/scActions";
+import { calculateCashbackDetails, type CashbackData } from "./useSalesCounterCashback";
+
+function formatCashbackPct(rawVal: number | string | undefined | null): string {
+  if (rawVal == null) return "0";
+  const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+  if (isNaN(num)) return "0";
+  const pct = num > 0 && num <= 1 ? num * 100 : num;
+  return String(Number(pct.toFixed(2)));
+}
+
+function findCashbackItem(matrix: any[], targetCode: string) {
+  if (!targetCode || !Array.isArray(matrix)) return null;
+  const cleanTarget = String(targetCode).trim();
+  const strippedTarget = cleanTarget.replace(/^0+/, "");
+
+  return matrix.find((m: any) => {
+    const codeStr = String(m.code || m.pro_code || "").trim();
+    if (codeStr === cleanTarget) return true;
+    if (codeStr.replace(/^0+/, "") === strippedTarget) return true;
+    return false;
+  });
+}
 
 export interface SelectedProductRow {
   kodeProduk: string;
@@ -78,6 +101,38 @@ export function useSalesCounterEditor({
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
+  const [cashbackData, setCashbackData] = useState<CashbackData | null>(null);
+  const [cashbackMatrix, setCashbackMatrix] = useState<any[]>([]);
+
+  useEffect(() => {
+    getScCashbackPoaAction().then((res) => {
+      setCashbackData(res || null);
+      const array = Array.isArray(res?.matrix)
+        ? res.matrix
+        : Array.isArray(res?.data?.matrix)
+        ? res.data.matrix
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res)
+        ? res
+        : [];
+      setCashbackMatrix(array);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (cashbackMatrix.length === 0) return;
+    setProducts((prev) =>
+      prev.map((row) => {
+        if (!row.kodeProduk) return row;
+        const matrixItem = findCashbackItem(cashbackMatrix, row.kodeProduk);
+        if (!matrixItem) return row;
+        const getVal = (m: any) => m?.cashback_percentage ?? m?.cashback_percent ?? m?.cashback ?? m?.persenCashback ?? m?.persen_cashback;
+        const autoPct = formatCashbackPct(getVal(matrixItem));
+        return row.persenCashback === autoPct ? row : { ...row, persenCashback: autoPct };
+      })
+    );
+  }, [cashbackMatrix]);
 
   const [products, setProducts] = useState<SelectedProductRow[]>([
     {
@@ -324,13 +379,26 @@ export function useSalesCounterEditor({
     setProducts((prev) => prev.filter((_, i) => i !== index));
   };
 
+  useEffect(() => {
+    if (cashbackMatrix.length === 0) return;
+    setProducts((prev) =>
+      prev.map((row) => {
+        if (!row.kodeProduk) return row;
+        const matrixItem = findCashbackItem(cashbackMatrix, row.kodeProduk);
+        if (!matrixItem) return row;
+        const autoPct = formatCashbackPct(matrixItem.cashback_percentage);
+        return row.persenCashback === autoPct ? row : { ...row, persenCashback: autoPct };
+      })
+    );
+  }, [cashbackMatrix]);
+
   const updateProductRow = (index: number, fields: Partial<SelectedProductRow>) => {
     setProducts((prev) =>
       prev.map((row, i) => {
         if (i !== index) return row;
         const updated = { ...row, ...fields };
 
-        // Auto-calculate % Matriks SC if product is selected
+        // Auto-calculate % Matriks SC and % Cashback if product is selected
         if (fields.kodeProduk !== undefined) {
           const canvasserProd = canvasserProducts.find((p) => p.pro_code === fields.kodeProduk);
           const masterProd = masterProducts.find((p) => p.kodeProduk === fields.kodeProduk);
@@ -340,12 +408,72 @@ export function useSalesCounterEditor({
             const pct = hna > 0 ? (val / hna) * 100 : 0;
             updated.persenMatriksSc = pct > 0 ? pct.toFixed(2) : "0";
           }
+          const matrixItem = findCashbackItem(cashbackMatrix, fields.kodeProduk);
+          if (matrixItem) {
+            updated.persenCashback = formatCashbackPct(matrixItem.cashback_percentage);
+          } else if (fields.kodeProduk === "") {
+            updated.persenCashback = "0";
+          }
         }
 
         updated.rencanaTotalBiaya = calculateRowCost(updated, lamaPeriode);
         return updated;
       })
     );
+  };
+
+  const selectProductFromSidebar = (code: string) => {
+    if (!code) return;
+    setProducts((prev) => {
+      const alreadyExists = prev.some((p) => p.kodeProduk === code);
+      if (alreadyExists) return prev;
+
+      const emptyIdx = prev.findIndex((p) => !p.kodeProduk);
+      let targetIndex = emptyIdx;
+      const nextList = [...prev];
+
+      if (emptyIdx < 0) {
+        targetIndex = nextList.length;
+        nextList.push({
+          kodeProduk: "",
+          produkKompetitor: "",
+          pembeliHari: "",
+          qtyCustomerBaru: "",
+          persenMatriksSc: "",
+          persenDiskon: "",
+          persenCashback: "",
+          rencanaTotalBiaya: 0,
+        });
+      }
+
+      const canvasserProd = canvasserProducts.find((p) => p.pro_code === code);
+      const masterProd = masterProducts.find((p) => p.kodeProduk === code);
+
+      let pctMatriksSc = nextList[targetIndex].persenMatriksSc;
+      if (canvasserProd && masterProd) {
+        const hna = parseFloat(masterProd.hna) || 0;
+        const val = canvasserProd.sales_counter_value || 0;
+        const pct = hna > 0 ? (val / hna) * 100 : 0;
+        pctMatriksSc = pct > 0 ? pct.toFixed(2) : "0";
+      }
+
+      let pctCashback = nextList[targetIndex].persenCashback;
+      const matrixItem = findCashbackItem(cashbackMatrix, code);
+      if (matrixItem) {
+        pctCashback = formatCashbackPct(matrixItem.cashback_percentage);
+      }
+
+      const updatedRow = {
+        ...nextList[targetIndex],
+        kodeProduk: code,
+        persenMatriksSc: pctMatriksSc,
+        persenCashback: pctCashback,
+      };
+      updatedRow.rencanaTotalBiaya = calculateRowCost(updatedRow, lamaPeriode);
+
+      nextList[targetIndex] = updatedRow;
+      return nextList;
+    });
   };
 
   const updateEntertainValue = (month: string, val: string) => {
@@ -399,6 +527,14 @@ export function useSalesCounterEditor({
     router.push(redirectTo);
   };
 
+  const cashbackDetails = calculateCashbackDetails({
+    cashbackData,
+    selectedProducts: products,
+    masterProducts,
+    hariKerjaBulan: parseFloat(hariKerjaBulan) || 0,
+    lamaPeriode,
+  });
+
   return {
     outletId,
     setOutletId,
@@ -427,6 +563,7 @@ export function useSalesCounterEditor({
     addProductRow,
     removeProductRow,
     updateProductRow,
+    selectProductFromSidebar,
     canvasserProducts,
     princodeProducts,
     personsList,
@@ -434,6 +571,8 @@ export function useSalesCounterEditor({
     productsMenang,
     productsInsentif,
     insentifHistory,
+    cashbackData,
+    cashbackDetails,
     errors,
     isPending,
     handleSubmit,

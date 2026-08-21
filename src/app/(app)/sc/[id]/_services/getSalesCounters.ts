@@ -16,7 +16,16 @@ export async function getSalesCountersByOutlet(piCode: string): Promise<SalesCou
       return null;
     }
 
-    return await res.json() as SalesCounterPersonApiResponse;
+    const data = (await res.json()) as SalesCounterPersonApiResponse;
+
+    if (data?.data && Array.isArray(data.data)) {
+      data.data = data.data.filter((sc) => {
+        const status = sc.status_sc?.toLowerCase();
+        return status === "pending" || status === "approved";
+      });
+    }
+
+    return data;
   } catch (error) {
     console.error(`Failed fetching sales counter from Canvasser API for outlet ${piCode}:`, error);
     return null;
