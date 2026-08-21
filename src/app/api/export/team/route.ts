@@ -1609,11 +1609,20 @@ export async function GET(req: NextRequest) {
   // Per Customer tab uses (see comment on `custIdentity`/getTerritoryKey in
   // src/app/(app)/summary/page.tsx).
 
-  // Shared by Sheet 9 (Spesialisasi column) and Sheet 10 (grouping) — Nexus-
-  // sourced as of 2026-08-13 ("customer full pakai Nexus"), one
+  // Shared by Sheet 9 (Spesialisasi column) and Sheet 10 (grouping/Aktif figures)
+  // — Nexus-sourced as of 2026-08-13 ("customer full pakai Nexus"), one
   // get_customer_by_outlet call per outlet touched by this team's line items
-  // + active PSSP (not a company-wide scan), replacing the old batched
-  // prisma.customer lookup by kodeCustomer.
+  // + active PSSP, replacing the old batched prisma.customer lookup by
+  // kodeCustomer. Chosen as a deliberate latency/reliability tradeoff over a
+  // local snapshot — but that decision assumed ASM/SM/NSM-sized scopes.
+  // Measured 2026-08-21 for ADMIN/company-wide scope: 749 outlets took ~96s
+  // (concurrency 10) — the dominant cost behind this route's reported 502/500
+  // for ADMIN. Above SPESIALISASI_NEXUS_OUTLET_CAP, skip the fetch entirely
+  // rather than let one column on 2 of 10 sheets take the whole export down —
+  // spesByCustCode stays empty, "Spesialisasi" cells fall back to "-" (Sheet
+  // 9) and Sheet 10's Aktif figures show 0 (its Rencana figures are unaffected,
+  // sourced from PoaLineItem.spesialisasi directly, not this Nexus lookup).
+  const SPESIALISASI_NEXUS_OUTLET_CAP = 100;
   const custCodesForSpes = [...new Set([
     ...lineItems.map((li) => li.kodeCust).filter((k): k is string => !!k),
     ...activePsspAll.map((r) => r.kdCust),
@@ -1622,7 +1631,7 @@ export async function GET(req: NextRequest) {
     ...lineItems.map((li) => li.kodePI).filter((k): k is string => !!k),
     ...activePsspAll.map((r) => r.kdOutlet).filter((k): k is string => !!k),
   ])];
-  const nexusSpesByKodeForExport = outletCodesForSpes.length > 0
+  const nexusSpesByKodeForExport = outletCodesForSpes.length > 0 && outletCodesForSpes.length <= SPESIALISASI_NEXUS_OUTLET_CAP
     ? await getNexusSpesialisasiByOutlets(outletCodesForSpes)
     : new Map<string, string>();
   const spesByCustCode = new Map(
