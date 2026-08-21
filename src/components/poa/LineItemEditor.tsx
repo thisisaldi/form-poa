@@ -262,6 +262,47 @@ function resolveDiskonPctWithHistory(
 }
 
 /**
+ * Same product-pick defaults as ProdukEntryRow's own Combobox onChange (%PSSP
+ * from Product.nilaiRPersen, Status Standarisasi from kriteria/PSSP history,
+ * %Diskon from DPL/history) — reused by the sidebar's "click a product to add
+ * it" flow (KriteriaProdukPanel, onSelectProduct) so a product added that way
+ * gets the same defaults as one picked through the row's own dropdown, not
+ * just a bare kodeProduk with everything else left blank (2026-08-21 request:
+ * "poa estimasi hospital juga ketika klik produk di bar kanan itu bisa auto
+ * fill juga kayak yang di non hospital [SC]"). Deliberately NOT reused inside
+ * ProdukEntryRow itself — that onChange also drives an async
+ * competitor/potensi-survey fetch this helper doesn't need to duplicate.
+ */
+function buildProdukAutofillPatch(
+  kodeProduk: string,
+  products: Product[],
+  kriteriaList: KriteriaByOutlet[] | undefined,
+  psspEverProductNames: Set<string> | undefined,
+  diskonList: DiskonByProduct[] | undefined,
+  diskonHistoryList: DiskonHistoryByProduct[] | undefined,
+  periodeAwal: string
+): Partial<ProdukEntry> {
+  const prod = products.find((p) => p.kodeProduk === kodeProduk);
+  const nr = prod?.nilaiRPersen ? parseFloat(prod.nilaiRPersen) : null;
+  const kriteria = kriteriaList?.find((k) => k.kodeProduk === kodeProduk)?.kriteriaBaru;
+  const everPssp = prod ? (psspEverProductNames?.has(prod.namaProduk.toLowerCase().trim()) ?? false) : false;
+  const statusStandarisasi = everPssp || kriteria?.startsWith("Produk Sudah Terstandarisasi")
+    ? "SUDAH_STANDARISASI"
+    : kriteria
+      ? "BELUM_STANDARISASI"
+      : "";
+  const realDiskonPct = resolveDiskonPctWithHistory(diskonList, diskonHistoryList, kodeProduk, periodeAwal);
+  return {
+    kodeProduk,
+    persenPsspDokter: nr != null ? (nr * 100).toFixed(2) : "",
+    statusStandarisasi,
+    persenDiskon: realDiskonPct != null ? realDiskonPct.toFixed(2) : "0",
+    persenListingFee: "0",
+    persenEntertain: "1",
+  };
+}
+
+/**
  * Display label for the DPL/DPF period backing the "% Diskon (DPL/DPF)"
  * field's current value (2026-07-28 request: surface the contract period,
  * not just the resolved %). Returns null when there's nothing on file for
@@ -1836,7 +1877,7 @@ function VisitHistoryHint({ kodeCustomer, kodePI }: { kodeCustomer?: string; kod
 // see formatKriteriaLabel) — always in that order. Sections aren't mutually
 // exclusive: a product matching more than one criterion appears in each.
 
-function KriteriaSectionList({ items }: {
+function KriteriaSectionList({ items, onSelectProduct }: {
   items: {
     key: string; label: string; added?: boolean; isKontes?: boolean;
     badge?: string; badgeColor?: keyof typeof TAG_COLORS;
@@ -1844,13 +1885,24 @@ function KriteriaSectionList({ items }: {
      * PSSP status together (merged from the old separate "Belum Diajukan"
      * panel, 2026-07-31), while every other section still only ever sets one. */
     badge2?: string; badge2Color?: keyof typeof TAG_COLORS;
-  }[]
+  }[];
+  /** Click-to-add (2026-08-21 request: same "click a product in the sidebar
+   * to auto-fill" UX as the Sales Counter picker's own recommendation
+   * sidebar, ScSidebar.tsx). `key` is always the product's kodeProduk here.
+   * Omitted entirely in read-only contexts. */
+  onSelectProduct?: (kodeProduk: string) => void;
 }) {
   return (
     <ul className="space-y-1">
       {items.map((it) => (
-        <li key={it.key} className="flex items-center justify-between gap-2 flex-wrap text-xs px-2 py-1.5 rounded"
-          style={{ background: "var(--color-bg-subtle)" }}>
+        <li key={it.key}
+          onClick={() => !it.added && onSelectProduct?.(it.key)}
+          className="flex items-center justify-between gap-2 flex-wrap text-xs px-2 py-1.5 rounded"
+          style={{
+            background: it.added ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+            cursor: onSelectProduct && !it.added ? "pointer" : undefined,
+          }}
+          title={onSelectProduct && !it.added ? "Klik untuk tambahkan ke rencana" : undefined}>
           <span className="flex items-center gap-1.5 min-w-0">
             {it.added && (
               <span title="Sudah ditambahkan ke POA ini" style={{ color: "var(--color-success, #16a34a)", fontWeight: 700, flexShrink: 0 }}>
@@ -1910,6 +1962,7 @@ function KriteriaProdukPanel({
   products,
   kriteriaList,
   psspHistory,
+  onSelectProduct,
 }: {
   kodeCustomer?: string;
   kodePI?: string;
@@ -1919,6 +1972,8 @@ function KriteriaProdukPanel({
   products?: Product[];
   kriteriaList?: KriteriaByOutlet[];
   psspHistory?: PsspKontrakSummary[];
+  /** Forwarded straight into every KriteriaSectionList — see its own doc. */
+  onSelectProduct?: (kodeProduk: string) => void;
 }) {
   // Same survey data as the standalone "Data Survey" tab (SurveyDataPanel) —
   // duplicated here on purpose (2026-07-27 request) as the "Produk Survey"
@@ -2065,7 +2120,7 @@ function KriteriaProdukPanel({
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: TAG_COLORS[s.color].fg, marginBottom: 6 }}>
             {s.title} <span style={{ color: "var(--color-text-faint)", fontWeight: 600 }}>({s.items.length})</span>
           </p>
-          <KriteriaSectionList items={s.items} />
+          <KriteriaSectionList items={s.items} onSelectProduct={onSelectProduct} />
         </div>
       ))}
     </div>
@@ -2206,6 +2261,7 @@ function PsspSidebar({
   products,
   kriteriaList,
   psspHistory,
+  onSelectProduct,
 }: {
   kodeCustomer: string;
   /** Currently-selected outlet — narrows the Histori PSSP panel to contracts at this outlet. */
@@ -2219,6 +2275,11 @@ function PsspSidebar({
   /** Forwarded into ProdukKontesPanel — same kriteria + PSSP badges as the product picker. */
   kriteriaList?: KriteriaByOutlet[];
   psspHistory?: PsspKontrakSummary[];
+  /** Forwarded into KriteriaProdukPanel's "Produk Rekomendasi" tab — click a
+   * product there to add it straight to the form, same UX as the Sales
+   * Counter picker's own sidebar (ScSidebar.tsx). Omitted (undefined) in
+   * read-only contexts. */
+  onSelectProduct?: (kodeProduk: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<SidebarTab | null>("pssp");
   const [label, setLabel] = useState("");
@@ -2287,7 +2348,7 @@ function PsspSidebar({
           // That section now covers every matched kontes product (not just the
           // missing ones) with a ✓ for already-added ones AND the kriteria +
           // Pernah PSSP badges the old "Belum Diajukan" panel used to show.
-          <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} />
+          <KriteriaProdukPanel kodeCustomer={kodeCustomer} kodePI={kodePI} spesialisasi={spesialisasi} produkList={produkList} products={products} kriteriaList={kriteriaList} psspHistory={psspHistory} onSelectProduct={onSelectProduct} />
         ) : (
           <>
             <PsspHistoryPanel kodeCustomer={kodeCustomer} kodePI={kodePI} doctorName={doctorName} onLabel={handleLabel} onHistory={onHistory} />
@@ -2695,6 +2756,22 @@ function AddPanel({
 
   function updateProduk(idx: number, patch: Partial<ProdukEntry>) {
     setProdukList((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+  }
+
+  // Click a product in the sidebar's "Produk Rekomendasi" tab to add it
+  // straight into the form — same defaults as picking it via the row's own
+  // dropdown (buildProdukAutofillPatch), same "fill the first empty row, else
+  // append one" placement as the Sales Counter sidebar's onSelectProduct
+  // (useSalesCounterEditor.ts). No-ops if the product is already in this
+  // doctor's produkList somewhere.
+  function selectProductFromSidebar(kodeProduk: string) {
+    if (!kodeProduk || produkList.some((e) => e.kodeProduk === kodeProduk)) return;
+    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal);
+    setProdukList((prev) => {
+      const emptyIdx = prev.findIndex((e) => !e.kodeProduk);
+      if (emptyIdx >= 0) return prev.map((e, i) => (i === emptyIdx ? { ...e, ...patch } : e));
+      return [...prev, { ...emptyProdukEntry(), ...patch }];
+    });
   }
 
   function clearDraft() {
@@ -3306,6 +3383,7 @@ function AddPanel({
           products={products}
           kriteriaList={kriteriaList}
           psspHistory={psspHistory ?? undefined}
+          onSelectProduct={selectProductFromSidebar}
         />
       )}
     </div>
@@ -3363,6 +3441,17 @@ function AddProductPanel({
 
   function updateProduk(idx: number, patch: Partial<ProdukEntry>) {
     setProdukList((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+  }
+
+  // Same sidebar "click a product to add it" flow as AddPanel above.
+  function selectProductFromSidebar(kodeProduk: string) {
+    if (!kodeProduk || produkList.some((e) => e.kodeProduk === kodeProduk)) return;
+    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal);
+    setProdukList((prev) => {
+      const emptyIdx = prev.findIndex((e) => !e.kodeProduk);
+      if (emptyIdx >= 0) return prev.map((e, i) => (i === emptyIdx ? { ...e, ...patch } : e));
+      return [...prev, { ...emptyProdukEntry(), ...patch }];
+    });
   }
 
   function buildFormData(entry: ProdukEntry): FormData {
@@ -3546,6 +3635,7 @@ function AddProductPanel({
           products={products}
           kriteriaList={kriteriaList}
           psspHistory={psspHistory ?? undefined}
+          onSelectProduct={selectProductFromSidebar}
         />
       )}
     </div>
@@ -3722,6 +3812,18 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
 
   function updateProduk(idx: number, patch: Partial<ProdukEntry>) {
     setProdukList((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+  }
+
+  // Same sidebar "click a product to add it" flow as AddPanel above — never
+  // wired up when readOnly (see the <PsspSidebar> call below).
+  function selectProductFromSidebar(kodeProduk: string) {
+    if (!kodeProduk || produkList.some((e) => e.kodeProduk === kodeProduk)) return;
+    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal);
+    setProdukList((prev) => {
+      const emptyIdx = prev.findIndex((e) => !e.kodeProduk);
+      if (emptyIdx >= 0) return prev.map((e, i) => (i === emptyIdx ? { ...e, ...patch } : e));
+      return [...prev, { ...emptyProdukEntry(), ...patch }];
+    });
   }
 
   function buildFormData(entry: EditableProdukEntry): FormData {
@@ -4167,6 +4269,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
           products={products}
           kriteriaList={kriteriaList}
           psspHistory={psspHistory ?? undefined}
+          onSelectProduct={readOnly ? undefined : selectProductFromSidebar}
         />
       )}
     </div>
