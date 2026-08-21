@@ -55,13 +55,16 @@ function auditActionLabel(action: string, snapshot: AuditSnapshot) {
 
 export default async function PoaDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string>>;
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
 
   const { id } = await params;
+  const { error: errorParam } = await searchParams;
   const [poa, actor] = await Promise.all([
     prisma.poaForm.findUnique({
       where: { id },
@@ -131,7 +134,7 @@ export default async function PoaDetailPage({
   const doctorRows = await Promise.all(
     [...doctorKeysInDraft.values()].map(async ({ kodePI, namaCust }) => {
       const approval = doctorApprovalByKey.get(`${kodePI}|${namaCust}`) ?? null;
-      const canApproveThis = approval ? canApproveDoctor(actor, approval) : false;
+      const canApproveThis = approval ? await canApproveDoctor(actor, approval) : false;
       const canFastTrackThis = approval ? await canFastTrackApproveDoctor(actor, poa, approval) : false;
       const canCancelThis = approval ? await canCancelApprovedDoctor(actor, poa, approval) : false;
 
@@ -467,6 +470,19 @@ export default async function PoaDetailPage({
 
   return (
     <div className="space-y-5">
+      {/* Server-action validation errors (reject/cancel/decline-edit reason
+          required, delete-last-item block, maintenance mode, etc.) redirect
+          here with ?error=... — previously silently dropped since this page
+          never read the param at all, so a failed action looked like nothing
+          happened (2026-08-21 fix, same class of bug as the ?notice=/?error=
+          toast LineItemEditor.tsx already reads on /poa/[id]/edit). */}
+      {errorParam && (
+        <div className="rounded-md px-4 py-3 text-sm"
+          style={{ background: "var(--color-red-light)", color: "var(--color-red)", border: "1px solid var(--color-red)" }}>
+          {errorParam}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">

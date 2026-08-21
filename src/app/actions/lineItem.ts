@@ -368,6 +368,32 @@ export async function deleteLineItemAction(poaId: string, lineItemId: string): P
   if (!item) redirect(`/poa/${poaId}`);
   await assertCanEditDoctor(poa, actor, item.kodePI, item.namaCust);
 
+  // Deleting a doctor's LAST remaining line item, while that doctor already
+  // has a PoaDoctorApproval row (any status — even REVISI), would orphan that
+  // row: it stays in the DB with its full approval history, but the checklist
+  // UI only ever lists doctors it finds in PoaLineItem (doctorKeysInDraft in
+  // poa/[id]/page.tsx), so the doctor silently vanishes from the page with no
+  // way back except re-adding the exact same kodePI+namaCust from scratch
+  // (2026-08-20 incident — SM rejected a doctor, MR deleted all its products
+  // meaning to redo them, and the doctor disappeared entirely). Block it here
+  // instead: a doctor with approval history must always keep at least one
+  // line item so it stays visible/actionable.
+  const [siblingCount, doctorApproval] = await Promise.all([
+    prisma.poaLineItem.count({ where: { poaId, kodePI: item.kodePI, namaCust: item.namaCust } }),
+    item.kodePI
+      ? prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI: item.kodePI, namaCust: item.namaCust } } })
+      : null,
+  ]);
+  if (siblingCount <= 1 && doctorApproval) {
+    // Target /poa/[id] (not /edit) — the only reachable caller today is
+    // DraftChecklist's "Hapus [dokter]" button, which lives there; that page
+    // now reads ?error= too (see PoaDetailPage), so the user sees this
+    // without getting bounced to a different page.
+    redirect(`/poa/${poaId}?error=` + encodeURIComponent(
+      `Tidak bisa menghapus produk terakhir ${item.namaCust} karena dokter ini sudah punya riwayat approval. Ganti produknya (edit), atau tambah produk lain dulu sebelum menghapus yang ini.`
+    ));
+  }
+
   // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
   await flagRevisionOnEditDoctor(poaId, item.kodePI ?? "", item.namaCust, actor.nip, { customer: item.namaCust, product: item.namaProduk, op: "delete" });
 

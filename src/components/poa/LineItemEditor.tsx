@@ -2430,8 +2430,15 @@ function AddPanel({
       // Retensi now its own solid/high-contrast badge (tag3) instead of a suffix
       // baked into tag2's text — it used to blend into the pelunasan pill and
       // was easy to miss (2026-07-27 request: separate it out, more contrast).
+      // Deliberately just "Pernah PSSP · X%" (dropped "Terakhir") — this is the
+      // doctor's own overall PSSP status (most recent contract, summed across
+      // ALL its products, see getPsspStatusByOutlet), not scoped to any one
+      // product, unlike the produk picker's own "Pernah PSSP" badge
+      // (buildProductOptions above). Keeping the wording plain here avoids
+      // implying a per-product figure at a point in the form where no product
+      // has been picked yet (2026-08-21 clarification request).
       const tag2 = psspStatus
-        ? (pct != null ? `Pernah PSSP · Pelunasan Terakhir ${Math.round(pct)}%` : "Pernah PSSP")
+        ? (pct != null ? `Pernah PSSP · ${Math.round(pct)}%` : "Pernah PSSP")
         : undefined;
       const tag2Color: "green" | "yellow" | "red" | undefined = pct == null ? undefined
         : pct >= 80 ? "green"

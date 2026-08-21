@@ -87,7 +87,7 @@ export async function approveDoctorAction(poaId: string, kodePI: string, namaCus
   if (!poa || !doctor) redirect(`/poa/${poaId}`);
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!canApproveDoctor(actor, doctor)) redirect(`/poa/${poaId}`);
+  if (!(await canApproveDoctor(actor, doctor))) redirect(`/poa/${poaId}`);
 
   await approveDoctor(poaId, kodePI, namaCust, session.userId);
   revalidatePath(`/poa/${poaId}`);
@@ -119,7 +119,7 @@ export async function rejectDoctorAction(poaId: string, kodePI: string, namaCust
   if (!poa || !doctor) redirect(`/poa/${poaId}`);
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!canApproveDoctor(actor, doctor)) redirect(`/poa/${poaId}`);
+  if (!(await canApproveDoctor(actor, doctor))) redirect(`/poa/${poaId}`);
 
   const reason = (formData.get("reason") as string | null)?.trim() ?? "";
   if (!reason) redirect(`/poa/${poaId}?error=` + encodeURIComponent("Alasan reject wajib diisi."));

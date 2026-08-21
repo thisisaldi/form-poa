@@ -448,6 +448,26 @@ export async function hasApprovalThisCycleForDoctor(doctorApprovalId: string): P
 }
 
 /**
+ * Is there an owner REQUEST_EDIT sitting un-resolved for this doctor's current
+ * cycle? "Resolved" means a later GRANT_EDIT/DECLINE_EDIT by the holder, or the
+ * cycle itself ending (DRAFT/REVISI). Until resolved, the current holder must
+ * not be able to approve/reject past it — see [[approval-flow-edit-request-bug]].
+ */
+export async function hasPendingEditRequestForDoctor(doctorApprovalId: string): Promise<boolean> {
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { doctorApprovalId },
+    orderBy: { createdAt: "desc" },
+    select: { action: true, toStatus: true },
+  });
+  for (const log of logs) {
+    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) return false;
+    if (log.action === AuditAction.GRANT_EDIT || log.action === AuditAction.DECLINE_EDIT) return false;
+    if (log.action === AuditAction.REQUEST_EDIT) return true;
+  }
+  return false;
+}
+
+/**
  * Can this user edit this doctor's line items right now?
  *
  * `doctor` is null when this doctor hasn't been submitted yet this cycle (no
@@ -488,14 +508,19 @@ export async function getEditLockRoleLabelForDoctor(poa: PoaForm, doctor: PoaDoc
  * Can this user approve/reject & forward THIS doctor right now? Stricter than
  * canEditDoctor — only the doctor's own current holder may complete the
  * action, same rule as canApprove but read from PoaDoctorApproval.currentHolderId
- * instead of PoaForm.currentHolderId.
+ * instead of PoaForm.currentHolderId. Also blocks the holder from approving or
+ * rejecting past an owner's un-resolved REQUEST_EDIT (must GRANT_EDIT/
+ * DECLINE_EDIT it first) — see hasPendingEditRequestForDoctor.
  */
-export function canApproveDoctor(user: User, doctor: PoaDoctorApproval): boolean {
+export async function canApproveDoctor(user: User, doctor: PoaDoctorApproval): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
-  return (
-    ([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role) &&
-    doctor.currentHolderId === user.nip
-  );
+  if (
+    !([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role) ||
+    doctor.currentHolderId !== user.nip
+  ) {
+    return false;
+  }
+  return !(await hasPendingEditRequestForDoctor(doctor.id));
 }
 
 /** Statuses where a doctor is genuinely still awaiting someone's approval. */

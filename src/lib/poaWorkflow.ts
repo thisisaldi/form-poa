@@ -315,7 +315,7 @@ export async function approveDoctor(
   if (!existing) throw new Error(`No pending approval found for doctor ${namaCust} on POA ${poaId}`);
 
   const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
-  if (!canApproveDoctor(actingUser, existing)) {
+  if (!(await canApproveDoctor(actingUser, existing))) {
     throw new Error(`User ${actingUserId} is not authorized to approve doctor ${namaCust} on POA ${poaId}`);
   }
 
@@ -368,7 +368,7 @@ export async function rejectDoctor(
   if (!existing) throw new Error(`No pending approval found for doctor ${namaCust} on POA ${poaId}`);
 
   const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
-  if (!canApproveDoctor(actingUser, existing)) {
+  if (!(await canApproveDoctor(actingUser, existing))) {
     throw new Error(`User ${actingUserId} is not authorized to reject doctor ${namaCust} on POA ${poaId}`);
   }
 
