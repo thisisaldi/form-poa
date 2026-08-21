@@ -11,6 +11,7 @@ import type { Product } from "@/lib/masterData";
 import type { CustomerOption } from "@/app/actions/customer";
 import { createCustomerAction } from "@/app/actions/customer";
 import { GolonganBadge } from "@/components/poaStandarisasi/GolonganBadge";
+import { buildProductOptions } from "@/components/poa/LineItemEditor";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import {
   savePlanningAction,
@@ -887,7 +888,12 @@ export function PlanningPhase(props: {
 
   const disabled = !canEdit;
 
-  const productComboOptions = productOptions.map((p) => ({ value: p.kodeProduk, label: p.namaProduk, sublabel: p.namaGroupBrand }));
+  // Same labeling + kontes/kategori grouping as POA Estimasi's product picker
+  // (LineItemEditor's buildProductOptions) — no single dokter is picked yet at
+  // this Produk × Outlet level, so spesialisasi/PSSP-history/survey scoring
+  // (which need one specific dokter) don't apply, only the shared paket/kontes
+  // categorization.
+  const productComboOptions = useMemo(() => buildProductOptions(productOptions, undefined), [productOptions]);
 
   return (
     <>
@@ -1026,10 +1032,10 @@ export function PlanningPhase(props: {
                 />
               </div>
               <div className="w-24 shrink-0">
-                <UnitCountInput label="Diskon" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
+                <UnitCountInput label="Estimasi Diskon" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
               </div>
               <div className="w-36 shrink-0">
-                <RpInput label="Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
+                <RpInput label="Estimasi Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
             </div>
             {product && (

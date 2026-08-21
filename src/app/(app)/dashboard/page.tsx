@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import type { SessionData } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit } from "@/lib/authz";
+import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit, canAddNewDoctor } from "@/lib/authz";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -205,6 +205,16 @@ async function DashboardContent({
 
   const editablePoaIds = new Set(
     (await Promise.all(recentPoas.map(async (poa) => ((await canEdit(actor, poa)) ? poa.id : null))))
+      .filter((id): id is string => id !== null)
+  );
+  // Separate from editablePoaIds/canEdit — the "Tambah" link goes to
+  // /poa/[id]/edit, which is gated by canAddNewDoctor (adding a brand-new
+  // doctor is deliberately NOT blocked by the edit lock that canEdit enforces,
+  // see canAddNewDoctor in authz.ts). Using canEdit here made "Tambah" vanish
+  // (leaving only "Detail") on any POA whose existing rows were all already
+  // approved/locked, even though the owner could still add a new doctor.
+  const addableDoctorPoaIds = new Set(
+    (await Promise.all(recentPoas.map(async (poa) => ((await canAddNewDoctor(actor, poa)) ? poa.id : null))))
       .filter((id): id is string => id !== null)
   );
 
@@ -549,7 +559,7 @@ async function DashboardContent({
                     </td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-3">
-                        {editablePoaIds.has(poa.id) && (
+                        {addableDoctorPoaIds.has(poa.id) && (
                           <Link href={`/poa/${poa.id}/edit`} className="text-xs font-medium"
                             style={{ color: "var(--color-text-muted)" }}>
                             Tambah

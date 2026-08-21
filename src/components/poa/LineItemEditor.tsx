@@ -799,7 +799,7 @@ function DokterFieldsSection({ fields, onChange, poaPeriod, periodeAwalError, ha
 // ─── buildProductOptions ────────────────────────────────────────────────────
 // Shared product-picker options builder — tiers by spesialisasi match, tags paket kontes.
 
-function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, { kriteriaBaru: string; kategori: string }>, psspHistory?: PsspKontrakSummary[], surveyRows?: SurveyRekomendasiRow[]): ComboboxOption[] {
+export function buildProductOptions(products: Product[], spesialisasi: string | undefined, kriteriaMap?: Map<string, { kriteriaBaru: string; kategori: string }>, psspHistory?: PsspKontrakSummary[], surveyRows?: SurveyRekomendasiRow[]): ComboboxOption[] {
   const tierSorted = spesialisasi
     ? sortProductsBySpesialisasi(products, spesialisasi)
     : products;

@@ -128,6 +128,9 @@ export function NewPoaStandarisasiForm({
   function handleSubmit() {
     if (!kodePI) { setError("Outlet wajib dipilih."); return; }
     if (kpdmList.length === 0) { setError("KPDM wajib dipilih minimal 1."); return; }
+    const produkFilled = produkList.filter((p) => p.kodeProduk);
+    if (produkFilled.length === 0) { setError("Tambahkan minimal 1 produk sebelum lanjut."); return; }
+    if (produkFilled.some((p) => p.dokterKlinis.length === 0)) { setError("Setiap produk wajib punya minimal 1 dokter user."); return; }
     setError(null);
     startTransition(async () => {
       try {
@@ -210,7 +213,7 @@ export function NewPoaStandarisasiForm({
 
       <div className="flex gap-3 pt-1">
         <Button type="button" disabled={pending || !kodePI || kpdmList.length === 0} onClick={handleSubmit}>
-          {pending ? "Membuat…" : "Buat & Simpan"}
+          {pending ? "Membuat…" : "Buat & Lanjut ke Approval Atasan"}
         </Button>
         <Link href="/poa-standarisasi">
           <Button type="button" variant="secondary">Batal</Button>

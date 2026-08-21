@@ -67,6 +67,10 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
   if (!outlet) throw new Error("Outlet tidak ditemukan.");
 
   validatePlanningInput(input);
+  // The "new" form already collects produk + dokter user (same fields as Phase
+  // 1), so a fresh pengajuan created here goes straight to Phase 2 instead of
+  // landing back on Phase 1 requiring a second, separate "Lanjut" click.
+  validateReadyForApprovalAtasan(input);
 
   const pengajuanId = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const pengajuan = await tx.poaStandarisasi.create({
@@ -77,6 +81,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
         periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
         jumlahBedRs: toNum(input.jumlahBedRs) ?? outlet.jumlahBed,
         estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,
+        currentPhase: "APPROVAL_ATASAN",
       },
     });
     await applyPlanningKpdm(tx, pengajuan.id, input.kpdmList);
@@ -254,6 +259,16 @@ function validatePlanningInput(input: PlanningInput) {
     throw new Error("Periode wajib diisi untuk tipe Periodic/Sisipan.");
   }
   if (input.kpdmList.length === 0) throw new Error("KPDM wajib dipilih minimal 1.");
+}
+
+/** Same "ready for Approval Atasan" rule as advanceToApprovalAtasanAction — reused
+ * by createPoaStandarisasiAction so a freshly-created pengajuan can skip straight to
+ * Phase 2 instead of landing back on Phase 1 requiring a second, separate "Lanjut" click. */
+function validateReadyForApprovalAtasan(input: PlanningInput) {
+  if (input.produk.length === 0) throw new Error("Tambahkan minimal 1 produk sebelum lanjut.");
+  if (input.produk.some((p) => p.dokterKlinis.length === 0)) {
+    throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
+  }
 }
 
 /** Upserts KPDM rows for a pengajuan (can be more than one per outlet) — same

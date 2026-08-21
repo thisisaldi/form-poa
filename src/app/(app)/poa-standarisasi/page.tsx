@@ -51,22 +51,22 @@ export default async function PoaStandarisasiListPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Outlet</th>
-                  <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tipe</th>
-                  <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tahap</th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Produk</th>
-                  <th className="pb-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Dibuat</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Outlet</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tipe</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tahap</th>
+                  <th className="pb-3 pr-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Produk</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Dibuat</th>
                   <th className="pb-3" />
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
                 {pengajuanList.map((p: (typeof pengajuanList)[number]) => (
                   <tr key={p.id}>
-                    <td className="py-3" style={{ color: "var(--color-text)" }}>{p.outlet.namaOutlet}</td>
-                    <td className="py-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <td className="py-3 pr-3" style={{ color: "var(--color-text)" }}>{p.outlet.namaOutlet}</td>
+                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
                       {p.tipeStandarisasi === "PERIODIC" ? "Periodic" : p.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic"}
                     </td>
-                    <td className="py-3">
+                    <td className="py-3 pr-3">
                       <span
                         className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
                         style={{
@@ -77,8 +77,8 @@ export default async function PoaStandarisasiListPage() {
                         {p.submittedAt ? "Sudah Disubmit" : phaseLabel(p.currentPhase)}
                       </span>
                     </td>
-                    <td className="py-3 text-right text-xs" style={{ color: "var(--color-text-muted)" }}>{p.produk.length}</td>
-                    <td className="py-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <td className="py-3 pr-3 text-right text-xs" style={{ color: "var(--color-text-muted)" }}>{p.produk.length}</td>
+                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
                       {new Date(p.createdAt).toLocaleDateString("id-ID")}
                     </td>
                     <td className="py-3 text-right">
