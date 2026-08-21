@@ -20,6 +20,8 @@ interface ProductSelectorProps {
   surveyPasienHarian?: string;
   error?: string;
   readOnly?: boolean;
+  b3SalesMap?: Map<string, number>;
+  b3RangeLabel?: string;
 }
 
 function Req() {
@@ -51,6 +53,8 @@ export function ProductSelector({
   surveyPasienHarian,
   error,
   readOnly = false,
+  b3SalesMap,
+  b3RangeLabel,
 }: ProductSelectorProps) {
   return (
     <div className="space-y-4">
@@ -89,10 +93,11 @@ export function ProductSelector({
           return (
             <div
               key={idx}
+              id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`}
               className="p-4 rounded-lg border space-y-4 relative animate-fade-in"
               style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}
             >
-              {rows.length > 1 && !readOnly && (
+              {!readOnly && (
                 <div className="flex justify-end">
                   <Button type="button" size="sm" variant="danger" onClick={() => onRemoveRow(idx)}>
                     Hapus
@@ -181,15 +186,17 @@ export function ProductSelector({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    % Matriks SC
+                    % Matriks SC (Autofill)
                   </span>
-                  <UnitInput
-                    value={row.persenMatriksSc}
-                    onChange={(val) => onUpdateRow(idx, { persenMatriksSc: val })}
-                    unit="%"
-                    placeholder="0"
-                    disabled={readOnly}
-                  />
+                  <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
+                    <UnitInput
+                      value={row.persenMatriksSc}
+                      onChange={() => {}}
+                      unit="%"
+                      placeholder="0"
+                      disabled={true}
+                    />
+                  </div>
                   {canvasserProduct?.sales_counter_value != null && (
                     <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
                       <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Nilai SC (Autofill): </span>
@@ -270,6 +277,60 @@ export function ProductSelector({
                           {Math.round((pembeli * qty * days * 3) / (parseInt(masterProduct?.konversiPembagi || "1", 10) || 1))} {satuanLabel(masterProduct)}
                         </div>
                       </div>
+                    </div>
+
+                    <div className="pt-2 border-t space-y-1" style={{ borderColor: "var(--color-border)" }}>
+                      {(() => {
+                        const estSalesBln = pembeli * qty * days * hnaST;
+                        const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
+                        let growthPct: number | null = null;
+                        if (avgSalesBln > 0) {
+                          growthPct = ((estSalesBln - avgSalesBln) / avgSalesBln) * 100;
+                        }
+
+                        return (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>
+                                  Growth Estimasi
+                                </div>
+                                {avgSalesBln > 0 ? (
+                                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                                    SC sebelumnya {formatRp(Math.round(avgSalesBln))}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                                    Belum ada data SC sebelumnya
+                                  </div>
+                                )}
+                              </div>
+                              {growthPct != null ? (
+                                <span
+                                  className="text-sm font-semibold"
+                                  style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
+                                >
+                                  {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+                                </span>
+                              ) : (
+                                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                                  -
+                                </span>
+                              )}
+                            </div>
+                            {growthPct != null && (
+                              <p
+                                className="text-xs font-semibold mt-1"
+                                style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
+                              >
+                                {growthPct > 0
+                                  ? "✓ Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
+                                  : "⚠️ Intensifikasi kurang — estimasi belum naik dibanding SC sebelumnya"}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
 
