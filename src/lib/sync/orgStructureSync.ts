@@ -73,6 +73,24 @@ export interface SyncResult {
 export async function runOrgSync(): Promise<SyncResult> {
   const now = new Date();
   const { records, failedManagerNips } = await fetchOrgFromNexus();
+
+  // Defense-in-depth on top of fetchAllEmployees' own throw-on-empty (2026-08-21
+  // incident: an empty/near-empty source must never reach the deactivate pass
+  // below, which would read as "everyone left the company"). Compared against
+  // the SAME in-scope subset the deactivate pass below targets (see its
+  // comment) — comparing against ALL active users (including dummy/omega/
+  // GM/ADMIN accounts this sync never touches) would make the ratio
+  // meaningless. A real roster shrink of this size in one sync cycle is not
+  // plausible.
+  const existingActiveInScope = await prisma.user.count({
+    where: { isActive: true, isDummy: false, role: { in: ["MR", "ASM", "SM", "NSM"] }, project: null },
+  });
+  if (records.length === 0 || (existingActiveInScope > 20 && records.length < existingActiveInScope * 0.5)) {
+    throw new Error(
+      `Refusing to sync: Nexus returned ${records.length} usable records vs ${existingActiveInScope} currently-active in-scope users (implausible drop) — aborting before the deactivate pass.`
+    );
+  }
+
   const errors: string[] = failedManagerNips.map(
     (nip) => `NIP ${nip}: get_subordinates fetch failed after retry (subtree ancestry incomplete this run)`
   );
@@ -126,10 +144,21 @@ export async function runOrgSync(): Promise<SyncResult> {
     }
   }
 
-  // Pass 3: deactivate users no longer in the source
+  // Pass 3: deactivate users no longer in the source — scoped to exactly what
+  // get_employees?project=ethical can plausibly return (2026-08-21 fix: the
+  // unscoped version deactivated 1831 users in staging, including 1076
+  // isDummy workshop accounts, 331 project="omega" Sales Counter users
+  // — those are synced separately by omegaUserSync.ts, scoped the same way
+  // — and GM/ADMIN/SFE/VIEWER, none of which this endpoint ever returns).
   const activeNips = records.map((r) => r.nip);
   const deactivated = await prisma.user.updateMany({
-    where: { nip: { notIn: activeNips }, isActive: true },
+    where: {
+      nip: { notIn: activeNips },
+      isActive: true,
+      isDummy: false,
+      role: { in: ["MR", "ASM", "SM", "NSM"] },
+      project: null,
+    },
     data: { isActive: false },
   });
 

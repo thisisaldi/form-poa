@@ -83,11 +83,27 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   return results;
 }
 
+/**
+ * Unlike fetchSubordinates (whose failures are tracked per-manager in
+ * failedManagerNips and only degrade that manager's subtree), a failed
+ * get_employees call has no partial-failure story — it's the entire roster.
+ * Silently degrading to [] here caused a real incident 2026-08-21: an
+ * unauthenticated request (missing NEXUS_API_USERNAME/PASSWORD) 401'd,
+ * fetchJsonWithRetry returned null, this returned [], and runOrgSync's
+ * deactivate-by-absence pass (nothing in the source = not active) then
+ * deactivated all 1831 real users in one shot. Throws instead so the sync
+ * fails loud and never reaches the deactivate pass.
+ */
 async function fetchAllEmployees(): Promise<NexusEmployee[]> {
   const resp = await fetchJsonWithRetry<{ data: { employees: NexusEmployee[] } }>(
     `${NEXUS_BASE}/get_employees?project=ethical`
   );
-  return resp?.data?.employees ?? [];
+  if (!resp) throw new Error("get_employees fetch failed after retry (check NEXUS_API_USERNAME/PASSWORD and Nexus availability)");
+  const employees = resp.data?.employees;
+  if (!Array.isArray(employees) || employees.length === 0) {
+    throw new Error("get_employees returned no employees — refusing to treat as 'everyone deactivated'");
+  }
+  return employees;
 }
 
 async function fetchSubordinates(nip: string): Promise<NexusEmployee[] | null> {
