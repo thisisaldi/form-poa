@@ -638,7 +638,7 @@ export function PoaStandarisasiWizard({
         </Link>
         <h1 className="mt-1">Pengajuan Standarisasi — {pengajuan.outlet.namaOutlet}</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          POA Standarisasi (Produk × Outlet) — wizard 5 phase.
+          POA Standarisasi (Produk × Outlet)
         </p>
       </div>
 
