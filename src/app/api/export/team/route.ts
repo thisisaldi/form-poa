@@ -218,10 +218,17 @@ export async function GET(req: NextRequest) {
     hospinetSnapshotsAll.map((s) => [`${s.kodePI}|${s.namaCustomer.trim().toUpperCase()}`, s])
   );
 
+  // approvalLabel() below only ever looks at action="APPROVE" rows and only
+  // reads toStatus/createdAt/actor.name — narrowed from a full-row + full-actor
+  // fetch (2026-08-21 fix, docs/PERFORMANCE.md §2 point 3: company-wide scope
+  // was pulling 35k+ audit rows — including every non-APPROVE action ever
+  // logged, unbounded by period — for just 406 POAs, timing out as a 502 on
+  // the reverse proxy). Filtering action="APPROVE" server-side plus a narrow
+  // `select` cuts both row count and per-row payload.
   const auditLogsAll = poaIds.length > 0
     ? await prisma.poaAuditLog.findMany({
-        where: { poaId: { in: poaIds } },
-        include: { actor: true },
+        where: { poaId: { in: poaIds }, action: "APPROVE" },
+        select: { poaId: true, action: true, toStatus: true, createdAt: true, actor: { select: { name: true } } },
         orderBy: { createdAt: "asc" },
       }) as { poaId: string; action: string; toStatus: string; createdAt: Date; actor: { name: string } }[]
     : [];
