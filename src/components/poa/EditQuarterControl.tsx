@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { updatePoaPeriodAction } from "@/app/actions/poa";
+import { updateSalesCounterPeriodAction } from "@/app/actions/scActions";
 
 /**
  * Inline "Edit Quarter" control for the POA detail header (2026-08-03,
@@ -12,7 +14,16 @@ import { updatePoaPeriodAction } from "@/app/actions/poa";
  * they now fall outside the new period's quarter months (owner's call to
  * re-align manually, same as any other field).
  */
-export function EditQuarterControl({ poaId, period }: { poaId: string; period: string }) {
+export function EditQuarterControl({
+  poaId,
+  period,
+  isSc = false,
+}: {
+  poaId: string;
+  period: string;
+  isSc?: boolean;
+}) {
+  const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [year, setYear] = useState(period.slice(0, 4));
   const [quarter, setQuarter] = useState(period.slice(5));
@@ -31,13 +42,24 @@ export function EditQuarterControl({ poaId, period }: { poaId: string; period: s
 
   function handleSave() {
     setError(null);
+    const targetPeriod = `${year}-${quarter}`;
     startTransition(async () => {
-      const result = await updatePoaPeriodAction(poaId, `${year}-${quarter}`);
-      if (result.error) {
-        setError(result.error);
-        return;
+      if (isSc) {
+        const result = await updateSalesCounterPeriodAction(period, targetPeriod);
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+        setEditing(false);
+        router.push(`/sc/${targetPeriod}`);
+      } else {
+        const result = await updatePoaPeriodAction(poaId, targetPeriod);
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+        setEditing(false);
       }
-      setEditing(false);
     });
   }
 

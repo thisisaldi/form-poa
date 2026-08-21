@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { hashSecret } from "@/lib/secretHash";
 import { Prisma, Role, PoaStatus } from "@prisma/client";
+import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 
 export interface AdminActionResult {
   ok: boolean;
@@ -305,17 +306,21 @@ export interface OutletRow {
   kodePI: string; namaOutlet: string; statusOutlet: string | null; groupRS: string | null;
   sector: string | null; subSektor: string | null; kota: string | null; propinsi: string | null;
   kategori: string | null; namaGT: string | null; namaSub: string | null; namaArea: string | null; namaReg: string | null;
+  isBlastIn?: boolean;
 }
 
 /** Search outlets by Kode PI or name — capped at 20 results. */
 export async function searchOutletsAction(query: string): Promise<OutletRow[]> {
   const q = query.trim();
   if (!q) return [];
-  const rows = await prisma.outlet.findMany({
-    where: { OR: [{ kodePI: { contains: q, mode: "insensitive" } }, { namaOutlet: { contains: q, mode: "insensitive" } }] },
-    orderBy: { namaOutlet: "asc" },
-    take: 20,
-  });
+  const [rows, blastInSet] = await Promise.all([
+    prisma.outlet.findMany({
+      where: { OR: [{ kodePI: { contains: q, mode: "insensitive" } }, { namaOutlet: { contains: q, mode: "insensitive" } }] },
+      orderBy: { namaOutlet: "asc" },
+      take: 20,
+    }),
+    getBlastInOutletSet(),
+  ]);
   return rows.map((o: {
     kodePI: string; namaOutlet: string; statusOutlet: string | null; groupRS: string | null;
     sector: string | null; subSektor: string | null; kota: string | null; propinsi: string | null;
@@ -324,6 +329,7 @@ export async function searchOutletsAction(query: string): Promise<OutletRow[]> {
     kodePI: o.kodePI, namaOutlet: o.namaOutlet, statusOutlet: o.statusOutlet, groupRS: o.groupRS,
     sector: o.sector, subSektor: o.subSektor, kota: o.kota, propinsi: o.propinsi, kategori: o.kategori,
     namaGT: o.namaGT, namaSub: o.namaSub, namaArea: o.namaArea, namaReg: o.namaReg,
+    isBlastIn: blastInSet.has(o.kodePI),
   }));
 }
 

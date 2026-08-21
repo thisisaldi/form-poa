@@ -1,11 +1,13 @@
-"use client";
-
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { deleteSalesCounterFormAction } from "@/app/actions/scActions";
 import { formatRp } from "./SalesCounterStatsPanel";
 import type { ScDraftFormItem } from "../types";
+import { getB3PeriodInfo } from "@/lib/b3Utils";
+import { getScOutletB3SalesAction, getScCashbackPoaAction } from "@/app/actions/canvasser";
+import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
 
 function StatTile({ label, value, sub, emphasize = false }: { label: string; value: string; sub?: string; emphasize?: boolean }) {
   return (
@@ -44,8 +46,56 @@ export function SalesCounterOutletCard({
   const [detailOpen, setDetailOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
 
+  const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
+  const [cashbackData, setCashbackData] = useState<any>(null);
+
+  useEffect(() => {
+    getScCashbackPoaAction().then((res) => setCashbackData(res));
+  }, []);
+  const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
+
+  const isExpanded = detailOpen;
+
+  useEffect(() => {
+    if (!isExpanded || !draft.kodePI) return;
+    const proCodes = draft.products.map((p) => p.kodeProduk).filter(Boolean);
+    if (proCodes.length === 0) return;
+
+    const b3Info = getB3PeriodInfo(draft.periodeAwal || draft.period || poaId);
+    setB3RangeLabel(b3Info.rangeLabel);
+
+    getScOutletB3SalesAction(b3Info.period, draft.kodePI, proCodes).then((res) => {
+      const map = new Map<string, number>();
+      if (res?.data && Array.isArray(res.data)) {
+        for (const item of res.data) {
+          if (item.pro_code) map.set(item.pro_code, item.average_sales || 0);
+        }
+      }
+      setB3SalesMap(map);
+    });
+  }, [isExpanded, draft.kodePI, draft.products, poaId]);
+
   const days = draft.hariKerjaBulan || 0;
   const lama = draft.lamaPeriode || 3;
+
+  const cbDetails = useMemo(() => {
+    return calculateCashbackDetails({
+      cashbackData,
+      selectedProducts: draft.products.map((p) => ({
+        kodeProduk: p.kodeProduk,
+        pembeliHari: String(p.pembeliHari || 0),
+        qtyCustomerBaru: String(p.qtyCustomerBaru || 0),
+        persenCashback: String(p.persenCashback || 0),
+      })),
+      masterProducts: draft.products.map((p) => ({
+        kodeProduk: p.kodeProduk,
+        hna: String(p.hnaSJ || 0),
+        konversiPembagi: String(p.konversiPembagi || 1),
+      })),
+      hariKerjaBulan: draft.hariKerjaBulan,
+      lamaPeriode: draft.lamaPeriode,
+    });
+  }, [cashbackData, draft]);
 
   // Compute stats per outlet draft
   let outletEstSales = 0;
@@ -59,7 +109,18 @@ export function SalesCounterOutletCard({
 
     const estMonth = (p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days * hnaST;
     const estFull = estMonth * lama;
-    const valScFull = estFull * ((p.persenMatriksSc || 0) / 100);
+    
+    const qtySjBln = konv > 0 ? ((p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days) / konv : 0;
+    const scVal = p.salesCounterValue;
+    const scMin = p.salesCounterMinimum || 0;
+
+    let valScPerMonth = 0;
+    if (scVal != null && scVal > 0) {
+      valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+    } else {
+      valScPerMonth = estMonth * ((p.persenMatriksSc || 0) / 100);
+    }
+    const valScFull = valScPerMonth * lama;
 
     outletEstSales += estFull;
     outletNilaiSc += valScFull;
@@ -93,10 +154,7 @@ export function SalesCounterOutletCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-              {draft.namaOutlet}
-            </span>
-            <span className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-faint)" }}>
-              {draft.kodePI}
+              {draft.kodePI ? `${draft.kodePI} · ` : ""}{draft.namaOutlet}
             </span>
           </div>
 
@@ -109,8 +167,13 @@ export function SalesCounterOutletCard({
 
           {/* Stat grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2.5">
-            <StatTile label="Estimasi Sales SC" value={outletEstSales > 0 ? formatRp(outletEstSales) : "-"} emphasize />
-            <StatTile label="Nilai SC (Insentif)" value={outletNilaiSc > 0 ? formatRp(outletNilaiSc) : "-"} sub={avgMatriks > 0 ? `Avg % Matriks ${avgMatriks.toFixed(2)}%` : undefined} emphasize />
+            <StatTile label="Estimasi Sales" value={outletEstSales > 0 ? formatRp(outletEstSales) : "-"} emphasize />
+            <StatTile
+              label="Nilai SC (Insentif)"
+              value={outletNilaiSc > 0 ? formatRp(outletNilaiSc) : "-"}
+              sub={draft.persons.length > 0 && outletNilaiSc > 0 ? `${formatRp(outletNilaiSc / draft.persons.length)} / orang` : undefined}
+              emphasize
+            />
             <StatTile label="Variasi Produk" value={`${draft.products.length} produk`} />
             <StatTile label="Entertain SC" value={totalEntertain > 0 ? formatRp(totalEntertain) : "-"} />
           </div>
@@ -155,9 +218,15 @@ export function SalesCounterOutletCard({
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty/Pembeli</th>
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</th>
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Nilai SC</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>% Matriks</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>% Diskon</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>% Cashback</th>
+                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
+                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                    <div>Growth Sebelumnya</div>
+                    {b3RangeLabel && (
+                      <div className="text-[10px] font-normal normal-case opacity-75">
+                        ({b3RangeLabel})
+                      </div>
+                    )}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -167,7 +236,27 @@ export function SalesCounterOutletCard({
                   const hnaST = hnaSJ / konv;
 
                   const estSalesFull = (p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days * hnaST * lama;
-                  const nilaiScFull = estSalesFull * ((p.persenMatriksSc || 0) / 100);
+                  const qtySjBln = konv > 0 ? ((p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days) / konv : 0;
+                  const scVal = p.salesCounterValue;
+                  const scMin = p.salesCounterMinimum || 0;
+
+                  let nilaiScPerMonth = 0;
+                  if (scVal != null && scVal > 0) {
+                    nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+                  } else {
+                    nilaiScPerMonth = ((p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days * hnaST) * ((p.persenMatriksSc || 0) / 100);
+                  }
+                  const nilaiScFull = nilaiScPerMonth * lama;
+                  const valCashbackFull = cashbackData
+                    ? (cbDetails.resultMap.get(p.kodeProduk) ?? 0)
+                    : estSalesFull * ((p.persenCashback || 0) / 100);
+
+                  const avgSales = b3SalesMap.get(p.kodeProduk) ?? 0;
+                  const salesHistorical = avgSales * lama;
+                  let growthPct = 0;
+                  if (salesHistorical > 0 && estSalesFull > 0) {
+                    growthPct = ((estSalesFull - salesHistorical) / salesHistorical) * 100;
+                  }
 
                   return (
                     <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
@@ -176,14 +265,26 @@ export function SalesCounterOutletCard({
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyCustomerBaru || 0}</td>
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>{estSalesFull > 0 ? formatRp(estSalesFull) : "-"}</td>
                       <td className="px-2.5 py-2 text-right font-semibold" style={{ color: "var(--color-blue)" }}>{nilaiScFull > 0 ? formatRp(nilaiScFull) : "-"}</td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.persenMatriksSc ? `${p.persenMatriksSc}%` : "-"}</td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.persenDiskon ? `${p.persenDiskon}%` : "-"}</td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.persenCashback ? `${p.persenCashback}%` : "-"}</td>
+                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}</td>
+                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>
+                        {salesHistorical > 0 ? (
+                          <span className={growthPct > 0 ? "text-emerald-600 font-semibold" : growthPct < 0 ? "text-rose-600 font-semibold" : ""}>
+                            {growthPct > 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+                          </span>
+                        ) : (
+                          "0%"
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            {b3RangeLabel && (
+              <p className="text-[11px] px-3 py-1.5 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
+                * Growth Sebelumnya dihitung dari histori rata-rata penjualan B3 ({b3RangeLabel})
+              </p>
+            )}
           </div>
 
           {/* Entertain items breakdown if present */}

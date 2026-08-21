@@ -1,0 +1,33 @@
+"use client";
+
+import React from "react";
+
+export function BlastInBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center shrink-0 uppercase tracking-wide ${className}`}
+      style={{
+        background: "#bef264",
+        color: "#000000",
+        lineHeight: 1.2,
+      }}
+    >
+      BLAST-IN
+    </span>
+  );
+}
+
+export function InsScBadge({ className = "" }: { className?: string }) {
+  return (
+    <span
+      className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center shrink-0 uppercase tracking-wide ${className}`}
+      style={{
+        background: "#fde047",
+        color: "#000000",
+        lineHeight: 1.2,
+      }}
+    >
+      INS - SC
+    </span>
+  );
+}

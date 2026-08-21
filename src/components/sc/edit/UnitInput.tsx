@@ -12,6 +12,7 @@ interface UnitInputProps {
   min?: number;
   /** When set, typing/stepping past this value is clamped down to it (e.g. Hari Praktek ≤ 31, no month has more days). */
   max?: number;
+  disabled?: boolean;
 }
 
 export function UnitInput({
@@ -22,11 +23,13 @@ export function UnitInput({
   step,
   min = 0,
   max,
+  disabled = false,
 }: UnitInputProps) {
   const isCurrency = unit === "Rp";
   const displayValue = isCurrency ? formatRp(value) : value;
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (disabled) return;
     const v = e.target.value;
     if (isCurrency) {
       const clean = v.replace(/\D/g, "");
@@ -71,15 +74,17 @@ export function UnitInput({
         placeholder={placeholder}
         value={displayValue}
         onChange={handleChange}
-        className="flex-1 min-w-0 w-0 px-2.5 py-1.5 text-sm outline-none"
-        style={{ background: "transparent", color: "var(--color-text)" }}
+        disabled={disabled}
+        className="flex-1 min-w-0 w-0 px-2.5 py-1.5 text-sm outline-none disabled:opacity-75 disabled:cursor-not-allowed"
+        style={{ background: disabled ? "var(--color-bg-subtle)" : "transparent", color: "var(--color-text)" }}
       />
-      {step != null && (
+      {step != null && !disabled && (
         <div className="flex flex-col shrink-0" style={{ borderLeft: "1px solid var(--color-border-strong)" }}>
           <button
             type="button"
             onClick={() => bump(step)}
             tabIndex={-1}
+            disabled={disabled}
             className="flex-1 flex items-center justify-center px-1.5 leading-none"
             style={{
               fontSize: 9,
@@ -94,6 +99,7 @@ export function UnitInput({
             type="button"
             onClick={() => bump(-step)}
             tabIndex={-1}
+            disabled={disabled}
             className="flex-1 flex items-center justify-center px-1.5 leading-none"
             style={{ fontSize: 9, color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
           >

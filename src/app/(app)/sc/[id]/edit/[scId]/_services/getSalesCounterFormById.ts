@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/prisma";
-import { getScProducts } from "@/lib/masterData";
+import { getScProducts, getSalesCounterOutletsDirect } from "@/lib/masterData";
+import { isOutletBlastIn } from "@/lib/outletBlastIn";
 
-export async function getSalesCounterFormById(scId: string, sessionUserId: string) {
+export async function getSalesCounterFormById(
+  scId: string,
+  sessionUserId: string,
+  sessionRole?: string
+) {
   const form = await prisma.poaScForm.findUnique({
     where: { id: scId },
     include: {
@@ -13,10 +18,18 @@ export async function getSalesCounterFormById(scId: string, sessionUserId: strin
   });
 
   if (!form) return null;
-  // Only owner can edit
-  if (form.ownerId !== sessionUserId) return null;
+  const hasAccess =
+    form.ownerId === sessionUserId ||
+    (sessionRole != null && ["ASM", "SM", "NSM", "ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole));
+  if (!hasAccess) return null;
 
-  const products = await getScProducts();
+  const [products, isBlastIn, rawOutlets] = await Promise.all([
+    getScProducts(),
+    isOutletBlastIn(form.kodePI),
+    getSalesCounterOutletsDirect(sessionUserId),
+  ]);
+
+  const targetOutlet = rawOutlets.find((o) => o.kodePI === form.kodePI);
 
   const serialized = {
     id: form.id,
@@ -27,6 +40,8 @@ export async function getSalesCounterFormById(scId: string, sessionUserId: strin
     owner: { nip: form.owner.nip, name: form.owner.name },
     kodePI: form.kodePI,
     namaOutlet: form.namaOutlet,
+    is_sc: !!targetOutlet?.is_sc,
+    isBlastIn,
     periodeAwal: form.periodeAwal,
     lamaPeriode: form.lamaPeriode,
     hariKerjaBulan: form.hariKerjaBulan,
@@ -58,7 +73,7 @@ export async function getSalesCounterFormById(scId: string, sessionUserId: strin
   };
 
   return {
-    userCanEdit: form.status === "DRAFT" || form.status === "REVISI",
+    userCanEdit: form.ownerId === sessionUserId && (form.status === "DRAFT" || form.status === "REVISI"),
     form: serialized,
     products,
   };

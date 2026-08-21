@@ -7,6 +7,8 @@ import { saveSalesCounterFormAction } from "@/app/actions/scActions";
 import { ProductSelector } from "./ProductSelector";
 import { UnitInput } from "./UnitInput";
 import { Button } from "@/components/ui/Button";
+import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
+import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import {
   getSalesCounterProductsAction,
@@ -14,8 +16,30 @@ import {
   getScProductWithInsentifAction,
   getScInsentifHistoryAction,
   getPrincodeProductsAction,
+  getScCashbackPoaAction,
 } from "@/app/actions/canvasser";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
+
+function formatCashbackPct(rawVal: number | string | undefined | null): string {
+  if (rawVal == null) return "0";
+  const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+  if (isNaN(num)) return "0";
+  const pct = num > 0 && num <= 1 ? num * 100 : num;
+  return String(Number(pct.toFixed(2)));
+}
+
+function findCashbackItem(matrix: any[], targetCode: string) {
+  if (!targetCode || !Array.isArray(matrix)) return null;
+  const cleanTarget = String(targetCode).trim();
+  const strippedTarget = cleanTarget.replace(/^0+/, "");
+
+  return matrix.find((m: any) => {
+    const codeStr = String(m.code || m.pro_code || m.kodeProduk || m.pro_code_raw || m.kode || "").trim();
+    if (codeStr === cleanTarget) return true;
+    if (codeStr.replace(/^0+/, "") === strippedTarget) return true;
+    return false;
+  });
+}
 
 interface ProductRow {
   kodeProduk: string;
@@ -46,6 +70,8 @@ interface SalesCounterEditByIdEditorProps {
   poaPeriod: string;
   kodePI: string;
   namaOutlet: string | null;
+  is_sc?: boolean;
+  isBlastIn?: boolean;
   persons: Person[];
   initialProducts: {
     id: string;
@@ -66,6 +92,7 @@ interface SalesCounterEditByIdEditorProps {
   initialRencanaVisitMinggu: number;
   initialSurveyPasienHarian: number;
   masterProducts: Product[];
+  readOnly?: boolean;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -93,6 +120,8 @@ export function SalesCounterEditByIdEditor({
   poaPeriod,
   kodePI,
   namaOutlet,
+  is_sc,
+  isBlastIn,
   persons,
   initialProducts,
   initialEntertainItems,
@@ -102,6 +131,7 @@ export function SalesCounterEditByIdEditor({
   initialRencanaVisitMinggu,
   initialSurveyPasienHarian,
   masterProducts,
+  readOnly = false,
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -156,9 +186,10 @@ export function SalesCounterEditByIdEditor({
       });
   });
 
-  // Canvasser products from API (for ProductSelector)
   const [canvasserProducts, setCanvasserProducts] = useState<SalesCounterProduct[]>([]);
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
+  const [cashbackMatrix, setCashbackMatrix] = useState<any[]>([]);
+  const [rawCashbackData, setRawCashbackData] = useState<any>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Load canvasser products for the outlet
@@ -170,7 +201,34 @@ export function SalesCounterEditByIdEditor({
     getPrincodeProductsAction().then((res) => {
       if (res?.data) setPrincodeProducts(res.data);
     });
+    getScCashbackPoaAction().then((res) => {
+      setRawCashbackData(res);
+      const array = Array.isArray(res?.matrix)
+        ? res.matrix
+        : Array.isArray(res?.data?.matrix)
+        ? res.data.matrix
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res)
+        ? res
+        : [];
+      setCashbackMatrix(array);
+    });
   }, [kodePI]);
+
+  useEffect(() => {
+    if (cashbackMatrix.length === 0) return;
+    setProducts((prev) =>
+      prev.map((row) => {
+        if (!row.kodeProduk) return row;
+        const matrixItem = findCashbackItem(cashbackMatrix, row.kodeProduk);
+        if (!matrixItem) return row;
+        const getVal = (m: any) => m?.cashback_percentage ?? m?.cashback_percent ?? m?.cashback ?? m?.persenCashback ?? m?.persen_cashback;
+        const autoPct = formatCashbackPct(getVal(matrixItem));
+        return row.persenCashback === autoPct ? row : { ...row, persenCashback: autoPct };
+      })
+    );
+  }, [cashbackMatrix]);
 
   // Quarter info
   const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
@@ -196,8 +254,72 @@ export function SalesCounterEditByIdEditor({
     return [...scOptions, ...otherOptions];
   }, [canvasserProducts, princodeProducts]);
 
-  const totalEstimasi = products.reduce((sum, p) => sum + p.rencanaTotalBiaya, 0);
-  const totalEntertain = entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
+  const totalEstimasiSales = products.reduce((sum, row) => {
+    if (!row.kodeProduk) return sum;
+    const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
+    if (!masterProduct) return sum;
+    const hnaSJ = parseFloat(masterProduct.hna) || 0;
+    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
+    const hnaST = hnaSJ / konv;
+    const pembeli = parseFloat(row.pembeliHari) || 0;
+    const qty = parseFloat(row.qtyCustomerBaru) || 0;
+    const days = parseFloat(hariKerjaBulan) || 0;
+    return sum + (pembeli * qty * days * hnaST * lamaPeriode);
+  }, 0);
+
+  const totalNilaiSc = products.reduce((sum, row) => {
+    if (!row.kodeProduk) return sum;
+    const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
+    if (!masterProduct) return sum;
+    const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
+    const hnaSJ = parseFloat(masterProduct.hna) || 0;
+    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
+    const hnaST = hnaSJ / konv;
+    const pembeli = parseFloat(row.pembeliHari) || 0;
+    const qty = parseFloat(row.qtyCustomerBaru) || 0;
+    const days = parseFloat(hariKerjaBulan) || 0;
+    const estSalesBln = pembeli * qty * days * hnaST;
+    const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+    const scVal = canvasserProd?.sales_counter_value;
+    const scMin = canvasserProd?.sales_counter_minimum || 0;
+    let valScBln = 0;
+    if (scVal != null && scVal > 0) {
+      valScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+    } else {
+      const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
+      valScBln = estSalesBln * (pctMatriks / 100);
+    }
+    return sum + (valScBln * lamaPeriode);
+  }, 0);
+
+  const cashbackDetails = calculateCashbackDetails({
+    cashbackData: rawCashbackData,
+    selectedProducts: products,
+    masterProducts,
+    hariKerjaBulan: parseFloat(hariKerjaBulan) || 0,
+    lamaPeriode,
+  });
+
+  const totalCashbackVal = cashbackDetails?.totalFinalCashback ?? 0;
+
+  const totalDiskonVal = products.reduce((sum, row) => {
+    if (!row.kodeProduk) return sum;
+    const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
+    if (!masterProduct) return sum;
+    const hnaSJ = parseFloat(masterProduct.hna) || 0;
+    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
+    const hnaST = hnaSJ / konv;
+    const pembeli = parseFloat(row.pembeliHari) || 0;
+    const qty = parseFloat(row.qtyCustomerBaru) || 0;
+    const days = parseFloat(hariKerjaBulan) || 0;
+    const estSalesBln = pembeli * qty * days * hnaST;
+    const pctDiskon = parseFloat(row.persenDiskon) || 0;
+    return sum + (estSalesBln * (pctDiskon / 100) * lamaPeriode);
+  }, 0);
+
+  const totalEntertainVal = entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
+  const totalEstimasiBudget = totalNilaiSc + totalCashbackVal + totalEntertainVal + totalDiskonVal;
+  const costRatio = totalEstimasiSales > 0 ? (totalEstimasiBudget / totalEstimasiSales) * 100 : 0;
 
   const updateEntertainValue = (month: string, val: string) => {
     setEntertainList((prev) => prev.map((item) => item.month === month ? { ...item, value: val } : item));
@@ -227,6 +349,13 @@ export function SalesCounterEditByIdEditor({
             const val = canvasserProd.sales_counter_value || 0;
             const pct = hna > 0 ? (val / hna) * 100 : 0;
             updated.persenMatriksSc = pct > 0 ? pct.toFixed(2) : "0";
+          }
+          const matrixItem = findCashbackItem(cashbackMatrix, fields.kodeProduk);
+          if (matrixItem) {
+            const getVal = (m: any) => m?.cashback_percentage ?? m?.cashback_percent ?? m?.cashback ?? m?.persenCashback ?? m?.persen_cashback;
+            updated.persenCashback = formatCashbackPct(getVal(matrixItem));
+          } else if (fields.kodeProduk === "") {
+            updated.persenCashback = "0";
           }
         }
         // Recalculate rencanaTotalBiaya
@@ -283,9 +412,15 @@ export function SalesCounterEditByIdEditor({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 p-6 max-w-5xl">
+      {readOnly && (
+        <div className="rounded-md px-4 py-3 text-sm font-medium"
+          style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
+          Mode Lihat (Read-Only) — Form ini tidak dalam status Draft/Revisi sehingga tidak dapat diubah.
+        </div>
+      )}
       <div className="space-y-6">
         <h2 className="text-lg font-semibold" style={{ color: "var(--color-text)" }}>
-          Edit Rencana POA (Sales Counter)
+          {readOnly ? "Detail Rencana POA (Sales Counter)" : "Edit Rencana POA (Sales Counter)"}
         </h2>
 
         {/* OUTLET — LOCKED */}
@@ -294,12 +429,11 @@ export function SalesCounterEditByIdEditor({
           <div className="rounded-lg border px-4 py-3 flex items-center gap-3"
             style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate" style={{ color: "var(--color-text)" }}>
-                {namaOutlet || kodePI}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                Kode: {kodePI}
-              </p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-semibold truncate" style={{ color: "var(--color-text)" }}>
+                  {kodePI ? `${kodePI} · ` : ""}{namaOutlet || kodePI}
+                </span>
+              </div>
             </div>
             <span className="text-xs px-2 py-0.5 rounded font-medium shrink-0"
               style={{ background: "var(--color-bg)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
@@ -343,16 +477,16 @@ export function SalesCounterEditByIdEditor({
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: errors.hariKerjaBulan ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                Jumlah hari kerja / Bln <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>
+                Jumlah hari kerja Outlet <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>
               </span>
               <div style={errors.hariKerjaBulan ? ERR_RING : undefined}>
-                <UnitInput value={hariKerjaBulan} onChange={setHariKerjaBulan} unit="Hari" placeholder="Jumlah hari praktek / bulan" max={31} />
+                <UnitInput value={hariKerjaBulan} onChange={setHariKerjaBulan} unit="Hari" placeholder="Jumlah hari praktek / bulan" max={31} disabled={readOnly} />
               </div>
               {errors.hariKerjaBulan && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.hariKerjaBulan}</span>}
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Visit / Bulan <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span></span>
-              <UnitInput value={rencanaVisitMinggu} onChange={setRencanaVisitMinggu} unit="Kali" />
+              <UnitInput value={rencanaVisitMinggu} onChange={setRencanaVisitMinggu} unit="Kali" disabled={readOnly} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -361,7 +495,7 @@ export function SalesCounterEditByIdEditor({
                 Survey Pasien Harian <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>
               </span>
               <div style={errors.surveyPasienHarian ? ERR_RING : undefined}>
-                <UnitInput value={surveyPasienHarian} onChange={setSurveyPasienHarian} unit="Pasien" placeholder="Hasil survey pasien harian" />
+                <UnitInput value={surveyPasienHarian} onChange={setSurveyPasienHarian} unit="Pasien" placeholder="Hasil survey pasien harian" disabled={readOnly} />
               </div>
               {errors.surveyPasienHarian && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.surveyPasienHarian}</span>}
             </div>
@@ -413,7 +547,7 @@ export function SalesCounterEditByIdEditor({
                         <td className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text)" }}>{row.label}</td>
                         <td className="px-4 py-2">
                           <div style={{ maxWidth: 180 }}>
-                            <UnitInput value={row.value} onChange={(val) => updateEntertainValue(row.month, val)} unit="Rp" placeholder="0" />
+                            <UnitInput value={row.value} onChange={(val) => updateEntertainValue(row.month, val)} unit="Rp" placeholder="0" disabled={readOnly} />
                           </div>
                         </td>
                       </tr>
@@ -439,38 +573,48 @@ export function SalesCounterEditByIdEditor({
             hariKerjaBulan={parseFloat(hariKerjaBulan) || 0}
             lamaPeriode={lamaPeriode}
             error={errors.products}
+            readOnly={readOnly}
           />
         </div>
 
         {/* TOTAL */}
         <div className="rounded-xl border px-4 py-3 space-y-4"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
-          <div className="flex gap-6 flex-wrap items-start">
-            <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Rencana Biaya SC</div>
-              <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>
-                Rp {totalEstimasi.toLocaleString("id-ID")}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
+            <div className="shrink-0 min-w-[180px]">
+              <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                TOTAL ESTIMASI SALES
               </div>
-              <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                {(totalEstimasi / 1000000).toLocaleString("id-ID", { minimumFractionDigits: 2 })} Juta
+              <div className="text-xl font-bold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
+                Rp {Math.round(totalEstimasiSales).toLocaleString("id-ID")}
               </div>
-            </div>
-            <div>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Rencana Entertain</div>
-              <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>
-                Rp {totalEntertain.toLocaleString("id-ID")}
-              </div>
-              <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                {(totalEntertain / 1000000).toLocaleString("id-ID", { minimumFractionDigits: 2 })} Juta
+              <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                Rp {Math.round(totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1)).toLocaleString("id-ID")} / Bln
               </div>
             </div>
-            <div style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
-              <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Total Keseluruhan Pengajuan</div>
-              <div className="text-xl font-bold" style={{ color: "var(--color-blue)" }}>
-                Rp {(totalEstimasi + totalEntertain).toLocaleString("id-ID")}
+            <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+              <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                TOTAL ESTIMASI BUDGET
               </div>
-              <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                {((totalEstimasi + totalEntertain) / 1000000).toLocaleString("id-ID", { minimumFractionDigits: 2 })} Juta
+              <div className="text-xl font-bold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
+                Rp {Math.round(totalEstimasiBudget).toLocaleString("id-ID")}
+              </div>
+              <div className="text-[11px] mt-1 space-y-0.5" style={{ color: "var(--color-text-muted)" }}>
+                <div>INSENTIF SC : <strong>Rp {Math.round(totalNilaiSc).toLocaleString("id-ID")}</strong></div>
+                <div>CASHBACK : <strong>Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}</strong></div>
+                <div>ENTERTAIN : <strong>Rp {Math.round(totalEntertainVal).toLocaleString("id-ID")}</strong></div>
+                <div>DISKON : <strong>Rp {Math.round(totalDiskonVal).toLocaleString("id-ID")}</strong></div>
+              </div>
+            </div>
+            <div className="shrink-0 min-w-[180px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+              <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                TOTAL % COST RATIO
+              </div>
+              <div className="text-xl font-bold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
+                {costRatio.toFixed(2)}%
+              </div>
+              <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                Total Budget / Total Sales
               </div>
             </div>
           </div>
@@ -479,12 +623,20 @@ export function SalesCounterEditByIdEditor({
 
       {/* ACTION BUTTONS */}
       <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: "var(--color-border)" }}>
-        <Button type="button" variant="ghost" onClick={() => router.push(`/sc/${poaPeriod}`)} disabled={isPending}>
-          Batal
-        </Button>
-        <Button type="submit" disabled={isPending}>
-          {isPending ? "Menyimpan..." : "Simpan Perubahan"}
-        </Button>
+        {readOnly ? (
+          <Button type="button" variant="secondary" onClick={() => router.push(`/sc/${poaPeriod}`)}>
+            Kembali ke Detail
+          </Button>
+        ) : (
+          <>
+            <Button type="button" variant="ghost" onClick={() => router.push(`/sc/${poaPeriod}`)} disabled={isPending}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={isPending}>
+              {isPending ? "Menyimpan..." : "Simpan Perubahan"}
+            </Button>
+          </>
+        )}
       </div>
     </form>
   );

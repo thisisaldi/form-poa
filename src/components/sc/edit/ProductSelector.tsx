@@ -12,12 +12,14 @@ interface ProductSelectorProps {
   onAddRow: () => void;
   onRemoveRow: (index: number) => void;
   onUpdateRow: (index: number, fields: Partial<SelectedProductRow>) => void;
-  productsOptions: { value: string; label: string; isScProduct?: boolean }[];
+  productsOptions: any[];
   canvasserProducts: SalesCounterProduct[];
   masterProducts: Product[];
   hariKerjaBulan: number;
   lamaPeriode: number;
+  surveyPasienHarian?: string;
   error?: string;
+  readOnly?: boolean;
 }
 
 function Req() {
@@ -46,7 +48,9 @@ export function ProductSelector({
   masterProducts,
   hariKerjaBulan,
   lamaPeriode,
+  surveyPasienHarian,
   error,
+  readOnly = false,
 }: ProductSelectorProps) {
   return (
     <div className="space-y-4">
@@ -69,8 +73,17 @@ export function ProductSelector({
           
           const estimasiSales = pembeli * qty * days * hnaST * lamaPeriode;
           const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
-          const nilaiSc = estimasiSales * (pctMatriks / 100);
-          const nilaiScBln = lamaPeriode > 0 ? nilaiSc / lamaPeriode : 0;
+          
+          const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+          const scVal = canvasserProduct?.sales_counter_value;
+          const scMin = canvasserProduct?.sales_counter_minimum || 0;
+
+          let nilaiScBln = 0;
+          if (scVal != null && scVal > 0) {
+            nilaiScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+          } else {
+            nilaiScBln = (pembeli * qty * days * hnaST) * (pctMatriks / 100);
+          }
           const nilaiSc3Bln = nilaiScBln * 3;
 
           return (
@@ -79,8 +92,7 @@ export function ProductSelector({
               className="p-4 rounded-lg border space-y-4 relative animate-fade-in"
               style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}
             >
-              {/* Product Card Header */}
-              {rows.length > 1 && (
+              {rows.length > 1 && !readOnly && (
                 <div className="flex justify-end">
                   <Button type="button" size="sm" variant="danger" onClick={() => onRemoveRow(idx)}>
                     Hapus
@@ -88,7 +100,6 @@ export function ProductSelector({
                 </div>
               )}
 
-              {/* 1. Combobox to select product */}
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Produk <Req />
@@ -102,7 +113,8 @@ export function ProductSelector({
                       kodeProduk: val,
                     });
                   }}
-                  placeholder="Pilih Produk..."
+                  disabled={readOnly}
+                  placeholder="Cari produk..."
                   emptyMessage="Tidak ada produk."
                 />
                 {masterProduct && (
@@ -119,32 +131,38 @@ export function ProductSelector({
                 )}
               </div>
 
-              {/* 2. Competitor */}
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Produk Kompetitor Utama yang dipakai Sales Counter
+                  Produk Kompetitor
                 </span>
                 <input
                   type="text"
                   value={row.produkKompetitor}
                   onChange={(e) => onUpdateRow(idx, { produkKompetitor: e.target.value })}
-                  placeholder="Nama produk kompetitor utama yang digunakan Sales Counter"
-                  className="input-field text-xs w-full"
+                  placeholder="Nama produk kompetitor"
+                  disabled={readOnly}
+                  className="input-field text-xs w-full disabled:opacity-75 disabled:cursor-not-allowed"
                 />
               </div>
 
-              {/* 3. Numeric inputs row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    Pembeli / Hari <Req />
+                  <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
+                    Customer / Hari <Req />
                   </span>
                   <UnitInput
                     value={row.pembeliHari}
                     onChange={(val) => onUpdateRow(idx, { pembeliHari: val })}
                     unit="Pembeli"
                     placeholder="0"
+                    disabled={readOnly}
                   />
+                  {surveyPasienHarian && (
+                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
+                      <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Referensi PM: </span>
+                      Survey Customer Harian: <strong>{surveyPasienHarian}</strong> orang
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
@@ -155,12 +173,12 @@ export function ProductSelector({
                     onChange={(val) => onUpdateRow(idx, { qtyCustomerBaru: val })}
                     unit={masterProduct?.satuanTerkecil ?? "ST"}
                     placeholder="0"
+                    disabled={readOnly}
                   />
                 </div>
               </div>
 
-              {/* 4. Percentage inputs row */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                     % Matriks SC
@@ -170,7 +188,14 @@ export function ProductSelector({
                     onChange={(val) => onUpdateRow(idx, { persenMatriksSc: val })}
                     unit="%"
                     placeholder="0"
+                    disabled={readOnly}
                   />
+                  {canvasserProduct?.sales_counter_value != null && (
+                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
+                      <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Nilai SC (Autofill): </span>
+                      Rp {formatRp(canvasserProduct.sales_counter_value)}
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
@@ -181,30 +206,25 @@ export function ProductSelector({
                     onChange={(val) => onUpdateRow(idx, { persenDiskon: val })}
                     unit="%"
                     placeholder="0"
+                    disabled={readOnly}
                   />
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    % Cashback
+                    % Cashback (Autofill)
                   </span>
-                  <UnitInput
-                    value={row.persenCashback}
-                    onChange={(val) => onUpdateRow(idx, { persenCashback: val })}
-                    unit="%"
-                    placeholder="0"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    Nilai SC (Autofill)
-                  </span>
-                  <div className="input-field flex items-center bg-transparent" style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 32, cursor: "not-allowed" }}>
-                    <span className="text-xs font-semibold px-1">Rp {formatRp(canvasserProduct?.sales_counter_value || 0)}</span>
+                  <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
+                    <UnitInput
+                      value={row.persenCashback}
+                      onChange={() => {}}
+                      unit="%"
+                      placeholder="0"
+                      disabled={true}
+                    />
                   </div>
                 </div>
               </div>
 
-              {/* 5. Summary calculations display */}
               {row.kodeProduk &&
                parseFloat(row.pembeliHari) > 0 &&
                parseFloat(row.qtyCustomerBaru) > 0 &&
@@ -251,20 +271,8 @@ export function ProductSelector({
                         </div>
                       </div>
                     </div>
-
-                    <div className="pt-1.5 border-t" style={{ borderColor: "var(--color-border)" }}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>Growth Estimasi</div>
-                          <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                            Belum ada data SC
-                          </span>
-                        </div>
-                      </div>
-                    </div>
                   </div>
 
-                  {/* NILAI SC CARD */}
                   <div className="rounded-lg border px-3 py-2.5 space-y-2"
                     style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
                     <p className="text-xs font-semibold uppercase tracking-wider"
@@ -273,10 +281,10 @@ export function ProductSelector({
                     <div className="flex gap-6 flex-wrap">
                       <div>
                         <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                          Nilai SC / Bln {pctMatriks > 0 && `(${pctMatriks.toFixed(1)}%)`}
+                          Nilai SC / Bln
                         </div>
                         <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
-                          {formatRp((pembeli * qty * days * hnaST) * (pctMatriks / 100))}
+                          {formatRp(nilaiScBln)}
                         </div>
                       </div>
                       <div>
@@ -284,7 +292,7 @@ export function ProductSelector({
                           Nilai SC 3 Bln
                         </div>
                         <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
-                          {formatRp((pembeli * qty * days * hnaST * 3) * (pctMatriks / 100))}
+                          {formatRp(nilaiSc3Bln)}
                         </div>
                       </div>
                     </div>
@@ -296,11 +304,13 @@ export function ProductSelector({
         })}
       </div>
 
-      <div className="flex justify-start">
-        <Button type="button" size="sm" variant="secondary" onClick={onAddRow}>
-          + Tambah Produk
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex justify-start">
+          <Button type="button" size="sm" variant="secondary" onClick={onAddRow}>
+            + Tambah Produk
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

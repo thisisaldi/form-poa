@@ -10,6 +10,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
+import { getSalesCounterProduct } from "../../../../(app)/sc/[id]/_services/getSalesCounterProduct";
 
 interface MasterProductItem {
   kodeProduk: string;
@@ -106,6 +107,27 @@ export async function GET(
   const distinctProducts = new Set<string>();
   let totalProductRows = 0;
 
+  const outletCodes = Array.from(new Set(drafts.map((d: any) => d.kodePI).filter(Boolean))) as string[];
+  const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
+
+  await Promise.all(
+    outletCodes.map(async (kodePI: string) => {
+      try {
+        const res = await getSalesCounterProduct(kodePI);
+        if (res?.data) {
+          for (const cp of res.data) {
+            canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
+              sales_counter_value: cp.sales_counter_value || 0,
+              sales_counter_minimum: cp.sales_counter_minimum || 0,
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`Error fetching SC products for ${kodePI}:`, err);
+      }
+    })
+  );
+
   for (const draft of drafts) {
     distinctOutlets.add(draft.kodePI);
     const lama = draft.lamaPeriode || 3;
@@ -131,6 +153,7 @@ export async function GET(
       totalProductRows++;
 
       const mp = masterMap.get(p.kodeProduk);
+      const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
       const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
       const konv = mp?.konversiPembagi ? parseFloat(mp.konversiPembagi.toString()) : 1;
       const hnaST = hnaSJ / konv;
@@ -142,7 +165,16 @@ export async function GET(
       const estSalesFull = estSalesPerMonth * lama;
 
       const pctMatriks = parseFloat(p.persenMatriksSc.toString()) || 0;
-      const nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+      const scVal = cp?.sales_counter_value;
+      const scMin = cp?.sales_counter_minimum || 0;
+
+      let nilaiScPerMonth = 0;
+      if (scVal != null && scVal > 0) {
+        nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      } else {
+        nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+      }
       const nilaiScFull = nilaiScPerMonth * lama;
 
       const diskonFull = estSalesFull * ((parseFloat(p.persenDiskon.toString()) || 0) / 100);
@@ -304,7 +336,7 @@ export async function GET(
     { header: "Kode Produk", key: "kodeProduk", width: 14 },
     { header: "Nama Produk SC", key: "namaProduk", width: 30 },
     { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
-    { header: "Pembeli / Hari", key: "pembeliHari", width: 14 },
+    { header: "Customer / Hari", key: "pembeliHari", width: 14 },
     { header: "Qty / Pembeli", key: "qtyCustomerBaru", width: 14 },
     { header: "Estimasi Sales / Bln (Rp)", key: "estSalesBulan", width: 22 },
     { header: "Estimasi Sales / Periode (Rp)", key: "estSalesPeriode", width: 24 },
@@ -346,9 +378,18 @@ export async function GET(
 
       const estSalesBulan = pembeli * qty * days * hnaST;
       const estSalesPeriode = estSalesBulan * lama;
-
       const pctMatriks = (parseFloat(p.persenMatriksSc.toString()) || 0) / 100;
-      const nilaiScBulan = estSalesBulan * pctMatriks;
+      const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
+      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+      const scVal = cp?.sales_counter_value;
+      const scMin = cp?.sales_counter_minimum || 0;
+
+      let nilaiScBulan = 0;
+      if (scVal != null && scVal > 0) {
+        nilaiScBulan = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      } else {
+        nilaiScBulan = estSalesBulan * pctMatriks;
+      }
       const nilaiScPeriode = nilaiScBulan * lama;
 
       const pctDiskon = (parseFloat(p.persenDiskon.toString()) || 0) / 100;

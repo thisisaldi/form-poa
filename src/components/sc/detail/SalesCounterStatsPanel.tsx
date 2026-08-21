@@ -66,7 +66,7 @@ export function SalesCounterStatsPanel({
   const [salesOpen, setSalesOpen] = useState(false);
   const qLabel = quarterLabelFromMonths(quarterMonths);
 
-  const ratioEst = targetArea > 0 ? (metrics.tercacahEstimasiSales / targetArea) * 100 : 0;
+  const ratioEst = metrics.totalEstimasiSales > 0 ? (metrics.totalBudgetSc / metrics.totalEstimasiSales) * 100 : 0;
   const salesPlusEst = salesFigures.salesYtd + metrics.totalEstimasiSales;
   const achievePct = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
 
@@ -82,7 +82,6 @@ export function SalesCounterStatsPanel({
 
   return (
     <Card>
-      {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <p className="font-semibold text-base" style={{ color: TEXT }}>Ringkasan POA Sales Counter</p>
         <span className="text-xs px-2 py-0.5 rounded" style={{ background: BG, color: FAINT }}>
@@ -92,47 +91,7 @@ export function SalesCounterStatsPanel({
         </span>
       </div>
 
-      {/* 1. Full Periode vs Tercacah */}
-      <div className="mb-5 space-y-3">
-        {[
-          {
-            title: "Full Periode SC",
-            rows: [{ label: "Total Rencana SC", estimasi: metrics.totalEstimasiSales, nilai: metrics.totalNilaiSc, bold: true }],
-          },
-          {
-            title: `Tercacah SC (Kuartal ${qLabel})`,
-            rows: [{ label: `Tercacah Kuartal ${qLabel}`, estimasi: metrics.tercacahEstimasiSales, nilai: metrics.tercacahNilaiSc, bold: true }],
-          },
-        ].map(({ title, rows }) => (
-          <div key={title} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
-            <p className="text-xs font-semibold px-3 py-1.5" style={{ background: BG, color: MUTED }}>{title}</p>
-            <table className="w-full text-xs">
-              <thead>
-                <tr style={{ color: FAINT }}>
-                  <th className="text-left font-medium px-3 py-1.5"></th>
-                  <th className="text-right font-medium px-3 py-1.5">Estimasi Sales</th>
-                  <th className="text-right font-medium px-3 py-1.5">Nilai SC (Insentif)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.label}>
-                    <td className={`px-3 py-1.5 ${r.bold ? "font-semibold" : ""}`} style={{ color: r.bold ? TEXT : MUTED }}>{r.label}</td>
-                    <td className="text-right px-3 py-1.5 font-semibold" style={{ color: TEXT }}>
-                      {r.estimasi > 0 ? formatRp(r.estimasi) : "-"}
-                    </td>
-                    <td className="text-right px-3 py-1.5 font-semibold" style={{ color: PRIMARY }}>
-                      {r.nilai > 0 ? formatRp(r.nilai) : "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
 
-      {/* 2. Monthly Breakdown */}
       {monthlySorted.length > 0 && (
         <div className="mb-5">
           <SectionTitle>Estimasi &amp; Nilai SC per Bulan</SectionTitle>
@@ -162,12 +121,11 @@ export function SalesCounterStatsPanel({
         </div>
       )}
 
-      {/* 3. Estimasi vs Target */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
-          { label: "Estimasi Sales SC (Tercacah)", value: metrics.tercacahEstimasiSales > 0 ? formatRp(metrics.tercacahEstimasiSales) : "-", span: false },
-          { label: targetAreaIsReal ? "Target Area" : "Target Area ★", value: formatRp(targetArea), span: false },
-          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(0)}%` : "-", span: true },
+          { label: "Estimasi Sales", value: metrics.totalEstimasiSales > 0 ? formatRp(metrics.totalEstimasiSales) : "-", span: false },
+          { label: targetAreaIsReal ? "Target" : "Target ★", value: formatRp(targetArea), span: false },
+          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(2)}%` : "-", span: true },
         ].map(({ label, value, span }) => (
           <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`} style={{ background: BG, border: `1px solid ${BORDER}` }}>
             <p className="text-xs" style={{ color: MUTED }}>{label}</p>
@@ -176,7 +134,6 @@ export function SalesCounterStatsPanel({
         ))}
       </div>
 
-      {/* 4. Anggaran SC */}
       <SectionTitle>Anggaran SC</SectionTitle>
       <div className="space-y-2.5 mb-5">
         {[
@@ -205,7 +162,6 @@ export function SalesCounterStatsPanel({
         </div>
       </div>
 
-      {/* 5. Cakupan SC */}
       <SectionTitle>Cakupan Sales Counter</SectionTitle>
       <div className="grid grid-cols-2 gap-3 mb-5">
         <div className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
@@ -222,7 +178,6 @@ export function SalesCounterStatsPanel({
         </div>
       </div>
 
-      {/* 6. Data Sales */}
       <button
         type="button"
         onClick={() => setSalesOpen((v) => !v)}
