@@ -150,7 +150,7 @@ export async function getVisiblePoaFilter(
       return {
         OR: [
           { ownerId: user.nip },
-          { ownerId: { in: subIds }, status: { in: NON_DRAFT_STATUSES } },
+          { ownerId: { in: subIds }, doctorApprovals: { some: {} } },
         ],
       };
     }
@@ -161,7 +161,7 @@ export async function getVisiblePoaFilter(
       return {
         OR: [
           { ownerId: user.nip },
-          { ownerId: { in: subIds }, status: { in: NON_DRAFT_STATUSES } },
+          { ownerId: { in: subIds }, doctorApprovals: { some: {} } },
         ],
       };
     }
@@ -172,7 +172,7 @@ export async function getVisiblePoaFilter(
       return {
         OR: [
           { ownerId: user.nip },
-          { ownerId: { in: subIds }, status: { in: NON_DRAFT_STATUSES } },
+          { ownerId: { in: subIds }, doctorApprovals: { some: {} } },
         ],
       };
     }
@@ -210,10 +210,27 @@ export async function canView(user: User, poa: PoaForm): Promise<boolean> {
 
   if (user.role === Role.MR) return false; // MR only ever sees their own (checked above)
 
-  // For managers viewing a SUBORDINATE's POA: must be non-draft AND the owner must
-  // be in their subtree. REVISI behaves like DRAFT — it's back in the owner's
-  // hands, not yet visible upward.
-  if (poa.status === PoaStatus.DRAFT || poa.status === PoaStatus.REVISI) return false;
+  // For managers viewing a SUBORDINATE's POA: at least one doctor must have
+  // left the owner's hands at some point, AND the owner must be in their
+  // subtree. Checking poa.status here used to gate on the whole-draft rollup
+  // (PoaForm.status/resolvePoaRollup in poaWorkflow.ts) — but that rollup is
+  // explicitly documented as "a best-effort approximation for legacy readers,
+  // NOT the source of truth", picking the LEAST-advanced doctor's status as
+  // representative. So one doctor stuck in REVISI dragged poa.status down to
+  // REVISI and hid the ENTIRE draft from every manager — including doctors of
+  // theirs that had already reached SUBMITTED_TO_NSM and were sitting in their
+  // own queue (2026-08-21 bug report: NSM saw the draft in /approvals, since
+  // that list already queries PoaDoctorApproval.currentHolderId directly, but
+  // clicking into it hit this stale poa.status check and got redirected to
+  // /dashboard). A PoaDoctorApproval row is only ever created on a doctor's
+  // first submit and is never deleted, so "does at least one exist" is the
+  // correct, per-doctor-accurate replacement for "has this draft ever left
+  // DRAFT/REVISI".
+  const anyDoctorEverSubmitted = await prisma.poaDoctorApproval.findFirst({
+    where: { poaId: poa.id },
+    select: { id: true },
+  });
+  if (!anyDoctorEverSubmitted) return false;
 
   const depthByRole: Record<string, number> = {
     [Role.ASM]: 1,
