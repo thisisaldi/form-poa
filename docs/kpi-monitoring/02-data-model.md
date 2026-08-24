@@ -48,6 +48,12 @@ model KpiMonthlyEntry {
 
   // Attitude: Kepatuhan Absensi (10%) — manual input by atasan for v1, no
   // attendance data source exists anywhere in this app.
+  // Update 2026-08-24: implemented — src/lib/sync/kpiAbsensiSync.ts fills this
+  // on-demand (ADMIN-triggered, not a cron) from the SIPP Trade Marketing API
+  // (get=absensi), unless the row's absensiSource is already "MANUAL" (manual
+  // always wins over sync). PTID is per-NIP now (User.sippAbsPtId, discovered
+  // by probing SIPP_ABS_PT_ID_CANDIDATES and cached) — see
+  // 01-business-rules.md §2d.
   absensiValue      Decimal?  @db.Decimal(6, 2) // working assumption: avg jam keterlambatan/bulan (§2d)
   absensiSource     String    @default("MANUAL")
   absensiInputByNip String?
@@ -142,6 +148,7 @@ Catatan desain:
 
 ## 5. Yang sengaja TIDAK dibangun di v1
 
-- Sync otomatis untuk Call Activity/Absensi — menunggu keputusan integrasi eksternal (lihat catatan status Exodus Activity API di `README.md` dan `01-business-rules.md` §2b — sudah ada API yang berpotensi relevan, tetapi endpoint yang cocok belum diimplementasikan/dipakai). `callActivitySource`/`absensiSource` disiapkan supaya migrasi ke sync nanti tidak membutuhkan perubahan struktur tabel, cukup mengganti nilai source dan mengisi field melalui job baru.
+- Sync otomatis untuk Call Activity — masih menunggu keputusan integrasi eksternal (lihat `01-business-rules.md` §2b — API Exodus Activity relevan tapi endpoint yang cocok belum diimplementasikan/dipakai). `callActivitySource` disiapkan dengan pola yang sama seperti `absensiSource` di bawah, untuk saat integrasi ini akhirnya dikerjakan.
+- Sync otomatis untuk Absensi — **sudah diimplementasikan 2026-08-24** (`src/lib/sync/kpiAbsensiSync.ts`, lihat `01-business-rules.md` §2d), TAPI belum aktif di production sampai kredensial SIPP + `SIPP_DEFAULT_ABS_PT_ID` dikonfirmasi dan diisi (env var kosong = job diam-diam skip, bukan error).
 - Perhitungan otomatis tanggal kontrak — lihat catatan `KpiContractEvaluation` di atas.
 - Job bulanan pengisi snapshot `KpiMonthlyEntry` — lihat catatan status implementasi snapshot di §2 di atas; ini bukan keputusan scope yang disengaja, melainkan pekerjaan yang belum sempat dikerjakan pada v1.

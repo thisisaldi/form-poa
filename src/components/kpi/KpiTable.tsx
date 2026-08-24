@@ -93,9 +93,11 @@ function ManualInputRow({ row, period }: { row: KpiPersonnelRow; period: string 
 /**
  * Listing table for /kpi-perpanjangan — 4 pillar scores + Total Score +
  * rekomendasi kontrak, one row per active MR/ASM/SM. Sales Achievement &
- * Customer Expansion are read-only (derived from real data); Call Activity &
- * Absensi are the only editable cells (manual input, no automated source —
- * see docs/kpi-monitoring/02-data-model.md §2).
+ * Customer Expansion are read-only (derived from real data); Call Activity is
+ * always manual (no automated source yet); Absensi is normally filled
+ * automatically by the SIPP sync (marked "(sinkron)" below) but stays
+ * editable as an ADMIN override — see docs/kpi-monitoring/02-data-model.md §2
+ * and src/lib/sync/kpiAbsensiSync.ts.
  */
 export function KpiTable({ rows, period }: { rows: KpiPersonnelRow[]; period: string }) {
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -169,6 +171,11 @@ export function KpiTable({ rows, period }: { rows: KpiPersonnelRow[]; period: st
                 <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: scoreColor(r.absensiScore) }}>
                   {r.absensiValue != null ? r.absensiValue.toFixed(1) : "Belum diisi"}
                   {r.absensiScore != null && <span className="ml-1" style={{ color: "var(--color-text-faint)" }}>({r.absensiScore})</span>}
+                  {r.absensiSource === "SIPP_SYNC" && (
+                    <span className="ml-1 text-[10px]" style={{ color: "var(--color-text-faint)" }} title="Disinkronkan otomatis dari SIPP (absensi HRIS)">
+                      (sinkron)
+                    </span>
+                  )}
                 </td>
 
                 <td className="py-2 px-3 text-right whitespace-nowrap font-semibold" style={{ color: scoreColor(r.totalScore) }}>

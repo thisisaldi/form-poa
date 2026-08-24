@@ -118,6 +118,12 @@ model User {
   isActive  Boolean   @default(true)
   isDummy   Boolean   @default(false) // workshop/demo account — bypasses outlet-assignment restrictions
   syncedAt  DateTime?
+  // Discovered (not synced from anywhere — no source tells us this) AbsPTID
+  // for the SIPP attendance API — one NIP can only ever be at one PT. Cached
+  // by kpiAbsensiSync.ts after probing ABS_PT_ID_CANDIDATES so repeat syncs
+  // don't re-probe every candidate for every person. Null = not discovered
+  // yet (new hire, or no attendance data in any candidate PT).
+  sippAbsPtId Int?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   project   String?

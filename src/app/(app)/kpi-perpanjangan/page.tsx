@@ -4,6 +4,7 @@ import { getKpiMonitoringData } from "@/app/actions/kpi";
 import { Card } from "@/components/ui/Card";
 import { KpiTable } from "@/components/kpi/KpiTable";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
+import { SyncAbsensiButton } from "@/components/kpi/SyncAbsensiButton";
 import { KpiDashboardStats } from "@/components/kpi/KpiDashboardStats";
 
 export const metadata = { title: "Monitoring KPI Perpanjangan · Form POA" };
@@ -54,7 +55,10 @@ export default async function KpiPerpanjanganPage({
             {rows.length} personil (MR/ASM/SM) · {scoredCount} sudah lengkap 4 pilar · periode {period}
           </p>
         </div>
-        <KpiPeriodPicker periods={periods} period={period} />
+        <div className="flex items-start gap-2">
+          <KpiPeriodPicker periods={periods} period={period} />
+          <SyncAbsensiButton period={period} />
+        </div>
       </div>
 
       <Card>

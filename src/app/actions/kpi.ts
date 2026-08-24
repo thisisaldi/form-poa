@@ -2,9 +2,12 @@
 
 /**
  * KPI Monitoring (Monitoring KPI Perpanjangan) — see docs/kpi-monitoring/.
- * v1 scope: ADMIN-only listing + manual input for Call Activity/Absensi.
- * Contract-evaluation workflow (KpiContractEvaluation) is spec'd but NOT
- * built yet — see docs/kpi-monitoring/03-ui-and-access.md.
+ * v1 scope: ADMIN-only listing + manual input for Call Activity, and for
+ * Absensi when the SIPP sync (src/lib/sync/kpiAbsensiSync.ts) hasn't already
+ * filled it for the period — this module just reads whatever KpiMonthlyEntry
+ * has, same code path either way. Contract-evaluation workflow
+ * (KpiContractEvaluation) is spec'd but NOT built yet — see
+ * docs/kpi-monitoring/03-ui-and-access.md.
  */
 
 import { revalidatePath } from "next/cache";
@@ -12,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
+import { runKpiAbsensiSync, type KpiAbsensiSyncResult } from "@/lib/sync/kpiAbsensiSync";
 import {
   CALL_ACTIVITY_STANDARD_BY_ROLE,
   computeTotalScore,
@@ -57,6 +61,8 @@ export type KpiPersonnelRow = {
 
   absensiValue: number | null;
   absensiScore: number | null;
+  /** "MANUAL" | "SIPP_SYNC" — see docs/kpi-monitoring/01-business-rules.md §2d. Null when no entry exists yet. */
+  absensiSource: string | null;
 
   totalScore: number | null;
   recommendation: ContractRecommendation | null;
@@ -89,6 +95,7 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
     callActivityRealisasi: number | null;
     callActivityStandar: number | null;
     absensiValue: { toString(): string } | null;
+    absensiSource: string | null;
   };
 
   const [entries, poas, assignments] = await Promise.all([
@@ -184,6 +191,7 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
 
     const absensiValue = entry?.absensiValue != null ? toNum(entry.absensiValue) : null;
     const absensiScore = absensiValue != null ? scoreAbsensi(absensiValue) : null;
+    const absensiSource = entry?.absensiSource ?? null;
 
     const allScored = salesScore != null && activityScore != null && customerScore != null && absensiScore != null;
     const totalScore = allScored
@@ -207,6 +215,7 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
       customerScore,
       absensiValue,
       absensiScore,
+      absensiSource,
       totalScore,
       recommendation: totalScore != null ? recommendContractMonths(totalScore) : null,
     });
@@ -225,9 +234,13 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
 
 /**
  * ADMIN-only: save the manual Call Activity/Absensi inputs for one personil ×
- * month — the only two indicators with no automated data source (see
- * docs/kpi-monitoring/02-data-model.md §2). Only touches fields that were
- * actually passed (undefined = leave as-is).
+ * month — Call Activity still has no automated data source (see
+ * docs/kpi-monitoring/02-data-model.md §2); Absensi can also be filled
+ * automatically by the SIPP sync (src/lib/sync/kpiAbsensiSync.ts). Touching
+ * absensiValue here always marks absensiSource "MANUAL", so the sync job
+ * treats it as an override and skips re-writing it on its next run — same
+ * "manual wins" contract documented in kpiAbsensiSync.ts. Only touches fields
+ * that were actually passed (undefined = leave as-is).
  */
 export async function saveKpiManualInputAction(input: {
   nip: string;
@@ -251,6 +264,7 @@ export async function saveKpiManualInputAction(input: {
       callActivityInputByNip: input.callActivityRealisasi != null ? session.userId : null,
       callActivityInputAt: input.callActivityRealisasi != null ? now : null,
       absensiValue: input.absensiValue ?? null,
+      absensiSource: "MANUAL",
       absensiInputByNip: input.absensiValue != null ? session.userId : null,
       absensiInputAt: input.absensiValue != null ? now : null,
     },
@@ -266,6 +280,7 @@ export async function saveKpiManualInputAction(input: {
       ...(input.absensiValue !== undefined
         ? {
             absensiValue: input.absensiValue,
+            absensiSource: "MANUAL",
             absensiInputByNip: session.userId,
             absensiInputAt: now,
           }
@@ -274,4 +289,18 @@ export async function saveKpiManualInputAction(input: {
   });
 
   revalidatePath("/kpi-perpanjangan");
+}
+
+/**
+ * ADMIN-only, manually triggered: pull this period's Absensi data from SIPP
+ * for every active MR/ASM/SM (see src/lib/sync/kpiAbsensiSync.ts). No
+ * automatic schedule — nobody asked for "always fresh," and running it
+ * on-demand avoids an always-on background job for a feature an ADMIN
+ * triggers deliberately before making contract decisions anyway.
+ */
+export async function syncKpiAbsensiAction(period: string): Promise<KpiAbsensiSyncResult> {
+  await requireAdmin();
+  const result = await runKpiAbsensiSync(period);
+  revalidatePath("/kpi-perpanjangan");
+  return result;
 }

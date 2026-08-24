@@ -52,6 +52,7 @@ export async function verifyNip(nip: string): Promise<VerifyResult> {
           createdAt: new Date(),
           updatedAt: new Date(),
           project: "OMEGA",
+          sippAbsPtId: null,
         },
       };
     }

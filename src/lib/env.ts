@@ -42,6 +42,15 @@ const envSchema = z.object({
   // try/catch — never a hard failure), not an env validation error.
   NEXUS_API_USERNAME: z.string().optional(),
   NEXUS_API_PASSWORD: z.string().optional(),
+  // Optional — SIPP (Trade Marketing) external API, HR attendance/leave data
+  // (see "API - Trade Marketing Documentation.pdf", API Doc. Ver. 1.0.2026;
+  // src/lib/sippApi.ts). Feeds the Kepatuhan Absensi pillar of KPI Monitoring
+  // (docs/kpi-monitoring/01-business-rules.md §2d) — same degrade-gracefully
+  // pattern as EXODUS_*/NEXUS_* above: unset means the sync job skips and
+  // absensi stays manual-input-only, never a hard failure.
+  SIPP_BASE_URL: z.string().optional(),
+  SIPP_CLIENT_ID: z.string().optional(),
+  SIPP_CLIENT_SECRET: z.string().optional(),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
@@ -82,6 +91,9 @@ function validateEnv(): Env {
         GOOGLE_DRIVE_SURVEY_FOLDER_ID: undefined,
         NEXUS_API_USERNAME: undefined,
         NEXUS_API_PASSWORD: undefined,
+        SIPP_BASE_URL: undefined,
+        SIPP_CLIENT_ID: undefined,
+        SIPP_CLIENT_SECRET: undefined,
         NODE_ENV: (process.env.NODE_ENV as Env["NODE_ENV"]) ?? "production",
       };
     }
