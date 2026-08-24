@@ -150,6 +150,10 @@ export function SurveyUploadForm({ outlets }: { outlets: OutletOption[] }) {
         </p>
       </div>
 
+      <p className="text-xs px-3 py-2 rounded-md" style={{ color: "var(--color-blue)", background: "var(--color-blue-light, #eff6ff)" }}>
+        Tolong cari data flashdisk (bisa dari Peresepan / Pembelian / RME), bisa dari Pembelian / IT / Gudang / Depo.
+      </p>
+
       <Card>
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           {/* Plain <div> wrappers, NOT <label> — a <label> forwards clicks to

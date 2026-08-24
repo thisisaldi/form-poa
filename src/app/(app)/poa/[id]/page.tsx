@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canView, canEdit, canAddNewDoctor, canEditDoctor, getSubordinateMRNips, NON_DRAFT_STATUSES,
+import { canView, canEdit, canAddNewDoctor, canEditDoctor, NON_DRAFT_STATUSES,
   canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor,
   canRequestEditDoctor, canRespondEditRequestDoctor, getEditLockRoleLabelForDoctor, getLastApproverForDoctor } from "@/lib/authz";
 import { computeMonthlyBreakdown, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
@@ -20,6 +20,7 @@ import { computeKontesProductTargetsSummary } from "@/lib/targetCalculation";
 import { displayRole } from "@/lib/role";
 import { getMrSalesSummary } from "@/lib/salesSummary";
 import { quarterToMonths } from "@/lib/quarterUtils";
+import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import { EditQuarterControl } from "@/components/poa/EditQuarterControl";
 
 export const metadata = { title: "Detail POA · Form POA" };
@@ -444,29 +445,27 @@ export default async function PoaDetailPage({
 
   // Target Value (2026-08-03, widened same day — stakeholder item #11: label
   // "Target Area" → "Target", calculation = SUM dari Personil) — monthly
-  // Rupiah sales target per GT, imported from "Target Hospital (in
-  // Value).xlsx" into TargetHospitalValue, summed over the months in this
-  // POA's quarter, across every MR getSubordinateMRNips resolves for the
-  // owner: just the owner's own nip for a normal MR-owned POA (unchanged
-  // behavior), or every subordinate MR when an ASM/SM/NSM owns the POA
-  // themselves (vacant-team case) — previously that case fell back to "-"
-  // entirely since only poa.ownerId (the ASM/SM's own nip, never a GT) was
-  // ever queried. poa.target (manual, set by atasan) still wins if it's ever
-  // populated — this only fills the gap while that field stays unused.
-  let targetValueFromGT: number | null = null;
-  if (/^\d{4}-Q[1-4]$/.test(poa.period)) {
-    const months = quarterToMonths(poa.period);
-    const targetNips = await getSubordinateMRNips(poa.owner);
-    const rows = targetNips.length > 0
-      ? await prisma.targetHospitalValue.findMany({
-          where: { nipMR: { in: targetNips }, periode: { in: months } },
-          select: { target: true },
-        })
-      : [];
-    if (rows.length > 0) {
-      targetValueFromGT = rows.reduce((sum: number, r: { target: { toString(): string } }) => sum + parseFloat(r.target.toString()), 0);
-    }
-  }
+  // Rupiah sales target per GT, imported from "Target Hospital (in Value)
+  // (1).xlsx" into TargetHospitalValue, summed over the months in this POA's
+  // quarter, across every MR getSubordinateMRNips resolves for the owner:
+  // just the owner's own nip for a normal MR-owned POA (unchanged behavior),
+  // or every subordinate MR when an ASM/SM/NSM owns the POA themselves
+  // (vacant-team case). poa.target (manual, set by atasan) still wins if it's
+  // ever populated — this only fills the gap while that field stays unused.
+  //
+  // 2026-08-24: tried joining live via Outlet.coveredByNip instead of the
+  // nipMR frozen into TargetHospitalValue at import time (so a GT whose MR
+  // seat changes wouldn't need re-import to attribute correctly) — reverted.
+  // Outlet is scoped to Divisi KAM only (see its schema comment), while this
+  // target data is FF division ("Rekap FFMedrep" = FF Medical Rep); confirmed
+  // Outlet has zero rows for this data's GT names (e.g. "CIREBON-SILIWANGI"
+  // doesn't exist there, closest is KAM's differently-bounded "CIREBON +
+  // SILIWANGI"). No live/Nexus-synced FF-territory-ownership source exists in
+  // this schema, so nipMR staying current genuinely depends on
+  // scripts/importTargetHospitalValue.ts being re-run whenever HO/sales
+  // update the source sheet — that's the actual mechanism, not a stopgap.
+  const targetFallbackMap = await resolveTargetHospitalValueFallback([{ owner: poa.owner, quarter: poa.period }]);
+  const targetValueFromGT: number | null = targetFallbackMap.get(`${poa.owner.nip}|${poa.period}`) ?? null;
 
   return (
     <div className="space-y-5">

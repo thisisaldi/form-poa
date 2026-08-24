@@ -9,19 +9,31 @@ import {
 } from "@/app/actions/targetHospitalValue";
 import { TARGET_HOSPITAL_PERIODS } from "@/lib/targetHospitalValue";
 import { formatCurrency as formatRp } from "@/lib/format";
+import { formatRp as formatThousands, parseRp } from "@/lib/utils";
 
 const PERIOD_LABEL: Record<string, string> = {
   "202608": "Agu'26", "202609": "Sep'26", "202610": "Okt'26", "202611": "Nov'26", "202612": "Des'26",
 };
 
-function sumBy(rows: TargetHospitalRow[], keyFn: (r: TargetHospitalRow) => string): { name: string; total: number }[] {
-  const map = new Map<string, number>();
+interface RollupRow {
+  name: string;
+  total: number;
+  byPeriode: Record<string, number>;
+}
+
+function sumBy(rows: TargetHospitalRow[], keyFn: (r: TargetHospitalRow) => string): RollupRow[] {
+  const map = new Map<string, RollupRow>();
   for (const r of rows) {
     const key = keyFn(r);
-    const rowTotal = TARGET_HOSPITAL_PERIODS.reduce((s, p) => s + (r.targets[p] ?? 0), 0);
-    map.set(key, (map.get(key) ?? 0) + rowTotal);
+    let entry = map.get(key);
+    if (!entry) { entry = { name: key, total: 0, byPeriode: {} }; map.set(key, entry); }
+    for (const p of TARGET_HOSPITAL_PERIODS) {
+      const v = r.targets[p] ?? 0;
+      entry.total += v;
+      entry.byPeriode[p] = (entry.byPeriode[p] ?? 0) + v;
+    }
   }
-  return [...map.entries()].map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
+  return [...map.values()].sort((a, b) => b.total - a.total);
 }
 
 /**
@@ -122,10 +134,10 @@ export function TargetHospitalValueForm() {
                     return (
                       <td key={p} className="py-1.5 px-2">
                         <input
-                          type="number" min="0" step="1"
-                          value={r.targets[p] ?? 0}
-                          onChange={(e) => updateLocal(r.namaGT, p, parseFloat(e.target.value) || 0)}
-                          onBlur={(e) => commit(r.namaGT, p, parseFloat(e.target.value) || 0)}
+                          type="text" inputMode="numeric"
+                          value={formatThousands(String(r.targets[p] ?? 0))}
+                          onChange={(e) => updateLocal(r.namaGT, p, parseFloat(parseRp(e.target.value)) || 0)}
+                          onBlur={(e) => commit(r.namaGT, p, parseFloat(parseRp(e.target.value)) || 0)}
                           className="input-field text-right" style={{ width: 110,
                             borderColor: savedKey === key ? "var(--color-green, #16a34a)" : undefined }} />
                         {savingKey === key && <span className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>Menyimpan…</span>}
@@ -151,11 +163,20 @@ export function TargetHospitalValueForm() {
           ].map(({ title, data }) => (
             <div key={title}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>{title}</p>
-              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                 {data.map((d) => (
-                  <div key={d.name} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate" style={{ color: "var(--color-text-muted)" }}>{d.name}</span>
-                    <span className="font-semibold shrink-0" style={{ color: "var(--color-blue)" }}>{formatRp(d.total)}</span>
+                  <div key={d.name} className="text-xs pb-1.5 border-b" style={{ borderColor: "var(--color-border)" }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium" style={{ color: "var(--color-text-muted)" }}>{d.name}</span>
+                      <span className="font-semibold shrink-0" style={{ color: "var(--color-blue)" }}>{formatRp(d.total)}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 mt-1">
+                      {TARGET_HOSPITAL_PERIODS.map((p) => (
+                        <span key={p} className="text-[10px] whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                          {PERIOD_LABEL[p]} <span style={{ color: "var(--color-text-muted)" }}>{formatRp(d.byPeriode[p] ?? 0)}</span>
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>

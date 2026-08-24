@@ -14,6 +14,7 @@ import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart"
 import type { PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
 import { displayRole } from "@/lib/role";
 import { formatCurrency as formatRp } from "@/lib/format";
+import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 
 export const metadata = { title: "Dashboard · Form POA" };
 
@@ -30,6 +31,7 @@ type PoaWithMeta = PoaFormType & {
   _count: { items: number };
   _totalEst: number;
   _dokterCount: number;
+  _target: number | null;          // poa.target (manual) ?? TargetHospitalValue fallback
   _ratioEstimasi: number | null;  // totalEst / target * 100 (null if no target)
   _pctBudget: number | null;       // weighted avg budget % (0-100), null if no items
 };
@@ -173,13 +175,25 @@ async function DashboardContent({
   // Compute per-POA aggregates
   const toNum = (v: { toString(): string } | null | undefined) => parseFloat((v ?? "0").toString()) || 0;
 
+  // Target resolution (docs/form-poa/01-business-rules.md §3): poa.target
+  // (manual) wins if set, else SUM(TargetHospitalValue) via subordinate MR
+  // nips for that POA's quarter — batched across the whole visible page
+  // (docs/PERFORMANCE.md §2 point 4), not per-row, since this list can be
+  // company-wide ADMIN scope. Previously only wired into poa/[id]/page.tsx's
+  // single-POA view; this page just showed the raw (almost always unset)
+  // poa.target, hence "-" everywhere (found 2026-08-24).
+  const targetFallbackMap = await resolveTargetHospitalValueFallback(
+    (recentRaw as RawPoa[]).map((poa) => ({ owner: poa.owner, quarter: poa.period }))
+  );
+
   const recentPoas: PoaWithMeta[] = (recentRaw as RawPoa[]).map((poa) => {
     const items = poa.items;
     const totalEst = items.reduce((s: number, it: RawItem) => s + toNum(it.rencanaTotalBiaya), 0);
     const dokterCount = new Set(items.map((it: RawItem) => it.namaCust)).size;
 
     // Ratio % = totalEst / target
-    const target = poa.target ? parseFloat(poa.target.toString()) : null;
+    const manualTarget = poa.target ? parseFloat(poa.target.toString()) : null;
+    const target = manualTarget ?? targetFallbackMap.get(`${poa.owner.nip}|${poa.period}`) ?? null;
     const ratioEstimasi = target != null && target > 0 ? (totalEst / target) * 100 : null;
 
     // Weighted budget percentage
@@ -198,6 +212,7 @@ async function DashboardContent({
       _count: { items: items.length },
       _totalEst: totalEst,
       _dokterCount: dokterCount,
+      _target: target,
       _ratioEstimasi: ratioEstimasi,
       _pctBudget: pctBudget,
     };
@@ -527,7 +542,7 @@ async function DashboardContent({
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
                 {recentPoas.map((poa) => {
-                  const target = poa.target ? parseFloat(poa.target.toString()) : null;
+                  const target = poa._target;
                   const budgetOver = poa._pctBudget != null && poa._pctBudget > 42.5;
                   return (
                   <tr key={poa.id}>

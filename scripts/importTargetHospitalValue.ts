@@ -1,40 +1,57 @@
 /**
- * Import "internal/Target Hospital (in Value).xlsx", sheet "Rekap FFMedrep",
- * into TargetHospitalValue — one row per (namaGT, periode) monthly Rupiah
- * sales target, for 202608-202612 (2026-07-31 request).
+ * Import target PENGAJUAN values into TargetHospitalValue — one row per
+ * (namaGT, periode) monthly Rupiah sales target for 202608-202612.
  *
- * Source shape: header row 1, one row per GT (territory) — columns used:
- *   A  Nama GT
- *   D  MR (raw — literal "DUMMY MR ..." when no real MR assigned)
- *   E  SPV (fallback name when D is a dummy placeholder)
- *   F  MR/ SPV (already-resolved effective name — D falling back to E — use
- *      this one, not D/E directly)
- *   G  ASM   H  SM   I  NSM
- *   P  TARGET 202608 (REKOMENDASI HO)
- *   Q  TARGET 202609 (REKOMENDASI HO)
- *   S  TARGET 202610 (REKOMENDASI HO)   [R is a TARGET Q4 aggregate, skipped]
- *   T  TARGET 202611 (REKOMENDASI HO)
- *   U  TARGET 202612 (REKOMENDASI HO)
+ * Switched 2026-08-24 from REKOMENDASI HO (top-down formula, "Rekap FFMedrep"
+ * sheet) to PENGAJUAN (bottom-up, sales-submitted): business owner confirmed
+ * Rekomendasi is only a starting point, Pengajuan is what sales actually
+ * commits to — and "Rekap FFMedrep" data itself is unreliable for VALUES
+ * (its identity/mapping columns are still fine, see below).
  *
- * nip resolution: each of MR/SPV, ASM, SM, NSM names is matched by exact
- * (case-insensitive, trimmed) name against User, restricted to isDummy=false
- * AND the expected role for that level (MR/SPV -> role MR, ASM -> ASM, SM ->
- * SM, NSM -> NSM) — the User table has, per real person, a parallel set of
- * isDummy=true "shadow" accounts sharing that person's exact name at every
- * role level (workshop/demo data), so an unfiltered name match would
- * frequently resolve to the wrong nip. Placeholder names ("VACANT ...", "...
- * (SHADOW)", "DUMMY ...") legitimately match nothing — nip stays null, the
- * raw name is kept regardless so the row is still fully attributable. If
- * more than one non-dummy user of the right role shares the exact name
- * (a handful of real same-name collisions exist), the lowest nip is picked
- * deterministically and the collision is reported — resolve manually via the
- * admin edit page if it matters for a specific row.
+ * Source: "internal/Target Hospital (in Value) (1).xlsx", two kinds of sheet:
  *
- * Effects: upserts TargetHospitalValue on (namaGT, periode). Rows with a
- * blank Nama GT are skipped.
+ *  - "Rekap FFMedrep": IDENTITY LOOKUP ONLY, not a value source. One row per
+ *    GT — col A Nama GT, col C Nama Area, col F effective MR/SPV name. Used
+ *    to build a (Nama Area, MR/SPV name) -> Nama GT map, since the per-NSM
+ *    sheets below never spell out "Nama GT" directly. Verified 2026-08-24:
+ *    260/260 Pengajuan-bearing rows from the NSM sheets matched this map with
+ *    zero conflicts — reliable for identity even though its own REKOMENDASI
+ *    target columns are not (per business owner, not used here).
+ *
+ *  - 12 per-NSM sheets — NSM_SHEETS below ("Sheet7"/"HIDING" are scratch, not
+ *    data). Each is a repeating block per Area: a header row (col A = area
+ *    name, cols B/C blank), a column-header row ("MR / SPV" | "NAMA ASM" |
+ *    "NAMA SM" | ...), one data row per MR/SPV (col A = name, col D =
+ *    numeric "SALES ACTUAL S1 2026" — used to detect data rows), then a
+ *    "TOTAL" row and a few summary rows before the next Area block. NSM name
+ *    is the sheet name itself, not a column. Target columns used:
+ *      Q  TARGET 202608 (PENGAJUAN)
+ *      R  TARGET 202609 (PENGAJUAN)
+ *      S  TARGET 202610 (PENGAJUAN)
+ *      T  TARGET 202611 (PENGAJUAN)
+ *      U  TARGET 202612 (PENGAJUAN)
+ *    A blank/non-numeric cell means that periode hasn't been submitted yet —
+ *    skipped for that GT, NOT filled from Rekomendasi (2026-08-24: "pengajuan
+ *    apa adanya, approved atau belum" — no fallback, no approval-status
+ *    filter). A GT/periode already in the table from a prior import that has
+ *    no Pengajuan value here is left untouched, not zeroed out.
+ *
+ * nip resolution: same as before — MR/SPV, ASM, SM, NSM names matched
+ * case-insensitive/trimmed against non-dummy Users of the expected role;
+ * VACANT/DUMMY placeholders and "A - B (SHADOW)" pairs legitimately don't
+ * resolve — nip stays null, raw name is always kept regardless. When a name
+ * DOES resolve, the stored nama* is the User's own canonical `name`, not the
+ * raw source text — keeps casing consistent with other rows/sources for the
+ * same person (e.g. this workbook's sheet tabs are "Fachriyanto", the User
+ * table has "FACHRIYANTO" — storing the raw tab text split one NSM's rows
+ * into two groups everywhere the app displays/groups by name).
+ *
+ * Effects: upserts TargetHospitalValue on (namaGT, periode) — same table,
+ * same unique key as the original Rekomendasi-era import, this only changes
+ * which source column feeds `target`.
  *
  * Run: npx tsx scripts/importTargetHospitalValue.ts [path-to-excel]
- * Default: "internal/Target Hospital (in Value).xlsx"
+ * Default: "internal/Target Hospital (in Value) (1).xlsx"
  */
 
 import "dotenv/config";
@@ -44,12 +61,16 @@ import { randomUUID } from "crypto";
 import { prisma } from "../src/lib/prisma";
 
 const BATCH = 300;
-const PERIODE_COLUMNS: { col: number; periode: string }[] = [
-  { col: 16, periode: "202608" },
-  { col: 17, periode: "202609" },
-  { col: 19, periode: "202610" },
-  { col: 20, periode: "202611" },
-  { col: 21, periode: "202612" },
+const NSM_SHEETS = [
+  "Alfred P", "Eka N", "Fachriyanto", "Umi", "Hermanto", "Darma",
+  "Agus", "Stefanus", "Parasian", "Sakti", "Dody", "Angga",
+];
+const PENGAJUAN_COLUMNS: { col: number; periode: string }[] = [
+  { col: 17, periode: "202608" }, // Q
+  { col: 18, periode: "202609" }, // R
+  { col: 19, periode: "202610" }, // S
+  { col: 20, periode: "202611" }, // T
+  { col: 21, periode: "202612" }, // U
 ];
 
 function esc(s: string): string {
@@ -60,8 +81,15 @@ function sqlNullableStr(s: string | null): string {
   return s == null ? "NULL" : `'${esc(s)}'`;
 }
 
-function numCell(v: unknown): number {
-  return typeof v === "number" ? v : parseFloat(String(v ?? "")) || 0;
+// "SALES ACTUAL S1 2026" (col D, used only to detect data rows) is a live
+// SUMIFS formula in this workbook, not a plain value — ExcelJS returns
+// { formula, result } for it, not a bare number.
+function formulaResultNum(v: unknown): number | null {
+  if (typeof v === "number") return v;
+  if (v && typeof v === "object" && "result" in v && typeof (v as { result: unknown }).result === "number") {
+    return (v as { result: number }).result;
+  }
+  return null;
 }
 
 interface SourceRow {
@@ -70,40 +98,71 @@ interface SourceRow {
   namaASM: string;
   namaSM: string;
   namaNSM: string;
-  targets: Record<string, number>; // periode -> target
+  targets: Record<string, number>; // periode -> target, only for submitted months
 }
 
 async function main() {
-  const filePath = path.resolve(process.argv[2] ?? "internal/Target Hospital (in Value).xlsx");
+  const filePath = path.resolve(process.argv[2] ?? "internal/Target Hospital (in Value) (1).xlsx");
   console.log(`Reading: ${filePath}\n`);
 
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
-  const ws = wb.getWorksheet("Rekap FFMedrep");
-  if (!ws) { console.error('Sheet "Rekap FFMedrep" not found'); process.exit(1); }
 
-  const rows: SourceRow[] = [];
-  let skippedBlankGT = 0;
-
-  for (let r = 2; r <= ws.rowCount; r++) {
-    const row = ws.getRow(r);
+  // ── Identity lookup: (Nama Area, MR/SPV name) -> Nama GT, from Rekap FFMedrep ──
+  const rekap = wb.getWorksheet("Rekap FFMedrep");
+  if (!rekap) { console.error('Sheet "Rekap FFMedrep" not found'); process.exit(1); }
+  const gtByAreaAndMr = new Map<string, string>();
+  for (let r = 2; r <= rekap.rowCount; r++) {
+    const row = rekap.getRow(r);
     const namaGT = String(row.getCell(1).value ?? "").trim();
-    if (!namaGT) { skippedBlankGT++; continue; }
-
-    const namaMR = String(row.getCell(6).value ?? "").trim();
-    const namaASM = String(row.getCell(7).value ?? "").trim();
-    const namaSM = String(row.getCell(8).value ?? "").trim();
-    const namaNSM = String(row.getCell(9).value ?? "").trim();
-
-    const targets: Record<string, number> = {};
-    for (const { col, periode } of PERIODE_COLUMNS) {
-      targets[periode] = numCell(row.getCell(col).value);
-    }
-
-    rows.push({ namaGT, namaMR, namaASM, namaSM, namaNSM, targets });
+    const namaArea = String(row.getCell(3).value ?? "").trim();
+    const mrspv = String(row.getCell(6).value ?? "").trim();
+    if (!namaGT) continue;
+    gtByAreaAndMr.set(`${namaArea.toUpperCase()}|${mrspv.toUpperCase()}`, namaGT);
   }
 
-  console.log(`Parsed ${rows.length} GT rows (skipped ${skippedBlankGT} blank-Nama-GT rows).\n`);
+  // ── Per-NSM sheets: walk repeating Area blocks, collect Pengajuan rows ──
+  const rows: SourceRow[] = [];
+  let unmatchedGT = 0;
+
+  for (const sheetName of NSM_SHEETS) {
+    const ws = wb.getWorksheet(sheetName);
+    if (!ws) { console.error(`Sheet "${sheetName}" not found — skipped`); continue; }
+
+    let curArea: string | null = null;
+    for (let r = 1; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const a = row.getCell(1).value;
+      const b = row.getCell(2).value;
+      const c = row.getCell(3).value;
+      const d = row.getCell(4).value;
+
+      if (a != null && a !== "" && (b == null || b === "") && (c == null || c === "")) {
+        curArea = String(a).trim().toUpperCase();
+        continue;
+      }
+      if (a == null || a === "" || a === "MR / SPV" || a === "TOTAL") continue;
+      if (formulaResultNum(d) === null) continue; // not a data row
+
+      const namaMR = String(a).trim();
+      const namaASM = String(b ?? "").trim();
+      const namaSM = String(c ?? "").trim();
+
+      const namaGT = gtByAreaAndMr.get(`${curArea ?? ""}|${namaMR.toUpperCase()}`);
+      if (!namaGT) { unmatchedGT++; continue; }
+
+      const targets: Record<string, number> = {};
+      for (const { col, periode } of PENGAJUAN_COLUMNS) {
+        const v = row.getCell(col).value;
+        if (typeof v === "number") targets[periode] = v;
+      }
+      if (Object.keys(targets).length === 0) continue; // nothing submitted yet
+
+      rows.push({ namaGT, namaMR, namaASM, namaSM, namaNSM: sheetName, targets });
+    }
+  }
+
+  console.log(`Parsed ${rows.length} GT rows with at least one Pengajuan value (${unmatchedGT} rows skipped — no Nama GT match).\n`);
 
   // ── Name -> nip resolution, restricted to non-dummy users of the expected role ──
   const users = await prisma.user.findMany({ where: { isDummy: false }, select: { nip: true, name: true, role: true } });
@@ -123,6 +182,8 @@ async function main() {
   const smIndex = buildNameIndex("SM");
   const nsmIndex = buildNameIndex("NSM");
 
+  const nipToName = new Map(users.map((u) => [u.nip, u.name]));
+
   let collisions = 0;
   function resolveNip(index: Map<string, string[]>, name: string): string | null {
     if (!name) return null;
@@ -131,25 +192,37 @@ async function main() {
     if (candidates.length > 1) collisions++;
     return [...candidates].sort()[0];
   }
+  // Once a name resolves to a nip, store the User's own canonical `name`
+  // instead of the raw source text — otherwise casing differences between
+  // sources (e.g. this sheet's tab title "Fachriyanto" vs the User table's
+  // "FACHRIYANTO") silently split what should be one person into two rows
+  // wherever the app groups/displays by namaMR/ASM/SM/NSM (found 2026-08-24:
+  // "TOTAL PER NSM" showing "Fachriyanto" and "FACHRIYANTO" separately).
+  // Unresolved (VACANT/DUMMY/SHADOW placeholders) keep the raw text, same as
+  // before — nothing canonical to fall back to.
+  function resolveNipAndName(index: Map<string, string[]>, name: string): { nip: string | null; name: string } {
+    const nip = resolveNip(index, name);
+    return { nip, name: nip ? (nipToName.get(nip) ?? name) : name };
+  }
 
-  console.log(`Upserting ${rows.length} GT × ${PERIODE_COLUMNS.length} months = ${rows.length * PERIODE_COLUMNS.length} TargetHospitalValue rows...`);
-
-  const now = new Date();
   const flat: { namaGT: string; periode: string; target: number; nipMR: string | null; namaMR: string; nipASM: string | null; namaASM: string; nipSM: string | null; namaSM: string; nipNSM: string | null; namaNSM: string }[] = [];
   for (const r of rows) {
-    const nipMR = resolveNip(mrIndex, r.namaMR);
-    const nipASM = resolveNip(asmIndex, r.namaASM);
-    const nipSM = resolveNip(smIndex, r.namaSM);
-    const nipNSM = resolveNip(nsmIndex, r.namaNSM);
-    for (const { periode } of PERIODE_COLUMNS) {
+    const mr = resolveNipAndName(mrIndex, r.namaMR);
+    const asm = resolveNipAndName(asmIndex, r.namaASM);
+    const sm = resolveNipAndName(smIndex, r.namaSM);
+    const nsm = resolveNipAndName(nsmIndex, r.namaNSM);
+    for (const [periode, target] of Object.entries(r.targets)) {
       flat.push({
-        namaGT: r.namaGT, periode, target: r.targets[periode],
-        nipMR, namaMR: r.namaMR, nipASM, namaASM: r.namaASM,
-        nipSM, namaSM: r.namaSM, nipNSM, namaNSM: r.namaNSM,
+        namaGT: r.namaGT, periode, target,
+        nipMR: mr.nip, namaMR: mr.name, nipASM: asm.nip, namaASM: asm.name,
+        nipSM: sm.nip, namaSM: sm.name, nipNSM: nsm.nip, namaNSM: nsm.name,
       });
     }
   }
 
+  console.log(`Upserting ${flat.length} TargetHospitalValue rows...`);
+
+  const now = new Date();
   for (let i = 0; i < flat.length; i += BATCH) {
     const chunk = flat.slice(i, i + BATCH);
     const values = chunk.map((r) => `(

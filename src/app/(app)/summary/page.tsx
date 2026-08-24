@@ -8,7 +8,8 @@ import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
 import { spesLabel } from "@/lib/spesialisasi";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
-import { computeMonthlyBreakdown, formatPeriode } from "@/lib/poaUtils";
+import { computeMonthlyBreakdown, computeApportionedBiaya, formatPeriode } from "@/lib/poaUtils";
+import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import { getActivePsspByOutlets, getNexusSpesialisasiByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { Card } from "@/components/ui/Card";
 import { HeaderInfo } from "@/components/ui/HeaderInfo";
@@ -355,7 +356,21 @@ async function SummaryContent({
     ? (await prisma.poaForm.findMany({ where: poaWhere })) as { id: string; ownerId: string; period: string; target: { toString(): string } | null }[]
     : [];
   const poaIds = poas.map((p) => p.id);
-  const targetTotal = poas.reduce((s, p) => s + toNum(p.target), 0);
+  // Target resolution (docs/form-poa/01-business-rules.md §3): poa.target
+  // (manual) wins if set, else SUM(TargetHospitalValue) fallback — `poas`
+  // here is already MR-owned only (`poaWhere`'s ownerId is scoped to
+  // `mrNips`, itself MR-role-only from getSubordinateMRNips), so every owner
+  // resolves to just its own nip, no hierarchy walk needed. Batched
+  // (docs/PERFORMANCE.md §2 point 4), not per-POA — this fallback was
+  // previously wired into ONLY poa/[id]/page.tsx's single-POA view, so this
+  // page's Target figures just showed the raw (almost always unset)
+  // poa.target (found 2026-08-24).
+  const targetFallbackMap = await resolveTargetHospitalValueFallback(
+    poas.map((p) => ({ owner: { nip: p.ownerId, role: "MR" as const }, quarter: p.period }))
+  );
+  const resolvedTarget = (p: { ownerId: string; period: string; target: { toString(): string } | null }) =>
+    p.target != null ? toNum(p.target) : (targetFallbackMap.get(`${p.ownerId}|${p.period}`) ?? 0);
+  const targetTotal = poas.reduce((s, p) => s + resolvedTarget(p), 0);
 
   // Progress approval per status (2026-08-10, "chart untuk tau progress
   // approval nya... bar draft, bar submitted ke ASM, bar submitted ke SM,
@@ -661,14 +676,13 @@ async function SummaryContent({
   // ── Ringkasan totals ─────────────────────────────────────────────────────
   // Company/subtree-wide sums straight off `lineItems` (previously summed from
   // the per-MR `groups` rows, which no longer carry these fields). Feeds §3-§5
-  // below (docs/summary-ringkasan).
-  let ringkasanPsspTotal = 0, ringkasanEntertainTotal = 0;
-  for (const li of lineItems) {
-    const base = toNum(li.rencanaTotalBiaya);
-    const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
-    ringkasanPsspTotal += base * toNum(li.persenPsspDokter) * pengaliNilaiR;
-    ringkasanEntertainTotal += base * toNum(li.persenEntertain);
-  }
+  // below (docs/summary-ringkasan). Apportioned to salesQuarterMonths
+  // (2026-08-24 fix, see computeApportionedBiaya) — a line item spanning more
+  // months than the selected quarter (lamaPeriode 3/6/12) previously counted
+  // its FULL biaya here, not just the quarter's share.
+  const ringkasanBiayaApportioned = computeApportionedBiaya(lineItems, salesQuarterMonths);
+  const ringkasanPsspTotal = ringkasanBiayaApportioned.pssp;
+  const ringkasanEntertainTotal = ringkasanBiayaApportioned.entertain;
   const ringkasanCustomerTotal = new Set(lineItems.map(custIdentity)).size;
   // MRs who actually submitted something this quarter — same set the old
   // `groups.filter((g) => g.pengajuan > 0).length` produced (groups were
@@ -699,20 +713,20 @@ async function SummaryContent({
 
   // §3 Pencapaian Target needs Target for Q-Sebelumnya too (targetTotal above
   // is already Q-Berjalan-only, since the whole poaWhere is forced to
-  // ringkasanQuarter for this tab) — same poa.target-only resolution
-  // targetTotal itself uses (NOT the fuller poa.target-vs-TargetHospitalValue
-  // fallback documented in docs/form-poa/01-business-rules.md §3 "Resolusi
-  // Target" — that fallback was never actually wired into THIS component,
-  // only into poa/[id]/page.tsx's per-POA view; reusing targetTotal's
-  // existing behavior as-is per instructions, not adding a fallback this
-  // component didn't already have).
+  // ringkasanQuarter for this tab) — same poa.target-manual-or-fallback
+  // resolution targetTotal above now uses (2026-08-24: wired in here too, see
+  // targetTotal's comment).
   const targetSebelumnyaPoas = rawTab === "ringkasan" && mrNips.length > 0 && ringkasanQSebelumnya
     ? (await prisma.poaForm.findMany({
         where: { ownerId: { in: mrNips }, status: { in: NON_DRAFT }, period: ringkasanQSebelumnya },
-        select: { id: true, target: true },
-      })) as { id: string; target: { toString(): string } | null }[]
+        select: { id: true, ownerId: true, target: true },
+      })) as { id: string; ownerId: string; target: { toString(): string } | null }[]
     : [];
-  const targetSebelumnyaTotal = targetSebelumnyaPoas.reduce((s, p) => s + toNum(p.target), 0);
+  const targetSebelumnyaFallbackMap = await resolveTargetHospitalValueFallback(
+    targetSebelumnyaPoas.map((p) => ({ owner: { nip: p.ownerId, role: "MR" as const }, quarter: ringkasanQSebelumnya ?? "" }))
+  );
+  const targetSebelumnyaTotal = targetSebelumnyaPoas.reduce((s, p) =>
+    s + (p.target != null ? toNum(p.target) : (targetSebelumnyaFallbackMap.get(`${p.ownerId}|${ringkasanQSebelumnya}`) ?? 0)), 0);
 
   // §3 also needs PSSP Rencana (not just Aktif) for Q-Sebelumnya, genuinely
   // TERCACAH to Q-Sebelumnya's own months (2026-08-06: "semua estimasi...
@@ -1257,13 +1271,12 @@ async function SummaryContent({
   // 2026-08-06 fix — was the raw "active today" estimasiAktifTotal) as the
   // closest analog to "Nilai PSSP" on the Aktif side, same assumption
   // §4/§5b already make for that figure.
-  let dplDpfRencana = 0, dpRencana = 0, listingFeeRencanaCalc = 0;
-  for (const li of lineItems) {
-    const base = toNum(li.rencanaTotalBiaya);
-    dplDpfRencana += base * toNum(li.persenDiskon);
-    dpRencana += base * toNum(li.persenDp);
-    listingFeeRencanaCalc += base * toNum(li.persenListingFee);
-  }
+  // Apportioned to salesQuarterMonths — same ringkasanBiayaApportioned already
+  // computed above for pssp/entertain, reused here for the other 3 components
+  // (2026-08-24 fix, see computeApportionedBiaya).
+  const dplDpfRencana = ringkasanBiayaApportioned.dplDpf;
+  const dpRencana = ringkasanBiayaApportioned.dp;
+  const listingFeeRencanaCalc = ringkasanBiayaApportioned.listingFee;
   const listingFeeAktifTotal = [...listingFeeByOutlet.values()].reduce((s, v) => s + v, 0);
   const biayaBreakdown = {
     pssp: { rencana: ringkasanPsspTotal, aktif: kesesuaianAktifQBerjalan.value },
@@ -1348,10 +1361,10 @@ async function SummaryContent({
     if (spes) indexPush(activePsspBySpes, spes, r);
   }
 
-  // Target per MR — same `poa.target`-only resolution `targetTotal` uses
+  // Target per MR — same manual-or-fallback resolution `targetTotal` uses
   // (docs/summary-ringkasan §4), split by owner instead of summed.
   const targetByOwner = new Map<string, number>();
-  for (const p of poas) targetByOwner.set(p.ownerId, (targetByOwner.get(p.ownerId) ?? 0) + toNum(p.target));
+  for (const p of poas) targetByOwner.set(p.ownerId, (targetByOwner.get(p.ownerId) ?? 0) + resolvedTarget(p));
 
   const isCustomerTab = tab === "customer";
   const isBiayaOutletScope = tab === "mr" || tab === "outlet";
@@ -1387,17 +1400,16 @@ async function SummaryContent({
       const kesesuaianRowsSebelumnya = rowsOverlappingMonths(kesesuaianRows, ringkasanQSebelumnyaMonths);
 
       // Biaya components (§5e) — same per-line-item percentage math the
-      // company-wide `biayaBreakdown` uses.
-      let psspTotal = 0, dplDpfTotal = 0, dpTotal = 0, listingFeeRencanaTotal = 0, entertainTotal = 0;
-      for (const li of items) {
-        const base = toNum(li.rencanaTotalBiaya);
-        const pengaliNilaiR = li.pengaliNilaiR != null ? toNum(li.pengaliNilaiR) : 1;
-        psspTotal += base * toNum(li.persenPsspDokter) * pengaliNilaiR;
-        dplDpfTotal += base * toNum(li.persenDiskon);
-        dpTotal += base * toNum(li.persenDp);
-        listingFeeRencanaTotal += base * toNum(li.persenListingFee);
-        entertainTotal += base * toNum(li.persenEntertain);
-      }
+      // company-wide `biayaBreakdown` uses, apportioned to ringkasanQMonths
+      // (2026-08-24 fix — this group's `items` previously counted a line
+      // item's FULL biaya even when only part of its lamaPeriode span fell in
+      // the selected quarter; see computeApportionedBiaya).
+      const groupBiaya = computeApportionedBiaya(items, ringkasanQMonths);
+      const psspTotal = groupBiaya.pssp;
+      const dplDpfTotal = groupBiaya.dplDpf;
+      const dpTotal = groupBiaya.dp;
+      const listingFeeRencanaTotal = groupBiaya.listingFee;
+      const entertainTotal = groupBiaya.entertain;
 
       const custRencanaSet = new Set(items.map(custIdentity));
       const custAktifSet = new Set(groupActivePssp.map((r) => r.kdCust));

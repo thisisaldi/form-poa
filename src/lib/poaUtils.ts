@@ -78,6 +78,13 @@ export interface MonthlyBreakdownInput {
   lamaPeriode: number | null;
 }
 
+export interface ApportionedBiayaInput extends MonthlyBreakdownInput {
+  persenDiskon: unknown;
+  persenDp: unknown;
+  persenListingFee: unknown;
+  persenEntertain: unknown;
+}
+
 /**
  * Spreads each line item's Estimasi (rencanaTotalBiaya) and Nilai PSSP evenly
  * across its periodeAwal..periodeAwal+lamaPeriode-1 months (rata rata — no
@@ -106,6 +113,42 @@ export function computeMonthlyBreakdown(items: MonthlyBreakdownInput[]): Map<str
     }
   }
   return map;
+}
+
+/**
+ * Sums PSSP/DPL-DPF/DP/Listing Fee/Entertain Rencana biaya, apportioned to
+ * ONLY the months in `quarterMonths` — a line item spanning more months than
+ * one quarter (lamaPeriode 3/6/12) otherwise counts its FULL biaya even when
+ * a table is scoped to a single quarter. Same overlap-fraction idea as
+ * computeMonthlyBreakdown (rata rata per month, summed for months that fall
+ * in range) and DraftChecklist.tsx's per-item computeBiayaTercacah, but
+ * summed straight into 5 totals instead of a per-calendar-month map — this is
+ * for a single already-scoped group of items, not the "which month(s)"
+ * breakdown itself. Found 2026-08-24: summary/page.tsx's per-personil/outlet/
+ * produk biaya columns and the company-wide Ringkasan biaya cards were both
+ * summing raw un-apportioned totals — same root cause, now shared here.
+ */
+export function computeApportionedBiaya(items: ApportionedBiayaInput[], quarterMonths: string[]): {
+  pssp: number; dplDpf: number; dp: number; listingFee: number; entertain: number;
+} {
+  let pssp = 0, dplDpf = 0, dp = 0, listingFee = 0, entertain = 0;
+  for (const it of items) {
+    if (!it.periodeAwal || it.periodeAwal.length !== 6 || !it.lamaPeriode || it.lamaPeriode <= 0) continue;
+    const months = expandPeriodeMonths(it.periodeAwal, it.lamaPeriode);
+    if (months.length === 0) continue;
+    const overlapCount = months.filter((m) => quarterMonths.includes(m)).length;
+    if (overlapCount === 0) continue;
+    const frac = overlapCount / months.length;
+
+    const base = toNumSafe(it.rencanaTotalBiaya) * frac;
+    const pengaliNilaiR = it.pengaliNilaiR != null ? toNumSafe(it.pengaliNilaiR) : 1;
+    pssp += base * toNumSafe(it.persenPsspDokter) * pengaliNilaiR;
+    dplDpf += base * toNumSafe(it.persenDiskon);
+    dp += base * toNumSafe(it.persenDp);
+    listingFee += base * toNumSafe(it.persenListingFee);
+    entertain += base * toNumSafe(it.persenEntertain);
+  }
+  return { pssp, dplDpf, dp, listingFee, entertain };
 }
 
 // docs/poa-rejection-categories/ (2026-08-13) — single-select, main "Tolak"
