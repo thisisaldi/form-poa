@@ -5,6 +5,10 @@ export interface CashbackData {
   limit?: Array<{ limit?: number }>;
   date?: string;
   period?: string;
+  message?: string;
+  data?: any;
+  status?: boolean;
+  success?: boolean;
 }
 
 export function calculateCashbackDetails({

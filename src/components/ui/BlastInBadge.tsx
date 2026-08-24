@@ -7,8 +7,8 @@ export function BlastInBadge({ className = "" }: { className?: string }) {
     <span
       className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center shrink-0 uppercase tracking-wide ${className}`}
       style={{
-        background: "#bef264",
-        color: "#000000",
+        background: "#f3e8ff",
+        color: "#6b21a8",
         lineHeight: 1.2,
       }}
     >
@@ -22,8 +22,8 @@ export function InsScBadge({ className = "" }: { className?: string }) {
     <span
       className={`text-xs font-semibold px-2 py-0.5 rounded-full inline-flex items-center shrink-0 uppercase tracking-wide ${className}`}
       style={{
-        background: "#fde047",
-        color: "#000000",
+        background: "#e0e7ff",
+        color: "#3730a3",
         lineHeight: 1.2,
       }}
     >

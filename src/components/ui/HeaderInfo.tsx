@@ -48,24 +48,34 @@ export function HeaderInfo({ text }: { text: string }) {
     setPos({ top, left });
   }, [open]);
 
-  function toggle(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!open && btnRef.current) {
+  function showPopover() {
+    if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
       const left = Math.max(8, Math.min(r.left, window.innerWidth - POPOVER_WIDTH - 8));
       setPos({ top: r.bottom + 4, left });
     }
-    setOpen((v) => !v);
+    setOpen(true);
+  }
+
+  function toggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!open) showPopover();
+    else setOpen(false);
   }
 
   return (
-    <span className="inline-flex" onClick={(e) => e.stopPropagation()}>
+    <span
+      className="inline-flex"
+      onClick={(e) => e.stopPropagation()}
+      onMouseEnter={showPopover}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button
         ref={btnRef}
         type="button"
         onClick={toggle}
-        aria-label="Info kolom"
-        className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold leading-none normal-case"
+        aria-label="Info"
+        className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold leading-none normal-case cursor-pointer"
         style={{ color: "var(--color-text-faint)", border: "1px solid var(--color-text-faint)" }}
       >
         i

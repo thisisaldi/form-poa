@@ -82,7 +82,9 @@ export function SalesCounterLineItemEditor({
     productsInsentif,
     insentifHistory,
     rekomendasiProduk,
+    cashbackData,
     cashbackDetails,
+    cashbackPeriode,
     diskonPeriode,
     errors,
     isPending,
@@ -333,9 +335,9 @@ export function SalesCounterLineItemEditor({
                         label: `${o.kodePI} · ${o.namaOutlet}${o.groupRS ? ` (${o.groupRS})` : ""}`,
                         sublabel: isSc && jumlahSc != null ? `Jumlah Sales Counter: ${jumlahSc}` : undefined,
                         tag: isSc ? "INS - SC" : undefined,
-                        tagColor: isSc ? ("yellow" as const) : undefined,
+                        tagColor: isSc ? ("indigo" as const) : undefined,
                         tag2: isBlastIn ? "BLAST-IN" : undefined,
-                        tag2Color: isBlastIn ? ("lime" as const) : undefined,
+                        tag2Color: isBlastIn ? ("purple" as const) : undefined,
                         statusCount,
                       };
                     })
@@ -547,6 +549,19 @@ export function SalesCounterLineItemEditor({
             lamaPeriode={lamaPeriode}
             periodeAwal={periodeAwal}
             diskonPeriode={diskonPeriode}
+            cashbackPeriode={cashbackPeriode}
+            cashbackData={cashbackData}
+            hideCashback={
+              (cashbackData as any)?.message === "Gudang Tidak Ditemukan" ||
+              (typeof (cashbackData as any)?.message === "string" &&
+                ((cashbackData as any).message.toLowerCase().includes("tidak ditemukan") ||
+                 (cashbackData as any).message.toLowerCase().includes("gudang"))) ||
+              (typeof (cashbackData as any)?.data?.message === "string" &&
+                ((cashbackData as any).data.message.toLowerCase().includes("tidak ditemukan") ||
+                 (cashbackData as any).data.message.toLowerCase().includes("gudang"))) ||
+              (cashbackData as any)?.status === false ||
+              (cashbackData as any)?.success === false
+            }
             error={errors.products}
             b3SalesMap={b3SalesMap}
             b3RangeLabel={b3RangeLabel}

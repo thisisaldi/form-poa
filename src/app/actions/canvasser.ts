@@ -43,9 +43,9 @@ export async function getPrincodeProductsAction() {
   return { data };
 }
 
-export async function getScCashbackPoaAction() {
-  const res = await getScCashbackPoa();
-  return res || { matrix: [] };
+export async function getScCashbackPoaAction(piCode?: string) {
+  const res = await getScCashbackPoa(piCode);
+  return res ?? { status: false, message: "Gudang Tidak Ditemukan", matrix: [] };
 }
 
 export async function getScOutletB3SalesAction(period: number, piCode: string, proCodes: string[]) {
