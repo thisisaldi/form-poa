@@ -1,9 +1,13 @@
-// Same 5 months the import script (scripts/importTargetHospitalValue.ts)
-// populates from "Target Hospital (in Value).xlsx" — kept in sync manually,
-// there's no calendar-derived source for which months this target program
-// actually covers. Split out of the "use server" actions file since that
-// file may only export async functions, not plain constants.
-export const TARGET_HOSPITAL_PERIODS = ["202608", "202609", "202610", "202611", "202612"] as const;
+// The months this target program covers — kept in sync manually, there's no
+// calendar-derived source for it. 202608-202612 come from the recurring
+// import (scripts/importTargetHospitalValue.ts, "Target Hospital (in Value)
+// (1).xlsx"); 202607 was backfilled separately (scripts/
+// importTargetHospitalValueJuli.ts, 2026-08-24) from the last month before
+// KAM/Hospinet divisions merged — see that script's doc comment for why its
+// rows carry a synthetic namaGT instead of a real GT. Split out of the "use
+// server" actions file since that file may only export async functions, not
+// plain constants.
+export const TARGET_HOSPITAL_PERIODS = ["202607", "202608", "202609", "202610", "202611", "202612"] as const;
 
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips } from "@/lib/authz";

@@ -12,7 +12,7 @@ import { formatCurrency as formatRp } from "@/lib/format";
 import { formatRp as formatThousands, parseRp } from "@/lib/utils";
 
 const PERIOD_LABEL: Record<string, string> = {
-  "202608": "Agu'26", "202609": "Sep'26", "202610": "Okt'26", "202611": "Nov'26", "202612": "Des'26",
+  "202607": "Jul'26", "202608": "Agu'26", "202609": "Sep'26", "202610": "Okt'26", "202611": "Nov'26", "202612": "Des'26",
 };
 
 interface RollupRow {
