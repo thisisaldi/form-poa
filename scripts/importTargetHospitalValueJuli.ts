@@ -5,9 +5,13 @@
  * hospinet dipisah, disatukan sejak agustus"). Neither July source has a
  * per-GT breakdown (both are per-person incentive-calc reports, not
  * per-territory like "Target Hospital (in Value).xlsx"), so this creates ONE
- * TargetHospitalValue row per MR-level nip with a synthetic namaGT (there is
- * no real GT to key on for this periode) instead of skipping the month
+ * TargetHospitalValue row per MR-level nip instead of skipping the month
  * entirely — Q3 rollups (Jul+Aug+Sep) would otherwise silently miss July.
+ * namaGT: reuses the SAME namaGT as that nip's real August row when exactly
+ * one exists (185 of 239, verified 2026-08-24 — so July lands in the same
+ * row as Aug-Dec in the admin table, not a separate one), else falls back to
+ * a synthetic "[JULI-NO-GT] <nama> (<nip>)" placeholder (mostly Hospinet,
+ * which isn't part of the GT-level source at all).
  *
  * Sources:
  *  - "internal/2. RATIO INSENTIF JULI 26 UNTUK PAK BRIAN.xlsx", sheet
@@ -123,6 +127,26 @@ async function main() {
   }
   const allRows = [...kamRows, ...hospRows];
 
+  // Clean up any synthetic placeholder rows from a prior run of this script
+  // before re-inserting under a (possibly different, see below) namaGT — the
+  // insert below upserts on (namaGT, periode), so a namaGT change would
+  // otherwise leave the old placeholder row behind as an orphaned duplicate.
+  await prisma.targetHospitalValue.deleteMany({ where: { periode: PERIODE, namaGT: { startsWith: "[JULI-NO-GT]" } } });
+
+  // A July nip that already owns exactly one real GT in the August (Pengajuan)
+  // import reuses THAT namaGT — 2026-08-24 fix, found 2026-08-24: the first
+  // version of this script always used a synthetic per-person namaGT, so July
+  // never showed up in the same row as that MR's real Aug-Dec GT data (185 of
+  // 239 nips DO have exactly one matching Aug GT — verified zero ambiguous
+  // multi-GT cases). Only nips with no Aug GT match (mostly Hospinet, which
+  // isn't part of the GT-level source at all) fall back to the placeholder.
+  const augRows = await prisma.targetHospitalValue.findMany({ where: { periode: "202608", nipMR: { not: null } }, select: { nipMR: true, namaGT: true } });
+  const augGtByNip = new Map<string, string[]>();
+  for (const r of augRows) {
+    if (!r.nipMR) continue;
+    augGtByNip.set(r.nipMR, [...(augGtByNip.get(r.nipMR) ?? []), r.namaGT]);
+  }
+
   // ── nip -> User map (single bulk fetch, in-memory hierarchy walk below) ──
   const users = await prisma.user.findMany({ where: { isDummy: false }, select: { nip: true, name: true, role: true, nipAtasan: true } });
   const userByNip = new Map(users.map((u) => [u.nip, u]));
@@ -153,7 +177,8 @@ async function main() {
     const nipMR = u?.nip ?? null;
     const namaMR = u?.name ?? r.nama;
     const hier = nipMR ? walkUp(nipMR) : { nipASM: null, namaASM: "", nipSM: null, namaSM: "", nipNSM: null, namaNSM: "" };
-    const namaGT = `[JULI-NO-GT] ${namaMR} (${r.nip})`;
+    const augGts = nipMR ? augGtByNip.get(nipMR) : undefined;
+    const namaGT = augGts && augGts.length === 1 ? augGts[0] : `[JULI-NO-GT] ${namaMR} (${r.nip})`;
     return `(
       '${randomUUID()}',
       '${esc(namaGT)}',
