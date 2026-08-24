@@ -1439,9 +1439,7 @@ model PoaScForm {
 
   kodePI          String               // e.g. "F1000271"
   namaOutlet      String?              // e.g. "Apotek Kimia Farma"
-  hariKerjaBulan      Int                  @default(0)
-  rencanaVisitMinggu  Int                  @default(0)
-  surveyPasienHarian  Int                  @default(0)
+  persenResepDokter   Int              @default(0)
 
   ownerId         String               // NIP MR pembuat
   owner           User                 @relation("PoaScOwner", fields: [ownerId], references: [nip])
@@ -1470,9 +1468,8 @@ model PoaScProductItem {
   namaProduk          String
   produkKompetitor    String?
 
-  // Parameter Rencana Penjualan per Produk (per-orang)
-  pembeliHari         Int        // Jumlah pembeli per hari
-  qtyCustomerBaru     Int        // Qty produk baru per pembeli
+  // Parameter Rencana Penjualan per Produk
+  qtyPerBulan         Int        @default(0) // Qty produk Satuan Terkecil per bulan
 
   // Persentase Finansial & Insentif
   persenMatriksSc     Decimal    @db.Decimal(5, 2)  // Nilai insentif SC dari HNA

@@ -20,6 +20,7 @@ function formatMonthKey(key: string) {
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_BLUE = "var(--color-blue, #0063a0)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
+const SIDEBAR_PURPLE = "#7c3aed";
 
 function sidebarEdgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -41,7 +42,7 @@ function sidebarEdgeTabStyle(color: string): React.CSSProperties {
   };
 }
 
-type SidebarTab = "survey" | "rekomendasi" | "history";
+type SidebarTab = "survey" | "rekomendasi" | "loss_sales" | "history";
 
 function SidebarTabSwitcher({
   activeTab,
@@ -81,6 +82,13 @@ function SidebarTabSwitcher({
       </button>
       <button
         type="button"
+        onClick={() => onChange("loss_sales")}
+        style={pillStyle(SIDEBAR_PURPLE, activeTab === "loss_sales")}
+      >
+        Potensi Sales
+      </button>
+      <button
+        type="button"
         onClick={() => onChange("history")}
         style={pillStyle(SIDEBAR_BLUE, activeTab === "history")}
       >
@@ -90,11 +98,31 @@ function SidebarTabSwitcher({
   );
 }
 
+function getHnaForProduct(code: string, masterProducts: any[]): number {
+  if (!code || !Array.isArray(masterProducts) || masterProducts.length === 0) return 0;
+  const cleanCode = String(code).trim();
+  const strippedCode = cleanCode.replace(/^0+/, "");
+
+  const item = masterProducts.find((p: any) => {
+    const pCode = String(p.kodeProduk || p.pro_code || p.product_code || "").trim();
+    if (pCode === cleanCode) return true;
+    if (pCode.replace(/^0+/, "") === strippedCode) return true;
+    return false;
+  });
+
+  if (!item) return 0;
+  const rawHna = item.hna;
+  const num = typeof rawHna === "number" ? rawHna : parseFloat(String(rawHna || "0"));
+  return isNaN(num) ? 0 : num;
+}
+
 export function ScSidebar({
   doctorName,
   productsMenang = [],
   productsInsentif = [],
   insentifHistory,
+  rekomendasiProduk = [],
+  masterProducts = [],
   selectedProductCodes = new Set<string>(),
   onSelectProduct,
 }: {
@@ -102,6 +130,8 @@ export function ScSidebar({
   productsMenang?: any[];
   productsInsentif?: any[];
   insentifHistory?: any;
+  rekomendasiProduk?: any[];
+  masterProducts?: any[];
   selectedProductCodes?: Set<string>;
   onSelectProduct?: (code: string) => void;
 }) {
@@ -167,6 +197,28 @@ export function ScSidebar({
     return Array.from(map.values());
   }, [productsMenang, productsInsentif]);
 
+  const sortedLossSalesProducts = useMemo(() => {
+    if (!Array.isArray(rekomendasiProduk)) return [];
+    return [...rekomendasiProduk]
+      .map((item) => {
+        const code = String(item.product_code || item.code || "").trim();
+        const hna = getHnaForProduct(code, masterProducts);
+        const salesPotential = Number(item.sales_potential) || 0;
+        const qty = hna > 0 ? Math.ceil(salesPotential / hna) : 0;
+        return {
+          ...item,
+          _computedQty: qty,
+          _salesPotentialNum: salesPotential,
+        };
+      })
+      .sort((a, b) => {
+        if (b._computedQty !== a._computedQty) {
+          return b._computedQty - a._computedQty;
+        }
+        return b._salesPotentialNum - a._salesPotentialNum;
+      });
+  }, [rekomendasiProduk, masterProducts]);
+
   if (activeTab === null) {
     return (
       <div
@@ -194,6 +246,13 @@ export function ScSidebar({
           style={sidebarEdgeTabStyle(SIDEBAR_GREEN)}
         >
           Produk Rekomendasi
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("loss_sales")}
+          style={sidebarEdgeTabStyle(SIDEBAR_PURPLE)}
+        >
+          Potensi Sales
         </button>
         <button
           type="button"
@@ -347,6 +406,78 @@ export function ScSidebar({
             ) : (
               <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
                 Tidak ada produk rekomendasi untuk outlet ini.
+              </div>
+            )}
+          </div>
+        ) : activeTab === "loss_sales" ? (
+          <div className="space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                POTENSI SALES ({sortedLossSalesProducts.length})
+              </p>
+            </div>
+            {sortedLossSalesProducts.length > 0 ? (
+              <div className="space-y-1.5">
+                {sortedLossSalesProducts.map((item, i) => {
+                  const code = String(item.product_code || item.code || "").trim();
+                  const name = item.product_name || item.name || code;
+                  const isSelected = selectedProductCodes.has(code);
+                  const hna = getHnaForProduct(code, masterProducts);
+                  const salesPotential = Number(item.sales_potential) || 0;
+                  const qty = hna > 0 ? Math.ceil(salesPotential / hna) : 0;
+
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => code && onSelectProduct?.(code)}
+                      className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                        onSelectProduct && code ? "cursor-pointer hover:border-purple-500" : ""
+                      }`}
+                      style={{
+                        background: isSelected ? "var(--color-purple-light, #f3e8ff)" : "var(--color-bg-subtle)",
+                        borderColor: isSelected ? "var(--color-purple, #7c3aed)" : "var(--color-border)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-1.5">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                            {name}
+                          </span>
+                          <span className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>
+                            Kode: {code}
+                          </span>
+                        </div>
+                        {isSelected && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                            style={{ background: "#7c3aed", color: "#ffffff" }}
+                          >
+                            ✓ Terpilih
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
+                        <span
+                          className="font-medium px-1.5 py-0.5 rounded"
+                          style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
+                        >
+                          Sales Potential: {formatRp(salesPotential)}
+                        </span>
+                        <span
+                          className="font-medium px-1.5 py-0.5 rounded"
+                          style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
+                        >
+                          Qty: {qty}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                Tidak ada data potensi sales untuk outlet ini.
               </div>
             )}
           </div>

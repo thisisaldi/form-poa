@@ -45,25 +45,6 @@ function Req() {
 
 const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
 
-function LabelCustomerBadge({ label }: { label: string }) {
-  const isNew = label === "Dokter Baru" || label === "SC Baru";
-  const isGood = label.includes("Bagus");
-  const color = isNew
-    ? "var(--color-blue)"
-    : isGood ? "var(--color-success, #16a34a)"
-    : "var(--color-text-muted)";
-  const bg = isNew
-    ? "var(--color-blue-light, #eff6ff)"
-    : isGood ? "var(--color-success-bg, #dcfce7)"
-    : "var(--color-bg-subtle)";
-  return (
-    <span className="text-xs font-medium px-2 py-0.5 rounded border"
-      style={{ color, background: bg, borderColor: color }}>
-      {label}
-    </span>
-  );
-}
-
 export function SalesCounterLineItemEditor({
   poaId,
   poaPeriod,
@@ -79,7 +60,6 @@ export function SalesCounterLineItemEditor({
     selectedPersonIds,
     toggleSelectPerson,
     toggleSelectAll,
-    doctorName,
     periodeAwal,
     setPeriodeAwal,
     lamaPeriode,
@@ -87,12 +67,8 @@ export function SalesCounterLineItemEditor({
     setRowQuarter,
     entertainList,
     updateEntertainValue,
-    hariKerjaBulan,
-    setHariKerjaBulan,
-    rencanaVisitMinggu,
-    setRencanaVisitMinggu,
-    surveyPasienHarian,
-    setSurveyPasienHarian,
+    persenResepDokter,
+    setPersenResepDokter,
     products: selectedProducts,
     addProductRow,
     removeProductRow,
@@ -105,7 +81,9 @@ export function SalesCounterLineItemEditor({
     productsMenang,
     productsInsentif,
     insentifHistory,
+    rekomendasiProduk,
     cashbackDetails,
+    diskonPeriode,
     errors,
     isPending,
     handleSubmit,
@@ -226,14 +204,12 @@ export function SalesCounterLineItemEditor({
       const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
       const hnaST = hnaSJ / konv;
 
-      const pembeli = parseFloat(row.pembeliHari) || 0;
-      const qty = parseFloat(row.qtyCustomerBaru) || 0;
-      const days = parseFloat(hariKerjaBulan) || 0;
+      const qty = parseFloat(row.qtyPerBulan) || 0;
 
-      const estSalesPerMonth = pembeli * qty * days * hnaST;
+      const estSalesPerMonth = qty * hnaST;
       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+      const qtySjBln = konv > 0 ? qty / konv : 0;
       const scVal = canvasserProd?.sales_counter_value;
       const scMin = canvasserProd?.sales_counter_minimum || 0;
 
@@ -266,10 +242,8 @@ export function SalesCounterLineItemEditor({
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
     const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
     const hnaST = hnaSJ / konv;
-    const pembeli = parseFloat(row.pembeliHari) || 0;
-    const qty = parseFloat(row.qtyCustomerBaru) || 0;
-    const days = parseFloat(hariKerjaBulan) || 0;
-    return sum + (pembeli * qty * days * hnaST * lamaPeriode);
+    const qty = parseFloat(row.qtyPerBulan) || 0;
+    return sum + (qty * hnaST * lamaPeriode);
   }, 0);
 
   const totalNilaiSc = selectedProducts.reduce((sum, row) => {
@@ -280,11 +254,9 @@ export function SalesCounterLineItemEditor({
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
     const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
     const hnaST = hnaSJ / konv;
-    const pembeli = parseFloat(row.pembeliHari) || 0;
-    const qty = parseFloat(row.qtyCustomerBaru) || 0;
-    const days = parseFloat(hariKerjaBulan) || 0;
-    const estSalesBln = pembeli * qty * days * hnaST;
-    const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+    const qty = parseFloat(row.qtyPerBulan) || 0;
+    const estSalesBln = qty * hnaST;
+    const qtySjBln = konv > 0 ? qty / konv : 0;
     const scVal = canvasserProd?.sales_counter_value;
     const scMin = canvasserProd?.sales_counter_minimum || 0;
     let valScBln = 0;
@@ -306,10 +278,8 @@ export function SalesCounterLineItemEditor({
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
     const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
     const hnaST = hnaSJ / konv;
-    const pembeli = parseFloat(row.pembeliHari) || 0;
-    const qty = parseFloat(row.qtyCustomerBaru) || 0;
-    const days = parseFloat(hariKerjaBulan) || 0;
-    const estSalesBln = pembeli * qty * days * hnaST;
+    const qty = parseFloat(row.qtyPerBulan) || 0;
+    const estSalesBln = qty * hnaST;
     const pctDiskon = parseFloat(row.persenDiskon) || 0;
     return sum + (estSalesBln * (pctDiskon / 100) * lamaPeriode);
   }, 0);
@@ -481,59 +451,31 @@ export function SalesCounterLineItemEditor({
           )}
         </div>
 
-        {/* 2. RENCANA KUNJUNGAN */}
+        {/* % Resep Dokter */}
         <div>
-          <SectionLabel>Rencana Kunjungan</SectionLabel>
-          <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: errors.hariKerjaBulan ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                Jumlah hari kerja Outlet <Req />
+              <span className="text-xs font-medium" style={{ color: errors.persenResepDokter ? "var(--color-red)" : "var(--color-text-muted)" }}>
+                % Resep Dokter <Req />
               </span>
-              <div style={errors.hariKerjaBulan ? ERR_RING : undefined}>
+              <div style={errors.persenResepDokter ? ERR_RING : undefined}>
                 <UnitInput
-                  value={hariKerjaBulan}
-                  onChange={setHariKerjaBulan}
-                  unit="Hari"
-                  placeholder="Jumlah hari praktek / bulan"
-                  max={31}
+                  value={persenResepDokter}
+                  onChange={setPersenResepDokter}
+                  unit="%"
+                  placeholder="0"
+                  min={0}
+                  max={100}
                 />
               </div>
-              {errors.hariKerjaBulan && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.hariKerjaBulan}</span>}
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                Rencana Visit / Bulan <Req />
-              </span>
-              <UnitInput
-                value={rencanaVisitMinggu}
-                onChange={setRencanaVisitMinggu}
-                unit="Kali"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: errors.surveyPasienHarian ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                Survey Customer Harian <Req />
-              </span>
-              <div style={errors.surveyPasienHarian ? ERR_RING : undefined}>
-                <UnitInput
-                  value={surveyPasienHarian}
-                  onChange={setSurveyPasienHarian}
-                  unit="Pasien"
-                  placeholder="Hasil survey pasien harian"
-                />
-              </div>
-              {errors.surveyPasienHarian && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.surveyPasienHarian}</span>}
+              {errors.persenResepDokter && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.persenResepDokter}</span>}
             </div>
           </div>
         </div>
 
         {/* 3. RENCANA POA */}
         <div>
-          <SectionLabel>Rencana POA</SectionLabel>
+          <SectionLabel>Rencana SC</SectionLabel>
           <div className="grid grid-cols-3 gap-3 mb-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Quarter</span>
@@ -591,7 +533,27 @@ export function SalesCounterLineItemEditor({
             </div>
           </div>
 
-          {/* Rencana Entertain Breakdown Table */}
+        {/* 4. PRODUK YANG DIPROMOSIKAN */}
+        <div>
+          <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+          <ProductSelector
+            rows={selectedProducts}
+            onAddRow={addProductRow}
+            onRemoveRow={removeProductRow}
+            onUpdateRow={updateProductRow}
+            productsOptions={productOptions}
+            canvasserProducts={canvasserProducts}
+            masterProducts={products}
+            lamaPeriode={lamaPeriode}
+            periodeAwal={periodeAwal}
+            diskonPeriode={diskonPeriode}
+            error={errors.products}
+            b3SalesMap={b3SalesMap}
+            b3RangeLabel={b3RangeLabel}
+          />
+        </div>
+
+        {/* 5. Rencana Entertain Breakdown Table */}
           {entertainList.length > 0 && (
             <div className="space-y-2 mt-4">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
@@ -624,26 +586,6 @@ export function SalesCounterLineItemEditor({
               </div>
             </div>
           )}
-        </div>
-
-        {/* 4. PRODUK YANG DIPROMOSIKAN */}
-        <div>
-          <SectionLabel>Produk yang Dipromosikan</SectionLabel>
-          <ProductSelector
-            rows={selectedProducts}
-            onAddRow={addProductRow}
-            onRemoveRow={removeProductRow}
-            onUpdateRow={updateProductRow}
-            productsOptions={productOptions}
-            canvasserProducts={canvasserProducts}
-            masterProducts={products}
-            hariKerjaBulan={parseFloat(hariKerjaBulan) || 0}
-            lamaPeriode={lamaPeriode}
-            surveyPasienHarian={surveyPasienHarian}
-            error={errors.products}
-            b3SalesMap={b3SalesMap}
-            b3RangeLabel={b3RangeLabel}
-          />
         </div>
 
         {/* 5. TOTAL SEMUA PRODUK */}
@@ -760,16 +702,14 @@ export function SalesCounterLineItemEditor({
                       const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
                       const hnaST = hnaSJ / konv;
 
-                      const pembeli = parseFloat(row.pembeliHari) || 0;
-                      const qty = parseFloat(row.qtyCustomerBaru) || 0;
-                      const days = parseFloat(hariKerjaBulan) || 0;
+                      const qty = parseFloat(row.qtyPerBulan) || 0;
 
                       const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
-                      const qtyTotal = (pembeli * qty * days * lamaPeriode) / konv;
-                      const estimasiSales = pembeli * qty * days * hnaST * lamaPeriode;
+                      const qtyTotal = konv > 0 ? (qty * lamaPeriode) / konv : 0;
+                      const estimasiSales = qty * hnaST * lamaPeriode;
                       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
                       
-                      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+                      const qtySjBln = konv > 0 ? qty / konv : 0;
                       const scVal = canvasserProd?.sales_counter_value;
                       const scMin = canvasserProd?.sales_counter_minimum || 0;
 
@@ -777,7 +717,7 @@ export function SalesCounterLineItemEditor({
                       if (scVal != null && scVal > 0) {
                         nilaiScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
                       } else {
-                        nilaiScBln = (pembeli * qty * days * hnaST) * (pctMatriks / 100);
+                        nilaiScBln = (qty * hnaST) * (pctMatriks / 100);
                       }
                       const nilaiSc = nilaiScBln * lamaPeriode;
                       const valCashback = cashbackDetails?.resultMap?.get(row.kodeProduk) ?? 0;
@@ -886,10 +826,11 @@ export function SalesCounterLineItemEditor({
       </form>
       {outletId && (
         <ScSidebar
-          doctorName={doctorName}
           productsMenang={productsMenang}
           productsInsentif={productsInsentif}
           insentifHistory={insentifHistory}
+          rekomendasiProduk={rekomendasiProduk}
+          masterProducts={products}
           selectedProductCodes={new Set(selectedProducts.map((p) => p.kodeProduk).filter(Boolean))}
           onSelectProduct={selectProductFromSidebar}
         />

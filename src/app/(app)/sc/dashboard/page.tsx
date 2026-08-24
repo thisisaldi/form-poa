@@ -85,15 +85,13 @@ export default async function SalesCounterDashboardPage() {
   }>();
 
   for (const f of scForms) {
-    const days = f.hariKerjaBulan || 0;
     const lama = f.lamaPeriode || 3;
 
     const cbDetails = calculateCashbackDetails({
       cashbackData,
       selectedProducts: f.products.map((p: any) => ({
         kodeProduk: p.kodeProduk,
-        pembeliHari: String(p.pembeliHari || 0),
-        qtyCustomerBaru: String(p.qtyCustomerBaru || 0),
+        qtyPerBulan: String(p.qtyPerBulan || 0),
         persenCashback: String(p.persenCashback || 0),
       })),
       masterProducts: f.products.map((p: any) => {
@@ -104,7 +102,6 @@ export default async function SalesCounterDashboardPage() {
           konversiPembagi: String(mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1),
         };
       }),
-      hariKerjaBulan: days,
       lamaPeriode: lama,
     });
 
@@ -119,13 +116,12 @@ export default async function SalesCounterDashboardPage() {
       const konv = mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1;
       const hnaST = hnaSJ / konv;
 
-      const pembeli = p.pembeliHari || 0;
-      const qty = p.qtyCustomerBaru || 0;
+      const qty = p.qtyPerBulan || 0;
 
-      const estSalesPerMonth = pembeli * qty * days * hnaST;
+      const estSalesPerMonth = qty * hnaST;
       const estSalesFull = estSalesPerMonth * lama;
 
-      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+      const qtySjBln = konv > 0 ? qty / konv : 0;
       const scVal = cp?.sales_counter_value;
       const scMin = cp?.sales_counter_minimum || 0;
 

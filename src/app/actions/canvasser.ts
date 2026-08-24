@@ -8,6 +8,7 @@ import { getScInsentifHistory } from "@/app/(app)/sc/[id]/_services/getScInsenti
 import { getPrincodeProducts } from "@/app/(app)/sc/[id]/_services/getPrincodeProducts";
 import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa";
 import { getScOutletB3Sales } from "@/app/(app)/sc/[id]/_services/getScOutletB3Sales";
+import { getRekomendasiProduk } from "@/app/(app)/sc/[id]/_services/getRekomendasiProduk";
 
 export async function getSalesCountersAction(piCode: string) {
   if (!piCode) return null;
@@ -51,4 +52,10 @@ export async function getScOutletB3SalesAction(period: number, piCode: string, p
   if (!piCode || !proCodes || proCodes.length === 0) return { data: [] };
   const data = await getScOutletB3Sales(period, piCode, proCodes);
   return { data };
+}
+
+export async function getRekomendasiProdukAction(piCode: string) {
+  if (!piCode) return { data: [] };
+  const res = await getRekomendasiProduk(piCode);
+  return res || { data: [] };
 }

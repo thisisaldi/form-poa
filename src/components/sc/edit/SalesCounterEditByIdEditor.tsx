@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { Product } from "@/lib/masterData";
-import { saveSalesCounterFormAction } from "@/app/actions/scActions";
+import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { ProductSelector } from "./ProductSelector";
 import { ScSidebar } from "./ScSidebar";
 import { UnitInput } from "./UnitInput";
@@ -11,6 +11,28 @@ import { Button } from "@/components/ui/Button";
 import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 import { quarterToMonths } from "@/lib/quarterUtils";
+
+function formatDiskonPct(rawVal: number | string | undefined | null): string {
+  if (rawVal == null) return "0";
+  const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
+  if (isNaN(num)) return "0";
+  const pct = num > 0 && num <= 1 ? num * 100 : num;
+  return String(Number(pct.toFixed(2)));
+}
+
+function findDiskonItem(list: any[], targetCode: string) {
+  if (!targetCode || !Array.isArray(list)) return null;
+  const cleanTarget = String(targetCode).trim();
+  const strippedTarget = cleanTarget.replace(/^0+/, "");
+
+  return list.find((d: any) => {
+    const codeStr = String(d.proCode || d.pro_code || d.kodeProduk || "").trim();
+    if (codeStr === cleanTarget) return true;
+    if (codeStr.replace(/^0+/, "") === strippedTarget) return true;
+    return false;
+  });
+}
+
 import {
   getSalesCounterProductsAction,
   getScProductMenangAction,
@@ -19,7 +41,9 @@ import {
   getPrincodeProductsAction,
   getScCashbackPoaAction,
   getScOutletB3SalesAction,
+  getRekomendasiProdukAction,
 } from "@/app/actions/canvasser";
+import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
 
@@ -47,8 +71,7 @@ function findCashbackItem(matrix: any[], targetCode: string) {
 interface ProductRow {
   kodeProduk: string;
   produkKompetitor: string;
-  pembeliHari: string;
-  qtyCustomerBaru: string;
+  qtyPerBulan: string;
   persenMatriksSc: string;
   persenDiskon: string;
   persenCashback: string;
@@ -82,8 +105,7 @@ interface SalesCounterEditByIdEditorProps {
     kodeProduk: string;
     namaProduk: string;
     produkKompetitor: string | null;
-    pembeliHari: number;
-    qtyCustomerBaru: number;
+    qtyPerBulan: number;
     persenMatriksSc: number;
     persenDiskon: number;
     persenCashback: number;
@@ -92,9 +114,7 @@ interface SalesCounterEditByIdEditorProps {
   initialEntertainItems: EntertainItem[];
   initialPeriodeAwal: string;
   initialLamaPeriode: number;
-  initialHariKerjaBulan: number;
-  initialRencanaVisitMinggu: number;
-  initialSurveyPasienHarian: number;
+  initialPersenResepDokter: number;
   masterProducts: Product[];
   readOnly?: boolean;
 }
@@ -131,9 +151,7 @@ export function SalesCounterEditByIdEditor({
   initialEntertainItems,
   initialPeriodeAwal,
   initialLamaPeriode,
-  initialHariKerjaBulan,
-  initialRencanaVisitMinggu,
-  initialSurveyPasienHarian,
+  initialPersenResepDokter,
   masterProducts,
   readOnly = false,
 }: SalesCounterEditByIdEditorProps) {
@@ -146,9 +164,7 @@ export function SalesCounterEditByIdEditor({
   // Editable states - pre-filled from DB
   const [periodeAwal] = useState(initialPeriodeAwal);
   const [lamaPeriode] = useState(initialLamaPeriode);
-  const [hariKerjaBulan, setHariKerjaBulan] = useState(String(initialHariKerjaBulan));
-  const [rencanaVisitMinggu, setRencanaVisitMinggu] = useState(String(initialRencanaVisitMinggu));
-  const [surveyPasienHarian, setSurveyPasienHarian] = useState(String(initialSurveyPasienHarian));
+  const [persenResepDokter, setPersenResepDokter] = useState(String(initialPersenResepDokter ?? ""));
 
   // Products editable
   const [products, setProducts] = useState<ProductRow[]>(() =>
@@ -156,14 +172,13 @@ export function SalesCounterEditByIdEditor({
       ? initialProducts.map((p) => ({
           kodeProduk: p.kodeProduk,
           produkKompetitor: p.produkKompetitor || "",
-          pembeliHari: String(p.pembeliHari),
-          qtyCustomerBaru: String(p.qtyCustomerBaru),
+          qtyPerBulan: String(p.qtyPerBulan ?? ""),
           persenMatriksSc: String(p.persenMatriksSc),
           persenDiskon: String(p.persenDiskon),
           persenCashback: String(p.persenCashback),
           rencanaTotalBiaya: p.rencanaTotalBiaya,
         }))
-      : [{ kodeProduk: "", produkKompetitor: "", pembeliHari: "", qtyCustomerBaru: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }]
+      : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }]
   );
 
   // Entertain
@@ -197,9 +212,41 @@ export function SalesCounterEditByIdEditor({
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
+  const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [diskonList, setDiskonList] = useState<{ proCode: string; diskon: number }[]>([]);
+  const [diskonPeriode, setDiskonPeriode] = useState<string>("");
+
+  useEffect(() => {
+    if (!periodeAwal) {
+      setDiskonList([]);
+      setDiskonPeriode("");
+      return;
+    }
+    getDiskonDplDpfByPeriodeAction(periodeAwal).then((res) => {
+      if (Array.isArray(res)) {
+        setDiskonList(res);
+        setDiskonPeriode(periodeAwal);
+      } else {
+        setDiskonList(res?.list || []);
+        setDiskonPeriode(res?.diskonPeriode || periodeAwal);
+      }
+    });
+  }, [periodeAwal]);
+
+  useEffect(() => {
+    if (diskonList.length === 0) return;
+    setProducts((prev) =>
+      prev.map((row) => {
+        if (!row.kodeProduk) return row;
+        const diskonItem = findDiskonItem(diskonList, row.kodeProduk);
+        const autoPct = diskonItem ? formatDiskonPct(diskonItem.diskon) : "0";
+        return row.persenDiskon === autoPct ? row : { ...row, persenDiskon: autoPct };
+      })
+    );
+  }, [diskonList]);
 
   useEffect(() => {
     if (!kodePI) return;
@@ -234,6 +281,23 @@ export function SalesCounterEditByIdEditor({
     getScProductMenangAction(kodePI).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(kodePI).then((res) => setProductsInsentif(res?.data || []));
     getScInsentifHistoryAction(kodePI).then((res) => setInsentifHistory(res?.data || null));
+    getRekomendasiProdukAction(kodePI).then((res) => {
+      if (!res?.data) {
+        setRekomendasiProduk([]);
+        return;
+      }
+      let prods: LossSalesRekomendasiProduct[] = [];
+      if (Array.isArray(res.data)) {
+        for (const group of res.data) {
+          if (Array.isArray(group.products)) {
+            prods.push(...group.products);
+          }
+        }
+      } else if (res.data && Array.isArray((res.data as any).products)) {
+        prods = (res.data as any).products;
+      }
+      setRekomendasiProduk(prods);
+    });
     getScCashbackPoaAction().then((res) => {
       setRawCashbackData(res);
       const array = Array.isArray(res?.matrix)
@@ -274,8 +338,7 @@ export function SalesCounterEditByIdEditor({
             {
               kodeProduk: "",
               produkKompetitor: "",
-              pembeliHari: "",
-              qtyCustomerBaru: "",
+              qtyPerBulan: "",
               persenMatriksSc: "",
               persenDiskon: "",
               persenCashback: "",
@@ -295,8 +358,7 @@ export function SalesCounterEditByIdEditor({
         nextList.push({
           kodeProduk: "",
           produkKompetitor: "",
-          pembeliHari: "",
-          qtyCustomerBaru: "",
+          qtyPerBulan: "",
           persenMatriksSc: "",
           persenDiskon: "",
           persenCashback: "",
@@ -323,11 +385,18 @@ export function SalesCounterEditByIdEditor({
         pctCashback = formatCashbackPct(getVal(matrixItem));
       }
 
+      let pctDiskon = "0";
+      const diskonItem = findDiskonItem(diskonList, code);
+      if (diskonItem) {
+        pctDiskon = formatDiskonPct(diskonItem.diskon);
+      }
+
       const updatedRow = {
         ...nextList[targetIndex],
         kodeProduk: code,
         persenMatriksSc: pctMatriksSc,
         persenCashback: pctCashback,
+        persenDiskon: pctDiskon,
       };
 
       nextList[targetIndex] = updatedRow;
@@ -419,10 +488,8 @@ export function SalesCounterEditByIdEditor({
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
     const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
     const hnaST = hnaSJ / konv;
-    const pembeli = parseFloat(row.pembeliHari) || 0;
-    const qty = parseFloat(row.qtyCustomerBaru) || 0;
-    const days = parseFloat(hariKerjaBulan) || 0;
-    return sum + (pembeli * qty * days * hnaST * lamaPeriode);
+    const qty = parseFloat(row.qtyPerBulan) || 0;
+    return sum + (qty * hnaST * lamaPeriode);
   }, 0);
 
   const totalNilaiSc = products.reduce((sum, row) => {
@@ -433,11 +500,9 @@ export function SalesCounterEditByIdEditor({
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
     const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
     const hnaST = hnaSJ / konv;
-    const pembeli = parseFloat(row.pembeliHari) || 0;
-    const qty = parseFloat(row.qtyCustomerBaru) || 0;
-    const days = parseFloat(hariKerjaBulan) || 0;
-    const estSalesBln = pembeli * qty * days * hnaST;
-    const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+    const qty = parseFloat(row.qtyPerBulan) || 0;
+    const estSalesBln = qty * hnaST;
+    const qtySjBln = konv > 0 ? qty / konv : 0;
     const scVal = canvasserProd?.sales_counter_value;
     const scMin = canvasserProd?.sales_counter_minimum || 0;
     let valScBln = 0;
@@ -454,7 +519,6 @@ export function SalesCounterEditByIdEditor({
     cashbackData: rawCashbackData,
     selectedProducts: products,
     masterProducts,
-    hariKerjaBulan: parseFloat(hariKerjaBulan) || 0,
     lamaPeriode,
   });
 
@@ -467,10 +531,8 @@ export function SalesCounterEditByIdEditor({
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
     const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
     const hnaST = hnaSJ / konv;
-    const pembeli = parseFloat(row.pembeliHari) || 0;
-    const qty = parseFloat(row.qtyCustomerBaru) || 0;
-    const days = parseFloat(hariKerjaBulan) || 0;
-    const estSalesBln = pembeli * qty * days * hnaST;
+    const qty = parseFloat(row.qtyPerBulan) || 0;
+    const estSalesBln = qty * hnaST;
     const pctDiskon = parseFloat(row.persenDiskon) || 0;
     return sum + (estSalesBln * (pctDiskon / 100) * lamaPeriode);
   }, 0);
@@ -501,7 +563,7 @@ export function SalesCounterEditByIdEditor({
   const addProductRow = () => {
     setProducts((prev) => [
       ...prev,
-      { kodeProduk: "", produkKompetitor: "", pembeliHari: "", qtyCustomerBaru: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 },
+      { kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 },
     ]);
   };
 
@@ -513,8 +575,7 @@ export function SalesCounterEditByIdEditor({
           {
             kodeProduk: "",
             produkKompetitor: "",
-            pembeliHari: "",
-            qtyCustomerBaru: "",
+            qtyPerBulan: "",
             persenMatriksSc: "",
             persenDiskon: "",
             persenCashback: "",
@@ -547,6 +608,8 @@ export function SalesCounterEditByIdEditor({
           } else if (fields.kodeProduk === "") {
             updated.persenCashback = "0";
           }
+          const diskonItem = findDiskonItem(diskonList, fields.kodeProduk);
+          updated.persenDiskon = diskonItem ? formatDiskonPct(diskonItem.diskon) : "0";
         }
         // Recalculate rencanaTotalBiaya
         const masterProd = masterProducts.find((p) => p.kodeProduk === updated.kodeProduk);
@@ -554,11 +617,9 @@ export function SalesCounterEditByIdEditor({
           const hna = parseFloat(masterProd.hna) || 0;
           const konv = parseInt(masterProd.konversiPembagi || "1", 10) || 1;
           const hnaST = hna / konv;
-          const pembeli = parseFloat(updated.pembeliHari) || 0;
-          const qty = parseFloat(updated.qtyCustomerBaru) || 0;
-          const days = parseFloat(hariKerjaBulan) || 0;
+          const qty = parseFloat(updated.qtyPerBulan) || 0;
           const pctMatriks = parseFloat(updated.persenMatriksSc) || 0;
-          updated.rencanaTotalBiaya = pembeli * qty * days * hnaST * lamaPeriode * (pctMatriks / 100);
+          updated.rencanaTotalBiaya = qty * hnaST * lamaPeriode * (pctMatriks / 100);
         }
         return updated;
       })
@@ -568,9 +629,15 @@ export function SalesCounterEditByIdEditor({
   const validate = () => {
     const nextErrors: Record<string, string> = {};
     if (!periodeAwal) nextErrors.periodeAwal = "Periode awal wajib diisi";
-    if (!hariKerjaBulan) nextErrors.hariKerjaBulan = "Hari praktek wajib diisi";
-    if (!surveyPasienHarian) nextErrors.surveyPasienHarian = "Survey pasien harian wajib diisi";
-    const hasValidProduct = products.some((p) => p.kodeProduk && (parseFloat(p.pembeliHari) || 0) > 0);
+    if (!persenResepDokter) {
+      nextErrors.persenResepDokter = "% Resep Dokter wajib diisi";
+    } else {
+      const val = parseFloat(persenResepDokter) || 0;
+      if (val < 0 || val > 100) {
+        nextErrors.persenResepDokter = "% Resep Dokter harus antara 0% - 100%";
+      }
+    }
+    const hasValidProduct = products.some((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0);
     if (!hasValidProduct) nextErrors.products = "Minimal pilih 1 produk dengan kuantitas > 0";
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -587,9 +654,7 @@ export function SalesCounterEditByIdEditor({
         selectedPersonIds,
         products,
         entertainList,
-        parseInt(hariKerjaBulan, 10) || 0,
-        parseInt(rencanaVisitMinggu, 10) || 0,
-        parseInt(surveyPasienHarian, 10) || 0,
+        parseInt(persenResepDokter, 10) || 0,
         namaOutlet || undefined
       );
       if (res.ok) {
@@ -662,33 +727,25 @@ export function SalesCounterEditByIdEditor({
           )}
         </div>
 
-        {/* RENCANA KUNJUNGAN */}
+        {/* % Resep Dokter */}
         <div>
-          <SectionLabel>Rencana Kunjungan</SectionLabel>
-          <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: errors.hariKerjaBulan ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                Jumlah hari kerja Outlet <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>
+              <span className="text-xs font-medium" style={{ color: errors.persenResepDokter ? "var(--color-red)" : "var(--color-text-muted)" }}>
+                % Resep Dokter <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>
               </span>
-              <div style={errors.hariKerjaBulan ? ERR_RING : undefined}>
-                <UnitInput value={hariKerjaBulan} onChange={setHariKerjaBulan} unit="Hari" placeholder="Jumlah hari praktek / bulan" max={31} disabled={readOnly} />
+              <div style={errors.persenResepDokter ? ERR_RING : undefined}>
+                <UnitInput
+                  value={persenResepDokter}
+                  onChange={setPersenResepDokter}
+                  unit="%"
+                  placeholder="0"
+                  min={0}
+                  max={100}
+                  disabled={readOnly}
+                />
               </div>
-              {errors.hariKerjaBulan && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.hariKerjaBulan}</span>}
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Visit / Bulan <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span></span>
-              <UnitInput value={rencanaVisitMinggu} onChange={setRencanaVisitMinggu} unit="Kali" disabled={readOnly} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: errors.surveyPasienHarian ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                Survey Pasien Harian <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>
-              </span>
-              <div style={errors.surveyPasienHarian ? ERR_RING : undefined}>
-                <UnitInput value={surveyPasienHarian} onChange={setSurveyPasienHarian} unit="Pasien" placeholder="Hasil survey pasien harian" disabled={readOnly} />
-              </div>
-              {errors.surveyPasienHarian && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.surveyPasienHarian}</span>}
+              {errors.persenResepDokter && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.persenResepDokter}</span>}
             </div>
           </div>
         </div>
@@ -761,8 +818,9 @@ export function SalesCounterEditByIdEditor({
             productsOptions={productOptions}
             canvasserProducts={canvasserProducts}
             masterProducts={masterProducts}
-            hariKerjaBulan={parseFloat(hariKerjaBulan) || 0}
             lamaPeriode={lamaPeriode}
+            periodeAwal={periodeAwal}
+            diskonPeriode={diskonPeriode}
             error={errors.products}
             readOnly={readOnly}
             b3SalesMap={b3SalesMap}
@@ -869,6 +927,8 @@ export function SalesCounterEditByIdEditor({
         productsMenang={productsMenang}
         productsInsentif={productsInsentif}
         insentifHistory={insentifHistory}
+        rekomendasiProduk={rekomendasiProduk}
+        masterProducts={masterProducts}
         selectedProductCodes={new Set(products.map((p) => p.kodeProduk).filter(Boolean))}
         onSelectProduct={selectProductFromSidebar}
       />

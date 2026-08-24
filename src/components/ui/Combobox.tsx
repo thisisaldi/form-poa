@@ -32,7 +32,7 @@ export const TAG_COLORS = {
   red: { bg: "var(--color-red-light)", fg: "var(--color-red)" },
   orange: { bg: "var(--color-orange-light, #ffedd5)", fg: "var(--color-orange, #ea580c)" },
   green: { bg: "var(--color-green-light, #dcfce7)", fg: "var(--color-success, #16a34a)" },
-  lime: { bg: "#bef264", fg: "#000000" },
+  lime: { bg: "#e0febf", fg: "#000000" },
 } as const;
 
 interface Props {
