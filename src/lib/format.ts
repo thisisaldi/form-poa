@@ -1,7 +1,10 @@
 // Shared currency formatter (docs/label-currency-format-updates/01-business-rules.md
 // §1, item #3 dari daftar 13 task 2026-08-10): nilai asli dibagi 1.000.000, tanpa
-// suffix apapun (bukan "Rp", bukan "Rb", bukan "Jt"), desimal pakai koma, trailing
-// zero dibuang. Contoh: 1.000.000 -> "1", 500.000 -> "0,5", 1.250.000 -> "1,25".
+// suffix apapun (bukan "Rp", bukan "Rb", bukan "Jt"). Dibulatkan ke bilangan bulat,
+// tanpa desimal (2026-08-21: resolusi OQ-1 — pengguna laporan "value ga sync sampai
+// desimal", jawaban: hilangkan desimal Rupiah sama sekali daripada kejar presisi
+// yang toh tidak terlihat konsisten di layar berbeda). Contoh: 1.000.000 -> "1",
+// 1.250.000 -> "1", 1.750.000 -> "2".
 //
 // Replaces the ~14 independently-redefined formatRp/formatRpPssp functions that
 // used to live in DraftChecklist.tsx, summary/page.tsx, LineItemEditor.tsx, etc.
@@ -18,22 +21,13 @@ export function formatCurrency(
   if (withSuffix) {
     const absN = Math.abs(n);
     if (absN >= 1_000_000) {
-      const scaled = n / 1_000_000;
-      const fixed = scaled.toFixed(2);
-      const trimmed = fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed;
-      return trimmed.replace(".", ",") + " Jt";
+      return Math.round(n / 1_000_000).toLocaleString("id-ID") + " Jt";
     } else if (absN >= 1_000) {
-      const scaled = n / 1_000;
-      const fixed = scaled.toFixed(2);
-      const trimmed = fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed;
-      return trimmed.replace(".", ",") + " Rb";
+      return Math.round(n / 1_000).toLocaleString("id-ID") + " Rb";
     } else {
-      return n.toLocaleString("id-ID");
+      return Math.round(n).toLocaleString("id-ID");
     }
   }
 
-  const scaled = n / 1_000_000;
-  const fixed = scaled.toFixed(2);
-  const trimmed = fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed;
-  return trimmed.replace(".", ",");
+  return Math.round(n / 1_000_000).toLocaleString("id-ID");
 }
