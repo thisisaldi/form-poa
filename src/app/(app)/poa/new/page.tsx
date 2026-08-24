@@ -9,8 +9,10 @@ import { Card } from "@/components/ui/Card";
 
 export default function NewPoaPage() {
   const router = useRouter();
+  const currentMonth = new Date().getMonth();
+  const defaultQuarter = `Q${Math.floor(currentMonth / 3) + 1}`;
   const [year, setYear] = useState(String(new Date().getFullYear()));
-  const [quarter, setQuarter] = useState("Q2");
+  const [quarter, setQuarter] = useState(defaultQuarter);
   const [pending, setPending] = useState(false);
 
   const currentYear = new Date().getFullYear();

@@ -15,8 +15,7 @@ export interface ScProductItemData {
   kodeProduk: string;
   namaProduk: string;
   produkKompetitor: string | null;
-  pembeliHari: number;
-  qtyCustomerBaru: number;
+  qtyPerBulan: number;
   persenMatriksSc: number;
   persenDiskon: number;
   persenCashback: number;
@@ -52,9 +51,7 @@ export interface ScDraftFormItem {
   version: number;
   kodePI: string;
   namaOutlet: string;
-  hariKerjaBulan: number;
-  rencanaVisitMinggu: number;
-  surveyPasienHarian: number;
+  persenResepDokter: number;
   ownerId: string;
   is_sc?: boolean;
   isBlastIn?: boolean;

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { PoaStatus, AuditAction } from "@prisma/client";
+import { PoaStatus, AuditAction, DiskonDplDpf } from "@prisma/client";
 import { getSalesCountersByOutlet } from "../(app)/sc/[id]/_services/getSalesCounters";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 
@@ -23,8 +23,7 @@ export async function saveSalesCounterFormAction(
   products: {
     kodeProduk: string;
     produkKompetitor: string;
-    pembeliHari: string;
-    qtyCustomerBaru: string;
+    qtyPerBulan: string;
     persenMatriksSc: string;
     persenDiskon: string;
     persenCashback: string;
@@ -35,9 +34,7 @@ export async function saveSalesCounterFormAction(
     label: string;
     value: string;
   }[],
-  hariKerjaBulan: number,
-  rencanaVisitMinggu: number,
-  surveyPasienHarian: number,
+  persenResepDokter: number,
   namaOutletParam?: string
 ): Promise<{ ok: boolean; error?: string; poaScId?: string }> {
   const session = await requireSession();
@@ -49,7 +46,7 @@ export async function saveSalesCounterFormAction(
   if (selectedPersonIds.length === 0) {
     return { ok: false, error: "Minimal pilih 1 Sales Counter." };
   }
-  const hasValidProduct = products.some((p) => p.kodeProduk && (parseFloat(p.pembeliHari) || 0) > 0);
+  const hasValidProduct = products.some((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0);
   if (!hasValidProduct) {
     return { ok: false, error: "Minimal pilih 1 produk dengan kuantitas > 0." };
   }
@@ -95,9 +92,7 @@ export async function saveSalesCounterFormAction(
       let hasChanges = isNew;
       if (existing) {
         if (
-          existing.hariKerjaBulan !== hariKerjaBulan ||
-          existing.rencanaVisitMinggu !== rencanaVisitMinggu ||
-          existing.surveyPasienHarian !== surveyPasienHarian
+          existing.persenResepDokter !== persenResepDokter
         ) {
           hasChanges = true;
         }
@@ -113,26 +108,24 @@ export async function saveSalesCounterFormAction(
 
         // Compare products
         if (!hasChanges) {
-          const newProducts = products
-            .filter((p) => p.kodeProduk && (parseFloat(p.pembeliHari) || 0) > 0)
+          const newProds = products
+            .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
             .map((p) => ({
               kodeProduk: p.kodeProduk,
               produkKompetitor: p.produkKompetitor || null,
-              pembeliHari: parseInt(p.pembeliHari, 10) || 0,
-              qtyCustomerBaru: parseInt(p.qtyCustomerBaru, 10) || 0,
+              qtyPerBulan: parseInt(p.qtyPerBulan, 10) || 0,
               persenMatriksSc: parseFloat(parseFloat(p.persenMatriksSc || "0").toFixed(2)),
               persenDiskon: parseFloat(parseFloat(p.persenDiskon || "0").toFixed(2)),
               persenCashback: parseFloat(parseFloat(p.persenCashback || "0").toFixed(2)),
-              rencanaTotalBiaya: parseFloat((p.rencanaTotalBiaya || 0).toFixed(2)),
+              rencanaTotalBiaya: parseFloat(p.rencanaTotalBiaya.toFixed(2)),
             }))
             .sort((a, b) => a.kodeProduk.localeCompare(b.kodeProduk));
 
-          const oldProducts = existing.products
+          const oldProds = existing.products
             .map((p: any) => ({
               kodeProduk: p.kodeProduk,
               produkKompetitor: p.produkKompetitor || null,
-              pembeliHari: p.pembeliHari,
-              qtyCustomerBaru: p.qtyCustomerBaru,
+              qtyPerBulan: p.qtyPerBulan,
               persenMatriksSc: parseFloat(Number(p.persenMatriksSc).toFixed(2)),
               persenDiskon: parseFloat(Number(p.persenDiskon).toFixed(2)),
               persenCashback: parseFloat(Number(p.persenCashback).toFixed(2)),
@@ -140,7 +133,7 @@ export async function saveSalesCounterFormAction(
             }))
             .sort((a: any, b: any) => a.kodeProduk.localeCompare(b.kodeProduk));
 
-          if (JSON.stringify(newProducts) !== JSON.stringify(oldProducts)) {
+          if (JSON.stringify(newProds) !== JSON.stringify(oldProds)) {
             hasChanges = true;
           }
         }
@@ -208,17 +201,13 @@ export async function saveSalesCounterFormAction(
           ownerId: session.userId,
           status: PoaStatus.DRAFT,
           version: 1,
-          hariKerjaBulan,
-          rencanaVisitMinggu,
-          surveyPasienHarian,
+          persenResepDokter,
         },
         update: {
           status: PoaStatus.DRAFT,
           version: existing ? existing.version + 1 : 1,
           namaOutlet: namaOutlet || existing?.namaOutlet,
-          hariKerjaBulan,
-          rencanaVisitMinggu,
-          surveyPasienHarian,
+          persenResepDokter,
         },
       });
 
@@ -249,7 +238,7 @@ export async function saveSalesCounterFormAction(
       // 6. Insert new product items
       await tx.poaScProductItem.createMany({
         data: products
-          .filter((p) => p.kodeProduk && (parseFloat(p.pembeliHari) || 0) > 0)
+          .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
           .map((p) => {
             const master = masterProducts.find((mp: any) => mp.kodeProduk === p.kodeProduk);
             return {
@@ -257,8 +246,7 @@ export async function saveSalesCounterFormAction(
               kodeProduk: p.kodeProduk,
               namaProduk: master?.namaProduk || p.kodeProduk,
               produkKompetitor: p.produkKompetitor || null,
-              pembeliHari: parseInt(p.pembeliHari, 10) || 0,
-              qtyCustomerBaru: parseInt(p.qtyCustomerBaru, 10) || 0,
+              qtyPerBulan: parseInt(p.qtyPerBulan, 10) || 0,
               persenMatriksSc: parseFloat(p.persenMatriksSc) || 0,
               persenDiskon: parseFloat(p.persenDiskon) || 0,
               persenCashback: parseFloat(p.persenCashback) || 0,
@@ -282,17 +270,9 @@ export async function saveSalesCounterFormAction(
       const snapshot: any = {};
       if (!isNew && existing) {
         // Compare root scalar columns
-        if (existing.hariKerjaBulan !== hariKerjaBulan) {
-          snapshot.old_hariKerjaBulan = existing.hariKerjaBulan;
-          snapshot.new_hariKerjaBulan = hariKerjaBulan;
-        }
-        if (existing.rencanaVisitMinggu !== rencanaVisitMinggu) {
-          snapshot.old_rencanaVisitMinggu = existing.rencanaVisitMinggu;
-          snapshot.new_rencanaVisitMinggu = rencanaVisitMinggu;
-        }
-        if (existing.surveyPasienHarian !== surveyPasienHarian) {
-          snapshot.old_surveyPasienHarian = existing.surveyPasienHarian;
-          snapshot.new_surveyPasienHarian = surveyPasienHarian;
+        if (existing.persenResepDokter !== persenResepDokter) {
+          snapshot.old_persenResepDokter = existing.persenResepDokter;
+          snapshot.new_persenResepDokter = persenResepDokter;
         }
 
         // Compare person staff items
@@ -332,8 +312,7 @@ export async function saveSalesCounterFormAction(
               kodeProduk: p.kodeProduk,
               namaProduk: p.namaProduk,
               produkKompetitor: p.produkKompetitor || null,
-              pembeliHari: p.pembeliHari,
-              qtyCustomerBaru: p.qtyCustomerBaru,
+              qtyPerBulan: p.qtyPerBulan,
               persenMatriksSc: parseFloat(Number(p.persenMatriksSc).toFixed(2)),
               persenDiskon: parseFloat(Number(p.persenDiskon).toFixed(2)),
               persenCashback: parseFloat(Number(p.persenCashback).toFixed(2)),
@@ -343,15 +322,14 @@ export async function saveSalesCounterFormAction(
         );
 
         const activeNewProducts = products
-          .filter((p) => p.kodeProduk && (parseFloat(p.pembeliHari) || 0) > 0)
+          .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
           .map((p) => {
             const master = masterProducts.find((mp: any) => mp.kodeProduk === p.kodeProduk);
             return {
               kodeProduk: p.kodeProduk,
               namaProduk: master?.namaProduk || p.kodeProduk,
               produkKompetitor: p.produkKompetitor || null,
-              pembeliHari: parseInt(p.pembeliHari, 10) || 0,
-              qtyCustomerBaru: parseInt(p.qtyCustomerBaru, 10) || 0,
+              qtyPerBulan: parseInt(p.qtyPerBulan, 10) || 0,
               persenMatriksSc: parseFloat(parseFloat(p.persenMatriksSc || "0").toFixed(2)),
               persenDiskon: parseFloat(parseFloat(p.persenDiskon || "0").toFixed(2)),
               persenCashback: parseFloat(parseFloat(p.persenCashback || "0").toFixed(2)),
@@ -378,14 +356,9 @@ export async function saveSalesCounterFormAction(
               updateDiff.new_produkKompetitor = newP.produkKompetitor;
               updated = true;
             }
-            if (oldP.pembeliHari !== newP.pembeliHari) {
-              updateDiff.old_pembeliHari = oldP.pembeliHari;
-              updateDiff.new_pembeliHari = newP.pembeliHari;
-              updated = true;
-            }
-            if (oldP.qtyCustomerBaru !== newP.qtyCustomerBaru) {
-              updateDiff.old_qtyCustomerBaru = oldP.qtyCustomerBaru;
-              updateDiff.new_qtyCustomerBaru = newP.qtyCustomerBaru;
+            if (oldP.qtyPerBulan !== newP.qtyPerBulan) {
+              updateDiff.old_qtyPerBulan = oldP.qtyPerBulan;
+              updateDiff.new_qtyPerBulan = newP.qtyPerBulan;
               updated = true;
             }
             if (oldP.persenMatriksSc !== newP.persenMatriksSc) {
@@ -413,6 +386,19 @@ export async function saveSalesCounterFormAction(
               productDiffs.push(updateDiff);
             }
           }
+        }
+
+        for (const [code, oldP] of oldProdMap.entries()) {
+          if (!newProdMap.has(code)) {
+            productDiffs.push({
+              type: "delete",
+              ...oldP,
+            });
+          }
+        }
+
+        if (productDiffs.length > 0) {
+          snapshot.product = productDiffs;
         }
 
         for (const [code, oldP] of oldProdMap.entries()) {
@@ -625,3 +611,49 @@ export async function updateSalesCounterPeriodAction(
     return { ok: false, error: error?.message || "Gagal memperbarui periode Sales Counter." };
   }
 }
+
+export async function getDiskonDplDpfByPeriodeAction(periode: string) {
+  console.log(`[getDiskonDplDpfByPeriodeAction] querying for period: "${periode}"`);
+  if (!periode) return { list: [], diskonPeriode: "" };
+  try {
+    let list = await prisma.diskonDplDpf.findMany({
+      where: {
+        periode: periode,
+      },
+    });
+
+    let diskonPeriode = periode;
+
+    if (list.length === 0) {
+      const latest = (await prisma.diskonDplDpf.findFirst({
+        where: { periode: { lte: periode } },
+        orderBy: { periode: "desc" },
+        select: { periode: true },
+      })) ?? (await prisma.diskonDplDpf.findFirst({
+        orderBy: { periode: "desc" },
+        select: { periode: true },
+      }));
+
+      if (latest?.periode) {
+        diskonPeriode = latest.periode;
+        list = await prisma.diskonDplDpf.findMany({
+          where: { periode: latest.periode },
+        });
+      }
+    }
+
+    console.log(`[getDiskonDplDpfByPeriodeAction] returning ${list.length} records for diskonPeriode: "${diskonPeriode}"`);
+    return {
+      diskonPeriode,
+      list: list.map((item: DiskonDplDpf) => ({
+        proCode: item.proCode,
+        diskon: Number(item.diskon.toString()),
+        periode: item.periode,
+      })),
+    };
+  } catch (error) {
+    console.error("Failed to fetch DiskonDplDpf by period:", error);
+    return { list: [], diskonPeriode: "" };
+  }
+}
+

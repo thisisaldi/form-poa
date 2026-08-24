@@ -15,9 +15,9 @@ interface ProductSelectorProps {
   productsOptions: any[];
   canvasserProducts: SalesCounterProduct[];
   masterProducts: Product[];
-  hariKerjaBulan: number;
   lamaPeriode: number;
-  surveyPasienHarian?: string;
+  periodeAwal?: string;
+  diskonPeriode?: string;
   error?: string;
   readOnly?: boolean;
   b3SalesMap?: Map<string, number>;
@@ -40,6 +40,18 @@ function satuanLabel(product: Product | null | undefined): string {
   return s && !/^[-—–]$/.test(s) ? s : "SJ";
 }
 
+function formatPeriodeDiskonLabel(p?: string) {
+  if (!p || p.length !== 6) return null;
+  const year = p.slice(0, 4);
+  const monthIdx = parseInt(p.slice(4, 6), 10) - 1;
+  const MONTH_NAMES = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+  ];
+  if (isNaN(monthIdx) || monthIdx < 0 || monthIdx > 11) return p;
+  return `${p} (${MONTH_NAMES[monthIdx]} ${year})`;
+}
+
 export function ProductSelector({
   rows,
   onAddRow,
@@ -48,9 +60,9 @@ export function ProductSelector({
   productsOptions,
   canvasserProducts,
   masterProducts,
-  hariKerjaBulan,
   lamaPeriode,
-  surveyPasienHarian,
+  periodeAwal,
+  diskonPeriode,
   error,
   readOnly = false,
   b3SalesMap,
@@ -71,14 +83,13 @@ export function ProductSelector({
           const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
           const hnaST = hnaSJ / konv;
           
-          const pembeli = parseFloat(row.pembeliHari) || 0;
-          const qty = parseFloat(row.qtyCustomerBaru) || 0;
-          const days = hariKerjaBulan || 0;
+          const qty = parseFloat(row.qtyPerBulan) || 0;
           
-          const estimasiSales = pembeli * qty * days * hnaST * lamaPeriode;
+          const estSalesBln = qty * hnaST;
+          const estimasiSales = estSalesBln * lamaPeriode;
           const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
           
-          const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+          const qtySjBln = konv > 0 ? qty / konv : 0;
           const scVal = canvasserProduct?.sales_counter_value;
           const scMin = canvasserProduct?.sales_counter_minimum || 0;
 
@@ -86,7 +97,7 @@ export function ProductSelector({
           if (scVal != null && scVal > 0) {
             nilaiScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
           } else {
-            nilaiScBln = (pembeli * qty * days * hnaST) * (pctMatriks / 100);
+            nilaiScBln = estSalesBln * (pctMatriks / 100);
           }
           const nilaiSc3Bln = nilaiScBln * 3;
 
@@ -150,37 +161,17 @@ export function ProductSelector({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
-                    Customer / Hari <Req />
-                  </span>
-                  <UnitInput
-                    value={row.pembeliHari}
-                    onChange={(val) => onUpdateRow(idx, { pembeliHari: val })}
-                    unit="Pembeli"
-                    placeholder="0"
-                    disabled={readOnly}
-                  />
-                  {surveyPasienHarian && (
-                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
-                      <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Referensi PM: </span>
-                      Survey Customer Harian: <strong>{surveyPasienHarian}</strong> orang
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    Jml Produk ST / Customer Baru <Req />
-                  </span>
-                  <UnitInput
-                    value={row.qtyCustomerBaru}
-                    onChange={(val) => onUpdateRow(idx, { qtyCustomerBaru: val })}
-                    unit={masterProduct?.satuanTerkecil ?? "ST"}
-                    placeholder="0"
-                    disabled={readOnly}
-                  />
-                </div>
+              <div className="flex flex-col gap-1 max-w-xs">
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                  Jml Produk ST / Bln <Req />
+                </span>
+                <UnitInput
+                  value={row.qtyPerBulan}
+                  onChange={(val) => onUpdateRow(idx, { qtyPerBulan: val })}
+                  unit={masterProduct?.satuanTerkecil ?? "ST"}
+                  placeholder="0"
+                  disabled={readOnly}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -208,17 +199,29 @@ export function ProductSelector({
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                     % Diskon (DPL/DPF)
                   </span>
-                  <UnitInput
-                    value={row.persenDiskon}
-                    onChange={(val) => onUpdateRow(idx, { persenDiskon: val })}
-                    unit="%"
-                    placeholder="0"
-                    disabled={readOnly}
-                  />
+                  <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
+                    <UnitInput
+                      value={row.persenDiskon}
+                      onChange={() => {}}
+                      unit="%"
+                      placeholder="0"
+                      disabled={true}
+                    />
+                  </div>
+                  {diskonPeriode ? (
+                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
+                      <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Data Diskon: </span>
+                      {formatPeriodeDiskonLabel(diskonPeriode)}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
+                      Pilih periode awal
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    % Cashback (Autofill)
+                    % Cashback Matrix
                   </span>
                   <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
                     <UnitInput
@@ -233,9 +236,7 @@ export function ProductSelector({
               </div>
 
               {row.kodeProduk &&
-               parseFloat(row.pembeliHari) > 0 &&
-               parseFloat(row.qtyCustomerBaru) > 0 &&
-               hariKerjaBulan > 0 &&
+               parseFloat(row.qtyPerBulan) > 0 &&
                row.persenMatriksSc !== "" &&
                lamaPeriode > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start animate-fade-in mt-3">
@@ -249,13 +250,13 @@ export function ProductSelector({
                       <div>
                         <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales / Bln</div>
                         <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                          {formatRp(pembeli * qty * days * hnaST)}
+                          {formatRp(qty * hnaST)}
                         </div>
                       </div>
                       <div>
                         <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales 3 Bln</div>
                         <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                          {formatRp(pembeli * qty * days * hnaST * 3)}
+                          {formatRp(qty * hnaST * 3)}
                         </div>
                       </div>
                     </div>
@@ -266,7 +267,7 @@ export function ProductSelector({
                           Qty per {satuanLabel(masterProduct)} / Bln
                         </div>
                         <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                          {Math.round((pembeli * qty * days) / (parseInt(masterProduct?.konversiPembagi || "1", 10) || 1))} {satuanLabel(masterProduct)}
+                          {Math.round(qty / (parseInt(masterProduct?.konversiPembagi || "1", 10) || 1))} {satuanLabel(masterProduct)}
                         </div>
                       </div>
                       <div>
@@ -274,18 +275,18 @@ export function ProductSelector({
                           Qty per {satuanLabel(masterProduct)} 3 Bln
                         </div>
                         <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                          {Math.round((pembeli * qty * days * 3) / (parseInt(masterProduct?.konversiPembagi || "1", 10) || 1))} {satuanLabel(masterProduct)}
+                          {Math.round((qty * 3) / (parseInt(masterProduct?.konversiPembagi || "1", 10) || 1))} {satuanLabel(masterProduct)}
                         </div>
                       </div>
                     </div>
 
                     <div className="pt-2 border-t space-y-1" style={{ borderColor: "var(--color-border)" }}>
                       {(() => {
-                        const estSalesBln = pembeli * qty * days * hnaST;
+                        const estSalesMonthly = qty * hnaST;
                         const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
                         let growthPct: number | null = null;
                         if (avgSalesBln > 0) {
-                          growthPct = ((estSalesBln - avgSalesBln) / avgSalesBln) * 100;
+                          growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
                         }
 
                         return (

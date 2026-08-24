@@ -158,14 +158,13 @@ export async function GET(
       const konv = mp?.konversiPembagi ? parseFloat(mp.konversiPembagi.toString()) : 1;
       const hnaST = hnaSJ / konv;
 
-      const pembeli = p.pembeliHari || 0;
-      const qty = p.qtyCustomerBaru || 0;
+      const qty = p.qtyPerBulan || 0;
 
-      const estSalesPerMonth = pembeli * qty * days * hnaST;
+      const estSalesPerMonth = qty * hnaST;
       const estSalesFull = estSalesPerMonth * lama;
 
       const pctMatriks = parseFloat(p.persenMatriksSc.toString()) || 0;
-      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+      const qtySjBln = konv > 0 ? qty / konv : 0;
       const scVal = cp?.sales_counter_value;
       const scMin = cp?.sales_counter_minimum || 0;
 
@@ -329,15 +328,12 @@ export async function GET(
     { header: "Nama MR", key: "namaMr", width: 24 },
     { header: "KodePI Outlet", key: "kodePI", width: 14 },
     { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
-    { header: "Hari Kerja / Bln", key: "hariKerjaBulan", width: 14 },
-    { header: "Visit / Bln", key: "rencanaVisitMinggu", width: 12 },
-    { header: "Survey Pasien / Hr", key: "surveyPasienHarian", width: 16 },
+    { header: "% Resep Dokter", key: "persenResepDokter", width: 16 },
     { header: "Sales Counter", key: "scPersonNames", width: 32 },
     { header: "Kode Produk", key: "kodeProduk", width: 14 },
     { header: "Nama Produk SC", key: "namaProduk", width: 30 },
     { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
-    { header: "Customer / Hari", key: "pembeliHari", width: 14 },
-    { header: "Qty / Pembeli", key: "qtyCustomerBaru", width: 14 },
+    { header: "Qty ST / Bulan", key: "qtyPerBulan", width: 16 },
     { header: "Estimasi Sales / Bln (Rp)", key: "estSalesBulan", width: 22 },
     { header: "Estimasi Sales / Periode (Rp)", key: "estSalesPeriode", width: 24 },
     { header: "% Matriks SC (Insentif)", key: "persenMatriksSc", width: 18 },
@@ -360,7 +356,6 @@ export async function GET(
 
   let formCounter = 1;
   for (const draft of drafts) {
-    const days = draft.hariKerjaBulan || 0;
     const lama = draft.lamaPeriode || 3;
     const scPersonStr = draft.persons.map((p: any) => `${p.personName} (${p.positionName})`).join(", ") || "-";
     const draftEntertain = draft.entertainItems.reduce((s: number, e: any) => s + (parseFloat(e.biayaEntertain.toString()) || 0), 0);
@@ -373,14 +368,13 @@ export async function GET(
       const konv = mp?.konversiPembagi ? parseFloat(mp.konversiPembagi.toString()) : 1;
       const hnaST = hnaSJ / konv;
 
-      const pembeli = p.pembeliHari || 0;
-      const qty = p.qtyCustomerBaru || 0;
+      const qty = p.qtyPerBulan || 0;
 
-      const estSalesBulan = pembeli * qty * days * hnaST;
+      const estSalesBulan = qty * hnaST;
       const estSalesPeriode = estSalesBulan * lama;
       const pctMatriks = (parseFloat(p.persenMatriksSc.toString()) || 0) / 100;
       const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
-      const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+      const qtySjBln = konv > 0 ? qty / konv : 0;
       const scVal = cp?.sales_counter_value;
       const scMin = cp?.sales_counter_minimum || 0;
 
@@ -406,15 +400,12 @@ export async function GET(
         namaMr: owner.name,
         kodePI: draft.kodePI,
         namaOutlet: draft.namaOutlet || draft.kodePI,
-        hariKerjaBulan: days,
-        rencanaVisitMinggu: draft.rencanaVisitMinggu || 0,
-        surveyPasienHarian: draft.surveyPasienHarian || 0,
+        persenResepDokter: draft.persenResepDokter || 0,
         scPersonNames: scPersonStr,
         kodeProduk: p.kodeProduk,
         namaProduk: p.namaProduk,
         produkKompetitor: p.produkKompetitor || "-",
-        pembeliHari: pembeli,
-        qtyCustomerBaru: qty,
+        qtyPerBulan: qty,
         estSalesBulan: Math.round(estSalesBulan),
         estSalesPeriode: Math.round(estSalesPeriode),
         persenMatriksSc: pctMatriks,

@@ -11,14 +11,12 @@ export function calculateCashbackDetails({
   cashbackData,
   selectedProducts,
   masterProducts,
-  hariKerjaBulan,
   lamaPeriode,
 }: {
   cashbackData: CashbackData | null | undefined;
   selectedProducts: Array<{
     kodeProduk: string;
-    pembeliHari: string;
-    qtyCustomerBaru: string;
+    qtyPerBulan: string;
     persenCashback?: string;
   }>;
   masterProducts: Array<{
@@ -26,7 +24,6 @@ export function calculateCashbackDetails({
     hna: string;
     konversiPembagi?: string | null;
   }>;
-  hariKerjaBulan: number;
   lamaPeriode: number;
 }) {
   const limitVal = cashbackData?.limit?.[0]?.limit ?? 100000;
@@ -41,9 +38,8 @@ export function calculateCashbackDetails({
     const konv = parseInt(master?.konversiPembagi || "1", 10) || 1;
     const hnaST = hnaSJ / konv;
 
-    const pembeli = parseFloat(p.pembeliHari) || 0;
-    const qty = parseFloat(p.qtyCustomerBaru) || 0;
-    const estimasiSalesMonthly = pembeli * qty * hariKerjaBulan * hnaST;
+    const qty = parseFloat(p.qtyPerBulan) || 0;
+    const estimasiSalesMonthly = qty * hnaST;
     const estimasiSales = estimasiSalesMonthly * lamaPeriode;
 
     let rawCashbackPct = parseFloat(p.persenCashback || "0") || 0;

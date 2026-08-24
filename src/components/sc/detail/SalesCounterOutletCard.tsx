@@ -75,7 +75,6 @@ export function SalesCounterOutletCard({
     });
   }, [isExpanded, draft.kodePI, draft.products, poaId]);
 
-  const days = draft.hariKerjaBulan || 0;
   const lama = draft.lamaPeriode || 3;
 
   const cbDetails = useMemo(() => {
@@ -83,8 +82,7 @@ export function SalesCounterOutletCard({
       cashbackData,
       selectedProducts: draft.products.map((p) => ({
         kodeProduk: p.kodeProduk,
-        pembeliHari: String(p.pembeliHari || 0),
-        qtyCustomerBaru: String(p.qtyCustomerBaru || 0),
+        qtyPerBulan: String(p.qtyPerBulan || 0),
         persenCashback: String(p.persenCashback || 0),
       })),
       masterProducts: draft.products.map((p) => ({
@@ -92,7 +90,6 @@ export function SalesCounterOutletCard({
         hna: String(p.hnaSJ || 0),
         konversiPembagi: String(p.konversiPembagi || 1),
       })),
-      hariKerjaBulan: draft.hariKerjaBulan,
       lamaPeriode: draft.lamaPeriode,
     });
   }, [cashbackData, draft]);
@@ -107,10 +104,10 @@ export function SalesCounterOutletCard({
     const konv = p.konversiPembagi || 1;
     const hnaST = hnaSJ / konv;
 
-    const estMonth = (p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days * hnaST;
+    const estMonth = (p.qtyPerBulan || 0) * hnaST;
     const estFull = estMonth * lama;
     
-    const qtySjBln = konv > 0 ? ((p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days) / konv : 0;
+    const qtySjBln = konv > 0 ? (p.qtyPerBulan || 0) / konv : 0;
     const scVal = p.salesCounterValue;
     const scMin = p.salesCounterMinimum || 0;
 
@@ -162,7 +159,7 @@ export function SalesCounterOutletCard({
             SC: {canvasserNames || "Tidak ada SC"}
           </p>
           <p className="text-[11px] truncate" style={{ color: "var(--color-text-faint)" }}>
-            Hari Kerja: {days} hr/bln · Visit: {draft.rencanaVisitMinggu} kali/bln · Survey Pasien: {draft.surveyPasienHarian} pasien/hr
+            Resep Dokter: {draft.persenResepDokter}%
           </p>
 
           {/* Stat grid */}
@@ -214,8 +211,7 @@ export function SalesCounterOutletCard({
               <thead>
                 <tr style={{ background: "var(--color-bg-subtle)" }}>
                   <th className="text-left px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Produk SC</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Pembeli/Hr</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty/Pembeli</th>
+                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty ST / Bln</th>
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</th>
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Nilai SC</th>
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
@@ -235,8 +231,8 @@ export function SalesCounterOutletCard({
                   const konv = p.konversiPembagi || 1;
                   const hnaST = hnaSJ / konv;
 
-                  const estSalesFull = (p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days * hnaST * lama;
-                  const qtySjBln = konv > 0 ? ((p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days) / konv : 0;
+                  const estSalesFull = (p.qtyPerBulan || 0) * hnaST * lama;
+                  const qtySjBln = konv > 0 ? (p.qtyPerBulan || 0) / konv : 0;
                   const scVal = p.salesCounterValue;
                   const scMin = p.salesCounterMinimum || 0;
 
@@ -244,7 +240,7 @@ export function SalesCounterOutletCard({
                   if (scVal != null && scVal > 0) {
                     nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
                   } else {
-                    nilaiScPerMonth = ((p.pembeliHari || 0) * (p.qtyCustomerBaru || 0) * days * hnaST) * ((p.persenMatriksSc || 0) / 100);
+                    nilaiScPerMonth = ((p.qtyPerBulan || 0) * hnaST) * ((p.persenMatriksSc || 0) / 100);
                   }
                   const nilaiScFull = nilaiScPerMonth * lama;
                   const valCashbackFull = cashbackData
@@ -261,8 +257,7 @@ export function SalesCounterOutletCard({
                   return (
                     <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
                       <td className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text)" }}>{p.namaProduk}</td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.pembeliHari || 0}</td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyCustomerBaru || 0}</td>
+                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>{estSalesFull > 0 ? formatRp(estSalesFull) : "-"}</td>
                       <td className="px-2.5 py-2 text-right font-semibold" style={{ color: "var(--color-blue)" }}>{nilaiScFull > 0 ? formatRp(nilaiScFull) : "-"}</td>
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}</td>

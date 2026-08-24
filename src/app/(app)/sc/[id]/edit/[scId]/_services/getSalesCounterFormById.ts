@@ -25,10 +25,10 @@ export async function getSalesCounterFormById(
   if (!hasAccess) return null;
 
   const [products, isBlastIn, rawOutlets, canvasserPersonsData] = await Promise.all([
-    getScProducts(),
-    isOutletBlastIn(form.kodePI),
-    getSalesCounterOutletsDirect(sessionUserId),
-    getSalesCountersByOutlet(form.kodePI),
+    getScProducts().catch(() => []),
+    isOutletBlastIn(form.kodePI).catch(() => false),
+    getSalesCounterOutletsDirect(sessionUserId).catch(() => []),
+    getSalesCountersByOutlet(form.kodePI).catch(() => ({ data: [] })),
   ]);
 
   const targetOutlet = rawOutlets.find((o) => o.kodePI === form.kodePI);
@@ -47,9 +47,7 @@ export async function getSalesCounterFormById(
     isBlastIn,
     periodeAwal: form.periodeAwal,
     lamaPeriode: form.lamaPeriode,
-    hariKerjaBulan: form.hariKerjaBulan,
-    rencanaVisitMinggu: form.rencanaVisitMinggu,
-    surveyPasienHarian: form.surveyPasienHarian,
+    persenResepDokter: form.persenResepDokter,
     persons: form.persons.map((p: any) => {
       const matchedApiPerson = canvasserPersonsData?.data?.find(
         (c: any) =>
@@ -70,8 +68,7 @@ export async function getSalesCounterFormById(
       kodeProduk: p.kodeProduk,
       namaProduk: p.namaProduk,
       produkKompetitor: p.produkKompetitor,
-      pembeliHari: p.pembeliHari,
-      qtyCustomerBaru: p.qtyCustomerBaru,
+      qtyPerBulan: p.qtyPerBulan,
       persenMatriksSc: Number(p.persenMatriksSc.toString()),
       persenDiskon: Number(p.persenDiskon.toString()),
       persenCashback: Number(p.persenCashback.toString()),

@@ -71,7 +71,6 @@ export function useSalesCounterDetail({
 
     for (const draft of selectedDrafts) {
       const lama = draft.lamaPeriode || 3;
-      const days = draft.hariKerjaBulan || 0;
 
       // Calculate overlap with quarter months
       const startYear = parseInt(draft.periodeAwal.slice(0, 4), 10);
@@ -89,8 +88,7 @@ export function useSalesCounterDetail({
         cashbackData,
         selectedProducts: draft.products.map((p) => ({
           kodeProduk: p.kodeProduk,
-          pembeliHari: String(p.pembeliHari || 0),
-          qtyCustomerBaru: String(p.qtyCustomerBaru || 0),
+          qtyPerBulan: String(p.qtyPerBulan || 0),
           persenCashback: String(p.persenCashback || 0),
         })),
         masterProducts: draft.products.map((p) => ({
@@ -98,7 +96,6 @@ export function useSalesCounterDetail({
           hna: String(p.hnaSJ || 0),
           konversiPembagi: String(p.konversiPembagi || 1),
         })),
-        hariKerjaBulan: draft.hariKerjaBulan,
         lamaPeriode: draft.lamaPeriode,
       });
 
@@ -115,14 +112,13 @@ export function useSalesCounterDetail({
         const konv = p.konversiPembagi || 1;
         const hnaST = hnaSJ / konv;
 
-        const pembeli = p.pembeliHari || 0;
-        const qty = p.qtyCustomerBaru || 0;
+        const qty = p.qtyPerBulan || 0;
 
-        const estSalesPerMonth = pembeli * qty * days * hnaST;
+        const estSalesPerMonth = qty * hnaST;
         const estSalesFull = estSalesPerMonth * lama;
 
         const pctMatriks = p.persenMatriksSc || 0;
-        const qtySjBln = konv > 0 ? (pembeli * qty * days) / konv : 0;
+        const qtySjBln = konv > 0 ? qty / konv : 0;
         const scVal = p.salesCounterValue;
         const scMin = p.salesCounterMinimum || 0;
 
