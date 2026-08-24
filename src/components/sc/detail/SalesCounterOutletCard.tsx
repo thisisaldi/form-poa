@@ -50,8 +50,10 @@ export function SalesCounterOutletCard({
   const [cashbackData, setCashbackData] = useState<any>(null);
 
   useEffect(() => {
-    getScCashbackPoaAction().then((res) => setCashbackData(res));
-  }, []);
+    if (draft.kodePI) {
+      getScCashbackPoaAction(draft.kodePI).then((res) => setCashbackData(res));
+    }
+  }, [draft.kodePI]);
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
 
   const isExpanded = detailOpen;

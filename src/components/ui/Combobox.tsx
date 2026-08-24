@@ -13,17 +13,17 @@ export interface ComboboxOption {
   /** Short badge shown inline next to the label (e.g. group RS name). */
   tag?: string;
   /** Badge color variant — defaults to blue. */
-  tagColor?: "blue" | "yellow" | "red" | "green" | "orange" | "lime";
+  tagColor?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple";
   /** Render `tag` as a plain color dot (title = tag text) instead of a text pill. */
   tagDotOnly?: boolean;
   /** Second, independent badge (e.g. PSSP history) — shown alongside `tag`, not instead of it. */
   tag2?: string;
-  tag2Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime";
+  tag2Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple";
   /** Third, independent badge (e.g. "Retensi") — rendered solid/high-contrast rather
    * than as a pastel pill, so it stands out from tag/tag2 instead of blending in
    * (2026-07-27: previously baked into tag2's text, easy to miss). */
   tag3?: string;
-  tag3Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime";
+  tag3Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple";
 }
 
 export const TAG_COLORS = {
@@ -32,7 +32,9 @@ export const TAG_COLORS = {
   red: { bg: "var(--color-red-light)", fg: "var(--color-red)" },
   orange: { bg: "var(--color-orange-light, #ffedd5)", fg: "var(--color-orange, #ea580c)" },
   green: { bg: "var(--color-green-light, #dcfce7)", fg: "var(--color-success, #16a34a)" },
-  lime: { bg: "#e0febf", fg: "#000000" },
+  lime: { bg: "#dcfce7", fg: "#166534" },
+  indigo: { bg: "#e0e7ff", fg: "#3730a3" },
+  purple: { bg: "#f3e8ff", fg: "#6b21a8" },
 } as const;
 
 interface Props {

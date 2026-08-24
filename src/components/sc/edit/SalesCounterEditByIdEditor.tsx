@@ -298,7 +298,7 @@ export function SalesCounterEditByIdEditor({
       }
       setRekomendasiProduk(prods);
     });
-    getScCashbackPoaAction().then((res) => {
+    getScCashbackPoaAction(kodePI).then((res) => {
       setRawCashbackData(res);
       const array = Array.isArray(res?.matrix)
         ? res.matrix
@@ -821,6 +821,19 @@ export function SalesCounterEditByIdEditor({
             lamaPeriode={lamaPeriode}
             periodeAwal={periodeAwal}
             diskonPeriode={diskonPeriode}
+            cashbackPeriode={rawCashbackData?.period || rawCashbackData?.data?.period}
+            cashbackData={rawCashbackData}
+            hideCashback={
+              rawCashbackData?.message === "Gudang Tidak Ditemukan" ||
+              (typeof rawCashbackData?.message === "string" &&
+                (rawCashbackData.message.toLowerCase().includes("tidak ditemukan") ||
+                 rawCashbackData.message.toLowerCase().includes("gudang"))) ||
+              (typeof rawCashbackData?.data?.message === "string" &&
+                (rawCashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
+                 rawCashbackData.data.message.toLowerCase().includes("gudang"))) ||
+              rawCashbackData?.status === false ||
+              rawCashbackData?.success === false
+            }
             error={errors.products}
             readOnly={readOnly}
             b3SalesMap={b3SalesMap}

@@ -18,6 +18,9 @@ interface ProductSelectorProps {
   lamaPeriode: number;
   periodeAwal?: string;
   diskonPeriode?: string;
+  cashbackPeriode?: string;
+  cashbackData?: any;
+  hideCashback?: boolean;
   error?: string;
   readOnly?: boolean;
   b3SalesMap?: Map<string, number>;
@@ -63,11 +66,26 @@ export function ProductSelector({
   lamaPeriode,
   periodeAwal,
   diskonPeriode,
+  cashbackPeriode,
+  cashbackData,
+  hideCashback = false,
   error,
   readOnly = false,
   b3SalesMap,
   b3RangeLabel,
 }: ProductSelectorProps) {
+  const isCashbackNotFound =
+    hideCashback ||
+    cashbackData?.message === "Gudang Tidak Ditemukan" ||
+    (typeof cashbackData?.message === "string" &&
+      (cashbackData.message.toLowerCase().includes("tidak ditemukan") ||
+       cashbackData.message.toLowerCase().includes("gudang"))) ||
+    (typeof cashbackData?.data?.message === "string" &&
+      (cashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
+       cashbackData.data.message.toLowerCase().includes("gudang"))) ||
+    cashbackData?.status === false ||
+    cashbackData?.success === false;
+
   return (
     <div className="space-y-4">
 
@@ -174,7 +192,7 @@ export function ProductSelector({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className={`grid grid-cols-1 ${isCashbackNotFound ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-3`}>
                 <div className="flex flex-col gap-1">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                     % Matriks SC (Autofill)
@@ -219,20 +237,28 @@ export function ProductSelector({
                     </div>
                   )}
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    % Cashback Matrix
-                  </span>
-                  <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
-                    <UnitInput
-                      value={row.persenCashback}
-                      onChange={() => {}}
-                      unit="%"
-                      placeholder="0"
-                      disabled={true}
-                    />
+                {!isCashbackNotFound && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      % Cashback Matrix
+                    </span>
+                    <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
+                      <UnitInput
+                        value={row.persenCashback}
+                        onChange={() => {}}
+                        unit="%"
+                        placeholder="0"
+                        disabled={true}
+                      />
+                    </div>
+                    {cashbackPeriode ? (
+                      <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
+                        <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Data Cashback: </span>
+                        {formatPeriodeDiskonLabel(cashbackPeriode)}
+                      </div>
+                    ) : null}
                   </div>
-                </div>
+                )}
               </div>
 
               {row.kodeProduk &&

@@ -155,22 +155,6 @@ export function useSalesCounterEditor({
   }, [diskonList]);
 
   useEffect(() => {
-    getScCashbackPoaAction().then((res) => {
-      setCashbackData(res || null);
-      const array = Array.isArray(res?.matrix)
-        ? res.matrix
-        : Array.isArray(res?.data?.matrix)
-        ? res.data.matrix
-        : Array.isArray(res?.data)
-        ? res.data
-        : Array.isArray(res)
-        ? res
-        : [];
-      setCashbackMatrix(array);
-    });
-  }, []);
-
-  useEffect(() => {
     if (cashbackMatrix.length === 0) return;
     setProducts((prev) =>
       prev.map((row) => {
@@ -214,6 +198,8 @@ export function useSalesCounterEditor({
       setProductsMenang([]);
       setProductsInsentif([]);
       setRekomendasiProduk([]);
+      setCashbackData(null);
+      setCashbackMatrix([]);
       return;
     }
 
@@ -247,6 +233,19 @@ export function useSalesCounterEditor({
     getScProductMenangAction(outletId).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(outletId).then((res) => setProductsInsentif(res?.data || []));
     getScInsentifHistoryAction(outletId).then((res) => setInsentifHistory(res?.data || null));
+    getScCashbackPoaAction(outletId).then((res) => {
+      setCashbackData(res || null);
+      const array = Array.isArray(res?.matrix)
+        ? res.matrix
+        : Array.isArray(res?.data?.matrix)
+        ? res.data.matrix
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res)
+        ? res
+        : [];
+      setCashbackMatrix(array);
+    });
     getRekomendasiProdukAction(outletId).then((res) => {
       if (!res?.data) {
         setRekomendasiProduk([]);
@@ -630,6 +629,8 @@ export function useSalesCounterEditor({
     lamaPeriode,
   });
 
+  const cashbackPeriode = cashbackData?.period || (cashbackData as any)?.data?.period;
+
   return {
     outletId,
     setOutletId,
@@ -663,6 +664,7 @@ export function useSalesCounterEditor({
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,
+    cashbackPeriode,
     diskonPeriode,
     errors,
     isPending,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { HeaderInfo } from "@/components/ui/HeaderInfo";
 
 function formatRp(val: number) {
   return "Rp " + Math.round(val).toLocaleString("id-ID");
@@ -412,9 +413,12 @@ export function ScSidebar({
         ) : activeTab === "loss_sales" ? (
           <div className="space-y-3 animate-fade-in">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                POTENSI SALES ({sortedLossSalesProducts.length})
-              </p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                  POTENSI SALES ({sortedLossSalesProducts.length})
+                </p>
+                <HeaderInfo text="Angka potensi sales didapatkan dari penjualan B-1 sampai B-6" />
+              </div>
             </div>
             {sortedLossSalesProducts.length > 0 ? (
               <div className="space-y-1.5">
