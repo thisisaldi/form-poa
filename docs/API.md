@@ -116,6 +116,17 @@ List dokter (1 baris per pasangan kodePI+namaCust, grouping sama dengan `PoaDoct
 
 ---
 
+## Target Value
+
+### `GET /api/target-value`
+Baris mentah `TargetHospitalValue` (target Rupiah bulanan per GT) — data yang sama dengan yang ditampilkan/diedit di halaman admin Target Value, hanya read-only.
+- **Auth**: session login (role **NSM atau ADMIN saja**, role lain 403; NSM otomatis di-scope ke subtree sendiri via `nipNSM`) **ATAU** HTTP Basic Auth — kredensial **sama** dengan yang dipakai `/api/poa-doctors` (`PoaDoctorsApiCredential`, diatur ADMIN dari halaman Admin, lihat entri di atas), tidak ada kredensial terpisah untuk endpoint ini. Basic Auth diperlakukan sebagai akses penuh (tidak di-scope subtree), sama seperti `/api/poa-doctors`.
+- **Query param** (keduanya opsional): `periode` (`YYYYMM`, misalnya `202608`, filter ke 1 bulan) · `q` (contains, case-insensitive, cocok terhadap namaGT/namaMR/namaASM/namaSM/namaNSM).
+- **Response 200**: array `{ namaGT, periode, target, nipMR, namaMR, nipASM, namaASM, nipSM, namaSM, nipNSM, namaNSM }` — `target` sudah dikonversi ke `number` (bukan raw Prisma Decimal).
+- **Error**: `403` role bukan NSM/ADMIN saat pakai session · `401` Basic Auth gagal/kredensial belum diset.
+
+---
+
 Kedua endpoint berikut mengembalikan file **`.xlsx` binary** (`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), bukan JSON — apabila diuji melalui curl gunakan `-o namafile.xlsx` agar tidak ter-print sebagai raw binary ke terminal; melalui Postman biasanya otomatis menawarkan "Save Response" / preview.
 
 ### `GET /api/poa/{id}/export`
