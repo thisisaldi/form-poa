@@ -1011,12 +1011,9 @@ function DoctorRow({
                 </button>
               )}
               {canSubmitThisDoctor && (
-                <button
-                  type="button"
-                  onClick={() => setDoctorSubmitOpen((v) => !v)}
-                  className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+                <Button type="button" size="sm" onClick={() => setDoctorSubmitOpen((v) => !v)}>
                   Ajukan dokter ini
-                </button>
+                </Button>
               )}
             </div>
           )}
