@@ -1011,7 +1011,7 @@ function DoctorRow({
                 </button>
               )}
               {canSubmitThisDoctor && (
-                <Button type="button" size="sm" onClick={() => setDoctorSubmitOpen((v) => !v)}>
+                <Button type="button" size="sm" variant="orange" onClick={() => setDoctorSubmitOpen((v) => !v)}>
                   Ajukan dokter ini
                 </Button>
               )}
@@ -1054,7 +1054,7 @@ function DoctorRow({
             {doctorNotesMissing && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
           </label>
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" disabled={isSubmittingDoctor || doctorNotesMissing} onClick={handleSubmitDoctor}>
+            <Button type="button" size="sm" variant="orange" disabled={isSubmittingDoctor || doctorNotesMissing} onClick={handleSubmitDoctor}>
               {isSubmittingDoctor ? "Mengajukan…" : `Ajukan ${censorName(first.namaCust)}`}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setDoctorSubmitOpen(false)}>Batal</Button>

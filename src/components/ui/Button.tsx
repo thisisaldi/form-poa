@@ -1,7 +1,7 @@
 import { ButtonHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "orange";
 type Size = "sm" | "md" | "lg";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -19,6 +19,10 @@ const variantStyles: Record<Variant, string> = {
     "bg-transparent text-[var(--color-text-muted)] hover:bg-[var(--color-bg-subtle)] focus-visible:ring-[var(--color-blue)]",
   danger:
     "bg-[var(--color-error)] text-white hover:opacity-90 focus-visible:ring-[var(--color-error)]",
+  // "Ajukan"-type submit actions, distinct from primary "Edit" (2026-08-24:
+  // "kalau edit itu biru, kalau ajukan itu oren").
+  orange:
+    "bg-[var(--color-orange,#ea580c)] text-white hover:opacity-90 focus-visible:ring-[var(--color-orange,#ea580c)]",
 };
 
 const sizeStyles: Record<Size, string> = {
