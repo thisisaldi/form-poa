@@ -17,7 +17,7 @@ import { RingkasanMetricsTables, type RingkasanRowMetrics } from "@/components/p
 import { RingkasanQuarterFilter } from "@/components/poa/SummaryFilterModal";
 import { RingkasanBarPair, RingkasanCompareLegend, RingkasanSplitBarPair, RingkasanTargetStackedBar } from "@/components/poa/RingkasanCharts";
 import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart";
-import { SurveyDataSummaryTable } from "@/components/poa/SurveyDataSummaryTable";
+import { SurveyDataSummaryTable, type SurveyRow } from "@/components/poa/SurveyDataSummaryTable";
 import { formatCurrency as formatRp } from "@/lib/format";
 
 // PSSP contract rows key products by name only (Procode ≠ Item Kode across
@@ -283,9 +283,15 @@ export default async function SummaryPage({
         </div>
       </Card>
 
-      <div className="flex justify-end">
-        <RingkasanQuarterFilter tab={rawTab} years={ringkasanYears} year={ringkasanYearParam ?? ringkasanQuarter.slice(0, 4)} quarterNum={ringkasanQuarterNumParam ?? ringkasanQuarter.slice(6)} quarterLabel={ringkasanQuarter} />
-      </div>
+      {/* Data Survey is deliberately ALL-TIME (see its early-return block in
+          SummaryContent), not scoped to any single quarter — showing a
+          quarter picker there would imply it affects that tab's numbers,
+          which it never does. */}
+      {rawTab !== "survey" && (
+        <div className="flex justify-end">
+          <RingkasanQuarterFilter tab={rawTab} years={ringkasanYears} year={ringkasanYearParam ?? ringkasanQuarter.slice(0, 4)} quarterNum={ringkasanQuarterNumParam ?? ringkasanQuarter.slice(6)} quarterLabel={ringkasanQuarter} />
+        </div>
+      )}
 
       {/* Everything below needs the heavy line-item fetch/aggregation — streamed
           in separately (2026-08-03) so it doesn't block the shell above from
@@ -340,7 +346,7 @@ async function SummaryContent({
     ? (await prisma.user.findMany({
         where: { nip: { in: mrNips } },
         orderBy: { name: "asc" },
-      })) as { nip: string; name: string; role: string; jabatan: string | null; nipAtasan: string | null }[]
+      })) as { nip: string; name: string; role: string; jabatan: string | null; nipAtasan: string | null; project: string | null }[]
     : [];
   // O(1) lookup instead of mrUsers.find(...) — the latter was an O(mrUsers)
   // linear scan called once per LINE ITEM inside the grouping loop below
@@ -371,59 +377,77 @@ async function SummaryContent({
     outletsByMr.set(row.nipMR, list);
   }
 
-  // ── "Data Survey" tab (2026-08-24, per user's direct request — no memo,
-  // ambiguity resolved via 2 rounds of clarification, no new Prisma model) ──
-  // Per ASM: has this ASM's MR team covered at least SURVEY_TARGET_OUTLETS=3
-  // distinct outlets with SOME survey data, ever (ALL-TIME, not the quarter
-  // filter every other tab uses — user was explicit: "all period per asm").
-  // "Survey data" = either source that's already outlet-keyed in this app:
-  // SurveyUploadLog (the web upload feature) OR SurveyRekomendasi (the
-  // reference data already shown in POA line-item input's "Data Survey"
-  // panel — user confirmed THIS is what "data survey yang existing" means,
-  // not a third/new source). EARLY RETURN below (2026-08-26) so this tab
-  // never touches poas/lineItems/PSSP/sales at all — see the perf-fix comment
-  // above `mrOutletRows`.
+  // ── "Data Survey" tab (2026-08-24/26, per user's direct request — no memo,
+  // built + revised over several rounds of clarification, no new Prisma
+  // model) ── Per ASM: has this ASM's MR team covered at least
+  // SURVEY_TARGET_OUTLETS=3 distinct outlets with SOME survey data, ever
+  // (ALL-TIME, not the quarter filter every other tab uses — user was
+  // explicit: "all period per asm"). "Survey data" = either source that's
+  // already outlet-keyed in this app: SurveyUploadLog (the web upload
+  // feature) OR SurveyRekomendasi (the reference data already shown in POA
+  // line-item input's "Data Survey" panel). EARLY RETURN (2026-08-26) so
+  // this tab never touches poas/lineItems/PSSP/sales at all — see the
+  // perf-fix comment above `mrOutletRows`.
+  //
+  // 2026-08-26 revision: (1) target=3 exists ONLY at ASM level per user
+  // ("target ini cuma ada di ASM") — NSM/SM/Total rows instead show what
+  // fraction of the ASMs under them individually reached that target, not a
+  // scaled-up outlet count; (2) scope restricted to the Ethical/Hospital
+  // population (`User.project === null`) — user reported the tab was still
+  // mixing in the separate OMEGA (Sales Counter) population, which has
+  // nothing to do with this app's survey/outlet data at all (same
+  // project=null-vs-"OMEGA" discriminator already used in
+  // dashboard/page.tsx, Sidebar.tsx).
   if (rawTab === "survey") {
     const SURVEY_TARGET_OUTLETS = 3;
-    // Which ASMs to show as rows — same subtree-by-role shape as
-    // getSubordinateMRNips (authz.ts), reimplemented locally in ≤2 batched
-    // queries (BFS per level, docs/PERFORMANCE.md §2 point 2) since that
-    // helper resolves MRs specifically, not ASMs.
-    let asmUsers: { nip: string; name: string }[];
+
+    type OrgUser = { nip: string; name: string; nipAtasan: string | null };
+    let nsmUsers: OrgUser[] = [];
+    let smUsers: OrgUser[] = [];
+    let asmUsers: OrgUser[] = [];
+
+    // Which NSM/SM/ASM to show — each level scoped to actor's own
+    // visibility, same BFS-per-level shape as getSubordinateMRNips
+    // (authz.ts) extended up to NSM (that helper resolves MRs specifically).
+    // project: null on every query below = Ethical/Hospital only.
     if (actorRole === "ASM") {
-      asmUsers = [{ nip: actorNip, name: actorName }];
+      asmUsers = [{ nip: actorNip, name: actorName, nipAtasan: null }];
     } else if (actorRole === "SM") {
+      smUsers = [{ nip: actorNip, name: actorName, nipAtasan: null }];
       asmUsers = (await prisma.user.findMany({
-        where: { role: "ASM", nipAtasan: actorNip, isActive: true, isDummy: false },
-        select: { nip: true, name: true },
-      })) as { nip: string; name: string }[];
+        where: { role: "ASM", nipAtasan: actorNip, isActive: true, isDummy: false, project: null },
+        select: { nip: true, name: true, nipAtasan: true },
+      })) as OrgUser[];
     } else if (actorRole === "NSM") {
-      const smNips = (await prisma.user.findMany({
-        where: { role: "SM", nipAtasan: actorNip, isActive: true, isDummy: false },
-        select: { nip: true },
-      })) as { nip: string }[];
-      asmUsers = smNips.length > 0
+      nsmUsers = [{ nip: actorNip, name: actorName, nipAtasan: null }];
+      smUsers = (await prisma.user.findMany({
+        where: { role: "SM", nipAtasan: actorNip, isActive: true, isDummy: false, project: null },
+        select: { nip: true, name: true, nipAtasan: true },
+      })) as OrgUser[];
+      asmUsers = smUsers.length > 0
         ? (await prisma.user.findMany({
-            where: { role: "ASM", nipAtasan: { in: smNips.map((s) => s.nip) }, isActive: true, isDummy: false },
-            select: { nip: true, name: true },
-          })) as { nip: string; name: string }[]
+            where: { role: "ASM", nipAtasan: { in: smUsers.map((s) => s.nip) }, isActive: true, isDummy: false, project: null },
+            select: { nip: true, name: true, nipAtasan: true },
+          })) as OrgUser[]
         : [];
     } else {
       // ADMIN/GM/SFE/VIEWER — company-wide, same "everyone" scope
       // getSubordinateMRNips gives these roles for MRs.
-      asmUsers = (await prisma.user.findMany({
-        where: { role: "ASM", isActive: true, isDummy: false },
-        select: { nip: true, name: true },
-      })) as { nip: string; name: string }[];
+      [nsmUsers, smUsers, asmUsers] = await Promise.all([
+        prisma.user.findMany({ where: { role: "NSM", isActive: true, isDummy: false, project: null }, select: { nip: true, name: true, nipAtasan: true } }),
+        prisma.user.findMany({ where: { role: "SM", isActive: true, isDummy: false, project: null }, select: { nip: true, name: true, nipAtasan: true } }),
+        prisma.user.findMany({ where: { role: "ASM", isActive: true, isDummy: false, project: null }, select: { nip: true, name: true, nipAtasan: true } }),
+      ]) as [OrgUser[], OrgUser[], OrgUser[]];
     }
 
     // MRs are already known to be role MR under their ASM directly (SPV is a
     // jabatan override, not a separate role/hierarchy level — see User.jabatan
     // doc comment in schema.prisma) — mrUsers (fetched above) already covers
     // every MR in mrNips, no extra query needed for the ASM->MR edge.
+    // project === null filters out OMEGA MRs mrNips/mrUsers may also contain.
     const mrsByAsm = new Map<string, string[]>();
     for (const mr of mrUsers) {
-      if (!mr.nipAtasan) continue;
+      if (!mr.nipAtasan || mr.project != null) continue;
       const list = mrsByAsm.get(mr.nipAtasan) ?? [];
       list.push(mr.nip);
       mrsByAsm.set(mr.nipAtasan, list);
@@ -447,15 +471,67 @@ async function SummaryContent({
       : [[], []];
     const outletsWithSurveyData = new Set([...uploadLogOutlets.map((r) => r.kodePI), ...rekomendasiOutlets.map((r) => r.kodePI)]);
 
-    const surveyAsmRows = asmUsers.map((asm) => {
+    // ASM rows — the only level with a real target (3 outlets); Achievement%
+    // = outletsWithSurvey / target × 100, uncapped (same "can exceed 100%"
+    // convention as Sales Achievement elsewhere in this app).
+    const asmRows: SurveyRow[] = asmUsers.map((asm) => {
       const outlets = asmOutlets.get(asm.nip) ?? new Set<string>();
       const withSurvey = [...outlets].filter((o) => outletsWithSurveyData.has(o)).length;
-      return { nip: asm.nip, name: asm.name, totalOutlets: outlets.size, outletsWithSurvey: withSurvey, achieved: withSurvey >= SURVEY_TARGET_OUTLETS };
+      return {
+        nip: asm.nip, name: asm.name,
+        totalOutlets: outlets.size, outletsWithSurvey: withSurvey,
+        target: SURVEY_TARGET_OUTLETS,
+        achievementPct: (withSurvey / SURVEY_TARGET_OUTLETS) * 100,
+      };
     }).sort((a, b) => a.name.localeCompare(b.name));
+    const asmAchievedNips = new Set(asmUsers.filter((asm) => {
+      const withSurvey = [...(asmOutlets.get(asm.nip) ?? new Set<string>())].filter((o) => outletsWithSurveyData.has(o)).length;
+      return withSurvey >= SURVEY_TARGET_OUTLETS;
+    }).map((a) => a.nip));
+
+    // Rollup for NSM/SM/Total: target doesn't exist at these levels, so
+    // "Achievement" here means % of the ASMs under this row that individually
+    // hit their own target — not a rescaled outlet count.
+    function rollup(name: string, nip: string, asmNipsUnder: string[]): SurveyRow {
+      const outlets = asmNipsUnder.flatMap((n) => [...(asmOutlets.get(n) ?? [])]);
+      const withSurveyTotal = asmNipsUnder.reduce((s, n) => {
+        const o = asmOutlets.get(n) ?? new Set<string>();
+        return s + [...o].filter((x) => outletsWithSurveyData.has(x)).length;
+      }, 0);
+      const achievedCount = asmNipsUnder.filter((n) => asmAchievedNips.has(n)).length;
+      return {
+        nip, name,
+        totalOutlets: new Set(outlets).size,
+        outletsWithSurvey: withSurveyTotal,
+        target: null,
+        achievementPct: asmNipsUnder.length > 0 ? (achievedCount / asmNipsUnder.length) * 100 : null,
+      };
+    }
+
+    const smRows: SurveyRow[] = smUsers.map((sm) =>
+      rollup(sm.name, sm.nip, asmUsers.filter((a) => a.nipAtasan === sm.nip).map((a) => a.nip))
+    ).sort((a, b) => a.name.localeCompare(b.name));
+
+    const smNipsByNsm = new Map<string, string[]>();
+    for (const sm of smUsers) if (sm.nipAtasan) smNipsByNsm.set(sm.nipAtasan, [...(smNipsByNsm.get(sm.nipAtasan) ?? []), sm.nip]);
+    const nsmRows: SurveyRow[] = nsmUsers.map((nsm) => {
+      const smNipsUnder = smNipsByNsm.get(nsm.nip) ?? [];
+      const asmNipsUnder = asmUsers.filter((a) => a.nipAtasan && smNipsUnder.includes(a.nipAtasan)).map((a) => a.nip);
+      return rollup(nsm.name, nsm.nip, asmNipsUnder);
+    }).sort((a, b) => a.name.localeCompare(b.name));
+
+    const totalRow: SurveyRow = rollup("Total", "TOTAL", asmUsers.map((a) => a.nip));
 
     return (
       <div className="space-y-5">
-        <SurveyDataSummaryTable rows={surveyAsmRows} targetOutlets={SURVEY_TARGET_OUTLETS} />
+        <SurveyDataSummaryTable
+          sections={[
+            { title: "Total", rows: [totalRow] },
+            { title: "Per NSM", rows: nsmRows },
+            { title: "Per SM", rows: smRows },
+            { title: "Per ASM", rows: asmRows },
+          ]}
+        />
       </div>
     );
   }
