@@ -8,6 +8,7 @@ import type { MockCustomer } from "./mock/data";
 import type { Role, User } from "@prisma/client";
 import type { Product } from "./hargaST";
 import { nexusAuthHeaders } from "@/lib/nexusAuth";
+import { getLiveProductPricing } from "@/lib/exodusApi";
 
 export type { MockCustomer as Customer };
 
@@ -149,10 +150,31 @@ export async function getOutletByKodePI(kodePI: string): Promise<MockCustomer | 
 
 // ─── Product queries ──────────────────────────────────────────────────────────
 
+// Overrides hna/nilaiRPersen with the live Exodus API figure when available
+// (2026-08-26: API is now the source for these two fields specifically —
+// see getLiveProductPricing's doc comment). Falls back to whatever's
+// already on the row when the API has no entry for this kodeProduk or is
+// unreachable/unconfigured — every other field always comes from the row
+// itself, since the API has no equivalent for them.
+function applyLivePricing<T extends { kodeProduk: string; hna: string; nilaiRPersen: string | null }>(
+  rows: T[],
+  live: Map<string, { hna: number; nilaiRPersen: number | null }> | null
+): T[] {
+  if (!live) return rows;
+  return rows.map((r) => {
+    const p = live.get(r.kodeProduk);
+    if (!p) return r;
+    return { ...r, hna: String(p.hna), nilaiRPersen: p.nilaiRPersen != null ? String(p.nilaiRPersen) : null };
+  });
+}
+
 export async function getProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
-  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } });
-  return rows.map((p: any) => ({
+  const [rows, live] = await Promise.all([
+    prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } }),
+    getLiveProductPricing(),
+  ]);
+  return applyLivePricing(rows.map((p: any) => ({
     ...p,
     hna: p.hna.toString(),
     nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
@@ -160,13 +182,16 @@ export async function getProducts(): Promise<Product[]> {
     konversiPembagi: p.konversiPembagi?.toString() ?? null,
     qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
     jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
-  }));
+  })), live);
 }
 
 export async function getScProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
-  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } });
-  return rows.map((p: any) => ({
+  const [rows, live] = await Promise.all([
+    prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } }),
+    getLiveProductPricing(),
+  ]);
+  return applyLivePricing(rows.map((p: any) => ({
     ...p,
     hna: p.hna.toString(),
     nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
@@ -174,14 +199,17 @@ export async function getScProducts(): Promise<Product[]> {
     konversiPembagi: p.konversiPembagi?.toString() ?? null,
     qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
     jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
-  }));
+  })), live);
 }
 
 export async function getProductByKode(kodeProduk: string): Promise<Product | null> {
   const { prisma } = await import("@/lib/prisma");
-  const p = await prisma.product.findUnique({ where: { kodeProduk } });
+  const [p, live] = await Promise.all([
+    prisma.product.findUnique({ where: { kodeProduk } }),
+    getLiveProductPricing(),
+  ]);
   if (!p) return null;
-  return {
+  return applyLivePricing([{
     ...p,
     hna: p.hna.toString(),
     nilaiRPersen: p.nilaiRPersen?.toString() ?? null,
@@ -189,7 +217,7 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
     konversiPembagi: p.konversiPembagi?.toString() ?? null,
     qtyPerRxPasien: p.qtyPerRxPasien?.toString() ?? null,
     jumlahPemberianPerHari: p.jumlahPemberianPerHari?.toString() ?? null,
-  };
+  }], live)[0];
 }
 
 import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
