@@ -1,6 +1,6 @@
 import type { PoaStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getSubordinateMRNips } from "@/lib/authz";
+import { getSubordinateMRNips, getScSubordinateIdsUnder } from "@/lib/authz";
 import { getMrSalesSummary } from "@/lib/salesSummary";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ScDraftFormItem } from "@/components/sc/types";
@@ -19,15 +19,55 @@ interface MasterProductItem {
 
 export async function getSalesCounterDetailData(
   id: string,
-  periodParam: string | undefined,
   sessionUserId: string,
   sessionRole: string
 ) {
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: sessionUserId } });
 
-  // id is the period, e.g. "2026-Q2"
+  let targetOwnerId = sessionUserId;
+  let targetPeriod = id;
+
+  // Check if id is a specific PoaScForm.id
+  const formById = await prisma.poaScForm.findUnique({
+    where: { id },
+    select: { ownerId: true, period: true, currentHolderId: true },
+  });
+
+  if (formById) {
+    targetOwnerId = formById.ownerId;
+    targetPeriod = formById.period;
+  }
+
+  // Fast-path access check
+  let hasAccess = false;
+  if (
+    targetOwnerId === sessionUserId ||
+    formById?.currentHolderId === sessionUserId ||
+    ["ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole)
+  ) {
+    hasAccess = true;
+  } else {
+    const depthByRole: Record<string, number> = { ASM: 1, SM: 2, NSM: 3 };
+    const depth = depthByRole[sessionRole] ?? 1;
+    const subIds = await getScSubordinateIdsUnder(sessionUserId, depth);
+    if (subIds.includes(targetOwnerId)) {
+      hasAccess = true;
+    } else {
+      const holderCount = await prisma.poaScForm.count({
+        where: {
+          ownerId: targetOwnerId,
+          period: targetPeriod,
+          currentHolderId: sessionUserId,
+        },
+      });
+      hasAccess = holderCount > 0;
+    }
+  }
+
+  if (!hasAccess) return { hasAccess: false };
+
   const drafts = await prisma.poaScForm.findMany({
-    where: { ownerId: sessionUserId, period: id },
+    where: { ownerId: targetOwnerId, period: targetPeriod },
     include: {
       owner: true,
       currentHolder: true,
@@ -45,8 +85,8 @@ export async function getSalesCounterDetailData(
   if (drafts.length > 0) {
     const first = drafts[0];
     poa = {
-      id,
-      period: id,
+      id: targetPeriod,
+      period: targetPeriod,
       status: first.status,
       version: first.version,
       ownerId: first.ownerId,
@@ -65,11 +105,11 @@ export async function getSalesCounterDetailData(
     };
   } else {
     poa = {
-      id,
-      period: id,
+      id: targetPeriod,
+      period: targetPeriod,
       status: "DRAFT" as PoaStatus,
       version: 1,
-      ownerId: actor.nip,
+      ownerId: targetOwnerId,
       owner: actor,
       currentHolderId: null,
       currentHolder: null,
@@ -78,11 +118,8 @@ export async function getSalesCounterDetailData(
     };
   }
 
-  const hasAccess = poa.ownerId === sessionUserId || (["ASM", "SM", "NSM"] as string[]).includes(sessionRole);
-  if (!hasAccess) return { hasAccess: false };
-
-  const userCanEdit = poa.ownerId === sessionUserId && (poa.status === "DRAFT" || poa.status === "REVISI");
   const isOwner = poa.ownerId === sessionUserId;
+  const userCanEdit = isOwner && (poa.status === "DRAFT" || poa.status === "REVISI" || poa.status === "SUBMITTED_TO_ASM");
 
   // Collect all product codes across drafts to fetch master Product information
   const allProductCodes = Array.from(

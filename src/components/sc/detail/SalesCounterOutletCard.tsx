@@ -1,13 +1,22 @@
 import { useState, useTransition, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Button } from "@/components/ui/Button";
 import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { deleteSalesCounterFormAction } from "@/app/actions/scActions";
+import {
+  submitSalesCounterFormAction,
+  approveSalesCounterFormAction,
+  reviseSalesCounterFormAction,
+  rejectSalesCounterFormAction,
+} from "@/app/actions/scApprovalActions";
 import { formatRp } from "./SalesCounterStatsPanel";
 import type { ScDraftFormItem } from "../types";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
 import { getScOutletB3SalesAction, getScCashbackPoaAction } from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
+import { useScToast } from "../ui/ScToast";
 
 function StatTile({ label, value, sub, emphasize = false }: { label: string; value: string; sub?: string; emphasize?: boolean }) {
   return (
@@ -35,6 +44,8 @@ export function SalesCounterOutletCard({
   selectable = true,
   poaId,
   userCanEdit,
+  canApprove,
+  canFastTrack,
 }: {
   draft: ScDraftFormItem;
   checked: boolean;
@@ -42,9 +53,100 @@ export function SalesCounterOutletCard({
   selectable?: boolean;
   poaId: string;
   userCanEdit?: boolean;
+  canApprove?: boolean;
+  canFastTrack?: boolean;
 }) {
+  const router = useRouter();
+  const { showToast } = useScToast();
+
   const [detailOpen, setDetailOpen] = useState(false);
+  const [atasanPanelOpen, setAtasanPanelOpen] = useState(false);
+  const [submitBoxOpen, setSubmitBoxOpen] = useState(false);
+  const [submitNotes, setSubmitNotes] = useState("");
+  const [actionNotes, setActionNotes] = useState("");
+  const [rejectCategory, setRejectCategory] = useState("");
+  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+  const [isSubmittingOutlet, setIsSubmittingOutlet] = useState(false);
+
   const [isDeleting, startDelete] = useTransition();
+
+  async function handleSubmitOutlet() {
+    if (isSubmittingOutlet) return;
+    setIsSubmittingOutlet(true);
+    try {
+      const res = await submitSalesCounterFormAction([draft.id], submitNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} telah berhasil diajukan!`, "success");
+        setSubmitBoxOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal mengajukan Sales Counter.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat mengajukan.", "error");
+    } finally {
+      setIsSubmittingOutlet(false);
+    }
+  }
+
+  async function handleApprove() {
+    if (isSubmittingAction) return;
+    setIsSubmittingAction(true);
+    try {
+      const res = await approveSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} telah berhasil disetujui!`, "success");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menyetujui Sales Counter.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat menyetujui.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
+
+  async function handleRevise() {
+    if (isSubmittingAction) return;
+    if (!confirm(`Minta revisi untuk Sales Counter ${draft.namaOutlet}?`)) return;
+    setIsSubmittingAction(true);
+    try {
+      const res = await reviseSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} dikembalikan ke MR untuk revisi.`, "info");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal meminta revisi.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat meminta revisi.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
+
+  async function handleReject() {
+    if (isSubmittingAction) return;
+    if (!confirm(`Tolak Sales Counter ${draft.namaOutlet}?`)) return;
+    setIsSubmittingAction(true);
+    try {
+      const res = await rejectSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} telah ditolak.`, "error");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menolak.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat menolak.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
 
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [cashbackData, setCashbackData] = useState<any>(null);
@@ -191,6 +293,27 @@ export function SalesCounterOutletCard({
               style={userCanEdit ? { background: "var(--color-blue)", color: "#fff" } : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
               {userCanEdit ? "Edit" : "Lihat"}
             </Link>
+
+            {userCanEdit && (draft.status === "DRAFT" || draft.status === "REVISI") && (
+              <button
+                type="button"
+                onClick={() => setSubmitBoxOpen((v) => !v)}
+                className="text-xs font-semibold px-3 py-1.5 rounded-md whitespace-nowrap text-white transition-opacity hover:opacity-90"
+                style={{ background: "var(--color-primary-orange, #ea580c)" }}>
+                Ajukan outlet ini
+              </button>
+            )}
+
+            {(canApprove || canFastTrack) && (
+              <button
+                type="button"
+                onClick={() => setAtasanPanelOpen((v) => !v)}
+                className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90"
+                style={{ background: "var(--color-warning, #C99A3D)", color: "#fff" }}>
+                Approval
+              </button>
+            )}
+
             {userCanEdit && (
               <button type="button" disabled={isDeleting} onClick={handleDelete} className="text-xs" style={{ color: "var(--color-red)" }}>
                 Hapus
@@ -203,6 +326,120 @@ export function SalesCounterOutletCard({
           </button>
         </div>
       </div>
+
+      {submitBoxOpen && userCanEdit && (
+        <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-primary-orange, #ea580c)" }}>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+              Notes tambahan (opsional)
+            </span>
+            <textarea
+              value={submitNotes}
+              onChange={(e) => setSubmitNotes(e.target.value)}
+              rows={2}
+              placeholder="mis. konteks tambahan…"
+              className="input-field text-xs rounded border p-2"
+              style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+            />
+          </label>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSubmittingOutlet}
+              onClick={handleSubmitOutlet}
+              style={{ background: "var(--color-primary-orange, #ea580c)", color: "#fff" }}
+            >
+              {isSubmittingOutlet ? "Memproses…" : `Ajukan ${draft.namaOutlet}`}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setSubmitBoxOpen(false)}>
+              Batal
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {atasanPanelOpen && (canApprove || canFastTrack) && (
+        <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-blue)" }}>
+          <div className="flex flex-wrap items-center gap-3">
+            {canApprove && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isSubmittingAction}
+                onClick={handleApprove}
+                style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}
+              >
+                {isSubmittingAction ? "Memproses…" : "Approve & Teruskan"}
+              </Button>
+            )}
+            {canFastTrack && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isSubmittingAction}
+                onClick={handleApprove}
+                variant="secondary"
+                style={{ borderColor: "var(--color-warning, #C99A3D)", color: "var(--color-warning, #C99A3D)" }}
+              >
+                {isSubmittingAction ? "Memproses…" : "Approve Langsung (Lewati ASM/SM)"}
+              </Button>
+            )}
+          </div>
+
+          {canFastTrack && (
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              Sebagai NSM, Anda bisa langsung menyetujui outlet ini sampai final tanpa menunggu approval ASM/SM.
+            </p>
+          )}
+
+          <div className="space-y-2 pt-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Kategori Reject</span>
+              <select
+                value={rejectCategory}
+                onChange={(e) => setRejectCategory(e.target.value)}
+                className="input-field text-xs rounded border p-2"
+                style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+              >
+                <option value="">Pilih kategori…</option>
+                <option value="PRODUK">Produk</option>
+                <option value="OUTLET">Outlet</option>
+                <option value="USER">User / SC</option>
+                <option value="PERIODE">Periode</option>
+                <option value="KALKULASI_PSSP">Kalkulasi Sales Counter</option>
+                <option value="ALASAN_LAIN">Alasan Lain</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
+              <textarea
+                value={actionNotes}
+                onChange={(e) => setActionNotes(e.target.value)}
+                rows={2}
+                placeholder={`Jelaskan alasan reject outlet ${draft.namaOutlet} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
+                className="input-field text-xs rounded border p-2"
+                style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+              />
+            </label>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="danger"
+              disabled={isSubmittingAction}
+              onClick={handleReject}
+            >
+              {isSubmittingAction ? "Memproses…" : "Tolak Outlet Ini (kembali ke Revisi)"}
+            </Button>
+          </div>
+
+          <Button type="button" size="sm" variant="ghost" onClick={() => setAtasanPanelOpen(false)}>
+            Tutup
+          </Button>
+        </div>
+      )}
 
       {/* Expanded detail */}
       {detailOpen && (

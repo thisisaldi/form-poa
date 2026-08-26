@@ -82,6 +82,7 @@ export async function getSalesCounterFormById(
   };
 
   return {
+    isOwner: form.ownerId === sessionUserId,
     userCanEdit: form.ownerId === sessionUserId && (form.status === "DRAFT" || form.status === "REVISI"),
     form: serialized,
     products,

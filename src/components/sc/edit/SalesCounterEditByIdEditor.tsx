@@ -117,6 +117,7 @@ interface SalesCounterEditByIdEditorProps {
   initialPersenResepDokter: number;
   masterProducts: Product[];
   readOnly?: boolean;
+  isOwner?: boolean;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -154,6 +155,7 @@ export function SalesCounterEditByIdEditor({
   initialPersenResepDokter,
   masterProducts,
   readOnly = false,
+  isOwner,
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -183,9 +185,9 @@ export function SalesCounterEditByIdEditor({
 
   // Entertain
   const [entertainList, setEntertainList] = useState(() => {
-    const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
-    const quarterMatch = poaPeriod.match(/-Q([1-4])/);
-    const q = quarterMatch ? parseInt(quarterMatch[1], 10) : 1;
+    const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+    const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
+    const q = validPeriodMatch ? parseInt(validPeriodMatch[2], 10) : 1;
     const qPeriod = `${poaYear}-Q${q}`;
     const months = quarterToMonths(qPeriod);
 
@@ -658,7 +660,7 @@ export function SalesCounterEditByIdEditor({
         namaOutlet || undefined
       );
       if (res.ok) {
-        router.push(`/sc/${poaPeriod}`);
+        router.push(`/sc/${scId}`);
       } else {
         alert(res.error || "Gagal menyimpan data.");
       }
@@ -671,7 +673,9 @@ export function SalesCounterEditByIdEditor({
       {readOnly && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-          Mode Lihat (Read-Only) — Form ini tidak dalam status Draft/Revisi sehingga tidak dapat diubah.
+          {isOwner === false
+            ? "Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only). Perubahan hanya dapat dilakukan oleh pemilik draf (MR)."
+            : "Mode Lihat (Read-Only) — Form ini tidak dalam status Draft/Revisi sehingga tidak dapat diubah."}
         </div>
       )}
       <div className="space-y-6">
@@ -811,6 +815,7 @@ export function SalesCounterEditByIdEditor({
         <div>
           <SectionLabel>Produk yang Dipromosikan</SectionLabel>
           <ProductSelector
+            kodePI={kodePI}
             rows={products}
             onAddRow={addProductRow}
             onRemoveRow={removeProductRow}

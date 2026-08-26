@@ -100,6 +100,28 @@ const getSubordinateIdsUnder = cache(async function getSubordinateIdsUnder(manag
   return ids;
 });
 
+/**
+ * Dedicated recursive helper for Sales Counter authorization.
+ * Leaves regular POA getSubordinateIdsUnder completely untouched.
+ */
+export const getScSubordinateIdsUnder = cache(async function getScSubordinateIdsUnder(managerId: string, depth: number): Promise<string[]> {
+  const ids: string[] = [];
+  let currentLevelManagerIds = [managerId];
+  for (let level = 0; level < depth && currentLevelManagerIds.length > 0; level++) {
+    const directReports = await prisma.user.findMany({
+      where: { nipAtasan: { in: currentLevelManagerIds }, isActive: true },
+      select: { nip: true, role: true },
+    });
+    const nextLevelManagerIds: string[] = [];
+    for (const report of directReports) {
+      ids.push(report.nip);
+      if (report.role !== Role.MR) nextLevelManagerIds.push(report.nip);
+    }
+    currentLevelManagerIds = nextLevelManagerIds;
+  }
+  return ids;
+});
+
 /** Public: returns all MR nips in the subtree of the given user (for monitoring, PM dashboard). */
 export async function getSubordinateMRNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
@@ -407,6 +429,35 @@ export function getPendingActionFilter(user: User): Prisma.PoaFormWhereInput {
   // diapprove" baru muncul). Checking the PoaDoctorApproval rows directly
   // instead surfaces the draft to SM as soon as ANY doctor reaches them.
   return { doctorApprovals: { some: { currentHolderId: user.nip } } };
+}
+
+export function getPendingActionScFilter(user: User): Prisma.PoaScFormWhereInput {
+  if (user.role === Role.MR) {
+    return { ownerId: user.nip, status: { in: [PoaStatus.DRAFT, PoaStatus.REVISI] } };
+  }
+  return { currentHolderId: user.nip };
+}
+
+export async function getVisiblePoaScFilter(user: User): Promise<Prisma.PoaScFormWhereInput> {
+  if (user.role === Role.MR) {
+    return { ownerId: user.nip };
+  }
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE) {
+    return {};
+  }
+  const depthByRole: Record<string, number> = {
+    ASM: 1,
+    SM: 2,
+    NSM: 3,
+  };
+  const depth = depthByRole[user.role] ?? 1;
+  const subIds = await getScSubordinateIdsUnder(user.nip, depth);
+  return {
+    OR: [
+      { ownerId: user.nip },
+      { ownerId: { in: subIds } },
+    ],
+  };
 }
 
 // ─── Per-doctor approval (docs/poa-per-doctor-approval/) ──────────────────────

@@ -1,11 +1,13 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
 import type { SelectedProductRow } from "./hooks/useSalesCounterEditor";
 import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
 import type { Product } from "@/lib/masterData";
+import { getLossSalesAnalysisAction, getRecommendedProCodesAction } from "@/app/actions/canvasser";
 
 interface ProductSelectorProps {
   rows: SelectedProductRow[];
@@ -25,6 +27,7 @@ interface ProductSelectorProps {
   readOnly?: boolean;
   b3SalesMap?: Map<string, number>;
   b3RangeLabel?: string;
+  kodePI?: string;
 }
 
 function Req() {
@@ -73,7 +76,74 @@ export function ProductSelector({
   readOnly = false,
   b3SalesMap,
   b3RangeLabel,
+  kodePI,
 }: ProductSelectorProps) {
+  const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!kodePI || !periodeAwal) {
+      setLossSalesItems([]);
+      return;
+    }
+    const cleanPeriod = periodeAwal.replace(/[^0-9]/g, "");
+    const periodInt = parseInt(cleanPeriod.slice(0, 6), 10);
+    if (!periodInt || isNaN(periodInt)) {
+      setLossSalesItems([]);
+      return;
+    }
+
+    let isMounted = true;
+    const selectedSourceCodes = rows.map((r) => r.kodeProduk).filter(Boolean);
+
+    if (selectedSourceCodes.length === 0) {
+      setLossSalesItems([]);
+      return;
+    }
+
+    const availableOptionCodes = new Set([
+      ...(productsOptions || []).map((p: any) => p.value || p.kodeProduk),
+      ...(masterProducts || []).map((p: any) => p.kodeProduk),
+    ].filter(Boolean));
+
+    getRecommendedProCodesAction(selectedSourceCodes)
+      .then((recommendedCodes: string[]) => {
+        if (!isMounted) return null;
+
+        // Filter recommended pro codes so ONLY pro_codes present in available product options are sent
+        const validCodes: string[] = availableOptionCodes.size > 0
+          ? recommendedCodes.filter((code: string) => availableOptionCodes.has(code))
+          : recommendedCodes;
+
+        if (validCodes.length === 0) {
+          if (isMounted) setLossSalesItems([]);
+          return null;
+        }
+
+        return getLossSalesAnalysisAction(periodInt, kodePI, validCodes);
+      })
+      .then((res) => {
+        if (!isMounted) return;
+        if (res && res.status && Array.isArray(res.data)) {
+          const filtered = res.data.filter(
+            (item: any) =>
+              ((item.qty != null && Number(item.qty) > 0) ||
+               (item.total_sales != null && Number(item.total_sales) > 0)) &&
+              (availableOptionCodes.size === 0 || availableOptionCodes.has(item.code))
+          );
+          setLossSalesItems(filtered);
+        } else {
+          setLossSalesItems([]);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setLossSalesItems([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [kodePI, periodeAwal, JSON.stringify(rows.map((r) => r.kodeProduk)), productsOptions, masterProducts]);
+
   const isCashbackNotFound =
     hideCashback ||
     cashbackData?.message === "Gudang Tidak Ditemukan" ||
@@ -266,7 +336,7 @@ export function ProductSelector({
                row.persenMatriksSc !== "" &&
                lamaPeriode > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start animate-fade-in mt-3">
-                  {/* ESTIMASI SALES CARD */}
+                  {/* LEFT COLUMN: ESTIMASI SALES */}
                   <div className="rounded-lg border px-3 py-2.5 space-y-2"
                     style={{ background: "var(--color-bg)", borderColor: "var(--color-border-strong)" }}>
                     <p className="text-xs font-semibold uppercase tracking-wider"
@@ -361,29 +431,91 @@ export function ProductSelector({
                     </div>
                   </div>
 
-                  <div className="rounded-lg border px-3 py-2.5 space-y-2"
-                    style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
-                    <p className="text-xs font-semibold uppercase tracking-wider"
-                      style={{ color: "var(--color-blue, #3b82f6)" }}>Nilai SC</p>
-                    
-                    <div className="flex gap-6 flex-wrap">
-                      <div>
-                        <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                          Nilai SC / Bln
+                  {/* RIGHT COLUMN: NILAI SC & REKOMENDASI SWITCHING PRODUK */}
+                  <div className="space-y-3">
+                    <div className="rounded-lg border px-3 py-2.5 space-y-2"
+                      style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
+                      <p className="text-xs font-semibold uppercase tracking-wider"
+                        style={{ color: "var(--color-blue, #3b82f6)" }}>Nilai SC</p>
+                      
+                      <div className="flex gap-6 flex-wrap">
+                        <div>
+                          <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                            Nilai SC / Bln
+                          </div>
+                          <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
+                            {formatRp(nilaiScBln)}
+                          </div>
                         </div>
-                        <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
-                          {formatRp(nilaiScBln)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                          Nilai SC 3 Bln
-                        </div>
-                        <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
-                          {formatRp(nilaiSc3Bln)}
+                        <div>
+                          <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                            Nilai SC 3 Bln
+                          </div>
+                          <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
+                            {formatRp(nilaiSc3Bln)}
+                          </div>
                         </div>
                       </div>
                     </div>
+
+                    {lossSalesItems.length > 0 && (
+                      <div
+                        className="rounded-lg border px-3 py-2.5 space-y-2"
+                        style={{
+                          background: "var(--color-bg, #ffffff)",
+                          borderColor: "var(--color-border)",
+                        }}
+                      >
+                        <p
+                          className="text-xs font-semibold uppercase tracking-wider"
+                          style={{ color: "var(--color-blue, #3b82f6)" }}
+                        >
+                          Rekomendasi Switching Produk
+                        </p>
+
+                        <div className="space-y-1">
+                          {lossSalesItems.map((item, itemIdx) => (
+                            <div
+                              key={item.code || itemIdx}
+                              className={`flex items-center justify-between gap-4 text-xs ${itemIdx > 0 ? "pt-2.5" : ""} pb-2.5`}
+                              style={{
+                                borderBottom: itemIdx < lossSalesItems.length - 1 ? "1px solid var(--color-border)" : "none",
+                              }}
+                            >
+                              {/* Left side */}
+                              <div className="min-w-0 flex-1 space-y-1.5">
+                                <p className="font-semibold text-xs leading-snug" style={{ color: "var(--color-text-muted)" }}>
+                                  {item.name || item.code}
+                                </p>
+                                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                                  Sales 3 Bulan Terakhir: <strong style={{ color: "var(--color-text-muted)" }}>{item.qty}</strong>
+                                </p>
+                                {!readOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateRow(idx, { kodeProduk: item.code })}
+                                    className="text-xs font-medium px-3 py-1.5 rounded-md text-white transition-opacity hover:opacity-90 inline-block mt-1 cursor-pointer"
+                                    style={{ background: "var(--color-blue, #2563eb)", color: "#ffffff" }}
+                                  >
+                                    Ganti Produk
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Right side */}
+                              <div className="text-right shrink-0 space-y-0.5">
+                                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                                  Total Sales:
+                                </p>
+                                <p className="font-semibold text-xs" style={{ color: "var(--color-blue, #3b82f6)" }}>
+                                  {formatRp(item.total_sales)}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

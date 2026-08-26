@@ -1561,4 +1561,19 @@ model DiskonDplDpf {
   @@index([periode])
 }
 
+// Model mapping produk pilihan (source) -> procode rekomendasi (hasil_terakhir.xlsx)
+model ProductSwitchMapping {
+  id                     String   @id @default(uuid())
+  sourceProductName      String?  @map("source_product_name")
+  sourceProCode          String   @map("source_pro_code")
+  recommendedProductName String?  @map("recommended_product_name")
+  recommendedProCode     String   @map("recommended_pro_code")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@index([sourceProCode])
+  @@index([recommendedProCode])
+  @@map("product_switch_mappings")
+}
+
 

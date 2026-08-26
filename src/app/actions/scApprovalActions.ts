@@ -1,0 +1,315 @@
+"use server";
+
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { getCurrentUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
+import { PoaStatus, AuditAction } from "@prisma/client";
+
+async function requireSession() {
+  const session = await getCurrentUser();
+  if (!session) redirect("/login");
+  if (await isWriteBlocked(session.role)) redirect("/dashboard?error=" + encodeURIComponent(WRITE_BLOCKED_MESSAGE));
+  return session;
+}
+
+export async function submitSalesCounterFormAction(
+  poaScIds: string[],
+  notes?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireSession();
+
+  if (!poaScIds || poaScIds.length === 0) {
+    return { ok: false, error: "Pilih minimal 1 Sales Counter POA untuk diajukan." };
+  }
+
+  try {
+    const actor = await prisma.user.findUnique({
+      where: { nip: session.userId },
+      select: { nip: true, role: true, nipAtasan: true },
+    });
+
+    if (!actor) return { ok: false, error: "User tidak ditemukan." };
+
+    let nextHolderId: string | null = actor.nipAtasan;
+    if (!nextHolderId) {
+      const manager = await prisma.user.findFirst({
+        where: {
+          isActive: true,
+          role: { in: ["ASM", "SM", "NSM"] },
+        },
+        select: { nip: true },
+      });
+      nextHolderId = manager?.nip || null;
+    }
+
+    const nextStatus = PoaStatus.SUBMITTED_TO_ASM;
+
+    await prisma.$transaction(async (tx: any) => {
+      const forms = await tx.poaScForm.findMany({
+        where: {
+          id: { in: poaScIds },
+          ownerId: session.userId,
+          status: { in: [PoaStatus.DRAFT, PoaStatus.REVISI] },
+        },
+      });
+
+      if (forms.length === 0) {
+        throw new Error("Pengajuan DRAFT hanya dapat dilakukan oleh MR pemilik dokumen. Atasan (ASM/SM/NSM) tidak dapat mengajukan DRAFT milik bawahan.");
+      }
+
+      for (const form of forms) {
+        await tx.poaScForm.update({
+          where: { id: form.id },
+          data: {
+            status: nextStatus,
+            currentHolderId: nextHolderId,
+          },
+        });
+
+        await tx.poaScAuditLog.create({
+          data: {
+            poaScId: form.id,
+            actorId: session.userId,
+            action: AuditAction.SUBMIT,
+            fromStatus: form.status,
+            toStatus: nextStatus,
+            snapshot: { notes: notes || "" },
+          },
+        });
+      }
+    });
+
+    revalidatePath("/sc/dashboard");
+    return { ok: true };
+  } catch (error: any) {
+    console.error("Failed to submit Sales Counter POA:", error);
+    return { ok: false, error: error?.message || "Gagal mengajukan POA Sales Counter." };
+  }
+}
+
+export async function approveSalesCounterFormAction(
+  poaScIds: string[],
+  notes?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireSession();
+
+  if (!poaScIds || poaScIds.length === 0) {
+    return { ok: false, error: "Pilih minimal 1 Sales Counter POA untuk disetujui." };
+  }
+
+  try {
+    const actor = await prisma.user.findUnique({
+      where: { nip: session.userId },
+      select: { nip: true, role: true, nipAtasan: true },
+    });
+
+    if (!actor) return { ok: false, error: "User tidak ditemukan." };
+
+    await prisma.$transaction(async (tx: any) => {
+      const whereClause: any = { id: { in: poaScIds } };
+      if (actor.role === "NSM" || actor.role === "ADMIN") {
+        whereClause.status = {
+          in: [
+            PoaStatus.SUBMITTED_TO_ASM,
+            PoaStatus.APPROVED_BY_ASM,
+            PoaStatus.SUBMITTED_TO_SM,
+            PoaStatus.APPROVED_BY_SM,
+            PoaStatus.SUBMITTED_TO_NSM,
+          ],
+        };
+      } else {
+        whereClause.currentHolderId = session.userId;
+      }
+
+      const forms = await tx.poaScForm.findMany({ where: whereClause });
+
+      if (forms.length === 0) {
+        throw new Error("Tidak ada POA Sales Counter yang dapat Anda setujui.");
+      }
+
+      for (const form of forms) {
+        let nextStatus: PoaStatus = PoaStatus.APPROVED_BY_NSM;
+        let nextHolderId: string | null = null;
+
+        if (actor.role === "ASM") {
+          nextStatus = actor.nipAtasan ? PoaStatus.SUBMITTED_TO_SM : PoaStatus.APPROVED_BY_ASM;
+          nextHolderId = actor.nipAtasan || null;
+        } else if (actor.role === "SM") {
+          nextStatus = actor.nipAtasan ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.APPROVED_BY_SM;
+          nextHolderId = actor.nipAtasan || null;
+        } else {
+          nextStatus = PoaStatus.APPROVED_BY_NSM;
+          nextHolderId = null;
+        }
+
+        await tx.poaScForm.update({
+          where: { id: form.id },
+          data: {
+            status: nextStatus,
+            currentHolderId: nextHolderId,
+          },
+        });
+
+        await tx.poaScAuditLog.create({
+          data: {
+            poaScId: form.id,
+            actorId: session.userId,
+            action: AuditAction.APPROVE,
+            fromStatus: form.status,
+            toStatus: nextStatus,
+            snapshot: { notes: notes || "" },
+          },
+        });
+      }
+    });
+
+    revalidatePath("/sc/dashboard");
+    revalidatePath("/sc/approvals");
+    return { ok: true };
+  } catch (error: any) {
+    console.error("Failed to approve Sales Counter POA:", error);
+    return { ok: false, error: error?.message || "Gagal menyetujui POA Sales Counter." };
+  }
+}
+
+export async function reviseSalesCounterFormAction(
+  poaScIds: string[],
+  notes?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireSession();
+
+  if (!poaScIds || poaScIds.length === 0) {
+    return { ok: false, error: "Pilih minimal 1 Sales Counter POA untuk minta revisi." };
+  }
+
+  try {
+    const actor = await prisma.user.findUnique({
+      where: { nip: session.userId },
+      select: { nip: true, role: true },
+    });
+
+    await prisma.$transaction(async (tx: any) => {
+      const whereClause: any = { id: { in: poaScIds } };
+      if (actor?.role === "NSM" || actor?.role === "ADMIN") {
+        whereClause.status = {
+          in: [
+            PoaStatus.SUBMITTED_TO_ASM,
+            PoaStatus.APPROVED_BY_ASM,
+            PoaStatus.SUBMITTED_TO_SM,
+            PoaStatus.APPROVED_BY_SM,
+            PoaStatus.SUBMITTED_TO_NSM,
+          ],
+        };
+      } else {
+        whereClause.currentHolderId = session.userId;
+      }
+
+      const forms = await tx.poaScForm.findMany({ where: whereClause });
+
+      if (forms.length === 0) {
+        throw new Error("Tidak ada POA Sales Counter yang dapat Anda minta revisi.");
+      }
+
+      for (const form of forms) {
+        await tx.poaScForm.update({
+          where: { id: form.id },
+          data: {
+            status: PoaStatus.REVISI,
+            currentHolderId: null,
+            version: form.version + 1,
+          },
+        });
+
+        await tx.poaScAuditLog.create({
+          data: {
+            poaScId: form.id,
+            actorId: session.userId,
+            action: AuditAction.REVISE,
+            fromStatus: form.status,
+            toStatus: PoaStatus.REVISI,
+            snapshot: { notes: notes || "" },
+          },
+        });
+      }
+    });
+
+    revalidatePath("/sc/dashboard");
+    revalidatePath("/sc/approvals");
+    return { ok: true };
+  } catch (error: any) {
+    console.error("Failed to revise Sales Counter POA:", error);
+    return { ok: false, error: error?.message || "Gagal meminta revisi POA Sales Counter." };
+  }
+}
+
+export async function rejectSalesCounterFormAction(
+  poaScIds: string[],
+  notes?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireSession();
+
+  if (!poaScIds || poaScIds.length === 0) {
+    return { ok: false, error: "Pilih minimal 1 Sales Counter POA untuk ditolak." };
+  }
+
+  try {
+    const actor = await prisma.user.findUnique({
+      where: { nip: session.userId },
+      select: { nip: true, role: true },
+    });
+
+    await prisma.$transaction(async (tx: any) => {
+      const whereClause: any = { id: { in: poaScIds } };
+      if (actor?.role === "NSM" || actor?.role === "ADMIN") {
+        whereClause.status = {
+          in: [
+            PoaStatus.SUBMITTED_TO_ASM,
+            PoaStatus.APPROVED_BY_ASM,
+            PoaStatus.SUBMITTED_TO_SM,
+            PoaStatus.APPROVED_BY_SM,
+            PoaStatus.SUBMITTED_TO_NSM,
+          ],
+        };
+      } else {
+        whereClause.currentHolderId = session.userId;
+      }
+
+      const forms = await tx.poaScForm.findMany({ where: whereClause });
+
+      if (forms.length === 0) {
+        throw new Error("Tidak ada POA Sales Counter yang dapat Anda tolak.");
+      }
+
+      for (const form of forms) {
+        await tx.poaScForm.update({
+          where: { id: form.id },
+          data: {
+            status: PoaStatus.REVISI,
+            currentHolderId: null,
+            version: form.version + 1,
+          },
+        });
+
+        await tx.poaScAuditLog.create({
+          data: {
+            poaScId: form.id,
+            actorId: session.userId,
+            action: AuditAction.REJECT,
+            fromStatus: form.status,
+            toStatus: PoaStatus.REVISI,
+            snapshot: { notes: notes || "" },
+          },
+        });
+      }
+    });
+
+    revalidatePath("/sc/dashboard");
+    revalidatePath("/sc/approvals");
+    return { ok: true };
+  } catch (error: any) {
+    console.error("Failed to reject Sales Counter POA:", error);
+    return { ok: false, error: error?.message || "Gagal menolak POA Sales Counter." };
+  }
+}

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { useSalesCounterDetail } from "./hooks/useSalesCounterDetail";
@@ -9,12 +11,16 @@ import { SalesCounterChecklistHeader } from "./detail/SalesCounterChecklistHeade
 import { SalesCounterSubmitPanel } from "./detail/SalesCounterSubmitPanel";
 import type { ScDraftFormItem, SalesFigures } from "./types";
 
+import { submitSalesCounterFormAction } from "@/app/actions/scApprovalActions";
+
 export function SalesCounterDraftChecklist({
   scDrafts = [],
   poaId,
   poaPeriod,
   showSubmit,
   userCanEdit,
+  canApprove,
+  canFastTrack,
   selectable = true,
   salesSummary,
   targetArea,
@@ -24,10 +30,14 @@ export function SalesCounterDraftChecklist({
   poaPeriod: string;
   showSubmit?: boolean;
   userCanEdit?: boolean;
+  canApprove?: boolean;
+  canFastTrack?: boolean;
   selectable?: boolean;
   salesSummary?: SalesFigures;
   targetArea?: number;
 }) {
+  const router = useRouter();
+  const [isSubmittingState, setIsSubmittingState] = useState(false);
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
 
   const {
@@ -37,16 +47,14 @@ export function SalesCounterDraftChecklist({
     allSelected,
     metrics,
     quarterMonths,
-    isSubmitting,
     submitNotes,
     setSubmitNotes,
   } = useSalesCounterDetail({
     scDrafts: safeScDrafts,
     poaPeriod,
-    showSubmit,
   });
 
-  const canEditNow = !!userCanEdit;
+  const canEditNow = userCanEdit ?? false;
 
   const salesFigures: SalesFigures = salesSummary ?? {
     historisTahunLalu: 0,
@@ -54,6 +62,25 @@ export function SalesCounterDraftChecklist({
     salesYtd: 0,
     growthPct: 0,
   };
+
+  async function handleSubmitAction() {
+    if (checked.size === 0 || isSubmittingState) return;
+    setIsSubmittingState(true);
+    try {
+      const selectedIds = Array.from(checked);
+      const res = await submitSalesCounterFormAction(selectedIds, submitNotes);
+      if (res.ok) {
+        alert("Rencana POA Sales Counter berhasil diajukan ke atasan.");
+        window.location.reload();
+      } else {
+        alert(res.error || "Gagal mengajukan POA Sales Counter.");
+      }
+    } catch (err: any) {
+      alert(err?.message || "Terjadi kesalahan saat mengajukan.");
+    } finally {
+      setIsSubmittingState(false);
+    }
+  }
 
   if (safeScDrafts.length === 0) {
     return (
@@ -72,24 +99,10 @@ export function SalesCounterDraftChecklist({
   }
 
   return (
-    <div className="grid md:grid-cols-[3fr_2fr] gap-5 items-start">
-      {/* Left Column: Checklist of SC Outlets */}
-      <div className="space-y-4 min-w-0">
-        {/* Mobile Stats Panel */}
-        <div className="md:hidden">
-          <SalesCounterStatsPanel
-            selectedOutletCount={checked.size}
-            totalOutletCount={safeScDrafts.length}
-            metrics={metrics}
-            targetArea={targetArea ?? 0}
-            targetAreaIsReal={targetArea != null}
-            salesFigures={salesFigures}
-            salesIsReal={!!salesSummary}
-            quarterMonths={quarterMonths}
-          />
-        </div>
-
-        <Card>
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+      {/* Left Column: Checklist & Cards */}
+      <div className="space-y-4 md:col-span-2">
+        <Card className="p-4">
           <SalesCounterChecklistHeader
             poaId={poaId}
             canEditNow={canEditNow}
@@ -108,6 +121,8 @@ export function SalesCounterDraftChecklist({
                 selectable={selectable}
                 poaId={poaId || ""}
                 userCanEdit={canEditNow}
+                canApprove={canApprove ?? false}
+                canFastTrack={canFastTrack}
               />
             ))}
           </div>
@@ -119,17 +134,14 @@ export function SalesCounterDraftChecklist({
             totalCount={safeScDrafts.length}
             submitNotes={submitNotes}
             setSubmitNotes={setSubmitNotes}
-            isSubmitting={isSubmitting}
-            onSubmit={() => {
-              if (checked.size === 0) return;
-              alert("Rencana POA Sales Counter berhasil diajukan.");
-            }}
+            isSubmitting={isSubmittingState}
+            onSubmit={handleSubmitAction}
           />
         )}
       </div>
 
       {/* Right Column: Desktop Sticky Stats Panel */}
-      <div className="hidden md:block sticky top-5">
+      <div className="hidden md:block sticky top-5 h-fit">
         <SalesCounterStatsPanel
           selectedOutletCount={checked.size}
           totalOutletCount={safeScDrafts.length}

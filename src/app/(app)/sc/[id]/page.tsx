@@ -23,20 +23,17 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
 
 export default async function SalesCounterDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ period?: string }>;
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
 
   const { id } = await params;
-  const { period } = await searchParams;
 
-  const data = await getSalesCounterDetailData(id, period, session.userId, session.role);
+  const data = await getSalesCounterDetailData(id, session.userId, session.role);
   if (!data) notFound();
-  if (!data.hasAccess || !data.poa || !data.scDrafts) redirect("/dashboard");
+  if (!data.hasAccess || !data.poa || !data.scDrafts) redirect("/sc/dashboard");
 
   const {
     poa,
@@ -50,6 +47,18 @@ export default async function SalesCounterDetailPage({
   const isDraft = poa.status === "DRAFT";
   const isRevisi = poa.status === "REVISI";
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
+  const isHolder = poa.currentHolderId === session.userId;
+  let canApprove = false;
+  if (isHolder) {
+    if (session.role === "ASM" && poa.status === "SUBMITTED_TO_ASM") canApprove = true;
+    else if (session.role === "SM" && poa.status === "SUBMITTED_TO_SM") canApprove = true;
+    else if (session.role === "NSM" && poa.status === "SUBMITTED_TO_NSM") canApprove = true;
+    else if (session.role === "ADMIN") canApprove = true;
+  }
+
+  const canFastTrack =
+    (session.role === "NSM" || session.role === "ADMIN") &&
+    ["SUBMITTED_TO_ASM", "APPROVED_BY_ASM", "SUBMITTED_TO_SM", "APPROVED_BY_SM", "SUBMITTED_TO_NSM"].includes(poa.status);
 
   return (
     <div className="space-y-5">
@@ -89,6 +98,8 @@ export default async function SalesCounterDetailPage({
         poaVersion={poa.version}
         showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
         userCanEdit={userCanEdit}
+        canApprove={canApprove}
+        canFastTrack={canFastTrack}
         selectable={isOwner}
         salesSummary={salesSummary}
         targetArea={targetValueFromGT ?? undefined}

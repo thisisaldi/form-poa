@@ -6,18 +6,31 @@ import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 export async function getSalesCounterEditData(id: string, periodParam: string | undefined, sessionUserId: string) {
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: sessionUserId } });
 
-  // id is the period, e.g. "2026-Q2"
+  let targetPeriod = id;
+  let targetOwnerId = sessionUserId;
+
+  // Check if id is a form ID (cuid / uuid)
+  const formById = await prisma.poaScForm.findUnique({
+    where: { id },
+    select: { period: true, ownerId: true, status: true, version: true },
+  });
+
+  if (formById) {
+    targetPeriod = formById.period;
+    targetOwnerId = formById.ownerId;
+  }
+
   const poa = {
-    id,
-    period: id,
-    status: "DRAFT" as PoaStatus,
-    version: 1,
-    ownerId: actor.nip,
+    id: targetPeriod,
+    period: targetPeriod,
+    status: formById?.status || ("DRAFT" as PoaStatus),
+    version: formById?.version || 1,
+    ownerId: targetOwnerId,
     owner: actor,
   };
 
   const savedDrafts = await prisma.poaScForm.findMany({
-    where: { ownerId: sessionUserId, period: id },
+    where: { ownerId: targetOwnerId, period: targetPeriod },
     include: {
       products: true,
       persons: true,

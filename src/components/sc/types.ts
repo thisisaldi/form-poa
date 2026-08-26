@@ -53,6 +53,7 @@ export interface ScDraftFormItem {
   namaOutlet: string;
   persenResepDokter: number;
   ownerId: string;
+  currentHolderId?: string | null;
   is_sc?: boolean;
   isBlastIn?: boolean;
   products: ScProductItemData[];

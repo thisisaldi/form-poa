@@ -93,9 +93,10 @@ export function SalesCounterLineItemEditor({
   } = useSalesCounterEditor({ poaId, poaPeriod, redirectTo: `/sc/${poaId}`, masterProducts: products, outlets, savedDrafts });
 
   // Period / Quarter setup
-  const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
+  const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+  const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
   const rowQuarterPeriod = `${poaYear}-Q${rowQuarter}`;
-  const months = quarterToMonths(rowQuarterPeriod);
+  const months = quarterToMonths(validPeriodMatch ? rowQuarterPeriod : `${new Date().getFullYear()}-Q1`);
 
   const selectedOutlet = useMemo(
     () => outlets.find((o) => o.kodePI === outletId) ?? null,
@@ -539,6 +540,7 @@ export function SalesCounterLineItemEditor({
         <div>
           <SectionLabel>Produk yang Dipromosikan</SectionLabel>
           <ProductSelector
+            kodePI={selectedOutlet?.kodePI || ""}
             rows={selectedProducts}
             onAddRow={addProductRow}
             onRemoveRow={removeProductRow}
