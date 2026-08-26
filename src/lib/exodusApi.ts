@@ -96,6 +96,7 @@ export async function getVisitCountByCustomerOutlet(
 export interface LivePricing {
   hna: number;             // == API's sell_price
   nilaiRPersen: number | null; // r_value / sell_price, same formula scripts/importProductR.ts used against the old Excel source
+  rValue: number | null;   // == API's r_value (Rupiah), raw — not persisted on Product, only nilaiRPersen (the ratio) is
 }
 
 // Short in-memory cache, same idea as cachedToken above — this is called on
@@ -144,6 +145,7 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
       map.set(p.product_code.trim(), {
         hna: p.sell_price,
         nilaiRPersen: p.r_value != null ? p.r_value / p.sell_price : null,
+        rValue: p.r_value,
       });
     }
     cachedPricing = { map, expiresAt: Date.now() + PRICING_TTL_MS };

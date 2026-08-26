@@ -175,6 +175,11 @@ model User {
 
 model PoaForm {
   id        String    @id @default(uuid())
+  // docs/exodus-poa-usage/ (2026-08-26) — global, never-reset sequence for the
+  // human-readable "POA0001" id Exodus needs (id stays the internal uuid PK,
+  // never exposed to them as the primary identifier). Backfilled for existing
+  // rows in createdAt order by the migration that added this column.
+  seq       Int       @unique @default(autoincrement())
   period    String // e.g. "2026-07" — flexible, not locked to monthly
   status    PoaStatus @default(DRAFT)
   version   Int       @default(1) // bumped every time it re-enters REVISI — "Version X" label
@@ -226,6 +231,13 @@ model PoaDoctorApproval {
   // not yet (re)submitted).
   currentHolderId String?
   currentHolder   User?   @relation("PoaDoctorApprovalHolder", fields: [currentHolderId], references: [nip])
+
+  // docs/exodus-poa-usage/ (2026-08-26) — set once (never reverted, even if
+  // rejected on the Exodus side) by an external "mark as used" call from
+  // Exodus, surfaced back to them via GET /api/poa-doctors so they don't
+  // double-submit the same doctor. usedInExodusAt is the write timestamp.
+  usedInExodus   Boolean   @default(false)
+  usedInExodusAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
