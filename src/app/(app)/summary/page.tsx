@@ -348,6 +348,118 @@ async function SummaryContent({
   // an org has hundreds of MRs and thousands of submitted line items).
   const mrUserByNip = new Map(mrUsers.map((u) => [u.nip, u]));
 
+  // An outlet's PIC is whichever MR(s) currently hold that specific
+  // MrOutletAssignment — a SHADOW-pair outlet can have more than one holder.
+  // Hoisted up here (2026-08-26 perf fix — was originally right before the
+  // "Matriks Summary" section further down) so the "Data Survey" tab's early
+  // return below can use it WITHOUT first paying for poas/lineItems/nexus
+  // spesialisasi lookups/activePssp/sales groupBys that tab has no use for —
+  // those were previously running unconditionally on every tab per 2026-08-07's
+  // "every tab reads the same metrics" generalization, which made the survey
+  // tab (added 2026-08-24, needs none of that) pay for all of it for nothing
+  // (user report: "berat banget untuk buka tab data survey").
+  const mrOutletRows = mrNips.length > 0
+    ? (await prisma.mrOutletAssignment.findMany({
+        where: { nipMR: { in: mrNips } },
+        select: { nipMR: true, kodePI: true },
+      })) as { nipMR: string; kodePI: string }[]
+    : [];
+  const outletsByMr = new Map<string, string[]>();
+  for (const row of mrOutletRows) {
+    const list = outletsByMr.get(row.nipMR) ?? [];
+    list.push(row.kodePI);
+    outletsByMr.set(row.nipMR, list);
+  }
+
+  // ── "Data Survey" tab (2026-08-24, per user's direct request — no memo,
+  // ambiguity resolved via 2 rounds of clarification, no new Prisma model) ──
+  // Per ASM: has this ASM's MR team covered at least SURVEY_TARGET_OUTLETS=3
+  // distinct outlets with SOME survey data, ever (ALL-TIME, not the quarter
+  // filter every other tab uses — user was explicit: "all period per asm").
+  // "Survey data" = either source that's already outlet-keyed in this app:
+  // SurveyUploadLog (the web upload feature) OR SurveyRekomendasi (the
+  // reference data already shown in POA line-item input's "Data Survey"
+  // panel — user confirmed THIS is what "data survey yang existing" means,
+  // not a third/new source). EARLY RETURN below (2026-08-26) so this tab
+  // never touches poas/lineItems/PSSP/sales at all — see the perf-fix comment
+  // above `mrOutletRows`.
+  if (rawTab === "survey") {
+    const SURVEY_TARGET_OUTLETS = 3;
+    // Which ASMs to show as rows — same subtree-by-role shape as
+    // getSubordinateMRNips (authz.ts), reimplemented locally in ≤2 batched
+    // queries (BFS per level, docs/PERFORMANCE.md §2 point 2) since that
+    // helper resolves MRs specifically, not ASMs.
+    let asmUsers: { nip: string; name: string }[];
+    if (actorRole === "ASM") {
+      asmUsers = [{ nip: actorNip, name: actorName }];
+    } else if (actorRole === "SM") {
+      asmUsers = (await prisma.user.findMany({
+        where: { role: "ASM", nipAtasan: actorNip, isActive: true, isDummy: false },
+        select: { nip: true, name: true },
+      })) as { nip: string; name: string }[];
+    } else if (actorRole === "NSM") {
+      const smNips = (await prisma.user.findMany({
+        where: { role: "SM", nipAtasan: actorNip, isActive: true, isDummy: false },
+        select: { nip: true },
+      })) as { nip: string }[];
+      asmUsers = smNips.length > 0
+        ? (await prisma.user.findMany({
+            where: { role: "ASM", nipAtasan: { in: smNips.map((s) => s.nip) }, isActive: true, isDummy: false },
+            select: { nip: true, name: true },
+          })) as { nip: string; name: string }[]
+        : [];
+    } else {
+      // ADMIN/GM/SFE/VIEWER — company-wide, same "everyone" scope
+      // getSubordinateMRNips gives these roles for MRs.
+      asmUsers = (await prisma.user.findMany({
+        where: { role: "ASM", isActive: true, isDummy: false },
+        select: { nip: true, name: true },
+      })) as { nip: string; name: string }[];
+    }
+
+    // MRs are already known to be role MR under their ASM directly (SPV is a
+    // jabatan override, not a separate role/hierarchy level — see User.jabatan
+    // doc comment in schema.prisma) — mrUsers (fetched above) already covers
+    // every MR in mrNips, no extra query needed for the ASM->MR edge.
+    const mrsByAsm = new Map<string, string[]>();
+    for (const mr of mrUsers) {
+      if (!mr.nipAtasan) continue;
+      const list = mrsByAsm.get(mr.nipAtasan) ?? [];
+      list.push(mr.nip);
+      mrsByAsm.set(mr.nipAtasan, list);
+    }
+
+    const asmOutlets = new Map<string, Set<string>>();
+    for (const asm of asmUsers) {
+      const set = new Set<string>();
+      for (const mrNip of mrsByAsm.get(asm.nip) ?? []) {
+        for (const o of outletsByMr.get(mrNip) ?? []) set.add(o);
+      }
+      asmOutlets.set(asm.nip, set);
+    }
+    const allSurveyScopeOutlets = [...new Set([...asmOutlets.values()].flatMap((s) => [...s]))];
+
+    const [uploadLogOutlets, rekomendasiOutlets] = allSurveyScopeOutlets.length > 0
+      ? await Promise.all([
+          prisma.surveyUploadLog.findMany({ where: { kodePI: { in: allSurveyScopeOutlets } }, select: { kodePI: true }, distinct: ["kodePI"] }),
+          prisma.surveyRekomendasi.findMany({ where: { kodePI: { in: allSurveyScopeOutlets } }, select: { kodePI: true }, distinct: ["kodePI"] }),
+        ]) as [{ kodePI: string }[], { kodePI: string }[]]
+      : [[], []];
+    const outletsWithSurveyData = new Set([...uploadLogOutlets.map((r) => r.kodePI), ...rekomendasiOutlets.map((r) => r.kodePI)]);
+
+    const surveyAsmRows = asmUsers.map((asm) => {
+      const outlets = asmOutlets.get(asm.nip) ?? new Set<string>();
+      const withSurvey = [...outlets].filter((o) => outletsWithSurveyData.has(o)).length;
+      return { nip: asm.nip, name: asm.name, totalOutlets: outlets.size, outletsWithSurvey: withSurvey, achieved: withSurvey >= SURVEY_TARGET_OUTLETS };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+
+    return (
+      <div className="space-y-5">
+        <SurveyDataSummaryTable rows={surveyAsmRows} targetOutlets={SURVEY_TARGET_OUTLETS} />
+      </div>
+    );
+  }
+
   // Was a local ["APPROVED_BY_ASM","APPROVED_BY_SM","APPROVED_BY_NSM"] literal
   // — those three statuses are near-unreachable (approvePoa jumps straight
   // from SUBMITTED_TO_X to SUBMITTED_TO_Y, see poaWorkflow.ts's
@@ -548,14 +660,6 @@ async function SummaryContent({
     return { code: ownerNip, name: mr?.name ?? ownerNip };
   }
 
-  // An outlet's PIC is whichever MR(s) currently hold that specific
-  // MrOutletAssignment — a SHADOW-pair outlet can have more than one holder.
-  const mrOutletRows = mrNips.length > 0
-    ? (await prisma.mrOutletAssignment.findMany({
-        where: { nipMR: { in: mrNips } },
-        select: { nipMR: true, kodePI: true },
-      })) as { nipMR: string; kodePI: string }[]
-    : [];
   // ── Matriks Summary Per Outlet / Per Produk (2026-07-27) ──────────────────
   // Fetched once regardless of which tab is active — both "outlet" and
   // "produk" need active-PSSP + real sales data, and the fetch is cheap
@@ -583,97 +687,6 @@ async function SummaryContent({
     { kodePI: string; _sum: { valueSales: { toString(): string } | null } }[],
     { itemKode: string; _sum: { qty: { toString(): string } | null } }[],
   ];
-
-  const outletsByMr = new Map<string, string[]>();
-  for (const row of mrOutletRows) {
-    const list = outletsByMr.get(row.nipMR) ?? [];
-    list.push(row.kodePI);
-    outletsByMr.set(row.nipMR, list);
-  }
-
-  // ── "Data Survey" tab (2026-08-24, per user's direct request — no memo,
-  // ambiguity resolved via 2 rounds of clarification, no new Prisma model) ──
-  // Per ASM: has this ASM's MR team covered at least SURVEY_TARGET_OUTLETS=3
-  // distinct outlets with SOME survey data, ever (ALL-TIME, not the quarter
-  // filter every other tab uses — user was explicit: "all period per asm").
-  // "Survey data" = either source that's already outlet-keyed in this app:
-  // SurveyUploadLog (the web upload feature) OR SurveyRekomendasi (the
-  // reference data already shown in POA line-item input's "Data Survey"
-  // panel — user confirmed THIS is what "data survey yang existing" means,
-  // not a third/new source). Gated to rawTab === "survey" so the two extra
-  // queries below don't run on every other tab's page load.
-  const SURVEY_TARGET_OUTLETS = 3;
-  type SurveyAsmRow = { nip: string; name: string; totalOutlets: number; outletsWithSurvey: number; achieved: boolean };
-  let surveyAsmRows: SurveyAsmRow[] = [];
-  if (rawTab === "survey") {
-    // Which ASMs to show as rows — same subtree-by-role shape as
-    // getSubordinateMRNips (authz.ts), reimplemented locally in ≤2 batched
-    // queries (BFS per level, docs/PERFORMANCE.md §2 point 2) since that
-    // helper resolves MRs specifically, not ASMs.
-    let asmUsers: { nip: string; name: string }[];
-    if (actorRole === "ASM") {
-      asmUsers = [{ nip: actorNip, name: actorName }];
-    } else if (actorRole === "SM") {
-      asmUsers = (await prisma.user.findMany({
-        where: { role: "ASM", nipAtasan: actorNip, isActive: true, isDummy: false },
-        select: { nip: true, name: true },
-      })) as { nip: string; name: string }[];
-    } else if (actorRole === "NSM") {
-      const smNips = (await prisma.user.findMany({
-        where: { role: "SM", nipAtasan: actorNip, isActive: true, isDummy: false },
-        select: { nip: true },
-      })) as { nip: string }[];
-      asmUsers = smNips.length > 0
-        ? (await prisma.user.findMany({
-            where: { role: "ASM", nipAtasan: { in: smNips.map((s) => s.nip) }, isActive: true, isDummy: false },
-            select: { nip: true, name: true },
-          })) as { nip: string; name: string }[]
-        : [];
-    } else {
-      // ADMIN/GM/SFE/VIEWER — company-wide, same "everyone" scope
-      // getSubordinateMRNips gives these roles for MRs.
-      asmUsers = (await prisma.user.findMany({
-        where: { role: "ASM", isActive: true, isDummy: false },
-        select: { nip: true, name: true },
-      })) as { nip: string; name: string }[];
-    }
-
-    // MRs are already known to be role MR under their ASM directly (SPV is a
-    // jabatan override, not a separate role/hierarchy level — see User.jabatan
-    // doc comment in schema.prisma) — mrUsers (fetched above) already covers
-    // every MR in mrNips, no extra query needed for the ASM->MR edge.
-    const mrsByAsm = new Map<string, string[]>();
-    for (const mr of mrUsers) {
-      if (!mr.nipAtasan) continue;
-      const list = mrsByAsm.get(mr.nipAtasan) ?? [];
-      list.push(mr.nip);
-      mrsByAsm.set(mr.nipAtasan, list);
-    }
-
-    const asmOutlets = new Map<string, Set<string>>();
-    for (const asm of asmUsers) {
-      const set = new Set<string>();
-      for (const mrNip of mrsByAsm.get(asm.nip) ?? []) {
-        for (const o of outletsByMr.get(mrNip) ?? []) set.add(o);
-      }
-      asmOutlets.set(asm.nip, set);
-    }
-    const allSurveyScopeOutlets = [...new Set([...asmOutlets.values()].flatMap((s) => [...s]))];
-
-    const [uploadLogOutlets, rekomendasiOutlets] = allSurveyScopeOutlets.length > 0
-      ? await Promise.all([
-          prisma.surveyUploadLog.findMany({ where: { kodePI: { in: allSurveyScopeOutlets } }, select: { kodePI: true }, distinct: ["kodePI"] }),
-          prisma.surveyRekomendasi.findMany({ where: { kodePI: { in: allSurveyScopeOutlets } }, select: { kodePI: true }, distinct: ["kodePI"] }),
-        ]) as [{ kodePI: string }[], { kodePI: string }[]]
-      : [[], []];
-    const outletsWithSurveyData = new Set([...uploadLogOutlets.map((r) => r.kodePI), ...rekomendasiOutlets.map((r) => r.kodePI)]);
-
-    surveyAsmRows = asmUsers.map((asm) => {
-      const outlets = asmOutlets.get(asm.nip) ?? new Set<string>();
-      const withSurvey = [...outlets].filter((o) => outletsWithSurveyData.has(o)).length;
-      return { nip: asm.nip, name: asm.name, totalOutlets: outlets.size, outletsWithSurvey: withSurvey, achieved: withSurvey >= SURVEY_TARGET_OUTLETS };
-    }).sort((a, b) => a.name.localeCompare(b.name));
-  }
 
   // ListingFeeKontrak.value is the CONTRACT's total, repeated on every one of
   // its product rows (same "value duplicated per row" shape as PsspKontrak.biaya
@@ -2147,10 +2160,8 @@ async function SummaryContent({
             quarterLabel={ringkasanQuarter} quarterSebelumnyaLabel={ringkasanQSebelumnya} />
         </>
       )}
-
-      {rawTab === "survey" && (
-        <SurveyDataSummaryTable rows={surveyAsmRows} targetOutlets={SURVEY_TARGET_OUTLETS} />
-      )}
+      {/* rawTab === "survey" already returned early, right after outletsByMr
+          is built — see the "Data Survey" tab block above. */}
     </div>
   );
 }
