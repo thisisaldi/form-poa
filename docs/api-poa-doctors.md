@@ -136,17 +136,27 @@ Autentikasi: sama persis seperti list (session cookie ATAU Basic Auth, kredensia
 | 401 | Tidak ada session cookie valid maupun Basic Auth valid |
 | 404 | `id` tidak match `PoaLineItem` manapun, POA-nya bukan kuartal berjalan, atau dokternya belum final-approved (`APPROVED_BY_NSM`) |
 
-## PATCH /api/poa-doctors/{id} — tandai "sudah digunakan di Exodus"
+## PATCH /api/poa-doctors/{id} — set "sudah digunakan di Exodus" atau tidak
 
-Dipanggil Exodus untuk mengunci satu baris supaya tidak dipakai dua kali. Tidak butuh body — path `{id}` (sama `uidCustomer` seperti di atas) sudah cukup, ini aksi satu-arah bukan update field generik.
+Dipanggil Exodus untuk mengunci satu baris supaya tidak dipakai dua kali, dan (kalau perlu) membatalkannya lagi. Satu endpoint untuk dua arah, dibedakan lewat body.
 
 ```
 PATCH /api/poa-doctors/{uidCustomer}
+Content-Type: application/json
+
+{ "usedInExodus": false }   // opsional — lihat tabel di bawah
 ```
 
-**Idempotent** — dipanggil berkali-kali di baris yang sama aman, selalu 200 (termasuk SETELAH baris itu hilang dari `GET /api/poa-doctors` list karena sudah `usedInExodus: true` — lihat catatan di section detail di atas). **Tidak bisa di-revert** — begitu `usedInExodus` jadi `true`, tidak ada endpoint untuk mengembalikannya ke `false`, termasuk kalau pengajuannya di-reject di sisi Exodus (keputusan bisnis, lihat `docs/exodus-poa-usage/01-business-rules.md` §2).
+| Body | Efek |
+|---|---|
+| Tanpa body / `{}` / `{ "usedInExodus": true }` | **Mark as used** — `usedInExodus`: `false` → `true`, `usedInExodusAt` di-set ke waktu sekarang. Ini perilaku default (backward-compatible dengan versi sebelum body dikenal). |
+| `{ "usedInExodus": false }` | **Revert** — `usedInExodus`: `true` → `false`, `usedInExodusAt` di-set `null`. |
 
-**Response 200**: shape sama seperti `GET /api/poa-doctors/{id}`, dengan `usedInExodus: true`.
+**Idempotent di kedua arah** — set ke nilai yang sudah ada saat ini bukan error, tetap 200 (termasuk memanggil "mark as used" pada baris yang sudah hilang dari `GET /api/poa-doctors` list karena sudah `usedInExodus: true` — lihat catatan di section detail di atas).
+
+⚠️ **Arah revert (`usedInExodus: false`) membalik keputusan bisnis sebelumnya** ("tidak bisa direvert", dikonfirmasi eksplisit oleh Juni Pharos di chat 2026-08-24) — ditambahkan 2026-08-27 atas permintaan Aldi, **belum ada konfirmasi tertulis dari tim Exodus** bahwa mereka memang butuh ini / bahwa jaminan "sekali dipakai terkunci selamanya" sudah tidak berlaku. Lihat `docs/exodus-poa-usage/01-business-rules.md` §8. *(Awalnya dibangun sebagai `DELETE` terpisah, digabung jadi satu `PATCH` di hari yang sama atas preferensi Aldi.)*
+
+**Response 200**: shape sama seperti `GET /api/poa-doctors/{id}`, dengan `usedInExodus` sesuai hasil aksinya.
 
 | Status | Kondisi |
 |---|---|

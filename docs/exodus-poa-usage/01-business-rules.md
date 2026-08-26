@@ -12,9 +12,11 @@ Sumber: diskusi WhatsApp 2026-08-24 (lihat `README.md` untuk peserta).
 
 Satu field boolean `usedInExodus` (bukan enum tri-state seperti draf awal dokumen ini) — `false` → `true`, sekali saja, tidak pernah kembali.
 
-**Append-only / tidak pernah revert**: kalau pengajuan di Exodus di-reject, `usedInExodus` **TETAP** `true`. Dikonfirmasi eksplisit oleh Juni Pharos: *"klo di reject dia tidak ke revert mas, klo sudah diajukan sekali di exodus tidak bsa dipakai lagi"*. Konsekuensi: tidak ada endpoint untuk "un-mark"/revert — ini bukan lupa, memang sengaja (lihat Non-goals di `03-ui-and-access.md`).
+~~**Append-only / tidak pernah revert**: kalau pengajuan di Exodus di-reject, `usedInExodus` **TETAP** `true`. Dikonfirmasi eksplisit oleh Juni Pharos: *"klo di reject dia tidak ke revert mas, klo sudah diajukan sekali di exodus tidak bsa dipakai lagi"*. Konsekuensi: tidak ada endpoint untuk "un-mark"/revert — ini bukan lupa, memang sengaja.~~
 
-**Idempotent**: memanggil endpoint tulis pada baris yang sudah `usedInExodus: true` bukan error — tetap 200, tidak menimpa `usedInExodusAt` yang sudah tercatat.
+**DIBALIK 2026-08-27**: Aldi mengonfirmasi Exodus tetap butuh cara revert (bertentangan langsung dengan kutipan Juni Pharos di atas — **belum ada konfirmasi ulang tertulis dari tim Exodus untuk pembalikan ini**, cuma keputusan Aldi di sesi kerja ini). `PATCH /api/poa-doctors/{id}` dengan body `{"usedInExodus": false}` sekarang mengembalikan `usedInExodus` ke `false` (dan `usedInExodusAt` ke `null` — full revert, bukan soft-delete/audit trail). Kemampuan ini EXPOSED ke Exodus (bukan internal-only/ADMIN), dikonfirmasi Aldi — awalnya dibangun sebagai endpoint `DELETE` terpisah, digabung jadi satu `PATCH` (dibedakan via body) di hari yang sama atas preferensi Aldi. **Rekomendasi: konfirmasi ulang ke tim Exodus (WA thread yang sama) bahwa keputusan "tidak bisa direvert" dari 2026-08-24 sudah tidak berlaku**, supaya tidak ada kesalahpahaman di kedua sisi soal jaminan "sekali dipakai, terkunci selamanya" yang sempat dijanjikan.
+
+**Idempotent kedua arah**: memanggil `PATCH` (mark as used) pada baris yang sudah `usedInExodus: true`, atau `PATCH` dengan `{"usedInExodus": false}` (revert) pada baris yang sudah `usedInExodus: false`, bukan error — tetap 200.
 
 ## 3. Identity per baris
 
@@ -31,7 +33,8 @@ Sama seperti response `GET /api/poa-doctors` (lihat `docs/api-poa-doctors.md`) �
 | `id` tidak match `PoaLineItem` manapun | 404 |
 | POA-nya bukan kuartal kalender berjalan | 404 (sama seperti tidak ditemukan) |
 | Dokter belum pernah diapprove (tidak lolos filter yang sama dengan list) | 404 |
-| PATCH pada baris yang sudah `usedInExodus: true` | Idempotent, 200 — bukan error |
+| PATCH (mark as used) pada baris yang sudah `usedInExodus: true` | Idempotent, 200 — bukan error |
+| PATCH `{"usedInExodus":false}` (revert) pada baris yang sudah `usedInExodus: false` | Idempotent, 200 — bukan error |
 | Auth gagal | 401, pola sama seperti `GET /api/poa-doctors` |
 
 ## 6. Open questions — status & assumptions
@@ -59,3 +62,9 @@ Pesan tim Exodus (verbatim): *"berdasarkan hasil meeting team exodus ada beberap
 | 8 | "Data yg di show perlu yg sudah final approved saja dan belum digunakan di exodus" | DUA perubahan filter, dikonfirmasi terpisah oleh user: (a) **"final approved"** = HANYA `APPROVED_BY_NSM` — filter `approveUntil` di `buildDoctorRows` diperketat dari "ASM/SM/NSM manapun" (v1) jadi "harus NSM". Berlaku di `GET /api/poa-doctors` (list) DAN `GET/PATCH /api/poa-doctors/{id}` (shared lewat `buildDoctorRows`). (b) **"belum digunakan"** = filter `usedInExodus` — lihat §4 di atas (dibalik dari keputusan v1). Filter ini HANYA di route list (`route.ts`), bukan di `buildDoctorRows`, supaya PATCH tetap bisa resolve baris yang sudah dipakai (idempotent). | ✅ Diimplementasikan |
 
 Open question yang masih belum kejawab dari meeting ini: poin 1 di §6 (endpoint GET dari Exodus untuk "batas approval role") tidak disinggung lagi di meeting ini — kemungkinan sudah tidak relevan (tergantikan oleh filter "final approved" di poin 8), tapi belum ada konfirmasi eksplisit.
+
+## 8. Revisi 2026-08-27 (lanjutan, hari yang sama) — kemampuan revert ditambahkan
+
+Aldi meminta kemampuan revert `usedInExodus` kembali ke `false`, exposed ke Exodus. Ini **membalik langsung** aturan §2 di atas ("tidak pernah revert", dikonfirmasi eksplisit Juni Pharos 2026-08-24). **Belum ada konfirmasi tertulis dari tim Exodus untuk pembalikan ini** — perlu ditindaklanjuti di WA thread yang sama sebelum Exodus benar-benar mengandalkan (atau justru menghindari) kemampuan revert ini, supaya tidak ada asumsi yang salah di salah satu sisi.
+
+**Endpoint shape (2 iterasi di hari yang sama)**: awalnya dibangun sebagai `DELETE /api/poa-doctors/{id}` terpisah dari `PATCH`. Aldi lalu meminta digabung — satu `PATCH` untuk kedua arah, dibedakan lewat body opsional (`{"usedInExodus": false}` untuk revert, default `true` kalau body kosong/tidak ada — backward-compatible dengan kontrak bodyless PATCH sebelumnya). Lihat `03-ui-and-access.md` untuk tabel endpoint final.

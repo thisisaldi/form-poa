@@ -16,13 +16,20 @@
  *
  * PATCH /api/poa-doctors/[id]
  *
- * Exodus "mark as used" call (docs/exodus-poa-usage/) — sets usedInExodus
- * to true, permanently. No body needed: this is a one-way action, not a
- * general field update, so there's nothing to pass other than the id
- * already in the path. Idempotent — calling it again on an
- * already-used row is a no-op 200, not an error (safe to retry).
- * There's no way to un-mark a row (see docs/exodus-poa-usage/01-business-rules.md
- * §2 — a reject on the Exodus side does NOT revert this flag).
+ * Sets usedInExodus (docs/exodus-poa-usage/). Body is OPTIONAL:
+ *   - no body / `{}` / `{ "usedInExodus": true }` → mark as used (the
+ *     original 2026-08-26 behavior, kept bodyless-compatible)
+ *   - `{ "usedInExodus": false }` → revert back to unused (2026-08-27 —
+ *     Aldi confirmed Exodus needs a revert path after all, REVERSING the
+ *     original "no revert" business rule from the 2026-08-24 WhatsApp
+ *     thread; see docs/exodus-poa-usage/01-business-rules.md §2/§8.
+ *     Originally shipped as a separate DELETE, collapsed into this single
+ *     PATCH same day per Aldi's preference — one endpoint, direction
+ *     carried by the body instead of the HTTP method.)
+ * Idempotent either direction — setting to the value it already has is a
+ * no-op 200, not an error (safe to retry). usedInExodusAt is set to now()
+ * when turning on, cleared to null when turning off (full revert, not an
+ * audit trail).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -56,14 +63,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const row = await findDoctorRowById(id);
   if (!row) return NextResponse.json({ error: "Baris tidak ditemukan." }, { status: 404 });
 
-  if (!row.usedInExodus) {
+  // Body is optional — a missing/empty/unparseable body defaults to "mark as
+  // used" (true), same as the original bodyless PATCH contract.
+  const body: { usedInExodus?: unknown } = await req.json().catch(() => ({}));
+  const targetUsed = body.usedInExodus === false ? false : true;
+
+  if (row.usedInExodus !== targetUsed) {
     await prisma.poaDoctorApproval.update({
       where: {
         poaId_kodePI_namaCust: { poaId: row.uidPoa, kodePI: row.dokter.kodePI ?? "", namaCust: row.dokter.namaCust },
       },
-      data: { usedInExodus: true, usedInExodusAt: new Date() },
+      data: { usedInExodus: targetUsed, usedInExodusAt: targetUsed ? new Date() : null },
     });
   }
 
-  return NextResponse.json({ ...row, usedInExodus: true });
+  return NextResponse.json({ ...row, usedInExodus: targetUsed });
 }

@@ -8,11 +8,11 @@ Tidak ada halaman UI baru — ini murni API-to-API antara Exodus dan POA, sama s
 |---|---|---|
 | `GET` | `/api/poa-doctors?nip=...&keyword=...` | List (endpoint utama yang dipakai Exodus, per konfirmasi 2026-08-27) — `keyword` baru, filter `usedInExodus`+`approveUntil==NSM` baru |
 | `GET` | `/api/poa-doctors/{id}` | Detail satu baris — TIDAK disentuh permintaan 2026-08-27, tetap perilaku v1 kecuali field baru (idPoa/periode/nilaiR/hna/qty) yang otomatis ikut lewat `buildDoctorRows` bersama |
-| `PATCH` | `/api/poa-doctors/{id}` | `usedInExodus`: `false` → `true`, set `usedInExodusAt`. Tidak ada body. Idempotent. |
+| `PATCH` | `/api/poa-doctors/{id}` | Body opsional: tanpa body / `{"usedInExodus":true}` → mark as used (`usedInExodus` → `true`, set `usedInExodusAt`); `{"usedInExodus":false}` → **revert** (baru 2026-08-27, lihat `01-business-rules.md` §8 — membalik aturan "tidak pernah revert" yang tadinya dikonfirmasi eksplisit oleh Exodus, BELUM ada konfirmasi ulang tertulis dari mereka). Idempotent di kedua arah. *(Sempat dipecah jadi `PATCH`+`DELETE` terpisah, digabung lagi jadi satu `PATCH` di hari yang sama atas preferensi Aldi — satu endpoint lebih simpel daripada dua method untuk aksi yang konsepnya sama, "set flag ini".)* |
 
 `{id}` = `uidCustomer` dari response `GET /api/poa-doctors` (anchor `PoaLineItem.id`).
 
-Response `PATCH` 200: shape sama seperti `GET /api/poa-doctors/{id}`, dengan `usedInExodus: true`.
+Response `PATCH` 200: shape sama seperti `GET /api/poa-doctors/{id}`, dengan `usedInExodus` sesuai hasil aksinya.
 
 Lihat `docs/api-poa-doctors.md` untuk kontrak request/response lengkap dan kode error.
 
@@ -33,7 +33,6 @@ Tidak ada role/access matrix baru — endpoint ini murni server-to-server (dipan
 
 ## Non-goals v2
 
-- **Tidak ada endpoint revert/un-mark** — sesuai aturan bisnis §2 (`01-business-rules.md`), `usedInExodus` tidak pernah kembali ke `false`. Kalau ternyata dibutuhkan (mis. Exodus salah pencet), ini keputusan bisnis baru yang perlu dikonfirmasi ulang, bukan asumsi default.
 - **Tidak ada endpoint approve terpisah** — lihat `01-business-rules.md` §Open questions #4, ditutup ulang di §7 (meeting 2026-08-27 tidak menyebutnya lagi).
 - **Keyword search TIDAK company-wide** — tetap scoped dalam `nip` yang wajib. Search lintas semua POA (tanpa `nip`) butuh desain ulang (pagination + review `docs/PERFORMANCE.md`) yang secara eksplisit BUKAN yang diminta 2026-08-27.
 - **`qtyPerBulan`/`qtyTotal` cuma untuk kuartal berjalan**, bukan seluruh periode item sendiri kalau item itu span lebih dari 1 kuartal (lamaPeriode 6/12 bulan) — konsisten dengan scope endpoint yang memang selalu kuartal berjalan.
