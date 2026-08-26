@@ -1,18 +1,17 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { SortableTh, compareSortValues, type SortDir } from "@/components/ui/SortableTh";
 
 export interface SurveyRow {
   nip: string;
   name: string;
   totalOutlets: number;
   outletsWithSurvey: number;
-  /** Only set for ASM rows — target=3 outlets exists at ASM level only (user: "target ini cuma ada di ASM"). */
-  target: number | null;
-  /**
-   * ASM rows: outletsWithSurvey / target × 100 (uncapped).
-   * NSM/SM/Total rows: % of the ASMs under this row that individually hit
-   * their own target — not a rescaled outlet count, since there's no target
-   * at these levels. `null` when there are no ASMs under this row at all.
-   */
+  /** SURVEY_TARGET_OUTLETS (3) at ASM level; SUM of that across the ASMs under this row at NSM/SM/Total level. */
+  target: number;
+  /** outletsWithSurvey / target × 100, uncapped (same "can exceed 100%" convention as Sales Achievement elsewhere). `null` only when target is 0 (no ASMs under this row). */
   achievementPct: number | null;
 }
 
@@ -23,7 +22,26 @@ function achievementColor(pct: number | null): string {
   return "var(--color-red)";
 }
 
+type SortKey = "name" | "totalOutlets" | "outletsWithSurvey" | "target" | "achievementPct";
+
 function SurveySectionTable({ title, rows }: { title: string; rows: SurveyRow[] }) {
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return rows;
+    return [...rows].sort((a, b) => compareSortValues(a[sortKey] as number | string | null, b[sortKey] as number | string | null, sortDir));
+  }, [rows, sortKey, sortDir]);
+
   if (rows.length === 0) return null;
   return (
     <Card padded={false}>
@@ -32,15 +50,15 @@ function SurveySectionTable({ title, rows }: { title: string; rows: SurveyRow[] 
         <table className="w-full text-xs" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <th className="text-left py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Personil</th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Total Outlet</th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Outlet dengan Data Survey</th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Target</th>
-              <th className="text-right py-2 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Achievement</th>
+              <SortableTh label="Personil" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="left" />
+              <SortableTh label="Total Outlet" sortKey="totalOutlets" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Outlet dengan Data Survey" sortKey="outletsWithSurvey" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Target" sortKey="target" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+              <SortableTh label="Achievement" sortKey="achievementPct" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r) => (
               <tr key={r.nip} style={{ borderBottom: "1px solid var(--color-border)" }}>
                 <td className="py-2 px-3">
                   <p className="font-medium">{r.name}</p>
@@ -48,7 +66,7 @@ function SurveySectionTable({ title, rows }: { title: string; rows: SurveyRow[] 
                 </td>
                 <td className="py-2 px-3 text-right whitespace-nowrap">{r.totalOutlets}</td>
                 <td className="py-2 px-3 text-right whitespace-nowrap">{r.outletsWithSurvey}</td>
-                <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>{r.target ?? "-"}</td>
+                <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>{r.target}</td>
                 <td className="py-2 px-3 text-right whitespace-nowrap font-medium" style={{ color: achievementColor(r.achievementPct) }}>
                   {r.achievementPct != null ? `${r.achievementPct.toFixed(0)}%` : "-"}
                 </td>
@@ -62,13 +80,13 @@ function SurveySectionTable({ title, rows }: { title: string; rows: SurveyRow[] 
 }
 
 /**
- * "Data Survey" tab — 4 stacked sections (Total / Per NSM / Per SM / Per
- * ASM), each row = how many of that personil's outlets have SOME survey
- * data (web upload OR existing reference data), ALL-TIME (no quarter
- * filter — see summary/page.tsx's "Data Survey" tab comment). Computed
- * server-side in summary/page.tsx; this component only renders it. A
- * section with zero rows in scope (e.g. an ASM viewer has no NSM/SM rows)
- * is simply omitted.
+ * "Data Survey" tab — 4 stacked, independently sortable sections (Total /
+ * Per NSM / Per SM / Per ASM), each row = how many of that personil's
+ * outlets have SOME survey data (web upload OR existing reference data),
+ * ALL-TIME (no quarter filter — see summary/page.tsx's "Data Survey" tab
+ * comment). Computed server-side in summary/page.tsx; this component only
+ * renders + sorts it. A section with zero rows in scope (e.g. an ASM viewer
+ * has no NSM/SM rows) is simply omitted.
  */
 export function SurveyDataSummaryTable({ sections }: { sections: { title: string; rows: SurveyRow[] }[] }) {
   const allEmpty = sections.every((s) => s.rows.length === 0);

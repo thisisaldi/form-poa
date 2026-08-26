@@ -389,15 +389,17 @@ async function SummaryContent({
   // this tab never touches poas/lineItems/PSSP/sales at all — see the
   // perf-fix comment above `mrOutletRows`.
   //
-  // 2026-08-26 revision: (1) target=3 exists ONLY at ASM level per user
-  // ("target ini cuma ada di ASM") — NSM/SM/Total rows instead show what
-  // fraction of the ASMs under them individually reached that target, not a
-  // scaled-up outlet count; (2) scope restricted to the Ethical/Hospital
-  // population (`User.project === null`) — user reported the tab was still
-  // mixing in the separate OMEGA (Sales Counter) population, which has
-  // nothing to do with this app's survey/outlet data at all (same
-  // project=null-vs-"OMEGA" discriminator already used in
-  // dashboard/page.tsx, Sidebar.tsx).
+  // 2026-08-26 revision (round 2 — target now DOES roll up, "tinggal di-sum
+  // aja yang di bawahnya"): NSM/SM/Total target = SURVEY_TARGET_OUTLETS ×
+  // count of ASMs under that row; Achievement% is the SAME formula at every
+  // level (outletsWithSurvey/target×100, uncapped) — no more separate
+  // "% of ASMs achieved" formula (round 1, now superseded). Also: (1) scope
+  // restricted to the Ethical/Hospital population (`User.project === null`)
+  // — user reported the tab was still mixing in the separate OMEGA (Sales
+  // Counter) population, which has nothing to do with this app's
+  // survey/outlet data at all (same project=null-vs-"OMEGA" discriminator
+  // already used in dashboard/page.tsx, Sidebar.tsx); (2) sortable columns,
+  // per section (SurveyDataSummaryTable.tsx).
   if (rawTab === "survey") {
     const SURVEY_TARGET_OUTLETS = 3;
 
@@ -484,27 +486,25 @@ async function SummaryContent({
         achievementPct: (withSurvey / SURVEY_TARGET_OUTLETS) * 100,
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
-    const asmAchievedNips = new Set(asmUsers.filter((asm) => {
-      const withSurvey = [...(asmOutlets.get(asm.nip) ?? new Set<string>())].filter((o) => outletsWithSurveyData.has(o)).length;
-      return withSurvey >= SURVEY_TARGET_OUTLETS;
-    }).map((a) => a.nip));
 
-    // Rollup for NSM/SM/Total: target doesn't exist at these levels, so
-    // "Achievement" here means % of the ASMs under this row that individually
-    // hit their own target — not a rescaled outlet count.
+    // Rollup for NSM/SM/Total — target = SURVEY_TARGET_OUTLETS × count of
+    // ASMs under this row (user: "tinggal di-sum aja yang di bawahnya"),
+    // Achievement% = outletsWithSurvey / target × 100, same uncapped formula
+    // as ASM rows. Outlets deduped via Set BEFORE counting either total or
+    // with-survey — an outlet shared by 2+ ASMs (a SHADOW-pair outlet can
+    // have multiple MR holders, possibly across different ASM teams) must
+    // not be double-counted in one figure but not the other, or
+    // outletsWithSurvey could exceed totalOutlets.
     function rollup(name: string, nip: string, asmNipsUnder: string[]): SurveyRow {
-      const outlets = asmNipsUnder.flatMap((n) => [...(asmOutlets.get(n) ?? [])]);
-      const withSurveyTotal = asmNipsUnder.reduce((s, n) => {
-        const o = asmOutlets.get(n) ?? new Set<string>();
-        return s + [...o].filter((x) => outletsWithSurveyData.has(x)).length;
-      }, 0);
-      const achievedCount = asmNipsUnder.filter((n) => asmAchievedNips.has(n)).length;
+      const outlets = new Set(asmNipsUnder.flatMap((n) => [...(asmOutlets.get(n) ?? [])]));
+      const withSurvey = [...outlets].filter((o) => outletsWithSurveyData.has(o)).length;
+      const target = SURVEY_TARGET_OUTLETS * asmNipsUnder.length;
       return {
         nip, name,
-        totalOutlets: new Set(outlets).size,
-        outletsWithSurvey: withSurveyTotal,
-        target: null,
-        achievementPct: asmNipsUnder.length > 0 ? (achievedCount / asmNipsUnder.length) * 100 : null,
+        totalOutlets: outlets.size,
+        outletsWithSurvey: withSurvey,
+        target,
+        achievementPct: target > 0 ? (withSurvey / target) * 100 : null,
       };
     }
 
