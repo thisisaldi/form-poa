@@ -700,7 +700,15 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
 
   const result: CustomerOption[] = nexusCustomers.map((nc) => {
     const key = nc.vbCode?.toUpperCase();
-    const localMatch = key ? localByKode.get(key) : localByName.get(nc.namaCustomer.trim().toUpperCase());
+    // Fall back to a name match even when Nexus gives a vbCode: an old
+    // manually-entered Customer row (pre-Nexus, kodeCustomer null) never
+    // lands in localByKode, so without this fallback it's never found once
+    // Nexus starts returning a code for that same doctor — sending it down
+    // the "new nexus customer" materialize path, which then either trips
+    // createCustomerAction's exact-duplicate error or leaves the picker
+    // stuck on an unresolved "nexus:" id (2026-08-26 bug report).
+    const localMatch = (key ? localByKode.get(key) : undefined)
+      ?? localByName.get(nc.namaCustomer.trim().toUpperCase());
     return {
       id: localMatch ? localMatch.customer.id : `nexus:${nc.vbCode ?? nc.namaCustomer}`,
       kodeCustomer: nc.vbCode,
@@ -870,6 +878,62 @@ export async function getSurveyRekomendasiByOutlet(
       potensiBulan,
     };
   });
+}
+
+export interface SurveyRekomendasiOutletRow {
+  kodeProduk: string;
+  namaProdukRekomendasi: string;
+  /** How many distinct dokter at this outlet have this product recommended. */
+  jumlahDokter: number;
+  /** Sum of potensiBulan across every dokter recommending this product — null when none had a figure. */
+  totalPotensiBulan: number | null;
+  /** Competitor brands seen across all dokter's history for this product, most-mentioned first. */
+  kompetitor: { namaProduk: string; jumlahDokter: number }[];
+}
+
+/**
+ * Outlet-level rollup of SurveyRekomendasi — unlike getSurveyRekomendasiByOutlet
+ * (narrowed to one dokter), this aggregates EVERY dokter's recommendation at
+ * the outlet into one row per produk (dokter count, summed potential, merged
+ * competitor list). Powers POA Standarisasi's "Data Survey" sidebar tab
+ * (Produk × Outlet axis, no single dokter selected — docs/TODO.md #15).
+ */
+export async function getSurveyRekomendasiByOutletAggregate(kodePI: string): Promise<SurveyRekomendasiOutletRow[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.surveyRekomendasi.findMany({
+    where: { kodePI },
+    select: { kodeProduk: true, namaProdukRekomendasi: true, historyProduk: true, potensiBulan: true },
+  });
+  if (rows.length === 0) return [];
+
+  const pharosRoots = await getPharosRoots();
+  const byProduk = new Map<string, { namaProdukRekomendasi: string; jumlahDokter: number; totalPotensiBulan: number | null; kompetitorCount: Map<string, number> }>();
+
+  for (const r of rows) {
+    const potensiBulan = r.potensiBulan != null ? parseFloat(r.potensiBulan.toString()) : null;
+    let agg = byProduk.get(r.kodeProduk);
+    if (!agg) {
+      agg = { namaProdukRekomendasi: r.namaProdukRekomendasi, jumlahDokter: 0, totalPotensiBulan: null, kompetitorCount: new Map() };
+      byProduk.set(r.kodeProduk, agg);
+    }
+    agg.jumlahDokter += 1;
+    if (potensiBulan != null) agg.totalPotensiBulan = (agg.totalPotensiBulan ?? 0) + potensiBulan;
+    for (const k of parseKompetitorHistory(r.historyProduk, pharosRoots, potensiBulan)) {
+      agg.kompetitorCount.set(k.namaProduk, (agg.kompetitorCount.get(k.namaProduk) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(byProduk.entries())
+    .map(([kodeProduk, agg]) => ({
+      kodeProduk,
+      namaProdukRekomendasi: agg.namaProdukRekomendasi,
+      jumlahDokter: agg.jumlahDokter,
+      totalPotensiBulan: agg.totalPotensiBulan,
+      kompetitor: Array.from(agg.kompetitorCount.entries())
+        .map(([namaProduk, jumlahDokter]) => ({ namaProduk, jumlahDokter }))
+        .sort((a, b) => b.jumlahDokter - a.jumlahDokter),
+    }))
+    .sort((a, b) => a.namaProdukRekomendasi.localeCompare(b.namaProdukRekomendasi, "id"));
 }
 
 /**

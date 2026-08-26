@@ -2157,6 +2157,7 @@ function SurveyDataPanel({ kodeCustomer, kodePI }: { kodeCustomer: string; kodeP
       <div className="text-xs px-3 py-2.5 rounded-lg space-y-1.5"
         style={{ color: "var(--color-red)", background: "var(--color-red-light)" }}>
         <p className="font-medium">⚠ Data survey tidak ada untuk dokter ini.</p>
+        <p>Tolong cari data flashdisk (Bisa dari Peresepan / Pembelian / RME), bisa dari Pembelian / IT / GUDANG / DEPO.</p>
         <Link href="/survey/upload" className="inline-block font-semibold underline">
           Upload data survey →
         </Link>

@@ -1208,6 +1208,16 @@ enum TipeStandarisasi {
   PERMANEN
 }
 
+// Label status of the pengajuan itself — is this a brand-new standarisasi
+// or a renewal of one that already existed at this outlet? (docs/TODO.md
+// #12, 2026-08-26). Manual pilihan MR, not derived — orthogonal to
+// TipeStandarisasi (Periodic/Sisipan/Permanen is about the SCHEDULE, this is
+// about the STATUS).
+enum StatusPengajuanStandarisasi {
+  BARU
+  PERPANJANGAN
+}
+
 enum StatusApprovalAtasan {
   MENUNGGU
   DISETUJUI
@@ -1247,6 +1257,10 @@ model PoaStandarisasi {
   kpdmList PoaStandarisasiKpdm[]
 
   tipeStandarisasi TipeStandarisasi
+  // Baru vs Perpanjangan — dipilih manual oleh MR di Planning (docs/TODO.md
+  // #12), bukan diturunkan otomatis dari histori. Default BARU biar baris
+  // existing (kalau ada) tidak perlu backfill manual.
+  statusPengajuan  StatusPengajuanStandarisasi @default(BARU)
   // Wajib utk PERIODIC/SISIPAN, null utk PERMANEN — kondisional, divalidasi
   // di server action (bukan constraint DB).
   periodeBulan     Int?

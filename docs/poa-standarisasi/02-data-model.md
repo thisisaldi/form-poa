@@ -115,6 +115,12 @@ model PoaStandarisasi {
   kpdmEntertainFinal    Decimal? @db.Decimal(18, 2) // default = estimasi saat pertama masuk Finalisasi, lalu independen
 
   tipeStandarisasi TipeStandarisasi
+  // Ditambahkan 2026-08-26 (docs/TODO.md #12, TIDAK ada di draft asli dokumen
+  // ini) — field manual (bukan derived), dipilih MR di Planning: apakah
+  // pengajuan ini standarisasi BARU atau PERPANJANGAN dari yang sudah pernah
+  // ada di outlet ini. Default BARU. Enum `StatusPengajuanStandarisasi`,
+  // lihat `prisma/schema.prisma`.
+  statusPengajuan  StatusPengajuanStandarisasi @default(BARU)
   periodeBulan     Int? // wajib utk PERIODIC/SISIPAN, null utk PERMANEN — divalidasi di server action, bukan constraint DB (kondisional antar-field)
 
   jumlahBedRs               Int? // snapshot dari Outlet.jumlahBed saat dipilih, tapi editable & tersimpan independen
