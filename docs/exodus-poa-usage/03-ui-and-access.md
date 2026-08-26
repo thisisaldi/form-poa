@@ -6,7 +6,7 @@ Tidak ada halaman UI baru — ini murni API-to-API antara Exodus dan POA, sama s
 
 | Method | Path | Efek |
 |---|---|---|
-| `GET` | `/api/poa-doctors?nip=...&keyword=...` | List (endpoint utama yang dipakai Exodus, per konfirmasi 2026-08-27) — `keyword` baru, filter `usedInExodus`+`approveUntil==NSM` baru |
+| `GET` | `/api/poa-doctors?nip=...&keyword=...` | List (endpoint utama yang dipakai Exodus, per konfirmasi 2026-08-27) — `keyword` baru, filter `usedInExodus`+`approveUntil==NSM` baru, dan `nip` **OPSIONAL** (dibalik dari wajib — lihat `01-business-rules.md` §7 poin 3): minimal satu dari `nip`/`keyword` wajib diisi, kalau `nip` kosong search jadi company-wide |
 | `GET` | `/api/poa-doctors/{id}` | Detail satu baris — TIDAK disentuh permintaan 2026-08-27, tetap perilaku v1 kecuali field baru (idPoa/periode/nilaiR/hna/qty) yang otomatis ikut lewat `buildDoctorRows` bersama |
 | `PATCH` | `/api/poa-doctors/{id}` | Body opsional: tanpa body / `{"usedInExodus":true}` → mark as used (`usedInExodus` → `true`, set `usedInExodusAt`); `{"usedInExodus":false}` → **revert** (baru 2026-08-27, lihat `01-business-rules.md` §8 — membalik aturan "tidak pernah revert" yang tadinya dikonfirmasi eksplisit oleh Exodus, BELUM ada konfirmasi ulang tertulis dari mereka). Idempotent di kedua arah. *(Sempat dipecah jadi `PATCH`+`DELETE` terpisah, digabung lagi jadi satu `PATCH` di hari yang sama atas preferensi Aldi — satu endpoint lebih simpel daripada dua method untuk aksi yang konsepnya sama, "set flag ini".)* |
 
@@ -34,6 +34,7 @@ Tidak ada role/access matrix baru — endpoint ini murni server-to-server (dipan
 ## Non-goals v2
 
 - **Tidak ada endpoint approve terpisah** — lihat `01-business-rules.md` §Open questions #4, ditutup ulang di §7 (meeting 2026-08-27 tidak menyebutnya lagi).
-- **Keyword search TIDAK company-wide** — tetap scoped dalam `nip` yang wajib. Search lintas semua POA (tanpa `nip`) butuh desain ulang (pagination + review `docs/PERFORMANCE.md`) yang secara eksplisit BUKAN yang diminta 2026-08-27.
+- ~~**Keyword search TIDAK company-wide** — tetap scoped dalam `nip` yang wajib.~~ **DIBALIK 2026-08-27 (hari yang sama)** — `nip` sekarang opsional, `keyword` tanpa `nip` men-search company-wide dalam kuartal berjalan. Lihat `01-business-rules.md` §7 poin 3 untuk data volume yang jadi dasar keputusan ini (bukan asumsi).
+- **Belum ada pagination** — dengan volume saat ini (~33 baris NSM-approved per kuartal company-wide) belum jadi masalah, tapi kalau data bertambah signifikan (banyak NIP baru aktif, lebih banyak yang final-approved), ini perlu ditambahkan sebelum performa turun di bawah target `docs/PERFORMANCE.md`.
 - **`qtyPerBulan`/`qtyTotal` cuma untuk kuartal berjalan**, bukan seluruh periode item sendiri kalau item itu span lebih dari 1 kuartal (lamaPeriode 6/12 bulan) — konsisten dengan scope endpoint yang memang selalu kuartal berjalan.
 - **Endpoint "batas approval role dari Exodus" (poin 1 chat 2026-08-24)** — masih di luar scope, tidak disinggung lagi di meeting 2026-08-27, lihat Open questions #1 di `01-business-rules.md`.

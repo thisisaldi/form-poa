@@ -6,7 +6,7 @@ Referensi khusus endpoint ini (dan detail-nya, `GET /api/poa-doctors/{id}`) untu
 
 ## Ringkasan
 
-List dokter (1 baris per pasangan `kodePI` + `namaCust`) dari POA milik satu NIP, **kuartal kalender berjalan saja** (dibandingkan dengan tanggal saat request dijalankan — tidak ada override periode). Satu NIP biasanya cuma punya 1 POA per kuartal, tapi response tetap array untuk jaga-jaga.
+List dokter (1 baris per pasangan `kodePI` + `namaCust`), **kuartal kalender berjalan saja** (dibandingkan dengan tanggal saat request dijalankan — tidak ada override periode). Bisa dipersempit ke satu NIP (`nip`), di-search pakai `keyword` (company-wide kalau `nip` kosong — lihat tabel Request di bawah), atau keduanya. Satu NIP biasanya cuma punya 1 POA per kuartal, tapi response tetap array untuk jaga-jaga.
 
 Hanya dokter yang **sudah FINAL diapprove (APPROVED_BY_NSM) di siklus berjalan, dan belum ditandai "dipakai" di Exodus** yang muncul (revisi 2026-08-27, permintaan tim Exodus — lihat `docs/exodus-poa-usage/`). Dokter yang baru diapprove ASM/SM (belum sampai NSM), belum pernah diapprove sama sekali, atau sudah `usedInExodus: true`, tidak dikembalikan sama sekali.
 
@@ -14,7 +14,9 @@ Hanya dokter yang **sudah FINAL diapprove (APPROVED_BY_NSM) di siklus berjalan, 
 GET /api/poa-doctors?nip={nip}&keyword={keyword}
 ```
 
-Contoh: `https://form-poa.chc.pharmalink.id/api/poa-doctors?nip=P250007&keyword=hermina`
+Contoh (scoped ke satu NIP): `https://form-poa.chc.pharmalink.id/api/poa-doctors?nip=P250007&keyword=hermina`
+
+Contoh (company-wide, `nip` kosong): `https://form-poa.chc.pharmalink.id/api/poa-doctors?keyword=hermina`
 
 ## Autentikasi
 
@@ -46,8 +48,12 @@ Role apapun boleh, asal sudah login.
 
 | Param | Wajib | Keterangan |
 |---|---|---|
-| `nip` | ya | NIP MR yang datanya mau diambil (query param, bukan `/[nip]/` di path) |
-| `keyword` | tidak | Filter tambahan DALAM hasil `nip` di atas (bukan search company-wide) — case-insensitive substring match terhadap `idPoa`, nama dokter, nama outlet, `kodeCust`, atau `kodePI` |
+| `nip` | tidak* | NIP MR yang datanya mau diambil (query param, bukan `/[nip]/` di path). Kalau diisi, hasil dibatasi ke POA milik NIP itu saja. |
+| `keyword` | tidak* | Case-insensitive substring match terhadap `idPoa`, nama dokter, nama outlet, `kodeCust`, atau `kodePI`. Kalau `nip` juga diisi, `keyword` menyaring DALAM hasil `nip` itu; kalau `nip` kosong, `keyword` men-search company-wide (semua NIP, tetap dalam kuartal berjalan). |
+
+\* Minimal salah satu (`nip` atau `keyword`) harus diisi — kalau dua-duanya kosong, 400 (mencegah panggilan tanpa filter apapun).
+
+**Revisi 2026-08-27 (hari yang sama)**: `nip` awalnya wajib dan `keyword` cuma menyaring dalam satu NIP — dibalik setelah dicek ke data asli (bukan asumsi): volume `PoaForm`/`PoaLineItem` per kuartal jauh di bawah skala insiden performa yang pernah terjadi (`docs/PERFORMANCE.md` #47), dan window kuartal berjalan sudah jadi batas wajib yang tidak tumbuh seiring histori. Diukur company-wide (270 POA, tanpa filter `nip`): **~2.6 detik** end-to-end — masih di bawah target `docs/PERFORMANCE.md` (<3 detik), tapi dekat batas; kalau volume bertambah signifikan, ini kandidat pertama untuk dioptimasi/di-cache.
 
 ## Response 200
 
@@ -109,9 +115,9 @@ Catatan:
 
 | Status | Kondisi |
 |---|---|
-| 400 | `nip` kosong |
+| 400 | `nip` DAN `keyword` dua-duanya kosong |
 | 401 | Tidak ada session cookie valid maupun Basic Auth valid |
-| 404 | NIP tidak ditemukan |
+| 404 | `nip` diisi tapi NIP-nya tidak ditemukan |
 
 ## GET /api/poa-doctors/{id} — detail satu baris
 

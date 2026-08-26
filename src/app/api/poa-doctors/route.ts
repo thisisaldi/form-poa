@@ -2,26 +2,34 @@
  * GET /api/poa-doctors?nip=...&keyword=...
  *
  * List of doctors (1 row per (kodePI, namaCust) pair, same doctorKey grouping
- * as DraftChecklist.tsx / PoaDoctorApproval) across the given NIP's PoaForm(s)
- * in the CURRENT calendar quarter (PoaForm.period, format "YYYY-QN" — see
- * currentQuarter()). One NIP normally has at most one PoaForm per quarter
- * (poa.ts's createPoaDraft duplicate-guard), but this returns an array in
- * case that ever changes.
+ * as DraftChecklist.tsx / PoaDoctorApproval) in the CURRENT calendar quarter
+ * (PoaForm.period, format "YYYY-QN" — see currentQuarter()). One NIP normally
+ * has at most one PoaForm per quarter (poa.ts's createPoaDraft duplicate-
+ * guard), but this returns an array in case that ever changes.
  *
- * `nip` as a query param (not a /[nip]/ path segment) — this is a read-only
- * lookup, GET is the correct method, and a query param keeps it off the URL
- * path while staying valid for GET (unlike a JSON body).
+ * `nip`/`keyword` as query params (not path segments) — read-only lookup,
+ * GET is the correct method, query params keep them off the URL path while
+ * staying valid for GET (unlike a JSON body).
  *
- * docs/exodus-poa-usage/ (2026-08-27 revision) — `keyword` narrows within
- * that NIP's own rows (NOT a company-wide search, confirmed out of scope —
- * see docs/PERFORMANCE.md), and only fully (NSM) approved + not-yet-used-in-
- * Exodus doctors are returned (buildDoctorRows already drops non-NSM rows;
- * this route additionally drops usedInExodus ones — kept out of the shared
- * helper so GET/PATCH /api/poa-doctors/[id] can still resolve an
- * already-used row, see poaDoctorsRows.ts).
+ * docs/exodus-poa-usage/ (2026-08-27, revised same day) — `nip` is now
+ * OPTIONAL: `keyword` alone searches company-wide within the quarter.
+ * Checked against docs/PERFORMANCE.md before making this change (not
+ * assumed) — current-quarter volume is 270 PoaForm / 6140 PoaLineItem /
+ * only ~33 NSM-approved doctor rows, far below the incident scale that
+ * doc warns about (#47, unbounded company-wide queries), and the quarter
+ * window here is already a mandatory bound (doesn't grow with history).
+ * Measured company-wide (no nip filter): ~2.6s end-to-end, under the <3s
+ * target but close — revisit if data volume grows significantly.
+ * At least one of `nip`/`keyword` must be supplied (400 otherwise) to
+ * avoid an accidental full-dump call with no filter at all.
  *
- * Row-building logic shared with GET /api/poa-doctors/[id] (detail by
- * uidCustomer) lives in src/lib/poaDoctorsRows.ts.
+ * Only fully (NSM) approved + not-yet-used-in-Exodus doctors are returned
+ * (buildDoctorRows already drops non-NSM rows; this route additionally
+ * drops usedInExodus ones — kept out of the shared helper so GET/PATCH
+ * /api/poa-doctors/[id] can still resolve an already-used row).
+ *
+ * Row-building logic shared with GET/PATCH /api/poa-doctors/[id] (detail
+ * by uidCustomer) lives in src/lib/poaDoctorsRows.ts.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -44,18 +52,22 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const nip = req.nextUrl.searchParams.get("nip")?.trim();
-  if (!nip) return NextResponse.json({ error: "NIP wajib diisi." }, { status: 400 });
+  const nip = req.nextUrl.searchParams.get("nip")?.trim() || null;
   const keyword = req.nextUrl.searchParams.get("keyword")?.trim().toLowerCase() || null;
+  if (!nip && !keyword) {
+    return NextResponse.json({ error: "nip atau keyword wajib diisi." }, { status: 400 });
+  }
 
-  const user = await prisma.user.findUnique({ where: { nip }, select: { nip: true } });
-  if (!user) return NextResponse.json({ error: "User tidak ditemukan." }, { status: 404 });
+  if (nip) {
+    const user = await prisma.user.findUnique({ where: { nip }, select: { nip: true } });
+    if (!user) return NextResponse.json({ error: "User tidak ditemukan." }, { status: 404 });
+  }
 
   const quarter = currentQuarter();
   const quarterMonths = quarterToMonths(quarter);
 
   const poas: PoaWithDoctorRows[] = await prisma.poaForm.findMany({
-    where: { ownerId: nip, period: quarter },
+    where: { period: quarter, ...(nip ? { ownerId: nip } : {}) },
     select: poaDoctorRowsSelect,
   });
 
