@@ -21,15 +21,14 @@
  *    convention scripts/importStrukturVerifiedKAM.ts documents) — ASM/SM/
  *    NSM/DIR rows are managers' own aggregate targets, not per-territory,
  *    skipped here.
- *  - "internal/INSENTIF HOSPINET KE BU EVELYN.xlsx", sheet "DETAIL INSENTIF"
- *    — Hospinet division. NOT one flat table — six stacked blocks, each
- *    starting with a "RESUME INSENTIF <LEVEL>" header row (PSR/SPV/ASM/SM/
- *    NSM/GM) and ending at a "TOTAL INSENTIF" row. Verified 2026-08-24: both
- *    the PSR block AND the SPV block resolve to role MR in the live User
- *    table (Hospinet apparently uses "PSR" and "SPV" as two title variants
- *    for the same leaf level) — only those two blocks are imported, ASM/SM/
- *    NSM/GM blocks are managers' own aggregates, skipped. Col B NIP, C Nama,
- *    R (col 18) Target.
+ *  - "internal/INSENTIF HOSPINET KE BU EVELYN.xlsx", sheet "TARGET" (added
+ *    to the workbook after this script's first version, which had parsed
+ *    "DETAIL INSENTIF"'s six stacked per-level blocks instead — corrected
+ *    2026-08-24 per business owner: "yang dari INSENTIF HOSPINET... ambil
+ *    yang di sheet TARGET"). Flat table: col A NIP, B Nama, C Target, D
+ *    Jabatan (MR/SPV/ASM/SM/NSM). Jabatan MR or SPV is the leaf/territory-
+ *    holding level, same convention as KAM below — ASM/SM/NSM rows are
+ *    managers' own aggregates, skipped.
  *
  * nip is given DIRECTLY by both sources (not name-matched, unlike the
  * recurring GT import) — confirmed zero NIP overlap between the two files
@@ -79,22 +78,18 @@ function readKam(wb: ExcelJS.Workbook): SourceRow[] {
 }
 
 function readHospinet(wb: ExcelJS.Workbook): SourceRow[] {
-  const ws = wb.getWorksheet("DETAIL INSENTIF");
-  if (!ws) { console.error('Hospinet: sheet "DETAIL INSENTIF" not found'); process.exit(1); }
-  const LEAF_BLOCKS = new Set(["PSR", "SPV"]);
+  const ws = wb.getWorksheet("TARGET");
+  if (!ws) { console.error('Hospinet: sheet "TARGET" not found'); process.exit(1); }
   const rows: SourceRow[] = [];
-  let currentBlock: string | null = null;
-  for (let r = 1; r <= ws.rowCount; r++) {
+  for (let r = 2; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
-    const b = String(row.getCell(2).value ?? "").trim();
-    if (b.startsWith("RESUME INSENTIF ")) { currentBlock = b.replace("RESUME INSENTIF ", "").trim(); continue; }
-    if (b.startsWith("TOTAL INSENTIF")) { currentBlock = null; continue; }
-    if (b === "NIP" || !b) continue;
-    if (!currentBlock || !LEAF_BLOCKS.has(currentBlock)) continue;
-    const nama = String(row.getCell(3).value ?? "").trim();
-    const target = row.getCell(18).value; // col R
-    if (typeof target !== "number") continue;
-    rows.push({ nip: b, nama, target });
+    const jabatan = String(row.getCell(4).value ?? "").trim();
+    if (jabatan !== "MR" && jabatan !== "SPV") continue;
+    const nip = String(row.getCell(1).value ?? "").trim();
+    const nama = String(row.getCell(2).value ?? "").trim();
+    const target = row.getCell(3).value;
+    if (!nip || typeof target !== "number") continue;
+    rows.push({ nip, nama, target });
   }
   return rows;
 }

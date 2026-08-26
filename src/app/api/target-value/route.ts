@@ -3,7 +3,10 @@
  *
  * Raw TargetHospitalValue rows (monthly Rupiah sales target per GT) — same
  * data the admin "Target Value" page (admin/target-value/page.tsx) edits,
- * just read-only and not paginated/searched through a client component.
+ * just read-only and not paginated/searched through a client component. No
+ * query params returns every row in scope ("get target all"); `?nip=` narrows
+ * to rows where that nip appears at ANY level (nipMR OR nipASM OR nipSM OR
+ * nipNSM) — symmetric with `q`'s name search across all 4 levels below.
  *
  * Two credential paths, same pattern as /api/poa-doctors (2026-08-19): the
  * app's own browser calls carry a session cookie; an external app
@@ -42,19 +45,29 @@ export async function GET(req: NextRequest) {
 
   const periode = req.nextUrl.searchParams.get("periode")?.trim();
   const q = req.nextUrl.searchParams.get("q")?.trim();
+  const nip = req.nextUrl.searchParams.get("nip")?.trim();
 
-  const where: Record<string, unknown> = {};
-  if (periode) where.periode = periode;
-  if (scopeToOwnNip) where.nipNSM = scopeToOwnNip;
+  // `q` and `nip` each contribute their own OR-clause (name-match, nip-match)
+  // — combined via AND so both can be supplied together instead of one
+  // silently overwriting the other's `where.OR`.
+  const and: Record<string, unknown>[] = [];
+  if (periode) and.push({ periode });
+  if (scopeToOwnNip) and.push({ nipNSM: scopeToOwnNip });
   if (q) {
-    where.OR = [
-      { namaGT: { contains: q, mode: "insensitive" } },
-      { namaMR: { contains: q, mode: "insensitive" } },
-      { namaASM: { contains: q, mode: "insensitive" } },
-      { namaSM: { contains: q, mode: "insensitive" } },
-      { namaNSM: { contains: q, mode: "insensitive" } },
-    ];
+    and.push({
+      OR: [
+        { namaGT: { contains: q, mode: "insensitive" } },
+        { namaMR: { contains: q, mode: "insensitive" } },
+        { namaASM: { contains: q, mode: "insensitive" } },
+        { namaSM: { contains: q, mode: "insensitive" } },
+        { namaNSM: { contains: q, mode: "insensitive" } },
+      ],
+    });
   }
+  if (nip) {
+    and.push({ OR: [{ nipMR: nip }, { nipASM: nip }, { nipSM: nip }, { nipNSM: nip }] });
+  }
+  const where: Record<string, unknown> = and.length > 0 ? { AND: and } : {};
 
   const rows = await prisma.targetHospitalValue.findMany({
     where,

@@ -121,7 +121,7 @@ List dokter (1 baris per pasangan kodePI+namaCust, grouping sama dengan `PoaDoct
 ### `GET /api/target-value`
 Baris mentah `TargetHospitalValue` (target Rupiah bulanan per GT) — data yang sama dengan yang ditampilkan/diedit di halaman admin Target Value, hanya read-only.
 - **Auth**: session login (role **NSM atau ADMIN saja**, role lain 403; NSM otomatis di-scope ke subtree sendiri via `nipNSM`) **ATAU** HTTP Basic Auth — kredensial **sama** dengan yang dipakai `/api/poa-doctors` (`PoaDoctorsApiCredential`, diatur ADMIN dari halaman Admin, lihat entri di atas), tidak ada kredensial terpisah untuk endpoint ini. Basic Auth diperlakukan sebagai akses penuh (tidak di-scope subtree), sama seperti `/api/poa-doctors`.
-- **Query param** (keduanya opsional): `periode` (`YYYYMM`, misalnya `202608`, filter ke 1 bulan) · `q` (contains, case-insensitive, cocok terhadap namaGT/namaMR/namaASM/namaSM/namaNSM).
+- **Query param** (semua opsional, tanpa param = semua baris dalam scope): `periode` (`YYYYMM`, misalnya `202608`, filter ke 1 bulan) · `q` (contains, case-insensitive, cocok terhadap namaGT/namaMR/namaASM/namaSM/namaNSM) · `nip` (exact match, cocok terhadap nipMR ATAU nipASM ATAU nipSM ATAU nipNSM — level manapun nip itu muncul).
 - **Response 200**: array `{ namaGT, periode, target, nipMR, namaMR, nipASM, namaASM, nipSM, namaSM, nipNSM, namaNSM }` — `target` sudah dikonversi ke `number` (bukan raw Prisma Decimal).
 - **Error**: `403` role bukan NSM/ADMIN saat pakai session · `401` Basic Auth gagal/kredensial belum diset.
 
@@ -142,6 +142,18 @@ Export Excel gabungan — seluruh POA dari subordinate MR di bawah user yang log
 - **Query param** (opsional): `period` — format `YYYY-QN` (misalnya `2026-Q3`), memfilter ke 1 periode. Kosongkan untuk seluruh periode.
 - **Response 200**: file `.xlsx`, filename `Rekap_POA_{period?}_{nama}.xlsx`. Sheets: **Ringkasan Tim**, **Per MR**, **Estimasi PSSP per Bulan**, **Semua Pengajuan** (header-nya memiliki struktur yang sama dengan sheet "Pengisian" pada export per-POA, lihat `docs/PERFORMANCE.md`/commit 2026-08-05), **PSSP Aktif**, **Summary Per Outlet**, **Summary by Produk**.
 - **Error**: `403` role diblokir · `404` tidak ada subordinate MR.
+
+---
+
+## POA Standarisasi
+
+### `GET /api/poa-standarisasi/dokumen/{driveFileId}`
+Proxy download **terautentikasi** untuk dokumen confidential POA Standarisasi (NIE/COA/CPOB/Flyer, Permintaan SP Non Sales, Form Approval Standarisasi, Surat Approval Standarisasi KFT, Bukti TTD — 2026-08-27, ditandai confidential oleh user). Setiap link dokumen di wizard `/poa-standarisasi/[id]` mengarah ke sini, BUKAN link Google Drive mentah — link Drive mentah visibility-nya ikut setting sharing folder Drive, bukan authz app, dan tidak bisa dicatat siapa yang buka.
+- **Auth**: session login, plus `canViewPoaStandarisasi(actor, pengajuan)` — `driveFileId` di-resolve dulu ke pengajuan/produk/dokter pemiliknya di server (4 kemungkinan tabel: `PoaStandarisasiDokumen`, `PoaStandarisasiProduk.formApprovalDriveFileId`, `PoaStandarisasi.suratApprovalStandarisasiKftDriveFileId`, `PoaStandarisasiDokterApproval.buktiTtdDriveFileId`), request tidak pernah trust `pengajuanId`/label dari client.
+- **Path param**: `driveFileId` (Google Drive file id, bukan id lokal).
+- **Efek samping**: setiap request yang berhasil lolos authz dicatat 1 baris ke `PoaStandarisasiFileAccessLog` (siapa/kapan/dokumen mana) — powering panel "Riwayat Akses Dokumen" di wizard.
+- **Response 200**: file binary, `Content-Type` & filename mengikuti metadata asli di Drive, `Content-Disposition: inline` (browser coba tampilkan langsung, bukan force-download), `Cache-Control: private, no-store`.
+- **Error**: `401` sesi tidak valid · `404` `driveFileId` tidak ditemukan di keempat tabel di atas · `403` ditemukan tapi user tidak berhak (bukan owner/ASM/SM/NSM chain-nya/ADMIN-GM-SFE-VIEWER) · `500` gagal fetch dari Drive (mis. Drive belum dikonfigurasi).
 
 ---
 
