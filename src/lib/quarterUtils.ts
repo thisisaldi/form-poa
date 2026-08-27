@@ -26,6 +26,20 @@ export function quarterToMonths(quarter: string): string[] {
   return [0, 1, 2].map((i) => toYYYYMM(year, startMonth + i));
 }
 
+/** "2026-Q3" -> { startDate: "2026-07-01", endDate: "2026-09-30" } (calendar dates, inclusive). */
+export function quarterDateRange(quarter: string): { startDate: string; endDate: string } {
+  const months = quarterToMonths(quarter);
+  const firstMonth = months[0];
+  const lastMonth = months[months.length - 1];
+  const startDate = `${firstMonth.slice(0, 4)}-${firstMonth.slice(4, 6)}-01`;
+  const lastYear = parseInt(lastMonth.slice(0, 4), 10);
+  const lastMonthNum = parseInt(lastMonth.slice(4, 6), 10);
+  // Day 0 of the month AFTER lastMonth = the last calendar day of lastMonth.
+  const lastDay = new Date(lastYear, lastMonthNum, 0).getDate();
+  const endDate = `${lastMonth.slice(0, 4)}-${lastMonth.slice(4, 6)}-${String(lastDay).padStart(2, "0")}`;
+  return { startDate, endDate };
+}
+
 /**
  * First month of a quarterToMonths()-shaped array (e.g. ["202607","202608","202609"])
  * -> "Q3", for labeling "Kuartal Q3" instead of the vaguer "Kuartal Ini" (2026-08-04

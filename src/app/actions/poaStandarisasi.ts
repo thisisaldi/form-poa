@@ -78,6 +78,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
         ownerId: session.userId,
         kodePI,
         tipeStandarisasi: input.tipeStandarisasi,
+        statusPengajuan: input.statusPengajuan,
         periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
         jumlahBedRs: toNum(input.jumlahBedRs) ?? outlet.jumlahBed,
         estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,
@@ -189,6 +190,54 @@ export async function getDokterOptionsAction(kodePI: string) {
   return getCustomersByOutlet(kodePI);
 }
 
+export interface StandarisasiProdukOutletRow {
+  kodeProduk: string;
+  namaProduk: string;
+  tipeStandarisasi: string;
+  statusPengajuan: string;
+  submittedAt: Date;
+}
+
+/**
+ * Products already submitted (finalized) under POA Standarisasi at this
+ * outlet — one row per produk, latest submission wins if resubmitted more
+ * than once. Powers the "Sudah Standarisasi" sidebar tab so an MR doesn't
+ * duplicate work already done for a product at this outlet (docs/TODO.md
+ * #15). Excludes the pengajuan currently being edited (its own produk aren't
+ * "already done" from its own point of view).
+ */
+export async function getStandarisasiProdukByOutletAction(kodePI: string, excludePengajuanId?: string): Promise<StandarisasiProdukOutletRow[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.poaStandarisasiProduk.findMany({
+    where: {
+      pengajuan: {
+        kodePI,
+        submittedAt: { not: null },
+        ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
+      },
+    },
+    select: {
+      kodeProduk: true,
+      product: { select: { namaProduk: true } },
+      pengajuan: { select: { tipeStandarisasi: true, statusPengajuan: true, submittedAt: true } },
+    },
+    orderBy: { pengajuan: { submittedAt: "desc" } },
+  });
+
+  const byKode = new Map<string, StandarisasiProdukOutletRow>();
+  for (const r of rows) {
+    if (byKode.has(r.kodeProduk)) continue; // ordered submittedAt desc — first hit per kodeProduk is the latest
+    byKode.set(r.kodeProduk, {
+      kodeProduk: r.kodeProduk,
+      namaProduk: r.product.namaProduk,
+      tipeStandarisasi: r.pengajuan.tipeStandarisasi,
+      statusPengajuan: r.pengajuan.statusPengajuan,
+      submittedAt: r.pengajuan.submittedAt!,
+    });
+  }
+  return Array.from(byKode.values());
+}
+
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
 
 export interface PlanningDokterKlinisInput {
@@ -216,6 +265,7 @@ export interface PlanningKpdmInput {
 export interface PlanningInput {
   kpdmList: PlanningKpdmInput[];
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
+  statusPengajuan: "BARU" | "PERPANJANGAN";
   periodeBulan: number | string | null;
   jumlahBedRs: number | string | null;
   estimasiTimelineSelesai: string | null; // yyyy-mm-dd
@@ -355,6 +405,7 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
       where: { id },
       data: {
         tipeStandarisasi: input.tipeStandarisasi,
+        statusPengajuan: input.statusPengajuan,
         periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
         jumlahBedRs: toNum(input.jumlahBedRs),
         estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,

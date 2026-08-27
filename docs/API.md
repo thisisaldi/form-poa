@@ -119,11 +119,12 @@ List dokter (1 baris per pasangan kodePI+namaCust, grouping sama dengan `PoaDoct
 ## Target Value
 
 ### `GET /api/target-value`
-Baris mentah `TargetHospitalValue` (target Rupiah bulanan per GT) — data yang sama dengan yang ditampilkan/diedit di halaman admin Target Value, hanya read-only.
-- **Auth**: session login (role **NSM atau ADMIN saja**, role lain 403; NSM otomatis di-scope ke subtree sendiri via `nipNSM`) **ATAU** HTTP Basic Auth — kredensial **sama** dengan yang dipakai `/api/poa-doctors` (`PoaDoctorsApiCredential`, diatur ADMIN dari halaman Admin, lihat entri di atas), tidak ada kredensial terpisah untuk endpoint ini. Basic Auth diperlakukan sebagai akses penuh (tidak di-scope subtree), sama seperti `/api/poa-doctors`.
-- **Query param** (keduanya opsional): `periode` (`YYYYMM`, misalnya `202608`, filter ke 1 bulan) · `q` (contains, case-insensitive, cocok terhadap namaGT/namaMR/namaASM/namaSM/namaNSM).
-- **Response 200**: array `{ namaGT, periode, target, nipMR, namaMR, nipASM, namaASM, nipSM, namaSM, nipNSM, namaNSM }` — `target` sudah dikonversi ke `number` (bukan raw Prisma Decimal).
-- **Error**: `403` role bukan NSM/ADMIN saat pakai session · `401` Basic Auth gagal/kredensial belum diset.
+Target Rupiah bulanan **per orang** (bukan per GT), di-rollup dari `TargetHospitalValue` — `target` untuk ASM/SM/NSM adalah SUM seluruh target GT di bawah nip itu (2026-08-24, menggantikan versi awal yang mengembalikan baris mentah per-GT — GT adalah detail implementasi yang tidak dibutuhkan consumer endpoint ini, dan satu NSM/SM/ASM bisa punya banyak GT).
+- **Auth**: session login (role **NSM atau ADMIN saja**, role lain 403; NSM selalu dipaksa ke NIP dirinya sendiri — `?nip=` yang dikirim NSM diabaikan) **ATAU** HTTP Basic Auth — kredensial **sama** dengan yang dipakai `/api/poa-doctors` (`PoaDoctorsApiCredential`, diatur ADMIN dari halaman Admin, lihat entri di atas), tidak ada kredensial terpisah untuk endpoint ini. Basic Auth dan session ADMIN bisa query nip manapun.
+- **Query param** (keduanya opsional): `nip` — menentukan rollup siapa yang dikembalikan; role NIP tersebut (`User.role`) menentukan kolom TargetHospitalValue mana yang di-SUM (MR → nipMR, ASM → nipASM, SM → nipSM, NSM → nipNSM). **Kosong = "get target all"**: breakdown level-MR paling detail untuk semua orang (1 baris per nipMR per periode) — baris yang nipMR-nya tidak pernah resolve ke User asli (lihat catatan resolusi nip di script import) tidak ikut, karena bentuk response ini tidak punya tempat untuk raw name yang tidak ter-resolve. `periode` (`YYYYMM`, misalnya `202608`) mempersempit ke 1 bulan.
+- **Response 200**: array `{ nip, nama, jabatan, target, periode }` — `target` sudah dikonversi ke `number` (bukan raw Prisma Decimal), 1 baris per periode yang punya data untuk nip tersebut.
+- **Error**: `403` role bukan NSM/ADMIN saat pakai session · `401` Basic Auth gagal/kredensial belum diset · `404` `?nip=` tidak ditemukan · `400` role NIP tersebut bukan MR/ASM/SM/NSM (target value tidak berlaku, misalnya ADMIN/GM).
+- ⚠️ **Catatan data (bukan bug endpoint)**: total per-NSM/SM/ASM bisa terlihat timpang antar periode (contoh nyata 2026-08-24: NSM tertentu 202607 ≈ Rp3,3 M vs 202608 ≈ Rp44 Jt) — ini karena `User.nipAtasan` mencerminkan struktur ORG SAAT INI (dipakai untuk rollup 202607 yang di-backfill dari file insentif terpisah), sedangkan cakupan GT bulan-bulan lain berasal dari file target FF ("Target Hospital (in Value) (1).xlsx") yang belum tentu mencakup SELURUH subtree NSM itu di org saat ini. Bukan kesalahan agregasi — periksa cakupan sumber data per periode kalau angkanya terlihat janggal.
 
 ---
 
@@ -142,6 +143,18 @@ Export Excel gabungan — seluruh POA dari subordinate MR di bawah user yang log
 - **Query param** (opsional): `period` — format `YYYY-QN` (misalnya `2026-Q3`), memfilter ke 1 periode. Kosongkan untuk seluruh periode.
 - **Response 200**: file `.xlsx`, filename `Rekap_POA_{period?}_{nama}.xlsx`. Sheets: **Ringkasan Tim**, **Per MR**, **Estimasi PSSP per Bulan**, **Semua Pengajuan** (header-nya memiliki struktur yang sama dengan sheet "Pengisian" pada export per-POA, lihat `docs/PERFORMANCE.md`/commit 2026-08-05), **PSSP Aktif**, **Summary Per Outlet**, **Summary by Produk**.
 - **Error**: `403` role diblokir · `404` tidak ada subordinate MR.
+
+---
+
+## POA Standarisasi
+
+### `GET /api/poa-standarisasi/dokumen/{driveFileId}`
+Proxy download **terautentikasi** untuk dokumen confidential POA Standarisasi (NIE/COA/CPOB/Flyer, Permintaan SP Non Sales, Form Approval Standarisasi, Surat Approval Standarisasi KFT, Bukti TTD — 2026-08-27, ditandai confidential oleh user). Setiap link dokumen di wizard `/poa-standarisasi/[id]` mengarah ke sini, BUKAN link Google Drive mentah — link Drive mentah visibility-nya ikut setting sharing folder Drive, bukan authz app, dan tidak bisa dicatat siapa yang buka.
+- **Auth**: session login, plus `canViewPoaStandarisasi(actor, pengajuan)` — `driveFileId` di-resolve dulu ke pengajuan/produk/dokter pemiliknya di server (4 kemungkinan tabel: `PoaStandarisasiDokumen`, `PoaStandarisasiProduk.formApprovalDriveFileId`, `PoaStandarisasi.suratApprovalStandarisasiKftDriveFileId`, `PoaStandarisasiDokterApproval.buktiTtdDriveFileId`), request tidak pernah trust `pengajuanId`/label dari client.
+- **Path param**: `driveFileId` (Google Drive file id, bukan id lokal).
+- **Efek samping**: setiap request yang berhasil lolos authz dicatat 1 baris ke `PoaStandarisasiFileAccessLog` (siapa/kapan/dokumen mana) — powering panel "Riwayat Akses Dokumen" di wizard.
+- **Response 200**: file binary, `Content-Type` & filename mengikuti metadata asli di Drive, `Content-Disposition: inline` (browser coba tampilkan langsung, bukan force-download), `Cache-Control: private, no-store`.
+- **Error**: `401` sesi tidak valid · `404` `driveFileId` tidak ditemukan di keempat tabel di atas · `403` ditemukan tapi user tidak berhak (bukan owner/ASM/SM/NSM chain-nya/ADMIN-GM-SFE-VIEWER) · `500` gagal fetch dari Drive (mis. Drive belum dikonfigurasi).
 
 ---
 

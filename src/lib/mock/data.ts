@@ -26,6 +26,7 @@ export const MOCK_USERS: User[] = [
 export const MOCK_POAS: PoaForm[] = [
   {
     id: "poa-001",
+    seq: 1,
     period: "2026-07",
     status: PoaStatus.SUBMITTED_TO_ASM,
     version: 1,
@@ -37,6 +38,7 @@ export const MOCK_POAS: PoaForm[] = [
   },
   {
     id: "poa-002",
+    seq: 2,
     period: "2026-07",
     status: PoaStatus.DRAFT,
     version: 1,
@@ -48,6 +50,7 @@ export const MOCK_POAS: PoaForm[] = [
   },
   {
     id: "poa-003",
+    seq: 3,
     period: "2026-06",
     status: PoaStatus.APPROVED_BY_NSM,
     version: 1,

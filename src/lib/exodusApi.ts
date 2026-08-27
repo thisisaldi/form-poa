@@ -93,6 +93,68 @@ export async function getVisitCountByCustomerOutlet(
   }
 }
 
+export interface LivePricing {
+  hna: number;             // == API's sell_price
+  nilaiRPersen: number | null; // r_value / sell_price, same formula scripts/importProductR.ts used against the old Excel source
+  rValue: number | null;   // == API's r_value (Rupiah), raw — not persisted on Product, only nilaiRPersen (the ratio) is
+}
+
+// Short in-memory cache, same idea as cachedToken above — this is called on
+// every product-list load (masterData.ts's getProducts/getScProducts), and
+// the API has no per-code endpoint, only "give me everything", so fetching
+// fresh on every single request would mean re-pulling all ~450 products
+// every time a picker renders.
+let cachedPricing: { map: Map<string, LivePricing>; expiresAt: number } | null = null;
+const PRICING_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Live hna/nilaiRPersen straight from the Exodus core products API
+ * (api.pharos.id/exodus/core/v1/products) — replaces the old
+ * importHnaProducts.ts (hna, from Excel) + importProductR.ts (nilaiRPersen,
+ * from Excel) pipeline for these two fields specifically (2026-08-26
+ * decision: "hna itu basically sell_price, dan nilai R persen itu tinggal
+ * jadiin nilai r jadi persentase based on sell_price nya"). Every other
+ * Product field (satuan, konversiPembagi, dosis, etc.) has no equivalent
+ * here and is left to the caller's own local data — this only ever
+ * overrides those two fields, and returns null (never throws) on any
+ * failure so callers can fall back to whatever's in the DB, same
+ * "degrade to no data" contract as the rest of this file.
+ */
+export async function getLiveProductPricing(): Promise<Map<string, LivePricing> | null> {
+  if (!isConfigured) return null;
+  if (cachedPricing && cachedPricing.expiresAt > Date.now()) return cachedPricing.map;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${env.EXODUS_API_BASE_URL}/core/v1/products`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      data?: { product_code: string; sell_price: number | null; r_value: number | null }[];
+      error?: { status: boolean };
+    };
+    if (body.error?.status || !Array.isArray(body.data)) return null;
+
+    const map = new Map<string, LivePricing>();
+    for (const p of body.data) {
+      if (!p.product_code || !p.sell_price || p.sell_price <= 0) continue;
+      map.set(p.product_code.trim(), {
+        hna: p.sell_price,
+        nilaiRPersen: p.r_value != null ? p.r_value / p.sell_price : null,
+        rValue: p.r_value,
+      });
+    }
+    cachedPricing = { map, expiresAt: Date.now() + PRICING_TTL_MS };
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 /** Every "YYYYMM" month from n-1 months ago through the current month, inclusive (n total months). */
 export function lastNMonthsRange(n: number, from: Date = new Date()): { periodeAwal: string; periodeAkhir: string } {
   const periodeAkhir = `${from.getFullYear()}${String(from.getMonth() + 1).padStart(2, "0")}`;

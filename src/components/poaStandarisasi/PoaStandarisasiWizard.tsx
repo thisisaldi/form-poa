@@ -11,6 +11,7 @@ import type { Product } from "@/lib/masterData";
 import type { CustomerOption } from "@/app/actions/customer";
 import { createCustomerAction } from "@/app/actions/customer";
 import { GolonganBadge } from "@/components/poaStandarisasi/GolonganBadge";
+import { RekomendasiSidebar } from "@/components/poaStandarisasi/RekomendasiSidebar";
 import { buildProductOptions } from "@/components/poa/LineItemEditor";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import {
@@ -400,6 +401,7 @@ export function PoaStandarisasiWizard({
   // per person is that customer's spesialisasi, read-only.
   const [kpdmList, setKpdmList] = useState<KpdmFormState[]>(() => pengajuan.kpdmList.map(kpdmFromDetail));
   const [tipeStandarisasi, setTipeStandarisasi] = useState(pengajuan.tipeStandarisasi);
+  const [statusPengajuan, setStatusPengajuan] = useState(pengajuan.statusPengajuan);
   const [periodeBulan, setPeriodeBulan] = useState(pengajuan.periodeBulan != null ? String(pengajuan.periodeBulan) : "");
   const [jumlahBedRs, setJumlahBedRs] = useState(pengajuan.jumlahBedRs != null ? String(pengajuan.jumlahBedRs) : "");
   const [estimasiTimelineSelesai, setEstimasiTimelineSelesai] = useState(isoDateInput(pengajuan.estimasiTimelineSelesai));
@@ -475,6 +477,7 @@ export function PoaStandarisasiWizard({
     return {
       kpdmList: kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan || null, entertainEstimasi: k.entertainEstimasi || null })),
       tipeStandarisasi,
+      statusPengajuan,
       periodeBulan: tipeStandarisasi === "PERMANEN" ? null : periodeBulan || null,
       jumlahBedRs: jumlahBedRs || null,
       estimasiTimelineSelesai: estimasiTimelineSelesai || null,
@@ -676,12 +679,15 @@ export function PoaStandarisasiWizard({
           canEdit={canEdit && isViewingCurrentPhase}
           kodePI={pengajuan.kodePI}
           namaOutlet={pengajuan.outlet.namaOutlet}
+          pengajuanId={pengajuan.id}
           kpdmList={kpdmList}
           addKpdm={addKpdm}
           removeKpdm={removeKpdm}
           updateKpdmEntertainEstimasi={updateKpdmEntertainEstimasi}
           tipeStandarisasi={tipeStandarisasi}
           setTipeStandarisasi={setTipeStandarisasi}
+          statusPengajuan={statusPengajuan}
+          setStatusPengajuan={setStatusPengajuan}
           periodeBulan={periodeBulan}
           setPeriodeBulan={setPeriodeBulan}
           jumlahBedRs={jumlahBedRs}
@@ -724,6 +730,7 @@ export function PoaStandarisasiWizard({
       {viewedPhaseId === "MENUNGGU_MEETING_KFT" && (
         <MenungguMeetingKftPhase
           canEdit={canEdit && isViewingCurrentPhase}
+          pengajuan={pengajuan}
           jadwalMeetingKft={jadwalMeetingKft}
           setJadwalMeetingKft={setJadwalMeetingKft}
         />
@@ -850,6 +857,8 @@ export function PlanningPhase(props: {
   canEdit: boolean;
   kodePI: string;
   namaOutlet: string;
+  /** Existing pengajuan's own id — passed so the "Sudah Standarisasi" sidebar tab excludes this pengajuan's own produk. Undefined on the "new" (create) form, where there's no id yet. */
+  pengajuanId?: string;
   /** When set, "Nama Outlet" renders as an editable Combobox instead of a read-only box — used by the "new" (create) form, where outlet isn't fixed yet. */
   outletPicker?: { options: { value: string; label: string; sublabel?: string }[]; onChange: (v: string) => void };
   /** Can be more than one KPDM per outlet — picked from the same outlet customer pool as Dokter Klinis (dokterList below), not a separate master-data entity. */
@@ -859,6 +868,8 @@ export function PlanningPhase(props: {
   updateKpdmEntertainEstimasi: (customerId: string, v: string) => void;
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
   setTipeStandarisasi: (v: "PERIODIC" | "SISIPAN" | "PERMANEN") => void;
+  statusPengajuan: "BARU" | "PERPANJANGAN";
+  setStatusPengajuan: (v: "BARU" | "PERPANJANGAN") => void;
   periodeBulan: string;
   setPeriodeBulan: (v: string) => void;
   jumlahBedRs: string;
@@ -878,9 +889,9 @@ export function PlanningPhase(props: {
   updateDokterKlinis: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) => void;
 }) {
   const {
-    canEdit, kodePI, namaOutlet, outletPicker,
+    canEdit, kodePI, namaOutlet, pengajuanId, outletPicker,
     kpdmList, addKpdm, removeKpdm, updateKpdmEntertainEstimasi,
-    tipeStandarisasi, setTipeStandarisasi,
+    tipeStandarisasi, setTipeStandarisasi, statusPengajuan, setStatusPengajuan,
     periodeBulan, setPeriodeBulan, jumlahBedRs, setJumlahBedRs, estimasiTimelineSelesai, setEstimasiTimelineSelesai,
     produkList, productOptions, productByKode, dokterList, dokterById, updateProduk, addProduk, removeProduk,
     addDokterToProduk, removeDokterFromProduk, updateDokterKlinis,
@@ -897,6 +908,7 @@ export function PlanningPhase(props: {
 
   return (
     <>
+      <RekomendasiSidebar kodePI={kodePI} pengajuanId={pengajuanId} productByKode={productByKode} dokterList={dokterList} />
       <Card className="mb-4">
         <CardHeader><CardTitle>Planning Standarisasi</CardTitle></CardHeader>
         <div className="max-w-lg mb-4">
@@ -954,6 +966,19 @@ export function PlanningPhase(props: {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <span className="text-sm font-medium block mb-1">Status Pengajuan <span style={{ color: "var(--color-error)" }}>*</span></span>
+            <Combobox
+              name="statusPengajuan"
+              options={[
+                { value: "BARU", label: "Standarisasi Baru" },
+                { value: "PERPANJANGAN", label: "Perpanjangan" },
+              ]}
+              value={statusPengajuan}
+              onChange={(v) => setStatusPengajuan(v as "BARU" | "PERPANJANGAN")}
+              disabled={disabled}
+            />
+          </div>
           <div>
             <span className="text-sm font-medium block mb-1">Tipe Standarisasi <span style={{ color: "var(--color-error)" }}>*</span></span>
             <Combobox
@@ -1198,42 +1223,20 @@ function StatusPill({ status }: { status: string }) {
 
 function MenungguMeetingKftPhase({
   canEdit,
+  pengajuan,
   jadwalMeetingKft,
   setJadwalMeetingKft,
 }: {
   canEdit: boolean;
+  pengajuan: PoaStandarisasiDetail;
   jadwalMeetingKft: string;
   setJadwalMeetingKft: (v: string) => void;
 }) {
-  return (
-    <Card className="mb-4">
-      <CardHeader><CardTitle>Menunggu Meeting KFT</CardTitle></CardHeader>
-      <div className="max-w-xs">
-        <Input
-          label="Jadwal Meeting KFT"
-          type="datetime-local"
-          value={jadwalMeetingKft}
-          onChange={(e) => setJadwalMeetingKft(e.target.value)}
-          disabled={!canEdit}
-        />
-      </div>
-    </Card>
-  );
-}
-
-// ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
-
-function ApprovalUserDokterPhase({
-  canEdit,
-  pengajuan,
-  sudahTtdMap,
-  setSudahTtdMap,
-}: {
-  canEdit: boolean;
-  pengajuan: PoaStandarisasiDetail;
-  sudahTtdMap: Record<string, boolean>;
-  setSudahTtdMap: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-}) {
+  // Dokumen Standarisasi (download) + Form Approval Standarisasi (upload) BOTH
+  // per produk, moved here from Approval User/Dokter (2026-08-26 flow fix) —
+  // matches original design intent noted in prisma/schema.prisma's
+  // PoaStandarisasi comment: this phase was meant to carry the KFT-meeting
+  // paperwork, not just the date. Approval User/Dokter now only tracks TTD.
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [uploading, setUploading] = useState<string | null>(null);
   const [selectedProdukId, setSelectedProdukId] = useState<string>(pengajuan.produk[0]?.id ?? "");
@@ -1256,6 +1259,157 @@ function ApprovalUserDokterPhase({
     }
   }
 
+  return (
+    <div className="flex gap-4 items-start mb-4 flex-col lg:flex-row">
+      <Card className="flex-1 min-w-0">
+        <CardHeader><CardTitle>Menunggu Meeting KFT</CardTitle></CardHeader>
+        <div className="max-w-xs mb-4">
+          <Input
+            label="Jadwal Meeting KFT"
+            type="datetime-local"
+            value={jadwalMeetingKft}
+            onChange={(e) => setJadwalMeetingKft(e.target.value)}
+            disabled={!canEdit}
+          />
+        </div>
+
+        {!p ? (
+          <p className="text-sm" style={{ color: "var(--color-text-faint)" }}>Belum ada produk diajukan.</p>
+        ) : (
+          <>
+            <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--color-blue)" }}>{p.product.namaProduk}</h3>
+
+            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>
+              Dokumen Standarisasi (untuk dibawa ke meeting KFT)
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+              {DOKUMEN_JENIS.map(({ jenis, label }) => {
+                const doc = p.dokumen.find((dd) => dd.jenis === jenis);
+                return (
+                  <div key={jenis} className="rounded-lg p-3" style={{ border: "1px solid var(--color-border)" }}>
+                    <div className="text-sm font-semibold">{label}</div>
+                    {doc ? (
+                      <>
+                        <div className="text-xs mt-0.5 truncate" style={{ color: "var(--color-text-faint)" }}>{doc.namaFile}</div>
+                        <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium mt-1 inline-block" style={{ color: "var(--color-blue)" }}>
+                          ↓ Download
+                        </a>
+                      </>
+                    ) : (
+                      <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>Belum diupload</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div>
+              <span className="text-sm font-medium block mb-1">
+                Form Approval Standarisasi <span style={{ color: "var(--color-error)" }}>*</span>
+              </span>
+              <input
+                ref={(el) => { fileInputRefs.current[p.id] = el; }}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(p.id, f); }}
+              />
+              <div
+                onClick={() => canEdit && uploading !== p.id && fileInputRefs.current[p.id]?.click()}
+                className="w-full rounded-lg text-center py-5 px-4"
+                style={{ border: "2px dashed var(--color-border)", background: "var(--color-surface, #fff)", cursor: canEdit ? "pointer" : "default" }}
+              >
+                {uploading === p.id ? (
+                  <div className="text-sm font-medium" style={{ color: "var(--color-text-faint)" }}>Mengupload…</div>
+                ) : p.formApprovalFilePath && p.formApprovalDriveFileId ? (
+                  <>
+                    <a
+                      href={driveViewUrl(p.formApprovalDriveFileId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-sm font-medium"
+                      style={{ color: "var(--color-text)" }}
+                    >
+                      {p.formApprovalFilePath}
+                    </a>
+                    <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
+                      {canEdit ? "Klik untuk ganti file" : "PDF atau JPG, maks 10MB"}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+                      {canEdit ? "Klik untuk upload" : "Belum diupload"}
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>PDF atau JPG, maks 10MB</div>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </Card>
+
+      {pengajuan.produk.length > 0 && (
+        <div className="w-full lg:w-64 shrink-0">
+          <Card>
+            <div className="text-sm font-bold mb-1">Produk Diajukan</div>
+            <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
+              Klik produk untuk pindah. Centang muncul kalau Form Approval Standarisasi sudah diupload.
+            </p>
+            <div className="space-y-2">
+              {pengajuan.produk.map((prod) => {
+                const active = prod.id === selectedProdukId;
+                const done = !!prod.formApprovalDriveFileId;
+                return (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    onClick={() => setSelectedProdukId(prod.id)}
+                    className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold"
+                    style={{
+                      background: active ? "var(--color-blue)" : "var(--color-bg-subtle)",
+                      color: active ? "#fff" : "var(--color-text)",
+                    }}
+                  >
+                    <span className="truncate">{prod.product.namaProduk}</span>
+                    <span
+                      className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs"
+                      style={{
+                        background: done ? (active ? "rgba(255,255,255,0.9)" : "var(--color-status-approved-bg, #E6F5EC)") : (active ? "rgba(255,255,255,0.25)" : "var(--color-border)"),
+                        color: done ? "var(--color-status-approved, #008f42)" : "transparent",
+                      }}
+                    >
+                      {done ? "✓" : ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
+
+function ApprovalUserDokterPhase({
+  canEdit,
+  pengajuan,
+  sudahTtdMap,
+  setSudahTtdMap,
+}: {
+  canEdit: boolean;
+  pengajuan: PoaStandarisasiDetail;
+  sudahTtdMap: Record<string, boolean>;
+  setSudahTtdMap: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+}) {
+  const [selectedProdukId, setSelectedProdukId] = useState<string>(pengajuan.produk[0]?.id ?? "");
+  const p = pengajuan.produk.find((x) => x.id === selectedProdukId) ?? pengajuan.produk[0];
+
   if (!p) {
     return (
       <Card className="mb-4">
@@ -1270,7 +1424,7 @@ function ApprovalUserDokterPhase({
       <Card className="flex-1 min-w-0">
         <CardHeader><CardTitle>Approval User / Dokter</CardTitle></CardHeader>
         <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-          Dokter di bawah ini sudah dipilih saat Planning Standarisasi — centang &quot;Sudah TTD&quot; untuk yang tanda tangannya sudah didapat, lalu upload Form Approval Standarisasi sebagai bukti.
+          Dokter di bawah ini sudah dipilih saat Planning Standarisasi — centang &quot;Sudah TTD&quot; untuk yang tanda tangannya sudah didapat. Dokumen Standarisasi &amp; Form Approval Standarisasi diupload di tahap berikutnya (Menunggu Meeting KFT).
         </p>
 
         <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--color-blue)" }}>{p.product.namaProduk}</h3>
@@ -1297,87 +1451,19 @@ function ApprovalUserDokterPhase({
             </div>
           );
         })}
-
-        <span className="text-xs font-bold uppercase tracking-wide block mb-2 mt-3" style={{ color: "var(--color-text-faint)" }}>
-          Dokumen Standarisasi
-        </span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
-          {DOKUMEN_JENIS.map(({ jenis, label }) => {
-            const doc = p.dokumen.find((dd) => dd.jenis === jenis);
-            return (
-              <div key={jenis} className="rounded-lg p-3" style={{ border: "1px solid var(--color-border)" }}>
-                <div className="text-sm font-semibold">{label}</div>
-                {doc ? (
-                  <>
-                    <div className="text-xs mt-0.5 truncate" style={{ color: "var(--color-text-faint)" }}>{doc.namaFile}</div>
-                    <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium mt-1 inline-block" style={{ color: "var(--color-blue)" }}>
-                      ↓ Download
-                    </a>
-                  </>
-                ) : (
-                  <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>Belum diupload</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div>
-          <span className="text-sm font-medium block mb-1">
-            Form Approval Standarisasi <span style={{ color: "var(--color-error)" }}>*</span>
-          </span>
-          <input
-            ref={(el) => { fileInputRefs.current[p.id] = el; }}
-            type="file"
-            accept=".pdf,.jpg,.jpeg,.png"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(p.id, f); }}
-          />
-          <div
-            onClick={() => canEdit && uploading !== p.id && fileInputRefs.current[p.id]?.click()}
-            className="w-full rounded-lg text-center py-5 px-4"
-            style={{ border: "2px dashed var(--color-border)", background: "var(--color-surface, #fff)", cursor: canEdit ? "pointer" : "default" }}
-          >
-            {uploading === p.id ? (
-              <div className="text-sm font-medium" style={{ color: "var(--color-text-faint)" }}>Mengupload…</div>
-            ) : p.formApprovalFilePath && p.formApprovalDriveFileId ? (
-              <>
-                <a
-                  href={driveViewUrl(p.formApprovalDriveFileId)}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-sm font-medium"
-                  style={{ color: "var(--color-text)" }}
-                >
-                  {p.formApprovalFilePath}
-                </a>
-                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
-                  {canEdit ? "Klik untuk ganti file" : "PDF atau JPG, maks 10MB"}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-                  {canEdit ? "Klik untuk upload" : "Belum diupload"}
-                </div>
-                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>PDF atau JPG, maks 10MB</div>
-              </>
-            )}
-          </div>
-        </div>
       </Card>
 
       <div className="w-full lg:w-64 shrink-0">
         <Card>
           <div className="text-sm font-bold mb-1">Produk Diajukan</div>
           <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
-            Klik produk untuk pindah. Centang muncul kalau dokumen sudah diupload.
+            Klik produk untuk pindah. Centang muncul kalau semua dokter wajib sudah TTD.
           </p>
           <div className="space-y-2">
             {pengajuan.produk.map((prod) => {
               const active = prod.id === selectedProdukId;
-              const done = !!prod.formApprovalDriveFileId;
+              const wajibDokter = prod.dokterApproval.filter((d) => d.wajib);
+              const done = wajibDokter.length > 0 && wajibDokter.every((d) => sudahTtdMap[`${prod.id}:${d.customerId}`] ?? d.sudahTtd);
               return (
                 <button
                   key={prod.id}
