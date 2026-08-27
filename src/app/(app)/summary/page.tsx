@@ -463,14 +463,17 @@ async function SummaryContent({
       }
       asmOutlets.set(asm.nip, set);
     }
-    const allSurveyScopeOutlets = [...new Set([...asmOutlets.values()].flatMap((s) => [...s]))];
-
-    const [uploadLogOutlets, rekomendasiOutlets] = allSurveyScopeOutlets.length > 0
-      ? await Promise.all([
-          prisma.surveyUploadLog.findMany({ where: { kodePI: { in: allSurveyScopeOutlets } }, select: { kodePI: true }, distinct: ["kodePI"] }),
-          prisma.surveyRekomendasi.findMany({ where: { kodePI: { in: allSurveyScopeOutlets } }, select: { kodePI: true }, distinct: ["kodePI"] }),
-        ]) as [{ kodePI: string }[], { kodePI: string }[]]
-      : [[], []];
+    // Unscoped (company-wide, not filtered to allSurveyScopeOutlets) — cheap
+    // (both are just "distinct kodePI" lookups on their own table) and needed
+    // so the Total row (below) can also surface outlets that have survey data
+    // but AREN'T in MrOutletAssignment at all (user: "ada data survey yang
+    // ada di outlet yang ga masuk struktur"). Per-ASM/SM/NSM rows still only
+    // count within their own `asmOutlets` set, so this broader set doesn't
+    // change anything for them.
+    const [uploadLogOutlets, rekomendasiOutlets] = await Promise.all([
+      prisma.surveyUploadLog.findMany({ select: { kodePI: true }, distinct: ["kodePI"] }),
+      prisma.surveyRekomendasi.findMany({ select: { kodePI: true }, distinct: ["kodePI"] }),
+    ]) as [{ kodePI: string }[], { kodePI: string }[]];
     const outletsWithSurveyData = new Set([...uploadLogOutlets.map((r) => r.kodePI), ...rekomendasiOutlets.map((r) => r.kodePI)]);
 
     // ASM rows — the only level with a real target (3 outlets); Achievement%
@@ -520,7 +523,30 @@ async function SummaryContent({
       return rollup(nsm.name, nsm.nip, asmNipsUnder);
     }).sort((a, b) => a.name.localeCompare(b.name));
 
-    const totalRow: SurveyRow = rollup("Total", "TOTAL", asmUsers.map((a) => a.nip));
+    const totalRowByAsm = rollup("Total", "TOTAL", asmUsers.map((a) => a.nip));
+    // "Outlet yang tidak terpegang siapapun" (unassigned in MrOutletAssignment
+    // entirely) can still carry real survey data — those outlets can't be
+    // attributed to any ASM/SM/NSM row (nobody holds them), so they only
+    // ever show up in Total. Only meaningful when this view is ALREADY
+    // company-wide (ADMIN/GM/SFE/VIEWER) — an SM/NSM/ASM's own "Total" means
+    // their own subtree, and an unassigned outlet belongs to no subtree at
+    // all, so folding it into a scoped viewer's Total would leak outlets
+    // outside what they actually manage.
+    const isCompanyWideView = actorRole === "ADMIN" || actorRole === "GM" || actorRole === "SFE" || actorRole === "VIEWER";
+    let totalRow = totalRowByAsm;
+    if (isCompanyWideView) {
+      const assignedOutletsAnywhere = new Set([...outletsByMr.values()].flat());
+      const orphanOutletsWithSurvey = [...outletsWithSurveyData].filter((o) => !assignedOutletsAnywhere.has(o));
+      if (orphanOutletsWithSurvey.length > 0) {
+        const outletsWithSurvey = totalRowByAsm.outletsWithSurvey + orphanOutletsWithSurvey.length;
+        totalRow = {
+          ...totalRowByAsm,
+          totalOutlets: totalRowByAsm.totalOutlets + orphanOutletsWithSurvey.length,
+          outletsWithSurvey,
+          achievementPct: totalRowByAsm.target > 0 ? (outletsWithSurvey / totalRowByAsm.target) * 100 : null,
+        };
+      }
+    }
 
     return (
       <div className="space-y-5">
