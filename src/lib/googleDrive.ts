@@ -29,6 +29,37 @@ import { prisma } from "@/lib/prisma";
 
 export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
 
+/**
+ * SAFE-to-log config diagnostics — deliberately never includes the actual
+ * credential/private key content, only shape/metadata, so this can be
+ * console.error'd from a route without leaking a secret that grants write
+ * access to the shared Drive into log aggregators (2026-08-27, user asked
+ * to log the raw key — declined that, this is the safe alternative).
+ */
+export function describeGoogleDriveConfig(): {
+  keySet: boolean;
+  keyLength: number;
+  keyParsesAsJson: boolean;
+  clientEmail: string | null;
+  projectId: string | null;
+} {
+  const raw = env.GOOGLE_SERVICE_ACCOUNT_KEY ?? "";
+  let clientEmail: string | null = null;
+  let projectId: string | null = null;
+  let keyParsesAsJson = false;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      keyParsesAsJson = true;
+      clientEmail = typeof parsed.client_email === "string" ? parsed.client_email : null;
+      projectId = typeof parsed.project_id === "string" ? parsed.project_id : null;
+    } catch {
+      // leave keyParsesAsJson false — that alone is the useful signal
+    }
+  }
+  return { keySet: !!raw, keyLength: raw.length, keyParsesAsJson, clientEmail, projectId };
+}
+
 let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
 
 function getAuth() {
