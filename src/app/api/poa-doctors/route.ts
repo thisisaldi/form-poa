@@ -20,8 +20,9 @@
  * window here is already a mandatory bound (doesn't grow with history).
  * Measured company-wide (no nip filter): ~2.6s end-to-end, under the <3s
  * target but close — revisit if data volume grows significantly.
- * At least one of `nip`/`keyword` must be supplied (400 otherwise) to
- * avoid an accidental full-dump call with no filter at all.
+ * Both `nip` and `keyword` may be omitted — returns everything for the
+ * quarter (still bounded by that window + NSM-approved + not-used-in-
+ * Exodus, so not truly unfiltered).
  *
  * Only fully (NSM) approved + not-yet-used-in-Exodus doctors are returned
  * (buildDoctorRows already drops non-NSM rows; this route additionally
@@ -54,9 +55,6 @@ export async function GET(req: NextRequest) {
 
   const nip = req.nextUrl.searchParams.get("nip")?.trim() || null;
   const keyword = req.nextUrl.searchParams.get("keyword")?.trim().toLowerCase() || null;
-  if (!nip && !keyword) {
-    return NextResponse.json({ error: "nip atau keyword wajib diisi." }, { status: 400 });
-  }
 
   if (nip) {
     const user = await prisma.user.findUnique({ where: { nip }, select: { nip: true } });

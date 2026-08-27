@@ -18,29 +18,44 @@ import {
   savePlanningAction,
   advanceToApprovalAtasanAction,
   approvePoaStandarisasiAtasanAction,
-  saveApprovalUserDokterAction,
+  addDokterApprovalAction,
+  removeDokterApprovalAction,
   advanceToMenungguMeetingKftAction,
   saveMenungguMeetingKftAction,
   advanceToFinalisasiAction,
   saveFinalisasiAction,
   submitPoaStandarisasiAction,
   uploadPoaStandarisasiFileAction,
+  getPoaStandarisasiFileAccessLogAction,
   type PoaStandarisasiDetail,
   type PlanningInput,
   type PlanningProdukInput,
+  type FileAccessLogRow,
 } from "@/app/actions/poaStandarisasi";
 
 export { PHASES };
 
 const DOKUMEN_JENIS: { jenis: string; label: string }[] = [
   { jenis: "NIE", label: "NIE" },
+  { jenis: "COA", label: "COA" },
   { jenis: "CPOB", label: "CPOB" },
-  { jenis: "KFA", label: "KFA" },
+  { jenis: "FLYER", label: "Flyer" },
   { jenis: "SP_NON_SALES", label: "Permintaan SP Non Sales" },
 ];
+/** Shown at "Menunggu Meeting KFT" — dokumen yang dibawa ke rapat KFT (2026-08-27: NIE/COA/CPOB/Flyer, koreksi dari NIE/CPOB/KFA). */
+const DOKUMEN_JENIS_KFT = DOKUMEN_JENIS.filter((d) => d.jenis !== "SP_NON_SALES");
+/** Shown at "Finalisasi" (2026-08-26, user request) — bukan dokumen rapat KFT. */
+const DOKUMEN_JENIS_FINALISASI = DOKUMEN_JENIS.filter((d) => d.jenis === "SP_NON_SALES");
 
+/**
+ * Every document link in this wizard MUST go through this authenticated
+ * proxy — not a raw Drive URL — because these documents are confidential
+ * (2026-08-27, user request): a raw Drive link's visibility follows the
+ * shared folder's sharing setting, not this app's authz, and gives no way to
+ * log who opened it. See /api/poa-standarisasi/dokumen/[driveFileId].
+ */
 function driveViewUrl(driveFileId: string): string {
-  return `https://drive.google.com/file/d/${driveFileId}/view`;
+  return `/api/poa-standarisasi/dokumen/${driveFileId}`;
 }
 
 function formatRp(n: number | null | undefined): string {
@@ -409,13 +424,8 @@ export function PoaStandarisasiWizard({
     pengajuan.produk.length > 0 ? pengajuan.produk.map(produkFromDetail) : [emptyProduk()]
   );
 
-  // ── Phase 3 state ──────────────────────────────────────────────────────
+  // ── Phase 4 state (Menunggu Meeting KFT) ────────────────────────────────
   const [jadwalMeetingKft, setJadwalMeetingKft] = useState(isoDatetimeLocalInput(pengajuan.jadwalMeetingKft));
-  const [sudahTtdMap, setSudahTtdMap] = useState<Record<string, boolean>>(() => {
-    const map: Record<string, boolean> = {};
-    for (const p of pengajuan.produk) for (const d of p.dokterApproval) map[`${p.id}:${d.customerId}`] = d.sudahTtd;
-    return map;
-  });
 
   // ── Phase 5 state (Finalisasi) ──────────────────────────────────────────
   const [distributors, setDistributors] = useState<string[]>(pengajuan.distributors ?? []);
@@ -515,22 +525,8 @@ export function PoaStandarisasiWizard({
     run(async () => approvePoaStandarisasiAtasanAction(pengajuan.id, level, decision));
   }
 
-  function sudahTtdRows() {
-    return Object.entries(sudahTtdMap).map(([key, sudahTtd]) => {
-      const [produkId, customerId] = key.split(":");
-      return { produkId, customerId, sudahTtd };
-    });
-  }
-
-  function handleSavePhase3() {
-    run(async () => saveApprovalUserDokterAction(pengajuan.id, { sudahTtd: sudahTtdRows() }));
-  }
-
   function handleAdvanceToMenungguKft() {
-    run(async () => {
-      await saveApprovalUserDokterAction(pengajuan.id, { sudahTtd: sudahTtdRows() });
-      await advanceToMenungguMeetingKftAction(pengajuan.id);
-    });
+    run(async () => advanceToMenungguMeetingKftAction(pengajuan.id));
   }
 
   function handleSaveMenungguKft() {
@@ -722,8 +718,8 @@ export function PoaStandarisasiWizard({
         <ApprovalUserDokterPhase
           canEdit={canEdit && isViewingCurrentPhase}
           pengajuan={pengajuan}
-          sudahTtdMap={sudahTtdMap}
-          setSudahTtdMap={setSudahTtdMap}
+          dokterList={dokterList}
+          resolveDokterId={resolveDokterId}
         />
       )}
 
@@ -756,6 +752,7 @@ export function PoaStandarisasiWizard({
       )}
 
       <RingkasanPoa produkList={produkList} productByKode={productByKode} kpdmList={kpdmList} />
+      <DokumenAccessLogPanel pengajuanId={pengajuan.id} />
 
       <div className="flex justify-between mt-4">
         <div />
@@ -767,10 +764,7 @@ export function PoaStandarisasiWizard({
             </>
           )}
           {isViewingCurrentPhase && pengajuan.currentPhase === "APPROVAL_USER_DOKTER" && canEdit && (
-            <>
-              <Button variant="secondary" disabled={pending} onClick={handleSavePhase3}>Simpan</Button>
-              <Button disabled={pending} onClick={handleAdvanceToMenungguKft}>Lanjut ke Menunggu Meeting KFT</Button>
-            </>
+            <Button disabled={pending} onClick={handleAdvanceToMenungguKft}>Lanjut ke Menunggu Meeting KFT</Button>
           )}
           {isViewingCurrentPhase && pengajuan.currentPhase === "MENUNGGU_MEETING_KFT" && canEdit && (
             <>
@@ -1232,32 +1226,11 @@ function MenungguMeetingKftPhase({
   jadwalMeetingKft: string;
   setJadwalMeetingKft: (v: string) => void;
 }) {
-  // Dokumen Standarisasi (download) + Form Approval Standarisasi (upload) BOTH
-  // per produk, moved here from Approval User/Dokter (2026-08-26 flow fix) —
-  // matches original design intent noted in prisma/schema.prisma's
-  // PoaStandarisasi comment: this phase was meant to carry the KFT-meeting
-  // paperwork, not just the date. Approval User/Dokter now only tracks TTD.
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [uploading, setUploading] = useState<string | null>(null);
+  // Purely a browser for Dokumen Standarisasi NIE/COA/CPOB/Flyer (read-only,
+  // diupload dari tempat lain) — "Permintaan SP Non Sales" dan upload "Form
+  // Approval Standarisasi" dipindah ke Finalisasi (2026-08-26, user request).
   const [selectedProdukId, setSelectedProdukId] = useState<string>(pengajuan.produk[0]?.id ?? "");
   const p = pengajuan.produk.find((x) => x.id === selectedProdukId) ?? pengajuan.produk[0];
-
-  async function handleUpload(produkId: string, file: File) {
-    setUploading(produkId);
-    try {
-      const fd = new FormData();
-      fd.set("file", file);
-      fd.set("pengajuanId", pengajuan.id);
-      fd.set("kind", "formApproval");
-      fd.set("produkId", produkId);
-      await uploadPoaStandarisasiFileAction(fd);
-      window.location.reload();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Upload gagal.");
-    } finally {
-      setUploading(null);
-    }
-  }
 
   return (
     <div className="flex gap-4 items-start mb-4 flex-col lg:flex-row">
@@ -1282,8 +1255,8 @@ function MenungguMeetingKftPhase({
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>
               Dokumen Standarisasi (untuk dibawa ke meeting KFT)
             </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
-              {DOKUMEN_JENIS.map(({ jenis, label }) => {
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {DOKUMEN_JENIS_KFT.map(({ jenis, label }) => {
                 const doc = p.dokumen.find((dd) => dd.jenis === jenis);
                 return (
                   <div key={jenis} className="rounded-lg p-3" style={{ border: "1px solid var(--color-border)" }}>
@@ -1302,51 +1275,6 @@ function MenungguMeetingKftPhase({
                 );
               })}
             </div>
-
-            <div>
-              <span className="text-sm font-medium block mb-1">
-                Form Approval Standarisasi <span style={{ color: "var(--color-error)" }}>*</span>
-              </span>
-              <input
-                ref={(el) => { fileInputRefs.current[p.id] = el; }}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(p.id, f); }}
-              />
-              <div
-                onClick={() => canEdit && uploading !== p.id && fileInputRefs.current[p.id]?.click()}
-                className="w-full rounded-lg text-center py-5 px-4"
-                style={{ border: "2px dashed var(--color-border)", background: "var(--color-surface, #fff)", cursor: canEdit ? "pointer" : "default" }}
-              >
-                {uploading === p.id ? (
-                  <div className="text-sm font-medium" style={{ color: "var(--color-text-faint)" }}>Mengupload…</div>
-                ) : p.formApprovalFilePath && p.formApprovalDriveFileId ? (
-                  <>
-                    <a
-                      href={driveViewUrl(p.formApprovalDriveFileId)}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-sm font-medium"
-                      style={{ color: "var(--color-text)" }}
-                    >
-                      {p.formApprovalFilePath}
-                    </a>
-                    <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
-                      {canEdit ? "Klik untuk ganti file" : "PDF atau JPG, maks 10MB"}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-                      {canEdit ? "Klik untuk upload" : "Belum diupload"}
-                    </div>
-                    <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>PDF atau JPG, maks 10MB</div>
-                  </>
-                )}
-              </div>
-            </div>
           </>
         )}
       </Card>
@@ -1356,12 +1284,12 @@ function MenungguMeetingKftPhase({
           <Card>
             <div className="text-sm font-bold mb-1">Produk Diajukan</div>
             <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
-              Klik produk untuk pindah. Centang muncul kalau Form Approval Standarisasi sudah diupload.
+              Klik produk untuk pindah. Centang muncul kalau NIE/COA/CPOB/Flyer sudah lengkap.
             </p>
             <div className="space-y-2">
               {pengajuan.produk.map((prod) => {
                 const active = prod.id === selectedProdukId;
-                const done = !!prod.formApprovalDriveFileId;
+                const done = DOKUMEN_JENIS_KFT.every(({ jenis }) => prod.dokumen.some((dd) => dd.jenis === jenis));
                 return (
                   <button
                     key={prod.id}
@@ -1399,16 +1327,62 @@ function MenungguMeetingKftPhase({
 function ApprovalUserDokterPhase({
   canEdit,
   pengajuan,
-  sudahTtdMap,
-  setSudahTtdMap,
+  dokterList,
+  resolveDokterId,
 }: {
   canEdit: boolean;
   pengajuan: PoaStandarisasiDetail;
-  sudahTtdMap: Record<string, boolean>;
-  setSudahTtdMap: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  dokterList: CustomerOption[];
+  resolveDokterId: (rawId: string) => Promise<string>;
 }) {
   const [selectedProdukId, setSelectedProdukId] = useState<string>(pengajuan.produk[0]?.id ?? "");
   const p = pengajuan.produk.find((x) => x.id === selectedProdukId) ?? pengajuan.produk[0];
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleUploadBuktiTtd(produkId: string, customerId: string, file: File) {
+    const key = `${produkId}:${customerId}`;
+    setUploadingKey(key);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("pengajuanId", pengajuan.id);
+      fd.set("kind", "buktiTtd");
+      fd.set("produkId", produkId);
+      fd.set("customerId", customerId);
+      await uploadPoaStandarisasiFileAction(fd);
+      window.location.reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Upload gagal.");
+      setUploadingKey(null);
+    }
+  }
+
+  async function handleAddDokter(rawId: string) {
+    if (!rawId || !p) return;
+    setBusy(true);
+    try {
+      const realId = await resolveDokterId(rawId);
+      await addDokterApprovalAction(p.id, realId);
+      window.location.reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal menambah dokter.");
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveDokter(customerId: string) {
+    if (!p) return;
+    setBusy(true);
+    try {
+      await removeDokterApprovalAction(p.id, customerId);
+      window.location.reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal menghapus dokter.");
+      setBusy(false);
+    }
+  }
 
   if (!p) {
     return (
@@ -1424,33 +1398,66 @@ function ApprovalUserDokterPhase({
       <Card className="flex-1 min-w-0">
         <CardHeader><CardTitle>Approval User / Dokter</CardTitle></CardHeader>
         <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-          Dokter di bawah ini sudah dipilih saat Planning Standarisasi — centang &quot;Sudah TTD&quot; untuk yang tanda tangannya sudah didapat. Dokumen Standarisasi &amp; Form Approval Standarisasi diupload di tahap berikutnya (Menunggu Meeting KFT).
+          Dokter di bawah ini masih bisa ditambah/dihapus di tahap ini (tidak fixed dari Planning) — upload Bukti TTD sebagai bukti tanda tangan, menggantikan checkbox &quot;Sudah TTD&quot;. Dokumen Standarisasi &amp; Form Approval Standarisasi diupload di tahap Menunggu Meeting KFT / Finalisasi.
         </p>
 
         <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--color-blue)" }}>{p.product.namaProduk}</h3>
         {p.dokterApproval.map((d) => {
           const key = `${p.id}:${d.customerId}`;
           return (
-            <div key={key} className="flex items-center gap-3 rounded px-3 py-2 mb-1.5 text-sm" style={{ border: "1px solid var(--color-border)" }}>
-              <span className="flex-1">{d.customer.namaCustomer}</span>
+            <div key={key} className="flex items-center gap-3 rounded px-3 py-2 mb-1.5 text-sm flex-wrap" style={{ border: "1px solid var(--color-border)" }}>
+              <span className="flex-1 min-w-[100px]">{d.customer.namaCustomer}</span>
               <span
                 className="text-xs font-bold px-2 py-0.5 rounded-full"
                 style={{ background: d.wajib ? "var(--color-error-bg, #FDECEA)" : "var(--color-bg-subtle)", color: d.wajib ? "var(--color-error)" : "var(--color-text-faint)" }}
               >
                 {d.wajib ? "Wajib" : "Opsional"}
               </span>
-              <label className="flex items-center gap-1.5 text-xs font-medium">
-                <input
-                  type="checkbox"
-                  checked={sudahTtdMap[key] ?? false}
-                  disabled={!canEdit}
-                  onChange={(e) => setSudahTtdMap((prev) => ({ ...prev, [key]: e.target.checked }))}
-                />
-                Sudah TTD
-              </label>
+
+              <input
+                ref={(el) => { fileInputRefs.current[key] = el; }}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadBuktiTtd(p.id, d.customerId, f); }}
+              />
+              {d.buktiTtdDriveFileId ? (
+                <a href={driveViewUrl(d.buktiTtdDriveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "var(--color-status-approved, #008f42)" }}>
+                  ✓ Sudah TTD — lihat bukti
+                </a>
+              ) : (
+                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada bukti TTD</span>
+              )}
+              {canEdit && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={uploadingKey === key}
+                  onClick={() => fileInputRefs.current[key]?.click()}
+                >
+                  {uploadingKey === key ? "Mengupload…" : d.buktiTtdDriveFileId ? "Ganti" : "Upload Bukti TTD"}
+                </Button>
+              )}
+              {canEdit && (
+                <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} disabled={busy} onClick={() => handleRemoveDokter(d.customerId)}>
+                  Hapus
+                </button>
+              )}
             </div>
           );
         })}
+
+        {canEdit && (
+          <Combobox
+            name="dokterApprovalAdd"
+            options={dokterList.filter((d) => !p.dokterApproval.some((da) => da.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+            value=""
+            onChange={handleAddDokter}
+            disabled={busy}
+            placeholder="+ Tambah dokter…"
+          />
+        )}
       </Card>
 
       <div className="w-full lg:w-64 shrink-0">
@@ -1463,7 +1470,7 @@ function ApprovalUserDokterPhase({
             {pengajuan.produk.map((prod) => {
               const active = prod.id === selectedProdukId;
               const wajibDokter = prod.dokterApproval.filter((d) => d.wajib);
-              const done = wajibDokter.length > 0 && wajibDokter.every((d) => sudahTtdMap[`${prod.id}:${d.customerId}`] ?? d.sudahTtd);
+              const done = wajibDokter.length > 0 && wajibDokter.every((d) => d.sudahTtd);
               return (
                 <button
                   key={prod.id}
@@ -1531,6 +1538,11 @@ function FinalisasiPhase({
   const disabled = !canEdit || !!pengajuan.submittedAt;
   const [uploadingKft, setUploadingKft] = useState(false);
   const kftInputRef = useRef<HTMLInputElement | null>(null);
+  // Form Approval Standarisasi upload — per produk, moved here from Menunggu
+  // Meeting KFT (2026-08-26, user request: sama konsepnya dengan Surat
+  // Approval Standarisasi KFT di atas, jadi ditaruh berdekatan).
+  const formApprovalInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [uploadingFormApproval, setUploadingFormApproval] = useState<string | null>(null);
 
   async function handleUploadKft(file: File) {
     setUploadingKft(true);
@@ -1545,6 +1557,22 @@ function FinalisasiPhase({
       alert(e instanceof Error ? e.message : "Upload gagal.");
     } finally {
       setUploadingKft(false);
+    }
+  }
+
+  async function handleUploadFormApproval(produkId: string, file: File) {
+    setUploadingFormApproval(produkId);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("pengajuanId", pengajuan.id);
+      fd.set("kind", "formApproval");
+      fd.set("produkId", produkId);
+      await uploadPoaStandarisasiFileAction(fd);
+      window.location.reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Upload gagal.");
+      setUploadingFormApproval(null);
     }
   }
 
@@ -1616,6 +1644,7 @@ function FinalisasiPhase({
       {produkList.filter((p) => p.id).map((p) => {
         const idx = produkList.indexOf(p);
         const product = productByKode.get(p.kodeProduk);
+        const rawProduk = pengajuan.produk.find((x) => x.id === p.id);
         const totalQty = p.dokterUser.reduce((s, d) => s + (parseFloat(d.jumlahPasien) || 0) * (parseFloat(d.resepPerPasienSt) || 0), 0);
         const hst = product ? hargaSTFromProduct(product) : 0;
         const totalSales = totalQty * hst;
@@ -1684,6 +1713,58 @@ function FinalisasiPhase({
                 placeholder="+ Tambah dokter…"
               />
             )}
+
+            {rawProduk && (
+              <>
+                <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: "var(--color-text-faint)" }}>
+                      {DOKUMEN_JENIS_FINALISASI[0]?.label}
+                    </span>
+                    {(() => {
+                      const doc = rawProduk.dokumen.find((dd) => dd.jenis === DOKUMEN_JENIS_FINALISASI[0]?.jenis);
+                      return doc ? (
+                        <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+                          ↓ {doc.namaFile}
+                        </a>
+                      ) : (
+                        <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum diupload</span>
+                      );
+                    })()}
+                  </div>
+
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: "var(--color-text-faint)" }}>
+                      Form Approval Standarisasi <span style={{ color: "var(--color-error)" }}>*</span>
+                    </span>
+                    <input
+                      ref={(el) => { formApprovalInputRefs.current[p.id!] = el; }}
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadFormApproval(p.id!, f); }}
+                    />
+                    <div className="flex items-center gap-2">
+                      {uploadingFormApproval === p.id ? (
+                        <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Mengupload…</span>
+                      ) : rawProduk.formApprovalDriveFileId ? (
+                        <a href={driveViewUrl(rawProduk.formApprovalDriveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "var(--color-status-approved, #008f42)" }}>
+                          ✓ {rawProduk.formApprovalFilePath}
+                        </a>
+                      ) : (
+                        <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum diupload</span>
+                      )}
+                      {!disabled && (
+                        <Button type="button" size="sm" variant="secondary" disabled={uploadingFormApproval === p.id} onClick={() => formApprovalInputRefs.current[p.id!]?.click()}>
+                          {rawProduk.formApprovalDriveFileId ? "Ganti" : "Upload"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         );
       })}
@@ -1692,6 +1773,74 @@ function FinalisasiPhase({
 }
 
 // ─── Ringkasan POA (shared, bottom) ──────────────────────────────────────────
+
+// ─── Riwayat Akses Dokumen (2026-08-27, user: dokumen confidential) ────────
+// Every open of a Drive-backed document in this wizard is logged
+// server-side (PoaStandarisasiFileAccessLog, via the download proxy route) —
+// this panel surfaces that log so an MR/approver can see who opened which
+// file and how many times. Collapsed by default (same space-saving pattern
+// as RekomendasiSidebar's "Spesialisasi outlet" bar).
+
+function DokumenAccessLogPanel({ pengajuanId }: { pengajuanId: string }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<FileAccessLogRow[] | null>(null);
+
+  useEffect(() => {
+    if (!open || rows !== null) return;
+    getPoaStandarisasiFileAccessLogAction(pengajuanId).then(setRows);
+  }, [open, rows, pengajuanId]);
+
+  const countByFile = new Map<string, number>();
+  for (const r of rows ?? []) countByFile.set(r.driveFileId, (countByFile.get(r.driveFileId) ?? 0) + 1);
+
+  return (
+    <div className="rounded-xl mt-3" style={{ border: "1px solid var(--color-border)" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 px-4 py-2.5"
+        style={{ background: "transparent", border: "none", cursor: "pointer" }}
+      >
+        <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+          🔒 Riwayat Akses Dokumen
+        </span>
+        <span style={{ color: "var(--color-text-faint)", fontSize: 11 }}>{open ? "▲ tutup" : "▼ lihat"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          {rows === null ? (
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Memuat…</p>
+          ) : rows.length === 0 ? (
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada dokumen yang diakses.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr style={{ color: "var(--color-text-faint)" }}>
+                    <th className="text-left py-1 pr-3">Dokumen</th>
+                    <th className="text-left py-1 pr-3">Diakses oleh</th>
+                    <th className="text-left py-1 pr-3">Waktu</th>
+                    <th className="text-right py-1">Total akses file ini</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                      <td className="py-1 pr-3">{r.label}</td>
+                      <td className="py-1 pr-3">{r.accessedByNama} ({r.accessedByNip})</td>
+                      <td className="py-1 pr-3">{new Date(r.accessedAt).toLocaleString("id-ID")}</td>
+                      <td className="py-1 text-right">{countByFile.get(r.driveFileId)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function RingkasanPoa({ produkList, productByKode, kpdmList }: { produkList: ProdukFormState[]; productByKode: Map<string, Product>; kpdmList: KpdmFormState[] }) {
   const rows = produkList

@@ -379,14 +379,14 @@ async function DashboardContent({
             2026-08-14 per explicit request: SFE (and VIEWER, already unaffected
             by this check) should get the bulk export too, not just per-POA
             one-by-one via canView. See matching block in /api/export/team.
-            No ?period= here (2026-08-04 request) — default export is every
-            quarter the team has data for, not just the one mrProgressPeriod
-            picks out for the panel below; /api/export/team still accepts
-            ?period= for a scoped export, just nothing in the UI links to that
-            variant right now. */}
+            No ?period= here (2026-08-26) — /api/export/team now defaults to
+            the CURRENT quarter on its own when period is omitted, superseding
+            the 2026-08-04 "every quarter the team has data for" default,
+            which was unbounded-by-history for ADMIN/GM/SFE/VIEWER's
+            company-wide scope and the reported cause of this route's 502s. */}
         {!isMR && (
           <a href="/api/export/team">
-            <Button variant="secondary" size="sm">↓ Export Excel</Button>
+            <Button variant="secondary" size="sm">↓ Export Excel (Kuartal Ini)</Button>
           </a>
         )}
       </div>

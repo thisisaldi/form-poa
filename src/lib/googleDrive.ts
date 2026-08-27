@@ -72,3 +72,31 @@ export async function uploadFileToSurveyDrive(
   }
   return { driveFileId: res.data.id };
 }
+
+/**
+ * Fetches a file's bytes from Drive by id — used by the authenticated
+ * download proxy for confidential POA Standarisasi documents (NIE/COA/CPOB/
+ * Flyer, Bukti TTD, dll — see /api/poa-standarisasi/dokumen/[id]/route.ts).
+ * Files are always downloaded through this proxy rather than a raw Drive
+ * link so access can be gated by the app's own authz AND logged (2026-08-27,
+ * user: dokumen-dokumen ini confidential). "drive.file" scope (same as
+ * upload) already covers reading back files this service account created.
+ */
+export async function downloadFileFromDrive(driveFileId: string): Promise<{ buffer: Buffer; mimeType: string; fileName: string }> {
+  if (!isGoogleDriveConfigured) {
+    throw new Error("Fitur download belum dikonfigurasi.");
+  }
+
+  const drive = google.drive({ version: "v3", auth: getAuth() });
+  const meta = await drive.files.get({ fileId: driveFileId, fields: "mimeType,name", supportsAllDrives: true });
+  const res = await drive.files.get(
+    { fileId: driveFileId, alt: "media", supportsAllDrives: true },
+    { responseType: "arraybuffer" }
+  );
+
+  return {
+    buffer: Buffer.from(res.data as ArrayBuffer),
+    mimeType: meta.data.mimeType ?? "application/octet-stream",
+    fileName: meta.data.name ?? driveFileId,
+  };
+}
