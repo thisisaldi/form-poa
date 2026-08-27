@@ -19,6 +19,7 @@ import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
 import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
+import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -751,6 +752,7 @@ function sanitizeForFileName(s: string): string {
  * provisioned separately; reusing GOOGLE_DRIVE_SURVEY_FOLDER_ID for v1).
  */
 export async function uploadPoaStandarisasiFileAction(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
+  if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
   const { session, actor } = await requireActor();
   if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
 

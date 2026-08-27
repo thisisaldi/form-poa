@@ -28,6 +28,9 @@ import {
   uploadPoaStandarisasiFileAction,
   getPoaStandarisasiFileAccessLogAction,
   getStatusPengajuanPreviewAction,
+} from "@/app/actions/poaStandarisasi";
+import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import {
   type PoaStandarisasiDetail,
   type PlanningInput,
   type PlanningProdukInput,
@@ -1435,6 +1438,11 @@ function ApprovalUserDokterPhase({
     <div className="flex gap-4 items-start mb-4 flex-col lg:flex-row">
       <Card className="flex-1 min-w-0">
         <CardHeader><CardTitle>Approval User / Dokter</CardTitle></CardHeader>
+        {POA_STANDARISASI_UPLOAD_DISABLED && (
+          <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-warning-bg, #FEF9C3)", color: "var(--color-warning, #92400E)" }}>
+            {POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE}
+          </p>
+        )}
         {localError && (
           <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
             {localError}
@@ -1476,7 +1484,8 @@ function ApprovalUserDokterPhase({
                   type="button"
                   size="sm"
                   variant="secondary"
-                  disabled={uploadingKey === key}
+                  disabled={uploadingKey === key || POA_STANDARISASI_UPLOAD_DISABLED}
+                  title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
                   onClick={() => fileInputRefs.current[key]?.click()}
                 >
                   {uploadingKey === key ? "Mengupload…" : d.buktiTtdDriveFileId ? "Ganti" : "Upload Memo"}
@@ -1625,6 +1634,11 @@ function FinalisasiPhase({
   return (
     <Card className="mb-4">
       <CardHeader><CardTitle>Finalisasi</CardTitle></CardHeader>
+      {POA_STANDARISASI_UPLOAD_DISABLED && (
+        <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-warning-bg, #FEF9C3)", color: "var(--color-warning, #92400E)" }}>
+          {POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE}
+        </p>
+      )}
       {localError && (
         <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
           {localError}
@@ -1665,7 +1679,14 @@ function FinalisasiPhase({
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadKft(f); }}
               />
-              <Button type="button" size="sm" variant="secondary" disabled={uploadingKft} onClick={() => kftInputRef.current?.click()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={uploadingKft || POA_STANDARISASI_UPLOAD_DISABLED}
+                title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
+                onClick={() => kftInputRef.current?.click()}
+              >
                 {uploadingKft ? "Mengupload…" : "Upload"}
               </Button>
             </>
@@ -1807,7 +1828,14 @@ function FinalisasiPhase({
                         <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum diupload</span>
                       )}
                       {!disabled && (
-                        <Button type="button" size="sm" variant="secondary" disabled={uploadingFormApproval === p.id} onClick={() => formApprovalInputRefs.current[p.id!]?.click()}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={uploadingFormApproval === p.id || POA_STANDARISASI_UPLOAD_DISABLED}
+                          title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
+                          onClick={() => formApprovalInputRefs.current[p.id!]?.click()}
+                        >
                           {rawProduk.formApprovalDriveFileId ? "Ganti" : "Upload"}
                         </Button>
                       )}
