@@ -270,20 +270,70 @@ function SurveyOutletPanel({ rows, standarisasiKode, sortByStandarisasi }: { row
   );
 }
 
+/**
+ * "Produk Rekomendasi" section buckets (2026-08-27, user request) — each row
+ * lands in exactly ONE bucket by priority order (a row could technically
+ * match more than one condition, e.g. Blue Ocean + Tidak Ada Sales — first
+ * match wins so a product never appears twice), rows matching none of the 3
+ * (e.g. kategori "Low Hanging Fruit" with a kriteriaBaru other than "Sudah
+ * Terstandarisasi - Tidak Ada Sales") are NOT shown in this tab — only the 3
+ * buckets the user specified, in this exact order.
+ */
+const KRITERIA_SECTIONS: { key: string; label: string; color: string; match: (r: KriteriaByOutlet) => boolean }[] = [
+  {
+    key: "sudah-standarisasi-corporate",
+    label: "Sudah Standarisasi Corporate",
+    color: "var(--color-orange, #ea580c)",
+    match: (r) => r.kriteriaBaru === "Produk Sudah Terstandarisasi - Tidak Ada Sales",
+  },
+  {
+    key: "blue-ocean",
+    label: "Produk Rekomendasi PM (Blue Ocean)",
+    color: SIDEBAR_BLUE,
+    match: (r) => r.kategori === "Blue Ocean",
+  },
+  {
+    key: "red-ocean",
+    label: "Produk Rekomendasi PM (Red Ocean)",
+    color: "var(--color-red, #dc2626)",
+    match: (r) => r.kategori === "Red Ocean",
+  },
+];
+
 function KriteriaOutletPanel({ rows, productByKode, standarisasiKode, sortByStandarisasi }: { rows: KriteriaByOutlet[] | null; productByKode: Map<string, Product>; standarisasiKode: Set<string>; sortByStandarisasi: <T extends { kodeProduk: string }>(rows: T[]) => T[] }) {
   const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada kriteria produk untuk outlet ini." />;
   if (!rows || rows.length === 0) return empty;
-  const sorted = sortByStandarisasi(rows);
+
+  const remaining = [...rows];
+  const sections = KRITERIA_SECTIONS.map((section) => {
+    const matched: KriteriaByOutlet[] = [];
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      if (section.match(remaining[i])) matched.push(...remaining.splice(i, 1));
+    }
+    return { ...section, rows: sortByStandarisasi(matched.reverse()) };
+  }).filter((s) => s.rows.length > 0);
+
+  if (sections.length === 0) return empty;
+
   return (
-    <div className="space-y-1.5">
-      {sorted.map((r) => (
-        <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-          <div className="flex items-start justify-between gap-2">
-            <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk}</div>
-            <StandarisasiBadge done={standarisasiKode.has(r.kodeProduk)} />
+    <div className="space-y-4">
+      {sections.map((section) => (
+        <div key={section.key}>
+          <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: section.color }}>
+            {section.label} ({section.rows.length})
           </div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-            {r.paket} · {r.kriteriaBaru} · <span style={{ color: "var(--color-text-muted)" }}>{r.kategori}</span>
+          <div className="space-y-1.5">
+            {section.rows.map((r) => (
+              <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk}</div>
+                  <StandarisasiBadge done={standarisasiKode.has(r.kodeProduk)} />
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                  {r.paket} · {r.kriteriaBaru} · <span style={{ color: "var(--color-text-muted)" }}>{r.kategori}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ))}
