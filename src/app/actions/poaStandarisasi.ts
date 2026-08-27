@@ -748,8 +748,8 @@ function sanitizeForFileName(s: string): string {
  * replaces the old manual "Sudah TTD" checkbox, docs/TODO.md #14: uploading
  * sets sudahTtd=true server-side, never toggled directly by the client).
  * Same Google Drive service account/folder as Input Data Survey — no
- * dedicated folder for this feature yet (env var would need to be
- * provisioned separately; reusing GOOGLE_DRIVE_SURVEY_FOLDER_ID for v1).
+ * dedicated folder for this feature, reuses the single ADMIN-settable
+ * GoogleDriveConfig folder (2026-08-27, see src/lib/googleDrive.ts).
  */
 export async function uploadPoaStandarisasiFileAction(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
   if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);

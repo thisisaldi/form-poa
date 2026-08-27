@@ -1179,6 +1179,22 @@ model PoaDoctorsApiCredential {
   updatedAt    DateTime @updatedAt
 }
 
+// Google Drive destination folder for "Input Data Survey" + POA Standarisasi
+// uploads — DB-backed instead of GOOGLE_DRIVE_SURVEY_FOLDER_ID env var
+// (2026-08-27, user request) so an ADMIN can set/change it from the Admin
+// page without a redeploy, same singleton-row pattern as
+// PoaDoctorsApiCredential/MaintenanceMode above. NOT a secret (just a Drive
+// folder id) — unlike PoaDoctorsApiCredential this is never hashed, the
+// admin panel can show the current value as-is. GOOGLE_SERVICE_ACCOUNT_KEY
+// itself stays an env var (a real secret, shouldn't be editable/visible via
+// a web form).
+model GoogleDriveConfig {
+  id             Int      @id @default(1)
+  surveyFolderId String
+  updatedByNip   String?
+  updatedAt      DateTime @updatedAt
+}
+
 // Cross-replica mutex for in-process schedulers (see
 // salesHistoryMonthlyScheduler.ts) — multiple pods each run their own
 // setTimeout/setInterval, so without this every replica would re-run the

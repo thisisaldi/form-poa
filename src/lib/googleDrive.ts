@@ -1,27 +1,33 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
 import { env } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Google Drive upload client for "Input Data Survey" (see
  * docs/survey-pasien-features/) — MR uploads an Excel file from the
  * browser, this forwards it to a shared drive folder via a service
  * account. Optional feature: degrades to a clear "belum dikonfigurasi"
- * error (never a generic 500) when GOOGLE_SERVICE_ACCOUNT_KEY /
- * GOOGLE_DRIVE_SURVEY_FOLDER_ID aren't set for this environment — same
- * degradation philosophy as src/lib/exodusApi.ts, except this feature has
- * no fallback "return null" shape (an upload either genuinely succeeds or
- * the caller needs to know it failed), so it throws instead.
+ * error (never a generic 500) when GOOGLE_SERVICE_ACCOUNT_KEY / the
+ * destination folder aren't set for this environment — same degradation
+ * philosophy as src/lib/exodusApi.ts, except this feature has no fallback
+ * "return null" shape (an upload either genuinely succeeds or the caller
+ * needs to know it failed), so it throws instead.
  *
  * GOOGLE_SERVICE_ACCOUNT_KEY is the RAW service account JSON key file
  * (paste the whole downloaded .json as-is), not base64-encoded — decided
  * 2026-08-27 (user request) after a base64 mis-encode on staging produced
  * garbled JSON.parse errors; raw JSON is one less encode/decode step to
  * get wrong.
+ *
+ * The destination folder id is DB-backed (GoogleDriveConfig, singleton row
+ * id=1), not GOOGLE_DRIVE_SURVEY_FOLDER_ID env var (retired 2026-08-27, user
+ * request) — an ADMIN sets/changes it from the Admin page without a
+ * redeploy, same pattern as PoaDoctorsApiCredential. Only the credential
+ * itself stays an env var — that's a real secret, unlike a folder id.
  */
 
-export const isGoogleDriveConfigured =
-  !!env.GOOGLE_SERVICE_ACCOUNT_KEY && !!env.GOOGLE_DRIVE_SURVEY_FOLDER_ID;
+export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
 
 let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
 
@@ -36,6 +42,11 @@ function getAuth() {
     scopes: ["https://www.googleapis.com/auth/drive.file"],
   });
   return cachedAuth;
+}
+
+async function getSurveyFolderId(): Promise<string | null> {
+  const row = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
+  return row?.surveyFolderId || null;
 }
 
 /**
@@ -57,12 +68,16 @@ export async function uploadFileToSurveyDrive(
   if (!isGoogleDriveConfigured) {
     throw new Error("Fitur upload survey belum dikonfigurasi.");
   }
+  const folderId = await getSurveyFolderId();
+  if (!folderId) {
+    throw new Error("Folder Drive tujuan upload belum diset — set di halaman Admin.");
+  }
 
   const drive = google.drive({ version: "v3", auth: getAuth() });
   const res = await drive.files.create({
     requestBody: {
       name: fileName,
-      parents: [env.GOOGLE_DRIVE_SURVEY_FOLDER_ID!],
+      parents: [folderId],
     },
     media: {
       mimeType,
