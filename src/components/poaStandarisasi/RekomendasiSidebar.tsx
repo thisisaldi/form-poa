@@ -111,7 +111,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
   const spesialisasiCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const d of dokterList ?? []) {
-      const s = d.spesialisasi?.trim();
+      const s = d.jabatan?.trim();
       if (!s) continue;
       counts.set(s, (counts.get(s) ?? 0) + 1);
     }
@@ -175,7 +175,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
             style={{ padding: "6px 14px", cursor: "pointer", background: "transparent", border: "none" }}
           >
             <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
-              Spesialisasi outlet ({spesialisasiCounts.length})
+              Jabatan outlet ({spesialisasiCounts.length})
             </span>
             <span style={{ color: "var(--color-text-faint)", fontSize: 10 }}>{spesialisasiOpen ? "▲ tutup" : "▼ lihat"}</span>
           </button>

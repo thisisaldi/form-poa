@@ -478,7 +478,7 @@ export function PoaStandarisasiWizard({
     setKpdmList((prev) =>
       prev.some((k) => k.customerId === realId)
         ? prev
-        : [...prev, { customerId: realId, nama: opt.namaCustomer, jabatan: opt.spesialisasi, entertainEstimasi: "", entertainFinal: "" }]
+        : [...prev, { customerId: realId, nama: opt.namaCustomer, jabatan: opt.jabatan, entertainEstimasi: "", entertainFinal: "" }]
     );
   }
   function removeKpdm(customerId: string) {
@@ -975,7 +975,7 @@ export function PlanningPhase(props: {
           {!disabled && (
             <Combobox
               name="kpdmAdd"
-              options={dokterList.filter((d) => !kpdmList.some((k) => k.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+              options={dokterList.filter((d) => !kpdmList.some((k) => k.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
               value=""
               onChange={addKpdm}
               disabled={disabled}
@@ -1156,7 +1156,7 @@ export function PlanningPhase(props: {
             {!disabled && (
               <Combobox
                 name={`dokter-add-${idx}`}
-                options={dokterList.filter((d) => !p.dokterKlinis.some((dk) => dk.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+                options={dokterList.filter((d) => !p.dokterKlinis.some((dk) => dk.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
                 value=""
                 onChange={(v) => addDokterToProduk(idx, v)}
                 placeholder="+ Tambah dokter user…"
@@ -1503,7 +1503,7 @@ function ApprovalUserDokterPhase({
         {canEdit && (
           <Combobox
             name="dokterApprovalAdd"
-            options={dokterList.filter((d) => !p.dokterApproval.some((da) => da.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+            options={dokterList.filter((d) => !p.dokterApproval.some((da) => da.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
             value=""
             onChange={handleAddDokter}
             disabled={busy}
@@ -1779,7 +1779,7 @@ function FinalisasiPhase({
             {!disabled && (
               <Combobox
                 name={`dokteruser-add-${idx}`}
-                options={dokterList.filter((d) => !p.dokterUser.some((du) => du.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+                options={dokterList.filter((d) => !p.dokterUser.some((du) => du.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
                 value=""
                 onChange={(v) => addDokterUser(idx, v)}
                 placeholder="+ Tambah dokter…"

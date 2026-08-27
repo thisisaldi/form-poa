@@ -84,7 +84,7 @@ export function NewPoaStandarisasiForm({
     setKpdmList((prev) =>
       prev.some((k) => k.customerId === realId)
         ? prev
-        : [...prev, { customerId: realId, nama: opt.namaCustomer, jabatan: opt.spesialisasi, entertainEstimasi: "", entertainFinal: "" }]
+        : [...prev, { customerId: realId, nama: opt.namaCustomer, jabatan: opt.jabatan, entertainEstimasi: "", entertainFinal: "" }]
     );
   }
   function removeKpdm(customerId: string) {

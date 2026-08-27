@@ -93,6 +93,72 @@ export async function getVisitCountByCustomerOutlet(
   }
 }
 
+export interface ExodusCustomer {
+  customerCode: string | null;
+  name: string;
+  position: string | null;
+  specialist: string | null;
+}
+
+// Per-nip cache, same idea as cachedPricing below — /customers/users/{nip}
+// returns one MR's whole customer roster in one call, reused across
+// multiple outlets that MR covers (see resolveMrNipForOutlet in
+// customer.ts) rather than re-fetching per outlet.
+const customersCacheByNip = new Map<string, { list: ExodusCustomer[]; expiresAt: number }>();
+const CUSTOMERS_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * A given MR's full customer (doctor) roster from the Exodus core customers
+ * API (2026-08-27 decision: replaces Nexus as the customer/dokter source for
+ * POA Estimasi + POA Standarisasi — see customer.ts's fetchCustomersForOutlet).
+ * Scoped by MR nip, NOT by outlet — Exodus customer records carry no outlet
+ * field at all, confirmed against the real API (both /customers and
+ * /customers/users/{nip} return the same shape). Outlet-exact filtering was
+ * considered (intersecting against local CustomerOutlet) and explicitly
+ * rejected: only ~37% of outlets have any local CustomerOutlet rows (that
+ * table is populated by ad-hoc materialization + a one-off 2026-07 Excel
+ * import, not a live sync), so gating by it would leave most outlets with an
+ * empty dokter picker. User-confirmed tradeoff: show the MR's whole roster,
+ * unfiltered by outlet, same "never gate the set, only enrich" philosophy
+ * the old Nexus flow already established.
+ */
+export async function getExodusCustomersForMr(nip: string): Promise<ExodusCustomer[] | null> {
+  if (!isConfigured || !nip) return null;
+  const cached = customersCacheByNip.get(nip);
+  if (cached && cached.expiresAt > Date.now()) return cached.list;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${env.EXODUS_API_BASE_URL}/core/v1/customers/users/${encodeURIComponent(nip)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: Record<string, unknown>[]; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data)) return null;
+
+    // API casing is inconsistent between endpoints in practice (PascalCase on
+    // /customers/users/{nip}, snake_case on /customers per the sample docs
+    // reference) — read both defensively rather than assuming one.
+    const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const list: ExodusCustomer[] = body.data
+      .map((c) => ({
+        customerCode: str(c.CustomerCode) ?? str(c.customer_code),
+        name: str(c.Name) ?? str(c.name) ?? "",
+        position: str(c.Position) ?? str(c.position),
+        specialist: str(c.Specialist) ?? str(c.specialist),
+      }))
+      .filter((c) => c.name);
+
+    customersCacheByNip.set(nip, { list, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
+    return list;
+  } catch {
+    return null;
+  }
+}
+
 export interface LivePricing {
   hna: number;             // == API's sell_price
   nilaiRPersen: number | null; // r_value / sell_price, same formula scripts/importProductR.ts used against the old Excel source

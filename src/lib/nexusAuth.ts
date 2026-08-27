@@ -1,8 +1,9 @@
 /**
  * HTTP Basic Auth header for the Nexus API (api-nexus.pharos.id) — required
- * as of 2026-08-18. Used by every direct Nexus fetch call: customer.ts's
- * fetchNexusCustomersByOutlet, outletSync.ts's per-NIP outlet fetch, and the
- * scripts/*NexusVsStrukturBaru.ts / checkCustomerFullApiGap.ts diagnostics.
+ * as of 2026-08-18. Used by outletSync.ts's per-NIP outlet fetch and the
+ * scripts/*NexusVsStrukturBaru.ts / checkCustomerFullApiGap.ts diagnostics —
+ * customer.ts's dokter/customer lookup moved to Exodus 2026-08-27, no longer
+ * calls Nexus at all.
  *
  * Reads process.env directly (not the Zod-validated `env` singleton in
  * env.ts) so this also works from standalone scripts that only load env via

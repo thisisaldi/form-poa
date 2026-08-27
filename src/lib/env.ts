@@ -36,8 +36,9 @@ const envSchema = z.object({
   // GoogleDriveConfig table (2026-08-27, ADMIN-settable, see admin.ts).
   GOOGLE_SERVICE_ACCOUNT_KEY: z.string().optional(),
   // Optional — Nexus API (api-nexus.pharos.id) now requires HTTP Basic Auth
-  // (2026-08-18) — used by fetchNexusCustomersByOutlet (customer.ts) and
-  // outletSync.ts's per-NIP outlet fetch. Same degrade-gracefully pattern as
+  // (2026-08-18) — used by outletSync.ts's per-NIP outlet fetch (customer.ts's
+  // dokter/customer lookup moved to Exodus 2026-08-27, no longer uses this).
+  // Same degrade-gracefully pattern as
   // EXODUS_*/GOOGLE_* above: unset means requests go out unauthenticated
   // (will just get 401'd by Nexus, treated as "no data" by the existing
   // try/catch — never a hard failure), not an env validation error.
