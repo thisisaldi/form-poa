@@ -39,42 +39,58 @@ export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
 export function describeGoogleDriveConfig(): {
   keySet: boolean;
   keyLength: number;
-  keyWasQuoteWrapped: boolean;
+  keyWasDoubleEncoded: boolean;
   keyParsesAsJson: boolean;
   clientEmail: string | null;
   projectId: string | null;
 } {
   const raw = env.GOOGLE_SERVICE_ACCOUNT_KEY ?? "";
-  const cleaned = raw ? cleanServiceAccountKeyRaw(raw) : "";
   let clientEmail: string | null = null;
   let projectId: string | null = null;
   let keyParsesAsJson = false;
-  if (cleaned) {
+  let keyWasDoubleEncoded = false;
+  if (raw) {
     try {
-      const parsed = JSON.parse(cleaned);
+      const parsed = parseServiceAccountKey(raw);
       keyParsesAsJson = true;
-      clientEmail = typeof parsed.client_email === "string" ? parsed.client_email : null;
-      projectId = typeof parsed.project_id === "string" ? parsed.project_id : null;
+      keyWasDoubleEncoded = parsed.wasDoubleEncoded;
+      clientEmail = typeof parsed.credentials.client_email === "string" ? parsed.credentials.client_email : null;
+      projectId = typeof parsed.credentials.project_id === "string" ? parsed.credentials.project_id : null;
     } catch {
       // leave keyParsesAsJson false — that alone is the useful signal
     }
   }
-  return { keySet: !!raw, keyLength: raw.length, keyWasQuoteWrapped: cleaned !== raw.trim(), keyParsesAsJson, clientEmail, projectId };
+  return { keySet: !!raw, keyLength: raw.length, keyWasDoubleEncoded, keyParsesAsJson, clientEmail, projectId };
 }
 
 let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
 
 /**
- * Trims stray whitespace and strips one layer of wrapping quotes some secret
- * managers add when a value gets exported/pasted (e.g. `"{...}"` instead of
- * `{...}`) — deterministic cleanup only, never guesses at repairing actually
- * malformed JSON, so this can't silently produce a wrong/corrupted credential.
+ * Trims stray whitespace, then parses GOOGLE_SERVICE_ACCOUNT_KEY as JSON —
+ * handling the one real, deterministically-recoverable corruption mode seen
+ * in practice (2026-08-27 bug report): the whole credential JSON getting
+ * JSON.stringify'd AGAIN somewhere in the pipeline (e.g. a PowerShell
+ * `Get-Content -Raw | ConvertTo-Json` instead of
+ * `ConvertFrom-Json | ConvertTo-Json` when minifying it to one line) — the
+ * value is then a JSON STRING whose content is the real JSON, escaped. First
+ * JSON.parse on that correctly yields a plain string (not an object); if so,
+ * parse once more to unwrap it. This does NOT attempt to guess-repair
+ * genuinely malformed JSON — an earlier version of this function naively
+ * stripped a leading/trailing quote character, which actively corrupted this
+ * exact double-encoded case (turns a recoverable value into unparseable
+ * garbage) — that approach was wrong and has been removed.
  */
-function cleanServiceAccountKeyRaw(raw: string): string {
-  const trimmed = raw.trim();
-  const wrapped =
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"));
-  return wrapped ? trimmed.slice(1, -1) : trimmed;
+function parseServiceAccountKey(raw: string): { credentials: Record<string, unknown>; wasDoubleEncoded: boolean } {
+  let parsed: unknown = JSON.parse(raw.trim());
+  let wasDoubleEncoded = false;
+  if (typeof parsed === "string") {
+    parsed = JSON.parse(parsed);
+    wasDoubleEncoded = true;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY tidak berbentuk objek JSON yang valid.");
+  }
+  return { credentials: parsed as Record<string, unknown>, wasDoubleEncoded };
 }
 
 function getAuth() {
@@ -82,7 +98,7 @@ function getAuth() {
   if (!env.GOOGLE_SERVICE_ACCOUNT_KEY) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY belum dikonfigurasi.");
   }
-  const credentials = JSON.parse(cleanServiceAccountKeyRaw(env.GOOGLE_SERVICE_ACCOUNT_KEY));
+  const { credentials } = parseServiceAccountKey(env.GOOGLE_SERVICE_ACCOUNT_KEY);
   cachedAuth = new google.auth.GoogleAuth({
     credentials,
     scopes: ["https://www.googleapis.com/auth/drive.file"],
