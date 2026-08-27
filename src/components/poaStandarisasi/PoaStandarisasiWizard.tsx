@@ -27,6 +27,7 @@ import {
   submitPoaStandarisasiAction,
   uploadPoaStandarisasiFileAction,
   getPoaStandarisasiFileAccessLogAction,
+  getStatusPengajuanPreviewAction,
   type PoaStandarisasiDetail,
   type PlanningInput,
   type PlanningProdukInput,
@@ -500,7 +501,6 @@ export function PoaStandarisasiWizard({
           (p): PlanningProdukInput => ({
             id: p.id,
             kodeProduk: p.kodeProduk,
-            statusPengajuan: p.statusPengajuan,
             estimasiDiskonPct: p.estimasiDiskonPct || null,
             estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
             dokterKlinis: p.dokterKlinis.map((dk) => ({
@@ -900,6 +900,29 @@ export function PlanningPhase(props: {
   // categorization.
   const productComboOptions = useMemo(() => buildProductOptions(productOptions, undefined), [productOptions]);
 
+  // Status Pengajuan (Baru/Perpanjangan) is auto-derived server-side from 12-
+  // month sales history (see getStatusPengajuanPreviewAction) — this refetches
+  // the preview whenever the outlet or the SET of picked kodeProduk changes,
+  // so the read-only label updates live as the MR builds the produk list,
+  // without waiting for a save. Keyed on kodeProduk values only (not the
+  // whole produkList) so editing unrelated fields (diskon, dokter, ...)
+  // doesn't retrigger it.
+  const kodeProdukKey = produkList.map((p) => p.kodeProduk).join(",");
+  useEffect(() => {
+    const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
+    if (!kodePI || kodeList.length === 0) return;
+    let cancelled = false;
+    getStatusPengajuanPreviewAction(kodePI, kodeList).then((map) => {
+      if (cancelled) return;
+      produkList.forEach((p, idx) => {
+        const derived = p.kodeProduk ? map[p.kodeProduk] : undefined;
+        if (derived && derived !== p.statusPengajuan) updateProduk(idx, { statusPengajuan: derived });
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kodePI, kodeProdukKey]);
+
   return (
     <>
       <RekomendasiSidebar kodePI={kodePI} pengajuanId={pengajuanId} productByKode={productByKode} dokterList={dokterList} />
@@ -1038,17 +1061,18 @@ export function PlanningPhase(props: {
                 />
               </div>
               <div className="w-40 shrink-0">
-                <span className="text-xs font-medium block mb-1">Status Pengajuan *</span>
-                <Combobox
-                  name={`statusPengajuan-${idx}`}
-                  options={[
-                    { value: "BARU", label: "Standarisasi Baru" },
-                    { value: "PERPANJANGAN", label: "Perpanjangan" },
-                  ]}
-                  value={p.statusPengajuan}
-                  onChange={(v) => updateProduk(idx, { statusPengajuan: v as "BARU" | "PERPANJANGAN" })}
-                  disabled={disabled}
-                />
+                <span className="text-xs font-medium block mb-1">Status Pengajuan</span>
+                <div
+                  className="rounded px-3 py-2 text-sm font-semibold"
+                  style={{
+                    background: p.statusPengajuan === "PERPANJANGAN" ? "var(--color-blue-light)" : "var(--color-bg-subtle)",
+                    color: p.statusPengajuan === "PERPANJANGAN" ? "var(--color-blue)" : "var(--color-text-muted)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  title="Otomatis: Perpanjangan kalau ada histori sales produk ini di outlet ini 12 bulan terakhir, Baru kalau tidak ada."
+                >
+                  {p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"}
+                </div>
               </div>
               <div className="w-24 shrink-0">
                 <UnitCountInput label="Estimasi Diskon" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />

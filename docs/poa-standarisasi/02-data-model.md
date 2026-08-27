@@ -163,8 +163,14 @@ model PoaStandarisasiProduk {
   product    Product @relation(fields: [kodeProduk], references: [kodeProduk])
 
   // Baru vs Perpanjangan — PER PRODUK (2026-08-27: dipindah ke sini dari
-  // PoaStandarisasi, lihat catatan di model itu). Field manual, dipilih MR
-  // di Planning per kartu produk. Default BARU. Enum
+  // PoaStandarisasi, lihat catatan di model itu). KOREKSI 2026-08-27 sore
+  // (user request): TIDAK LAGI manual/dipilih MR — auto-derived server-side
+  // tiap Planning disimpan (`applyPlanningProduk`/`computeStatusPengajuanMap`,
+  // src/app/actions/poaStandarisasi.ts) dari `OutletSalesHistory.totalSales12Bln`
+  // untuk kodePI (pengajuan) × kodeProduk yang sama: ada sales 12 bulan
+  // terakhir → PERPANJANGAN, tidak ada (row-nya nggak ada ATAU 0) → BARU.
+  // UI-nya read-only label, bukan dropdown (`getStatusPengajuanPreviewAction`
+  // dipakai buat live preview sebelum disimpan). Default BARU. Enum
   // `StatusPengajuanStandarisasi`, lihat `prisma/schema.prisma`.
   statusPengajuan StatusPengajuanStandarisasi @default(BARU)
 

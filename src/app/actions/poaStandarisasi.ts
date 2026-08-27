@@ -85,7 +85,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
       },
     });
     await applyPlanningKpdm(tx, pengajuan.id, input.kpdmList);
-    await applyPlanningProduk(tx, pengajuan.id, input.produk);
+    await applyPlanningProduk(tx, pengajuan.id, kodePI, input.produk);
     return pengajuan.id;
   });
 
@@ -250,7 +250,6 @@ export interface PlanningDokterKlinisInput {
 export interface PlanningProdukInput {
   id?: string;
   kodeProduk: string;
-  statusPengajuan: "BARU" | "PERPANJANGAN";
   estimasiDiskonPct: number | string | null;
   estimasiBiayaListingRp: number | string | null;
   dokterKlinis: PlanningDokterKlinisInput[];
@@ -304,6 +303,43 @@ async function computeEstimasiPerBulan(kodeProduk: string, jumlahPasien: number 
   return { estimasiQtyPerBulan: qty, estimasiNilaiRpPerBulan: Math.round(qty * hst) };
 }
 
+/**
+ * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
+ * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
+ * read-only). Logic: kalau ada histori sales produk ini di outlet ini dalam
+ * 12 bulan terakhir (OutletSalesHistory.totalSales12Bln > 0) → Perpanjangan,
+ * kalau tidak ada (baik row-nya nggak ada sama sekali ATAU ada tapi 0) →
+ * Baru. Batched (satu findMany utk seluruh kodeProduk sekaligus), bukan
+ * query per produk — sama pola no-N+1 seperti applyPlanningProduk lainnya.
+ */
+async function computeStatusPengajuanMap(
+  client: Prisma.TransactionClient | typeof prisma,
+  kodePI: string,
+  kodeProdukList: string[]
+): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
+  const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
+  if (kodeProdukList.length === 0) return map;
+  const rows = await client.outletSalesHistory.findMany({
+    where: { kodePI, itemKode: { in: kodeProdukList } },
+    select: { itemKode: true, totalSales12Bln: true },
+  });
+  for (const r of rows) {
+    if (parseFloat(r.totalSales12Bln.toString()) > 0) map.set(r.itemKode, "PERPANJANGAN");
+  }
+  return map;
+}
+
+/** Read-only preview for the Planning UI — same logic as computeStatusPengajuanMap,
+ * called live as the MR picks products, before anything is saved. */
+export async function getStatusPengajuanPreviewAction(
+  kodePI: string,
+  kodeProdukList: string[]
+): Promise<Record<string, "BARU" | "PERPANJANGAN">> {
+  if (!kodePI || kodeProdukList.length === 0) return {};
+  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList);
+  return Object.fromEntries(map);
+}
+
 function validatePlanningInput(input: PlanningInput) {
   if ((input.tipeStandarisasi === "PERIODIC" || input.tipeStandarisasi === "SISIPAN") && !toNum(input.periodeBulan)) {
     throw new Error("Periode wajib diisi untuk tipe Periodic/Sisipan.");
@@ -350,11 +386,13 @@ async function applyPlanningKpdm(tx: Prisma.TransactionClient, pengajuanId: stri
 /** Upserts produk + per-dokter estimasi rows for a pengajuan — shared between
  * savePlanningAction (existing pengajuan, may delete removed produk) and
  * createPoaStandarisasiAction (freshly created pengajuan, produk are all new). */
-async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, produk: PlanningProdukInput[]) {
+async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, kodePI: string, produk: PlanningProdukInput[]) {
+  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk));
+
   for (const p of produk) {
     const data = {
       kodeProduk: p.kodeProduk,
-      statusPengajuan: p.statusPengajuan,
+      statusPengajuan: statusMap.get(p.kodeProduk) ?? "BARU",
       estimasiDiskonPct: toNum(p.estimasiDiskonPct),
       estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
     };
@@ -421,7 +459,7 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
       await tx.poaStandarisasiProduk.deleteMany({ where: { id: { in: toDelete } } });
     }
 
-    await applyPlanningProduk(tx, id, input.produk);
+    await applyPlanningProduk(tx, id, pengajuan.kodePI, input.produk);
   });
 
   revalidatePath(`/poa-standarisasi/${id}`);

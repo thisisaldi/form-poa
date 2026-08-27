@@ -147,7 +147,6 @@ export function NewPoaStandarisasiForm({
               (p): PlanningProdukInput => ({
                 id: p.id,
                 kodeProduk: p.kodeProduk,
-                statusPengajuan: p.statusPengajuan,
                 estimasiDiskonPct: p.estimasiDiskonPct || null,
                 estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
                 dokterKlinis: p.dokterKlinis.map((dk) => ({
