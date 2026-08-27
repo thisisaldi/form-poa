@@ -129,7 +129,13 @@ export async function POST(req: Request) {
     driveFileId = result.driveFileId;
   } catch (err) {
     console.error("[survey/upload] Google Drive upload failed:", err);
-    return NextResponse.json({ error: "Upload ke Google Drive gagal, coba lagi." }, { status: 502 });
+    // detail = real error message, surfaced to the client so it shows up in
+    // the browser console/network tab — server logs aren't reachable by
+    // whoever's debugging a failed upload from the browser side.
+    return NextResponse.json(
+      { error: "Upload ke Google Drive gagal, coba lagi.", detail: err instanceof Error ? err.message : String(err) },
+      { status: 502 }
+    );
   }
 
   const log = await prisma.surveyUploadLog.create({
