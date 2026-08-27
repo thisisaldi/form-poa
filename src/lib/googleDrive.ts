@@ -39,8 +39,9 @@ export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
 export function describeGoogleDriveConfig(): {
   keySet: boolean;
   keyLength: number;
-  keyWasDoubleEncoded: boolean;
+  keyRepairApplied: "none" | "double-encoded" | "single-quoted";
   keyParsesAsJson: boolean;
+  keyParseError: string | null;
   clientEmail: string | null;
   projectId: string | null;
 } {
@@ -48,49 +49,77 @@ export function describeGoogleDriveConfig(): {
   let clientEmail: string | null = null;
   let projectId: string | null = null;
   let keyParsesAsJson = false;
-  let keyWasDoubleEncoded = false;
+  let keyRepairApplied: "none" | "double-encoded" | "single-quoted" = "none";
+  let keyParseError: string | null = null;
   if (raw) {
     try {
       const parsed = parseServiceAccountKey(raw);
       keyParsesAsJson = true;
-      keyWasDoubleEncoded = parsed.wasDoubleEncoded;
+      keyRepairApplied = parsed.repairApplied;
       clientEmail = typeof parsed.credentials.client_email === "string" ? parsed.credentials.client_email : null;
       projectId = typeof parsed.credentials.project_id === "string" ? parsed.credentials.project_id : null;
-    } catch {
-      // leave keyParsesAsJson false — that alone is the useful signal
+    } catch (e) {
+      // keyParsesAsJson stays false — the message itself is safe (JSON
+      // syntax errors only ever quote surrounding punctuation/position, the
+      // credential library never puts secret content in a parse error).
+      keyParseError = e instanceof Error ? e.message : String(e);
     }
   }
-  return { keySet: !!raw, keyLength: raw.length, keyWasDoubleEncoded, keyParsesAsJson, clientEmail, projectId };
+  return { keySet: !!raw, keyLength: raw.length, keyRepairApplied, keyParsesAsJson, keyParseError, clientEmail, projectId };
 }
 
 let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
 
 /**
  * Trims stray whitespace, then parses GOOGLE_SERVICE_ACCOUNT_KEY as JSON —
- * handling the one real, deterministically-recoverable corruption mode seen
- * in practice (2026-08-27 bug report): the whole credential JSON getting
- * JSON.stringify'd AGAIN somewhere in the pipeline (e.g. a PowerShell
- * `Get-Content -Raw | ConvertTo-Json` instead of
- * `ConvertFrom-Json | ConvertTo-Json` when minifying it to one line) — the
- * value is then a JSON STRING whose content is the real JSON, escaped. First
- * JSON.parse on that correctly yields a plain string (not an object); if so,
- * parse once more to unwrap it. This does NOT attempt to guess-repair
- * genuinely malformed JSON — an earlier version of this function naively
- * stripped a leading/trailing quote character, which actively corrupted this
- * exact double-encoded case (turns a recoverable value into unparseable
- * garbage) — that approach was wrong and has been removed.
+ * handling two real, deterministically-recoverable corruption modes seen in
+ * practice (2026-08-27 bug reports), tried in order:
+ *
+ * 1. Double-JSON-encoded: the whole credential JSON got JSON.stringify'd
+ *    AGAIN somewhere in the pipeline (e.g. a PowerShell
+ *    `Get-Content -Raw | ConvertTo-Json` instead of
+ *    `ConvertFrom-Json | ConvertTo-Json` when minifying it to one line) — the
+ *    value is then a JSON STRING whose content is the real JSON, escaped.
+ *    Plain JSON.parse on that correctly yields a plain string (not an
+ *    object); if so, parse once more to unwrap it.
+ * 2. Single-quoted (JS object literal syntax, not valid JSON — e.g.
+ *    `{'type': 'service_account', ...}`): replacing every `'` with `"` and
+ *    reparsing is safe specifically for this credential's known schema — no
+ *    field in a GCP service account JSON (type/project_id/private_key/
+ *    client_email/etc.) can legitimately contain an apostrophe, and
+ *    private_key's base64 PEM body can't either.
+ *
+ * This does NOT attempt to guess-repair genuinely malformed JSON beyond
+ * these two known, safe, verified transforms — an earlier version of this
+ * function naively stripped a leading/trailing quote character, which
+ * actively corrupted the double-encoded case instead of fixing it; that
+ * approach was wrong and has been removed.
  */
-function parseServiceAccountKey(raw: string): { credentials: Record<string, unknown>; wasDoubleEncoded: boolean } {
-  let parsed: unknown = JSON.parse(raw.trim());
-  let wasDoubleEncoded = false;
-  if (typeof parsed === "string") {
-    parsed = JSON.parse(parsed);
-    wasDoubleEncoded = true;
+function parseServiceAccountKey(raw: string): { credentials: Record<string, unknown>; repairApplied: "none" | "double-encoded" | "single-quoted" } {
+  const trimmed = raw.trim();
+
+  let parsed: unknown;
+  let repairApplied: "none" | "double-encoded" | "single-quoted" = "none";
+  try {
+    parsed = JSON.parse(trimmed);
+    if (typeof parsed === "string") {
+      parsed = JSON.parse(parsed);
+      repairApplied = "double-encoded";
+    }
+  } catch (firstErr) {
+    try {
+      parsed = JSON.parse(trimmed.replace(/'/g, '"'));
+      repairApplied = "single-quoted";
+    } catch {
+      // Neither the original nor the single-quote repair parsed — surface the ORIGINAL error, it's the more meaningful one.
+      throw firstErr;
+    }
   }
+
   if (typeof parsed !== "object" || parsed === null) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY tidak berbentuk objek JSON yang valid.");
   }
-  return { credentials: parsed as Record<string, unknown>, wasDoubleEncoded };
+  return { credentials: parsed as Record<string, unknown>, repairApplied };
 }
 
 function getAuth() {

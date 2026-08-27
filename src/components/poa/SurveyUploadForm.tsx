@@ -117,7 +117,7 @@ export function SurveyUploadForm({ outlets }: { outlets: OutletOption[] }) {
       const res = await fetch("/api/survey/upload", { method: "POST", body: fd });
       const body = await res.json();
       if (!res.ok) {
-        if (body.detail) console.error("[survey upload]", body.detail);
+        if (body.detail) console.error("[survey upload]", body.detail, body.diag ?? "");
         setMessage({ text: body.error ?? "Upload gagal.", type: "error" });
       } else {
         setMessage({ text: `Berhasil diupload: ${body.namaFile}`, type: "success" });

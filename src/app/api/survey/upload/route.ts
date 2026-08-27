@@ -134,12 +134,14 @@ export async function POST(req: Request) {
     const result = await uploadFileToSurveyDrive(namaFile, mimeType, buffer);
     driveFileId = result.driveFileId;
   } catch (err) {
-    console.error("[survey/upload] Google Drive upload failed:", err);
-    // detail = real error message, surfaced to the client so it shows up in
-    // the browser console/network tab — server logs aren't reachable by
-    // whoever's debugging a failed upload from the browser side.
+    const diag = describeGoogleDriveConfig();
+    console.error("[survey/upload] Google Drive upload failed:", err, diag);
+    // detail/diag = real error + safe (no secret content) config diagnostics,
+    // surfaced to the client so they show up in the browser console/network
+    // tab — server logs aren't reachable by whoever's debugging a failed
+    // upload from the browser side.
     return NextResponse.json(
-      { error: "Upload ke Google Drive gagal, coba lagi.", detail: err instanceof Error ? err.message : String(err) },
+      { error: "Upload ke Google Drive gagal, coba lagi.", detail: err instanceof Error ? err.message : String(err), diag },
       { status: 502 }
     );
   }

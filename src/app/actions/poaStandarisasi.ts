@@ -18,7 +18,7 @@ import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canApprov
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
-import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
+import { uploadFileToSurveyDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
@@ -789,8 +789,12 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
     // Same degradation as /api/survey/upload's POST — an unhandled throw
     // here becomes an opaque "Server Components render" digest error in
     // production (2026-08-27 bug report), so surface a real message instead.
-    console.error("[poaStandarisasi/upload] Google Drive upload failed:", err);
-    throw new Error("Upload ke Google Drive gagal, coba lagi.");
+    // Server Actions only propagate the Error's message to the client (no
+    // separate JSON body to attach a `diag` field to like the REST route
+    // does), so the safe diagnostic is appended into the message itself.
+    const diag = describeGoogleDriveConfig();
+    console.error("[poaStandarisasi/upload] Google Drive upload failed:", err, diag);
+    throw new Error(`Upload ke Google Drive gagal, coba lagi. (${JSON.stringify(diag)})`);
   }
 
   if (kind === "suratKft") {
