@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
 import type { Product } from "@/lib/masterData";
-import { getLossSalesAnalysisAction, getRecommendedProCodesAction } from "@/app/actions/canvasser";
+import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction, getScOutletB3SalesAction } from "@/app/actions/canvasser";
+import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 
 interface ProductSelectorProps {
   rows: SelectedProductRow[];
@@ -26,6 +27,7 @@ interface ProductSelectorProps {
   error?: string;
   readOnly?: boolean;
   b3SalesMap?: Map<string, number>;
+  b3QtyMap?: Map<string, number>;
   b3RangeLabel?: string;
   kodePI?: string;
 }
@@ -75,10 +77,63 @@ export function ProductSelector({
   error,
   readOnly = false,
   b3SalesMap,
+  b3QtyMap,
   b3RangeLabel,
   kodePI,
 }: ProductSelectorProps) {
   const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
+  const [internalB3QtyMap, setInternalB3QtyMap] = useState<Map<string, number>>(new Map());
+  const [historySalesMap, setHistorySalesMap] = useState<Map<string, number>>(new Map());
+  const [historyPeriodRange, setHistoryPeriodRange] = useState<string>("");
+  const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    if (!kodePI) {
+      setHistorySalesMap(new Map());
+      setHistoryPeriodRange("");
+      return;
+    }
+    getHistorySalesAction(kodePI).then((res) => {
+      const hMap = new Map<string, number>();
+      if (res?.data && Array.isArray(res.data)) {
+        for (const item of res.data) {
+          if (item.code) {
+            hMap.set(item.code, Number(item.history_sales) || 0);
+          }
+        }
+      }
+      setHistorySalesMap(hMap);
+
+      if (Array.isArray(res?.period) && res.period.length > 0) {
+        const periods = [...res.period].filter(Boolean).sort();
+        const minP = periods[0];
+        const maxP = periods[periods.length - 1];
+        setHistoryPeriodRange(`${minP}-${maxP}`);
+      } else {
+        setHistoryPeriodRange("");
+      }
+    });
+  }, [kodePI]);
+
+  useEffect(() => {
+    if (!kodePI || !periodeAwal) return;
+    const cleanPeriod = periodeAwal.replace(/[^0-9]/g, "");
+    const periodInt = parseInt(cleanPeriod.slice(0, 6), 10);
+    const selectedCodes = rows.map((r) => r.kodeProduk).filter(Boolean);
+    if (!periodInt || isNaN(periodInt) || selectedCodes.length === 0) return;
+
+    getScOutletB3SalesAction(periodInt, kodePI, selectedCodes).then((res) => {
+      const qMap = new Map<string, number>();
+      if (res?.data && Array.isArray(res.data)) {
+        for (const item of res.data) {
+          if (item.pro_code) {
+            qMap.set(item.pro_code, item.average_qty || 0);
+          }
+        }
+      }
+      setInternalB3QtyMap(qMap);
+    });
+  }, [kodePI, periodeAwal, rows]);
 
   useEffect(() => {
     if (!kodePI || !periodeAwal) {
@@ -109,7 +164,6 @@ export function ProductSelector({
       .then((recommendedCodes: string[]) => {
         if (!isMounted) return null;
 
-        // Filter recommended pro codes so ONLY pro_codes present in available product options are sent
         const validCodes: string[] = availableOptionCodes.size > 0
           ? recommendedCodes.filter((code: string) => availableOptionCodes.has(code))
           : recommendedCodes;
@@ -127,7 +181,7 @@ export function ProductSelector({
           const filtered = res.data.filter(
             (item: any) =>
               ((item.qty != null && Number(item.qty) > 0) ||
-               (item.total_sales != null && Number(item.total_sales) > 0)) &&
+                (item.total_sales != null && Number(item.total_sales) > 0)) &&
               (availableOptionCodes.size === 0 || availableOptionCodes.has(item.code))
           );
           setLossSalesItems(filtered);
@@ -149,388 +203,419 @@ export function ProductSelector({
     cashbackData?.message === "Gudang Tidak Ditemukan" ||
     (typeof cashbackData?.message === "string" &&
       (cashbackData.message.toLowerCase().includes("tidak ditemukan") ||
-       cashbackData.message.toLowerCase().includes("gudang"))) ||
+        cashbackData.message.toLowerCase().includes("gudang"))) ||
     (typeof cashbackData?.data?.message === "string" &&
       (cashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
-       cashbackData.data.message.toLowerCase().includes("gudang"))) ||
+        cashbackData.data.message.toLowerCase().includes("gudang"))) ||
     cashbackData?.status === false ||
     cashbackData?.success === false;
 
+  const toggleRowDetail = (idx: number) => {
+    setExpandedRows((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  // Calculate grand totals for table footer
+  let grandTotalQtyUb = 0;
+  let grandTotalQtySt = 0;
+  let grandTotalEstSalesBln = 0;
+  let grandTotalNilaiScBln = 0;
+
+  rows.forEach((row) => {
+    const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
+    const canvasserProduct = canvasserProducts.find((p) => p.pro_code === row.kodeProduk);
+    const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
+    const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
+    const qtyUb = parseFloat(row.qtyPerBulan) || 0;
+    const qtyST = qtyUb * konv;
+    const estSalesBln = qtyUb * hnaSJ;
+    const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
+    const scVal = canvasserProduct?.sales_counter_value;
+    const scMin = canvasserProduct?.sales_counter_minimum || 0;
+
+    let nilaiScBln = 0;
+    if (scVal != null && scVal > 0) {
+      nilaiScBln = qtyUb >= scMin ? qtyUb * scVal : 0;
+    } else {
+      nilaiScBln = estSalesBln * (pctMatriks / 100);
+    }
+
+    grandTotalQtyUb += qtyUb;
+    grandTotalQtySt += qtyST;
+    grandTotalEstSalesBln += estSalesBln;
+    grandTotalNilaiScBln += nilaiScBln;
+  });
+
+  const cashbackDetails = calculateCashbackDetails({
+    cashbackData,
+    selectedProducts: rows,
+    masterProducts,
+    lamaPeriode,
+  });
+
   return (
     <div className="space-y-4">
-
-
       {error && <p className="text-xs font-semibold" style={{ color: "var(--color-red)" }}>{error}</p>}
 
-      <div className="space-y-4">
-        {rows.map((row, idx) => {
-          const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
-          const canvasserProduct = canvasserProducts.find((p) => p.pro_code === row.kodeProduk);
-          
-          const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
-          const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
-          const hnaST = hnaSJ / konv;
-          
-          const qty = parseFloat(row.qtyPerBulan) || 0;
-          
-          const estSalesBln = qty * hnaST;
-          const estimasiSales = estSalesBln * lamaPeriode;
-          const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
-          
-          const qtySjBln = konv > 0 ? qty / konv : 0;
-          const scVal = canvasserProduct?.sales_counter_value;
-          const scMin = canvasserProduct?.sales_counter_minimum || 0;
-
-          let nilaiScBln = 0;
-          if (scVal != null && scVal > 0) {
-            nilaiScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
-          } else {
-            nilaiScBln = estSalesBln * (pctMatriks / 100);
-          }
-          const nilaiSc3Bln = nilaiScBln * 3;
-
-          return (
-            <div
-              key={idx}
-              id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`}
-              className="p-4 rounded-lg border space-y-4 relative animate-fade-in"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}
-            >
-              {!readOnly && (
-                <div className="flex justify-end">
-                  <Button type="button" size="sm" variant="danger" onClick={() => onRemoveRow(idx)}>
-                    Hapus
-                  </Button>
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+      {/* Main Product Table Container */}
+      <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+        <div className="w-full">
+          <table className="w-full text-left text-xs border-collapse table-fixed">
+            <thead>
+              <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                <th className="py-2 px-1.5 font-semibold text-[11px] text-left w-[28%]" style={{ color: "var(--color-text-muted)" }}>
                   Produk <Req />
-                </span>
-                <Combobox
-                  name={`product-${idx}`}
-                  options={productsOptions}
-                  value={row.kodeProduk}
-                  onChange={(val) => {
-                    onUpdateRow(idx, {
-                      kodeProduk: val,
-                    });
-                  }}
-                  disabled={readOnly}
-                  placeholder="Cari produk..."
-                  emptyMessage="Tidak ada produk."
-                />
-                {masterProduct && (
-                  <div className="flex gap-3 text-[11px] mt-1 flex-wrap animate-fade-in" style={{ color: "var(--color-text-faint)" }}>
-                    <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(masterProduct.hna)}</strong> ({satuanLabel(masterProduct)})</span>
-                    <span>HNA ST: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(parseFloat(masterProduct.hna) / (parseInt(masterProduct.konversiPembagi || "1", 10) || 1))}</strong> ({masterProduct.satuanTerkecil ?? satuanLabel(masterProduct)})
-                      <span style={{ opacity: 0.7 }}> = {formatRp(masterProduct.hna)} / {masterProduct.konversiPembagi ?? "1"}</span>
-                    </span>
-                    <span>{masterProduct.namaGroupBrand}</span>
-                    {masterProduct.zatAktif && (
-                      <span>Zat Aktif: <strong style={{ color: "var(--color-text-muted)" }}>{masterProduct.zatAktif}</strong></span>
-                    )}
-                  </div>
+                </th>
+                <th className="py-2 px-1 font-semibold text-[11px] text-center w-[8%]" style={{ color: "var(--color-text-muted)" }}>
+                  Potensi
+                </th>
+                <th className="py-2 px-1 font-semibold text-[11px] text-center w-[13%]" style={{ color: "var(--color-text-muted)" }}>
+                  Est. Switch <Req />
+                </th>
+                <th className="py-2 px-1 font-semibold text-[11px] text-center w-[8%]" style={{ color: "var(--color-text-muted)" }}>
+                  Diskon
+                </th>
+                <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
+                  Est. Sales
+                </th>
+                <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
+                  Nilai SC
+                </th>
+                <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
+                  Cashback
+                </th>
+                {!readOnly && (
+                  <th className="py-2 px-1 text-center font-semibold text-[11px] w-[3%]" style={{ color: "var(--color-text-muted)" }}>
+                  </th>
                 )}
-              </div>
+              </tr>
+            </thead>
+            <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={readOnly ? 7 : 8} className="py-6 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
+                    Belum ada produk yang ditambahkan. Klik tombol <strong>+ Tambah Produk</strong> di bawah untuk memilih produk.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row, idx) => {
+                  const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
+                  const canvasserProduct = canvasserProducts.find((p) => p.pro_code === row.kodeProduk);
 
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Produk Kompetitor
-                </span>
-                <input
-                  type="text"
-                  value={row.produkKompetitor}
-                  onChange={(e) => onUpdateRow(idx, { produkKompetitor: e.target.value })}
-                  placeholder="Nama produk kompetitor"
-                  disabled={readOnly}
-                  className="input-field text-xs w-full disabled:opacity-75 disabled:cursor-not-allowed"
-                />
-              </div>
+                  const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
+                  const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
+                  const hnaST = hnaSJ / konv;
+                  const qtyUb = parseFloat(row.qtyPerBulan) || 0;
+                  const qtyST = qtyUb * konv;
+                  const estSalesBln = qtyUb * hnaSJ;
+                  const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-              <div className="flex flex-col gap-1 max-w-xs">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Jml Produk ST / Bln <Req />
-                </span>
-                <UnitInput
-                  value={row.qtyPerBulan}
-                  onChange={(val) => onUpdateRow(idx, { qtyPerBulan: val })}
-                  unit={masterProduct?.satuanTerkecil ?? "ST"}
-                  placeholder="0"
-                  disabled={readOnly}
-                />
-              </div>
+                  const scVal = canvasserProduct?.sales_counter_value;
+                  const scMin = canvasserProduct?.sales_counter_minimum || 0;
 
-              <div className={`grid grid-cols-1 ${isCashbackNotFound ? "sm:grid-cols-2" : "sm:grid-cols-3"} gap-3`}>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    % Matriks SC (Autofill)
-                  </span>
-                  <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
-                    <UnitInput
-                      value={row.persenMatriksSc}
-                      onChange={() => {}}
-                      unit="%"
-                      placeholder="0"
-                      disabled={true}
-                    />
-                  </div>
-                  {canvasserProduct?.sales_counter_value != null && (
-                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
-                      <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Nilai SC (Autofill): </span>
-                      Rp {formatRp(canvasserProduct.sales_counter_value)}
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    % Diskon (DPL/DPF)
-                  </span>
-                  <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
-                    <UnitInput
-                      value={row.persenDiskon}
-                      onChange={() => {}}
-                      unit="%"
-                      placeholder="0"
-                      disabled={true}
-                    />
-                  </div>
-                  {diskonPeriode ? (
-                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
-                      <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Data Diskon: </span>
-                      {formatPeriodeDiskonLabel(diskonPeriode)}
-                    </div>
-                  ) : (
-                    <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
-                      Pilih periode awal
-                    </div>
-                  )}
-                </div>
-                {!isCashbackNotFound && (
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      % Cashback Matrix
-                    </span>
-                    <div style={{ opacity: 0.85, cursor: "not-allowed" }}>
-                      <UnitInput
-                        value={row.persenCashback}
-                        onChange={() => {}}
-                        unit="%"
-                        placeholder="0"
-                        disabled={true}
-                      />
-                    </div>
-                    {cashbackPeriode ? (
-                      <div className="text-[11px] mt-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
-                        <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>Data Cashback: </span>
-                        {formatPeriodeDiskonLabel(cashbackPeriode)}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
+                  let nilaiScBln = 0;
+                  if (scVal != null && scVal > 0) {
+                    nilaiScBln = qtyUb >= scMin ? qtyUb * scVal : 0;
+                  } else {
+                    nilaiScBln = estSalesBln * (pctMatriks / 100);
+                  }
 
-              {row.kodeProduk &&
-               parseFloat(row.qtyPerBulan) > 0 &&
-               row.persenMatriksSc !== "" &&
-               lamaPeriode > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start animate-fade-in mt-3">
-                  {/* LEFT COLUMN: ESTIMASI SALES */}
-                  <div className="rounded-lg border px-3 py-2.5 space-y-2"
-                    style={{ background: "var(--color-bg)", borderColor: "var(--color-border-strong)" }}>
-                    <p className="text-xs font-semibold uppercase tracking-wider"
-                      style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
-                    
-                    <div className="flex gap-6 flex-wrap">
-                      <div>
-                        <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales / Bln</div>
-                        <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                          {formatRp(qty * hnaST)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Est. Sales 3 Bln</div>
-                        <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                          {formatRp(qty * hnaST * 3)}
-                        </div>
-                      </div>
-                    </div>
+                  const isExpanded = expandedRows[idx] ?? false;
 
-                    <div className="flex gap-6 flex-wrap">
-                      <div>
-                        <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                          Qty per {satuanLabel(masterProduct)} / Bln
-                        </div>
-                        <div className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                          {Math.round(qty / (parseInt(masterProduct?.konversiPembagi || "1", 10) || 1))} {satuanLabel(masterProduct)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                          Qty per {satuanLabel(masterProduct)} 3 Bln
-                        </div>
-                        <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>
-                          {Math.round((qty * 3) / (parseInt(masterProduct?.konversiPembagi || "1", 10) || 1))} {satuanLabel(masterProduct)}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t space-y-1" style={{ borderColor: "var(--color-border)" }}>
-                      {(() => {
-                        const estSalesMonthly = qty * hnaST;
-                        const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
-                        let growthPct: number | null = null;
-                        if (avgSalesBln > 0) {
-                          growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
-                        }
-
-                        return (
-                          <>
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="text-xs font-semibold" style={{ color: "var(--color-text-faint)" }}>
-                                  Growth Estimasi
-                                </div>
-                                {avgSalesBln > 0 ? (
-                                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                                    SC sebelumnya {formatRp(Math.round(avgSalesBln))}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
-                                  </div>
-                                ) : (
-                                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                                    Belum ada data SC sebelumnya
-                                  </div>
-                                )}
+                  return (
+                    <tr key={idx} id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`} className="align-top hover:bg-slate-50/50 transition-colors">
+                      {/* Column 1: Product Selection & Competitor */}
+                      <td className="py-2.5 px-2 space-y-2">
+                        <Combobox
+                          name={`product-${idx}`}
+                          options={productsOptions}
+                          value={row.kodeProduk}
+                          onChange={(val) => {
+                            onUpdateRow(idx, {
+                              kodeProduk: val,
+                            });
+                          }}
+                          disabled={readOnly}
+                          placeholder="Cari produk..."
+                          emptyMessage="Tidak ada produk."
+                        />
+                        {masterProduct && (
+                          <div className="text-[11px] leading-tight space-y-0.5" style={{ color: "var(--color-text-faint)" }}>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(masterProduct.hna)}</strong></span>
+                            </div>
+                            {masterProduct.zatAktif && (
+                              <div className="truncate text-[10px]" style={{ color: "var(--color-text-faint)" }}>
+                                Zat: {masterProduct.zatAktif}
                               </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Column 2: Potensi / UB */}
+                      <td className="py-2 px-1 text-center align-top">
+                        <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
+                          0
+                        </div>
+                        <div className="text-[10px] space-y-0.5 mt-1 text-left" style={{ color: "var(--color-text-faint)" }}>
+                          <div>produk A: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
+                          <div>produk B: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
+                          <div>produk C: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
+                          <div>lainnya : <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
+                        </div>
+                      </td>
+
+                      {/* Column 3: Quantity Input (Estimasi Switching / UB) */}
+                      <td className="py-2 px-1 text-center align-top">
+                        <UnitInput
+                          value={row.qtyPerBulan}
+                          onChange={(val) => onUpdateRow(idx, { qtyPerBulan: val })}
+                          unit={satuanLabel(masterProduct)}
+                          placeholder="0"
+                          disabled={readOnly}
+                        />
+                        {(() => {
+                          const targetUb = historySalesMap.get(row.kodeProduk) ?? 0;
+                          const formattedTarget = targetUb > 0 ? (targetUb % 1 === 0 ? targetUb.toString() : (Math.round(targetUb * 10) / 10).toString()) : "0";
+                          const labelPrefix = historyPeriodRange ? `History (${historyPeriodRange}) :` : "History :";
+                          return (
+                            <div className="text-[10px] leading-tight mt-1" style={{ color: "var(--color-text-faint)" }}>
+                              <div>{labelPrefix} <strong style={{ color: "var(--color-text-muted)" }}>{formattedTarget}</strong></div>
+                            </div>
+                          );
+                        })()}
+                      </td>
+
+                      {/* Column 4: Diskon */}
+                      <td className="py-2 px-1 text-center align-top">
+                        <div className="font-semibold text-[11px] py-1" style={{ color: "var(--color-text-muted)" }}>
+                          {row.persenDiskon || 0}%
+                        </div>
+                      </td>
+
+                      {/* Column 5: Est Sales / Bln */}
+                      <td className="py-2 px-1.5 text-right align-top">
+                        <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
+                          Rp {formatRp(estSalesBln)}
+                        </div>
+                        {qtyUb > 0 && (
+                          <div className="text-[10px] mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                            3 Bln: Rp {formatRp(estSalesBln * 3)}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Column 6: Nilai SC / Bln */}
+                      <td className="py-2 px-1.5 text-right align-top">
+                        <div className="font-semibold text-[11px]" style={{ color: "var(--color-blue, #2563eb)" }}>
+                          Rp {formatRp(nilaiScBln)}
+                        </div>
+                        {(() => {
+                          const estSalesMonthly = estSalesBln;
+                          const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
+                          let growthPct: number | null = null;
+                          if (avgSalesBln > 0) {
+                            growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
+                          }
+
+                          return (
+                            <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-faint)" }}>
+                              <div>Matriks SC: <strong style={{ color: "var(--color-text-muted)" }}>{pctMatriks}%</strong></div>
+
+                              <div>
+                                <div>Historis Insentif:</div>
+                                <div><strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}</strong></div>
+                              </div>
+
                               {growthPct != null ? (
-                                <span
-                                  className="text-sm font-semibold"
-                                  style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
-                                >
-                                  {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
-                                </span>
+                                <div className="font-semibold" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red, #dc2626)" }}>
+                                  Growth: {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+                                </div>
                               ) : (
-                                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                                  -
-                                </span>
+                                <div>Growth: 0%</div>
                               )}
                             </div>
-                            {growthPct != null && (
-                              <p
-                                className="text-xs font-semibold mt-1"
-                                style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
-                              >
-                                {growthPct > 0
-                                  ? "✓ Estimasi sudah menunjukkan intensifikasi - pastikan nilainya sudah tepat"
-                                  : "⚠️ Intensifikasi kurang — estimasi belum naik dibanding SC sebelumnya"}
-                              </p>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
+                          );
+                        })()}
+                      </td>
 
-                  {/* RIGHT COLUMN: NILAI SC & REKOMENDASI SWITCHING PRODUK */}
-                  <div className="space-y-3">
-                    <div className="rounded-lg border px-3 py-2.5 space-y-2"
-                      style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
-                      <p className="text-xs font-semibold uppercase tracking-wider"
-                        style={{ color: "var(--color-blue, #3b82f6)" }}>Nilai SC</p>
-                      
-                      <div className="flex gap-6 flex-wrap">
-                        <div>
-                          <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                            Nilai SC / Bln
+                      {/* Column 7: Nilai Cashback / Bln */}
+                      <td className="py-2 px-1.5 text-right align-top">
+                        {isCashbackNotFound ? (
+                          <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
+                            0
                           </div>
-                          <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
-                            {formatRp(nilaiScBln)}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                            Nilai SC 3 Bln
-                          </div>
-                          <div className="text-sm font-semibold" style={{ color: "var(--color-blue, #3b82f6)" }}>
-                            {formatRp(nilaiSc3Bln)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                        ) : (
+                          (() => {
+                            const cbMonthly = cashbackDetails.monthlyResultMap.get(row.kodeProduk) ?? 0;
+                            const isEligible = cashbackDetails.itemEligibilityMap?.get(row.kodeProduk) ?? false;
+                            const displayPct = isEligible && cbMonthly > 0 ? (row.persenCashback || 0) : 0;
+                            return (
+                              <>
+                                <div className="font-semibold text-[11px]" style={{ color: "var(--color-green, #16a34a)" }}>
+                                  Rp {formatRp(cbMonthly)}
+                                </div>
+                                <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-green, #16a34a)" }}>
+                                  <div>Cashback: <strong style={{ color: "var(--color-green, #16a34a)" }}>{displayPct}%</strong></div>
+                                  {cbMonthly > 0 && (
+                                    <div>3 Bln: Rp {formatRp(cbMonthly * 3)}</div>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })()
+                        )}
+                      </td>
 
-                    {lossSalesItems.length > 0 && (
-                      <div
-                        className="rounded-lg border px-3 py-2.5 space-y-2"
-                        style={{
-                          background: "var(--color-bg, #ffffff)",
-                          borderColor: "var(--color-border)",
-                        }}
-                      >
-                        <p
-                          className="text-xs font-semibold uppercase tracking-wider"
-                          style={{ color: "var(--color-blue, #3b82f6)" }}
-                        >
-                          Rekomendasi Switching Produk
-                        </p>
-
-                        <div className="space-y-1">
-                          {lossSalesItems.map((item, itemIdx) => (
-                            <div
-                              key={item.code || itemIdx}
-                              className={`flex items-center justify-between gap-4 text-xs ${itemIdx > 0 ? "pt-2.5" : ""} pb-2.5`}
-                              style={{
-                                borderBottom: itemIdx < lossSalesItems.length - 1 ? "1px solid var(--color-border)" : "none",
-                              }}
+                      {/* Column 8: Delete Action */}
+                      {!readOnly && (
+                        <td className="py-2 px-1 text-center align-top">
+                          <button
+                            type="button"
+                            onClick={() => onRemoveRow(idx)}
+                            className="p-1.5 rounded hover:bg-red-50 transition-colors cursor-pointer text-red-500 hover:text-red-700"
+                            title="Hapus produk"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="w-4 h-4"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2}
                             >
-                              {/* Left side */}
-                              <div className="min-w-0 flex-1 space-y-1.5">
-                                <p className="font-semibold text-xs leading-snug" style={{ color: "var(--color-text-muted)" }}>
-                                  {item.name || item.code}
-                                </p>
-                                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                                  Sales 3 Bulan Terakhir: <strong style={{ color: "var(--color-text-muted)" }}>{item.qty}</strong>
-                                </p>
-                                {!readOnly && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onUpdateRow(idx, { kodeProduk: item.code })}
-                                    className="text-xs font-medium px-3 py-1.5 rounded-md text-white transition-opacity hover:opacity-90 inline-block mt-1 cursor-pointer"
-                                    style={{ background: "var(--color-blue, #2563eb)", color: "#ffffff" }}
-                                  >
-                                    Ganti Produk
-                                  </button>
-                                )}
-                              </div>
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                              />
+                            </svg>
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
 
-                              {/* Right side */}
-                              <div className="text-right shrink-0 space-y-0.5">
-                                <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                                  Total Sales:
-                                </p>
-                                <p className="font-semibold text-xs" style={{ color: "var(--color-blue, #3b82f6)" }}>
-                                  {formatRp(item.total_sales)}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+            {/* Table Summary Footer */}
+            {rows.length > 0 && (
+              <tfoot>
+                <tr className="border-t font-semibold" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
+                  <td className="py-2.5 px-3 text-xs" style={{ color: "var(--color-text)" }}>
+                    Total ({rows.length} produk)
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
+                    0
+                  </td>
+                  <td className="py-2.5 px-3 text-center text-xs" style={{ color: "var(--color-text)" }}>
+                    {grandTotalQtyUb} UB
+                  </td>
+                  <td className="py-2.5 px-3"></td>
+                  <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-text)" }}>
+                    Rp {formatRp(grandTotalEstSalesBln)}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-blue, #2563eb)" }}>
+                    Rp {formatRp(grandTotalNilaiScBln)}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-green, #16a34a)" }}>
+                    {isCashbackNotFound ? "0" : `Rp ${formatRp(cashbackDetails.totalFinalCashbackMonthly)}`}
+                  </td>
+                  {!readOnly && <td></td>}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+
+        {/* Add Product Button Row at Bottom of Table */}
+        {!readOnly && (
+          <div className="p-2.5 border-t" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
+            <button
+              type="button"
+              onClick={onAddRow}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-md border border-dashed hover:bg-white text-xs font-medium transition-all cursor-pointer"
+              style={{
+                borderColor: "var(--color-border-strong)",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              <span className="text-sm font-bold" style={{ color: "var(--color-blue)" }}>+</span> Tambah produk user...
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Expanded Growth & Switching Details Panel */}
+      {rows.map((row, idx) => {
+        const isExpanded = expandedRows[idx] ?? false;
+        if (!isExpanded || !row.kodeProduk) return null;
+
+        const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
+        const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
+        const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
+        const hnaST = hnaSJ / konv;
+        const qty = parseFloat(row.qtyPerBulan) || 0;
+        const estSalesMonthly = qty * hnaST;
+        const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
+        let growthPct: number | null = null;
+        if (avgSalesBln > 0) {
+          growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
+        }
+
+        return (
+          <div key={`detail-${idx}`} className="p-3 rounded-lg border space-y-3 text-xs animate-fade-in" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
+            <div className="flex items-center justify-between font-semibold" style={{ color: "var(--color-text)" }}>
+              <span>Detail Analisis Produk #{idx + 1}: {masterProduct?.namaProduk || row.kodeProduk}</span>
+              <button type="button" onClick={() => toggleRowDetail(idx)} className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">✕ Tutup</button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Growth Box */}
+              <div className="p-2.5 rounded border bg-white space-y-1" style={{ borderColor: "var(--color-border)" }}>
+                <div className="font-semibold text-[11px]" style={{ color: "var(--color-text-muted)" }}>Growth Estimasi Sales</div>
+                {avgSalesBln > 0 ? (
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                    SC Sebelumnya: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}/bln</strong> {b3RangeLabel ? `(${b3RangeLabel})` : ""}
                   </div>
+                ) : (
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada data SC sebelumnya</div>
+                )}
+                {growthPct != null && (
+                  <div className="text-xs font-semibold" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+                    Growth: {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}% — {growthPct > 0 ? "✓ Intensifikasi tercapai" : "⚠️ Intensifikasi kurang"}
+                  </div>
+                )}
+              </div>
+
+              {/* Loss Sales Recommendation Box */}
+              {lossSalesItems.length > 0 && (
+                <div className="p-2.5 rounded border bg-white space-y-1" style={{ borderColor: "var(--color-border)" }}>
+                  <div className="font-semibold text-[11px]" style={{ color: "var(--color-blue)" }}>Rekomendasi Switching Produk</div>
+                  {lossSalesItems.map((item, itemIdx) => (
+                    <div key={item.code || itemIdx} className="flex items-center justify-between text-xs pt-1 border-t" style={{ borderColor: "var(--color-border)" }}>
+                      <div>
+                        <div className="font-medium">{item.name || item.code}</div>
+                        <div className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>Sales 3 Bln: {item.qty} (Total: Rp {formatRp(item.total_sales)})</div>
+                      </div>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => onUpdateRow(idx, { kodeProduk: item.code })}
+                          className="text-[11px] px-2 py-1 rounded bg-blue-600 text-white font-medium hover:bg-blue-700 cursor-pointer"
+                        >
+                          Ganti
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          );
-        })}
-      </div>
-
-      {!readOnly && (
-        <div className="flex justify-start">
-          <Button type="button" size="sm" variant="secondary" onClick={onAddRow}>
-            + Tambah Produk
-          </Button>
-        </div>
-      )}
+          </div>
+        );
+      })}
     </div>
   );
 }

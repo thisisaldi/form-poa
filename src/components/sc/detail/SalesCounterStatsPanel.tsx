@@ -139,8 +139,10 @@ export function SalesCounterStatsPanel({
         {[
           { label: "Insentif SC (Matriks)", value: metrics.totalNilaiSc },
           { label: "Diskon SC", value: metrics.totalDiskon },
-          { label: "Cashback SC", value: metrics.totalCashback },
           { label: "Entertain SC", value: metrics.totalEntertain },
+          { label: "Cashback SC", value: metrics.totalCashback },
+          { label: "Blast-In SC", value: 0 },
+          { label: "POSM SC", value: 0 },
         ].map(({ label, value }) => {
           const pct = metrics.totalEstimasiSales > 0 ? (value / metrics.totalEstimasiSales) * 100 : 0;
           return (

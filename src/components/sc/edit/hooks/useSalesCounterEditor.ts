@@ -114,6 +114,15 @@ export function useSalesCounterEditor({
   // % Resep Dokter
   const [persenResepDokter, setPersenResepDokter] = useState("");
 
+  // Patient & Employee Statistics
+  const [jumlahKaryawan, setJumlahKaryawan] = useState("");
+  const [jumlahPasien, setJumlahPasien] = useState("");
+  const [jumlahPasienResep, setJumlahPasienResep] = useState("");
+
+  const numPasien = parseInt(jumlahPasien, 10) || 0;
+  const numPasienResep = parseInt(jumlahPasienResep, 10) || 0;
+  const jumlahPasienNonResep = Math.max(0, numPasien - numPasienResep);
+
   // API helper data states
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
@@ -576,14 +585,6 @@ export function useSalesCounterEditor({
     if (!outletId) nextErrors.outletId = "Outlet wajib dipilih";
     if (selectedPersonIds.length === 0) nextErrors.personId = "Minimal pilih 1 Sales Counter";
     if (!periodeAwal) nextErrors.periodeAwal = "Periode awal wajib diisi";
-    if (!persenResepDokter) {
-      nextErrors.persenResepDokter = "% Resep Dokter wajib diisi";
-    } else {
-      const val = parseFloat(persenResepDokter) || 0;
-      if (val < 0 || val > 100) {
-        nextErrors.persenResepDokter = "% Resep Dokter harus antara 0% - 100%";
-      }
-    }
     
     const hasValidProduct = products.some((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0);
     if (!hasValidProduct) {
@@ -608,7 +609,11 @@ export function useSalesCounterEditor({
         products,
         entertainList,
         parseInt(persenResepDokter, 10) || 0,
-        matchedOutlet?.namaOutlet
+        matchedOutlet?.namaOutlet,
+        parseInt(jumlahKaryawan, 10) || 0,
+        numPasien,
+        numPasienResep,
+        jumlahPasienNonResep
       );
       if (res.ok) {
         router.push(redirectTo);
@@ -649,6 +654,13 @@ export function useSalesCounterEditor({
     updateEntertainValue,
     persenResepDokter,
     setPersenResepDokter,
+    jumlahKaryawan,
+    setJumlahKaryawan,
+    jumlahPasien,
+    setJumlahPasien,
+    jumlahPasienResep,
+    setJumlahPasienResep,
+    jumlahPasienNonResep,
     products,
     addProductRow,
     removeProductRow,

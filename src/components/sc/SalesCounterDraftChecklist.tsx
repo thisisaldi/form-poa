@@ -21,6 +21,7 @@ export function SalesCounterDraftChecklist({
   userCanEdit,
   canApprove,
   canFastTrack,
+  userRole,
   selectable = true,
   salesSummary,
   targetArea,
@@ -32,6 +33,7 @@ export function SalesCounterDraftChecklist({
   userCanEdit?: boolean;
   canApprove?: boolean;
   canFastTrack?: boolean;
+  userRole?: string;
   selectable?: boolean;
   salesSummary?: SalesFigures;
   targetArea?: number;
@@ -121,8 +123,10 @@ export function SalesCounterDraftChecklist({
                 selectable={selectable}
                 poaId={poaId || ""}
                 userCanEdit={canEditNow}
+                isOwner={showSubmit ?? canEditNow}
                 canApprove={canApprove ?? false}
                 canFastTrack={canFastTrack}
+                userRole={userRole}
               />
             ))}
           </div>

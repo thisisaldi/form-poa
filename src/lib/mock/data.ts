@@ -106,6 +106,7 @@ export interface MockCustomer {
   is_sc?: boolean;
   jumlah_sc?: number | null;
   isBlastIn?: boolean;
+  created?: string | null;
 }
 
 export interface MockProduct {

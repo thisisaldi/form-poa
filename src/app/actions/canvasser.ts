@@ -9,6 +9,7 @@ import { getPrincodeProducts } from "@/app/(app)/sc/[id]/_services/getPrincodePr
 import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa";
 import { getScOutletB3Sales } from "@/app/(app)/sc/[id]/_services/getScOutletB3Sales";
 import { getRekomendasiProduk } from "@/app/(app)/sc/[id]/_services/getRekomendasiProduk";
+import { getHistorySales } from "@/app/(app)/sc/[id]/_services/getHistorySales";
 import { prisma } from "@/lib/prisma";
 
 export async function getSalesCountersAction(piCode: string) {
@@ -53,6 +54,12 @@ export async function getScOutletB3SalesAction(period: number, piCode: string, p
   if (!piCode || !proCodes || proCodes.length === 0) return { data: [] };
   const data = await getScOutletB3Sales(period, piCode, proCodes);
   return { data };
+}
+
+export async function getHistorySalesAction(piCode: string) {
+  if (!piCode) return { data: [] };
+  const res = await getHistorySales(piCode);
+  return res || { data: [] };
 }
 
 export async function getRekomendasiProdukAction(piCode: string) {

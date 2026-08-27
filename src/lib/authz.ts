@@ -460,6 +460,52 @@ export async function getVisiblePoaScFilter(user: User): Promise<Prisma.PoaScFor
   };
 }
 
+export function getScEditLockLevel(status: PoaStatus): number {
+  if (status === PoaStatus.DRAFT || status === PoaStatus.REVISI) return -1;
+  if (status === PoaStatus.SUBMITTED_TO_ASM) return 0;
+  if (status === PoaStatus.APPROVED_BY_ASM || status === PoaStatus.SUBMITTED_TO_SM) return 1;
+  if (status === PoaStatus.APPROVED_BY_SM || status === PoaStatus.SUBMITTED_TO_NSM) return 2;
+  if (status === PoaStatus.APPROVED_BY_NSM) return 3;
+  return 3;
+}
+
+export function canUserEditScForm(
+  userRole: string,
+  sessionUserId: string,
+  ownerId: string,
+  status: PoaStatus
+): boolean {
+  if (userRole === "ADMIN") return true;
+
+  const roleLevel: Record<string, number> = {
+    MR: 0,
+    ASM: 1,
+    SM: 2,
+    NSM: 3,
+    ADMIN: 4,
+  };
+
+  const userLevel = roleLevel[userRole] ?? -1;
+  const lockLevel = getScEditLockLevel(status);
+
+  // MR (Owner): Can ONLY edit directly if DRAFT or REVISI
+  if (sessionUserId === ownerId) {
+    if (userRole === "MR") {
+      return status === PoaStatus.DRAFT || status === PoaStatus.REVISI;
+    }
+    if (status === PoaStatus.DRAFT || status === PoaStatus.REVISI) return true;
+  }
+
+  // Managers (ASM, SM, NSM):
+  // Can edit directly if userLevel >= lockLevel AND status is not APPROVED_BY_NSM
+  if (userLevel >= 0 && lockLevel >= 0) {
+    if (status === PoaStatus.APPROVED_BY_NSM) return false;
+    return userLevel >= lockLevel;
+  }
+
+  return false;
+}
+
 // ─── Per-doctor approval (docs/poa-per-doctor-approval/) ──────────────────────
 //
 // 2026-08-13 decision: approve/reject moved from whole-draft to per-doctor

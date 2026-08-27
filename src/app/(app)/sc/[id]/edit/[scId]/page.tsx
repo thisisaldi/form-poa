@@ -25,7 +25,7 @@ export default async function EditSalesCounterByIdPage({
   const { form, products, userCanEdit, isOwner } = data;
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-7xl w-full space-y-5">
       <div>
         <Link
           href={`/sc/${scId}`}
@@ -67,6 +67,10 @@ export default async function EditSalesCounterByIdPage({
           initialPeriodeAwal={form.periodeAwal}
           initialLamaPeriode={form.lamaPeriode}
           initialPersenResepDokter={form.persenResepDokter}
+          initialJumlahKaryawan={form.jumlahKaryawan}
+          initialJumlahPasien={form.jumlahPasien}
+          initialJumlahPasienResep={form.jumlahPasienResep}
+          initialJumlahPasienNonResep={form.jumlahPasienNonResep}
           masterProducts={products}
           readOnly={!userCanEdit}
           isOwner={isOwner}

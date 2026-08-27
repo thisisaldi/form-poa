@@ -100,6 +100,7 @@ export default async function SalesCounterDetailPage({
         userCanEdit={userCanEdit}
         canApprove={canApprove}
         canFastTrack={canFastTrack}
+        userRole={session.role}
         selectable={isOwner}
         salesSummary={salesSummary}
         targetArea={targetValueFromGT ?? undefined}

@@ -21,14 +21,14 @@ export default async function EditSalesCounterPoaPage({
   const { id } = await params;
   const { period } = await searchParams;
 
-  const data = await getSalesCounterEditData(id, period, session.userId);
+  const data = await getSalesCounterEditData(id, period, session.userId, session.role);
   if (!data) notFound();
   if (!data.userCanEdit || !data.outlets || !data.products || !data.poa) redirect(`/sc/${id}`);
 
   const { poa, outlets, products, savedDrafts } = data;
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-7xl w-full space-y-5">
       <div>
         <Link href={`/sc/${id}`} className="text-xs mb-1 inline-flex items-center gap-1"
           style={{ color: "var(--color-text-faint)" }}>

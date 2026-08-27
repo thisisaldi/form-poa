@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getScProducts, getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { isOutletBlastIn } from "@/lib/outletBlastIn";
 import { getSalesCountersByOutlet } from "../../../_services/getSalesCounters";
+import { canUserEditScForm } from "@/lib/authz";
 
 export async function getSalesCounterFormById(
   scId: string,
@@ -48,6 +49,10 @@ export async function getSalesCounterFormById(
     periodeAwal: form.periodeAwal,
     lamaPeriode: form.lamaPeriode,
     persenResepDokter: form.persenResepDokter,
+    jumlahKaryawan: form.jumlahKaryawan ?? null,
+    jumlahPasien: form.jumlahPasien ?? null,
+    jumlahPasienResep: form.jumlahPasienResep ?? null,
+    jumlahPasienNonResep: form.jumlahPasienNonResep ?? null,
     persons: form.persons.map((p: any) => {
       const matchedApiPerson = canvasserPersonsData?.data?.find(
         (c: any) =>
@@ -83,7 +88,7 @@ export async function getSalesCounterFormById(
 
   return {
     isOwner: form.ownerId === sessionUserId,
-    userCanEdit: form.ownerId === sessionUserId && (form.status === "DRAFT" || form.status === "REVISI"),
+    userCanEdit: canUserEditScForm(sessionRole || "MR", sessionUserId, form.ownerId, form.status),
     form: serialized,
     products,
   };

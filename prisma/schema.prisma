@@ -1515,6 +1515,12 @@ model PoaScForm {
   namaOutlet      String?              // e.g. "Apotek Kimia Farma"
   persenResepDokter   Int              @default(0)
 
+  // Kolom Informasi Outlet & Statistik Pasien
+  jumlahKaryawan          Int?
+  jumlahPasien            Int?
+  jumlahPasienResep       Int?
+  jumlahPasienNonResep    Int?
+
   ownerId         String               // NIP MR pembuat
   owner           User                 @relation("PoaScOwner", fields: [ownerId], references: [nip])
 
