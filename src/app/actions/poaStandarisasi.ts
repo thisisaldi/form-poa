@@ -780,7 +780,16 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const mimeType = MIME_BY_EXT[ext] ?? "application/octet-stream";
-  const { driveFileId } = await uploadFileToSurveyDrive(namaFile, mimeType, buffer);
+  let driveFileId: string;
+  try {
+    ({ driveFileId } = await uploadFileToSurveyDrive(namaFile, mimeType, buffer));
+  } catch (err) {
+    // Same degradation as /api/survey/upload's POST — an unhandled throw
+    // here becomes an opaque "Server Components render" digest error in
+    // production (2026-08-27 bug report), so surface a real message instead.
+    console.error("[poaStandarisasi/upload] Google Drive upload failed:", err);
+    throw new Error("Upload ke Google Drive gagal, coba lagi.");
+  }
 
   if (kind === "suratKft") {
     await prisma.poaStandarisasi.update({
