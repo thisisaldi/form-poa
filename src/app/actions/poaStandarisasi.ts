@@ -476,51 +476,65 @@ export async function approvePoaStandarisasiAtasanAction(
 }
 
 // ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
+// "Sudah TTD" tidak lagi checkbox manual (2026-08-26, docs/TODO.md #14) —
+// di-derive dari upload Bukti TTD (lihat uploadPoaStandarisasiFileAction,
+// kind "buktiTtd"). Dokter di list ini juga bisa ditambah/dihapus di fase
+// ini (bukan cuma fixed dari Planning), sesuai permintaan user.
 
-export interface ApprovalUserDokterInput {
-  sudahTtd: { produkId: string; customerId: string; sudahTtd: boolean }[];
-}
-
-export async function saveApprovalUserDokterAction(id: string, input: ApprovalUserDokterInput): Promise<void> {
+/** Adds a dokter to a produk's Approval User/Dokter checklist — lets an
+ * atasan/MR change who needs to sign after Planning, not just what was
+ * picked there. Customer must already be a real row (materialize "nexus:"
+ * ids via createCustomerAction client-side first, same pattern as Planning). */
+export async function addDokterApprovalAction(produkId: string, customerId: string): Promise<void> {
   const { actor } = await requireActor();
-  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
-  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
-  if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
-  if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase ini.");
+  const produk = await prisma.poaStandarisasiProduk.findUnique({ where: { id: produkId }, include: { pengajuan: true } });
+  if (!produk) throw new Error("Produk tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, produk.pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (produk.pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase ini.");
 
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    for (const row of input.sudahTtd) {
-      await tx.poaStandarisasiDokterApproval.updateMany({
-        where: { produkId: row.produkId, customerId: row.customerId },
-        data: { sudahTtd: row.sudahTtd },
-      });
-    }
+  await prisma.poaStandarisasiDokterApproval.upsert({
+    where: { produkId_customerId: { produkId, customerId } },
+    update: {},
+    create: { produkId, customerId, wajib: true },
   });
-
-  revalidatePath(`/poa-standarisasi/${id}`);
+  revalidatePath(`/poa-standarisasi/${produk.pengajuanId}`);
 }
 
-/** Phase 3 → Phase 4. */
-/** Phase 3 → Phase 4. Requires "Form Approval Standarisasi" uploaded for every produk (upload lives in this phase's UI). */
+export async function removeDokterApprovalAction(produkId: string, customerId: string): Promise<void> {
+  const { actor } = await requireActor();
+  const produk = await prisma.poaStandarisasiProduk.findUnique({ where: { id: produkId }, include: { pengajuan: true } });
+  if (!produk) throw new Error("Produk tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, produk.pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (produk.pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase ini.");
+
+  await prisma.poaStandarisasiDokterApproval.deleteMany({ where: { produkId, customerId } });
+  revalidatePath(`/poa-standarisasi/${produk.pengajuanId}`);
+}
+
+/** Phase 3 → Phase 4. Requires bukti TTD uploaded for every dokter WAJIB di setiap produk. */
 export async function advanceToMenungguMeetingKftAction(id: string): Promise<void> {
   const { actor } = await requireActor();
-  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id }, include: { produk: true } });
+  const pengajuan = await prisma.poaStandarisasi.findUnique({
+    where: { id },
+    include: { produk: { include: { dokterApproval: true } } },
+  });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase Approval User/Dokter.");
-  if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
-    throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum lanjut.");
-  }
+  const belumTtd = pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) =>
+    p.dokterApproval.some((d: (typeof p.dokterApproval)[number]) => d.wajib && !d.sudahTtd)
+  );
+  if (belumTtd) throw new Error("Upload Bukti TTD untuk semua dokter wajib sebelum lanjut.");
 
   await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "MENUNGGU_MEETING_KFT" } });
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
 // ─── Phase 4: Menunggu Meeting KFT ──────────────────────────────────────────
-// Just the meeting schedule. Dokumen standarisasi (NIE/CPOB/KFA/SP Non Sales,
-// read-only, diupload dari tempat lain — lihat PoaStandarisasiDokumen) dan
-// upload "Form Approval Standarisasi" ada di Phase 3 (Approval User/Dokter),
-// bukan di sini (2026-08-20 — dipindah kembali).
+// Just the meeting schedule + browsing Dokumen Standarisasi NIE/COA/CPOB/Flyer
+// (read-only, diupload dari tempat lain — lihat PoaStandarisasiDokumen).
+// "Permintaan SP Non Sales" (dokumen jenis lain) dan upload "Form Approval
+// Standarisasi" dipindah ke Finalisasi (2026-08-26, user request).
 
 export interface MenungguMeetingKftInput {
   jadwalMeetingKft: string | null; // ISO datetime
@@ -655,10 +669,16 @@ export async function saveFinalisasiAction(id: string, input: FinalisasiInput): 
 
 export async function submitPoaStandarisasiAction(id: string): Promise<void> {
   const { actor } = await requireActor();
-  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id }, include: { produk: true } });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "FINALISASI") throw new Error("Pengajuan belum di fase Finalisasi.");
+  // Form Approval Standarisasi upload dipindah ke Finalisasi (2026-08-26,
+  // user request) — jadi gate-nya pindah ke sini juga, bukan lagi di
+  // advanceToMenungguMeetingKftAction.
+  if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
+    throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum submit.");
+  }
   if (!pengajuan.suratApprovalStandarisasiKftDriveFileId) {
     throw new Error("Upload Surat Approval Standarisasi KFT sebelum submit.");
   }
@@ -683,8 +703,11 @@ function sanitizeForFileName(s: string): string {
 }
 
 /**
- * Uploads "Form Approval Standarisasi" (per produk) or "Surat Approval
- * Standarisasi KFT" (per pengajuan, resolved Q6 — one file, not per produk).
+ * Uploads "Form Approval Standarisasi" (per produk, Finalisasi), "Surat
+ * Approval Standarisasi KFT" (per pengajuan, resolved Q6 — one file, not per
+ * produk), or "Bukti TTD" (per dokter per produk, Approval User/Dokter —
+ * replaces the old manual "Sudah TTD" checkbox, docs/TODO.md #14: uploading
+ * sets sudahTtd=true server-side, never toggled directly by the client).
  * Same Google Drive service account/folder as Input Data Survey — no
  * dedicated folder for this feature yet (env var would need to be
  * provisioned separately; reusing GOOGLE_DRIVE_SURVEY_FOLDER_ID for v1).
@@ -695,8 +718,9 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
 
   const file = formData.get("file");
   const pengajuanId = (formData.get("pengajuanId") as string | null) ?? "";
-  const kind = (formData.get("kind") as string | null) ?? ""; // "formApproval" | "suratKft"
+  const kind = (formData.get("kind") as string | null) ?? ""; // "formApproval" | "suratKft" | "buktiTtd"
   const produkId = (formData.get("produkId") as string | null) || null;
+  const customerId = (formData.get("customerId") as string | null) || null;
 
   if (!(file instanceof File)) throw new Error("File wajib diisi.");
   if (!pengajuanId) throw new Error("Pengajuan tidak valid.");
@@ -713,7 +737,7 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
-  const label = kind === "suratKft" ? "Surat Approval Standarisasi KFT" : "Form Approval Standarisasi";
+  const label = kind === "suratKft" ? "Surat Approval Standarisasi KFT" : kind === "buktiTtd" ? "Bukti TTD" : "Form Approval Standarisasi";
   const namaFile = `${timestamp} - ${label} - POA Standarisasi ${sanitizeForFileName(pengajuan.kodePI)} oleh ${sanitizeForFileName(session.name)}`;
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -725,6 +749,12 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
       where: { id: pengajuanId },
       data: { suratApprovalStandarisasiKftPath: namaFile, suratApprovalStandarisasiKftDriveFileId: driveFileId },
     });
+  } else if (kind === "buktiTtd") {
+    if (!produkId || !customerId) throw new Error("Produk/dokter tidak valid.");
+    await prisma.poaStandarisasiDokterApproval.updateMany({
+      where: { produkId, customerId },
+      data: { buktiTtdFilePath: namaFile, buktiTtdDriveFileId: driveFileId, sudahTtd: true },
+    });
   } else {
     if (!produkId) throw new Error("Produk tidak valid.");
     await prisma.poaStandarisasiProduk.update({
@@ -735,4 +765,93 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
 
   revalidatePath(`/poa-standarisasi/${pengajuanId}`);
   return { driveFileId, namaFile };
+}
+
+// ─── Confidential file download (authenticated proxy + access log) ────────
+// User 2026-08-27: dokumen POA Standarisasi (NIE/COA/CPOB/Flyer, Bukti TTD,
+// Form Approval Standarisasi, Surat Approval Standarisasi KFT) itu
+// confidential — link Drive mentah visibility-nya ikut sharing setting
+// FOLDER Drive, bukan authz app. Semua download WAJIB lewat
+// /api/poa-standarisasi/dokumen/[driveFileId] (bukan driveViewUrl langsung)
+// supaya bisa digerbangi authz + dicatat siapa/kapan/berapa kali.
+
+/** Resolves which pengajuan/produk/dokter owns a given Drive file id, across
+ * the 4 places a driveFileId can live — so the download route never has to
+ * trust a client-supplied pengajuanId/label. */
+async function resolvePoaStandarisasiFileOwner(driveFileId: string) {
+  const [dokumen, produk, suratKft, dokterApproval] = await Promise.all([
+    prisma.poaStandarisasiDokumen.findFirst({
+      where: { driveFileId },
+      include: { produk: { include: { pengajuan: true, product: true } } },
+    }),
+    prisma.poaStandarisasiProduk.findFirst({
+      where: { formApprovalDriveFileId: driveFileId },
+      include: { pengajuan: true, product: true },
+    }),
+    prisma.poaStandarisasi.findFirst({ where: { suratApprovalStandarisasiKftDriveFileId: driveFileId } }),
+    prisma.poaStandarisasiDokterApproval.findFirst({
+      where: { buktiTtdDriveFileId: driveFileId },
+      include: { produk: { include: { pengajuan: true, product: true } }, customer: true },
+    }),
+  ]);
+
+  if (dokumen) return { pengajuan: dokumen.produk.pengajuan, label: `${dokumen.jenis} — ${dokumen.produk.product.namaProduk}` };
+  if (produk) return { pengajuan: produk.pengajuan, label: `Form Approval Standarisasi — ${produk.product.namaProduk}` };
+  if (suratKft) return { pengajuan: suratKft, label: "Surat Approval Standarisasi KFT" };
+  if (dokterApproval) return { pengajuan: dokterApproval.produk.pengajuan, label: `Bukti TTD — ${dokterApproval.customer.namaCustomer} (${dokterApproval.produk.product.namaProduk})` };
+  return null;
+}
+
+/**
+ * Authorizes + logs one access to a confidential POA Standarisasi file,
+ * given only its Drive file id. Throws if the file isn't found or the
+ * current session isn't authorized to view its pengajuan — the download
+ * route must not stream file bytes unless this resolves successfully.
+ */
+export async function authorizeAndLogPoaStandarisasiFileAccess(driveFileId: string): Promise<void> {
+  const session = await getCurrentUser();
+  if (!session) throw new Error("Sesi tidak valid.");
+
+  const owner = await resolvePoaStandarisasiFileOwner(driveFileId);
+  if (!owner) throw new Error("File tidak ditemukan.");
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (!(await canViewPoaStandarisasi(actor, owner.pengajuan))) {
+    throw new Error("Anda tidak berhak mengakses dokumen ini.");
+  }
+
+  await prisma.poaStandarisasiFileAccessLog.create({
+    data: { pengajuanId: owner.pengajuan.id, driveFileId, label: owner.label, accessedByNip: actor.nip },
+  });
+}
+
+export interface FileAccessLogRow {
+  id: string;
+  driveFileId: string;
+  label: string;
+  accessedByNip: string;
+  accessedByNama: string;
+  accessedAt: Date;
+}
+
+/** Powers the "Riwayat Akses Dokumen" panel — who opened which file, when, how many times. */
+export async function getPoaStandarisasiFileAccessLogAction(pengajuanId: string): Promise<FileAccessLogRow[]> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id: pengajuanId } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!(await canViewPoaStandarisasi(actor, pengajuan))) throw new Error("Anda tidak berhak melihat log ini.");
+
+  const rows = await prisma.poaStandarisasiFileAccessLog.findMany({
+    where: { pengajuanId },
+    include: { accessedBy: { select: { name: true } } },
+    orderBy: { accessedAt: "desc" },
+  });
+  return rows.map((r: (typeof rows)[number]) => ({
+    id: r.id,
+    driveFileId: r.driveFileId,
+    label: r.label,
+    accessedByNip: r.accessedByNip,
+    accessedByNama: r.accessedBy.name,
+    accessedAt: r.accessedAt,
+  }));
 }

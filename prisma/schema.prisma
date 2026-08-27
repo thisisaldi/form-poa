@@ -163,6 +163,7 @@ model User {
 
   // POA Standarisasi (see docs/poa-standarisasi/) — pembuat pengajuan
   poaStandarisasiOwned PoaStandarisasi[]
+  poaStandarisasiFileAccessLogs PoaStandarisasiFileAccessLog[]
 
   // ─── Tambahan Relasi Balik untuk Sales Counter ───
   poaScOwned           PoaScForm[]          @relation("PoaScOwner")
@@ -1236,11 +1237,17 @@ enum StatusApprovalAtasan {
   DITOLAK
 }
 
+// NIE/COA/CPOB/Flyer dibawa ke meeting KFT (Phase "Menunggu Meeting KFT");
+// SP_NON_SALES ditampilkan di Finalisasi — lihat PoaStandarisasiWizard.tsx
+// DOKUMEN_JENIS_KFT/DOKUMEN_JENIS_FINALISASI. "KFA" di-rename jadi "COA" +
+// "FLYER" ditambahkan 2026-08-27 (user koreksi: dokumen sebenarnya NIE/COA/
+// CPOB/Flyer, bukan NIE/CPOB/KFA).
 enum DokumenStandarisasiJenis {
   NIE
   CPOB
-  KFA
+  COA
   SP_NON_SALES
+  FLYER
 }
 
 // Fixed set, not master data — checkbox multi-select in Finalisasi (2026-08-19,
@@ -1303,6 +1310,7 @@ model PoaStandarisasi {
   updatedAt   DateTime  @updatedAt
 
   produk PoaStandarisasiProduk[]
+  fileAccessLogs PoaStandarisasiFileAccessLog[]
 
   @@index([ownerId])
   @@index([kodePI])
@@ -1386,7 +1394,16 @@ model PoaStandarisasiDokterApproval {
   customer   Customer @relation(fields: [customerId], references: [id])
 
   wajib    Boolean @default(true)
+  // sudahTtd sekarang di-derive dari upload bukti TTD (2026-08-26, docs/TODO.md
+  // #14), bukan dicentang manual lagi — di-set true oleh
+  // uploadPoaStandarisasiFileAction (kind "buktiTtd") saat file berhasil
+  // diupload untuk dokter ini. Kolomnya tetap dipertahankan (bukan derive
+  // on-the-fly dari buktiTtdDriveFileId) karena sudah dipakai di beberapa
+  // tempat sebagai boolean sederhana (mis. default kandidat dokterUser di
+  // Finalisasi).
   sudahTtd Boolean @default(false)
+  buktiTtdFilePath    String?
+  buktiTtdDriveFileId String?
 
   // ── Estimasi Standarisasi (Planning) — per dokter, bukan per produk ─────
   jumlahPasien     Int?
@@ -1451,6 +1468,31 @@ model PoaStandarisasiDokumen {
 
   @@unique([produkId, jenis])
   @@index([produkId])
+}
+
+// Audit trail untuk SEMUA file confidential POA Standarisasi (NIE/COA/CPOB/
+// Flyer, Permintaan SP Non Sales, Form Approval Standarisasi, Surat Approval
+// Standarisasi KFT, Bukti TTD) — user 2026-08-27: dokumen-dokumen ini
+// sensitif, perlu tahu siapa yang download & berapa kali. Satu row = satu
+// kali file DIBUKA lewat route proxy `/api/poa-standarisasi/dokumen/[id]`
+// (bukan link Drive langsung — lihat komentar di route itu), jadi log ini
+// hanya bisa lengkap SELAMA semua akses lewat proxy tsb, bukan link Drive
+// mentah yang di-bypass.
+model PoaStandarisasiFileAccessLog {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasi @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  driveFileId String
+  label       String // human-readable, resolved server-side saat akses (mis. "NIE — Amoxicillin", "Bukti TTD — dr. Ani")
+
+  accessedByNip String
+  accessedBy    User   @relation(fields: [accessedByNip], references: [nip])
+  accessedAt    DateTime @default(now())
+
+  @@index([pengajuanId])
+  @@index([driveFileId])
 }
 
 // ─── Sales Counter (Apotek/Retail) Models ───────────────────────────────────
