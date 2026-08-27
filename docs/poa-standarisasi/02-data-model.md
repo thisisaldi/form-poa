@@ -115,12 +115,11 @@ model PoaStandarisasi {
   kpdmEntertainFinal    Decimal? @db.Decimal(18, 2) // default = estimasi saat pertama masuk Finalisasi, lalu independen
 
   tipeStandarisasi TipeStandarisasi
-  // Ditambahkan 2026-08-26 (docs/TODO.md #12, TIDAK ada di draft asli dokumen
-  // ini) — field manual (bukan derived), dipilih MR di Planning: apakah
-  // pengajuan ini standarisasi BARU atau PERPANJANGAN dari yang sudah pernah
-  // ada di outlet ini. Default BARU. Enum `StatusPengajuanStandarisasi`,
-  // lihat `prisma/schema.prisma`.
-  statusPengajuan  StatusPengajuanStandarisasi @default(BARU)
+  // Ditambahkan 2026-08-26 (docs/TODO.md #12) sebagai field di level ini,
+  // lalu KOREKSI 2026-08-27 (user request): dipindah jadi field per PRODUK
+  // (`PoaStandarisasiProduk.statusPengajuan` di bawah) — status BARU vs
+  // PERPANJANGAN memang berbeda per produk yang diajukan, bukan satu nilai
+  // gabungan untuk seluruh pengajuan/outlet. TIDAK ADA LAGI di level ini.
   periodeBulan     Int? // wajib utk PERIODIC/SISIPAN, null utk PERMANEN — divalidasi di server action, bukan constraint DB (kondisional antar-field)
 
   jumlahBedRs               Int? // snapshot dari Outlet.jumlahBed saat dipilih, tapi editable & tersimpan independen
@@ -162,6 +161,12 @@ model PoaStandarisasiProduk {
 
   kodeProduk String
   product    Product @relation(fields: [kodeProduk], references: [kodeProduk])
+
+  // Baru vs Perpanjangan — PER PRODUK (2026-08-27: dipindah ke sini dari
+  // PoaStandarisasi, lihat catatan di model itu). Field manual, dipilih MR
+  // di Planning per kartu produk. Default BARU. Enum
+  // `StatusPengajuanStandarisasi`, lihat `prisma/schema.prisma`.
+  statusPengajuan StatusPengajuanStandarisasi @default(BARU)
 
   // TIDAK ada FK ke SurveyRekomendasi di sini — "Golongan yang Dipakai Saat
   // Ini" di-resolve LIVE per dokter via getSurveyRekomendasiInfo() (resolved

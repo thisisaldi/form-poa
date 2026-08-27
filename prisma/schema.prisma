@@ -1276,10 +1276,6 @@ model PoaStandarisasi {
   kpdmList PoaStandarisasiKpdm[]
 
   tipeStandarisasi TipeStandarisasi
-  // Baru vs Perpanjangan — dipilih manual oleh MR di Planning (docs/TODO.md
-  // #12), bukan diturunkan otomatis dari histori. Default BARU biar baris
-  // existing (kalau ada) tidak perlu backfill manual.
-  statusPengajuan  StatusPengajuanStandarisasi @default(BARU)
   // Wajib utk PERIODIC/SISIPAN, null utk PERMANEN — kondisional, divalidasi
   // di server action (bukan constraint DB).
   periodeBulan     Int?
@@ -1325,6 +1321,12 @@ model PoaStandarisasiProduk {
 
   kodeProduk String
   product    Product @relation(fields: [kodeProduk], references: [kodeProduk])
+
+  // Baru vs Perpanjangan — dipilih manual oleh MR di Planning, PER PRODUK
+  // (2026-08-27: dipindah dari level pengajuan — status standarisasi memang
+  // berbeda per produk, bukan satu status gabungan untuk seluruh pengajuan).
+  // Default BARU biar baris existing tidak perlu backfill manual.
+  statusPengajuan StatusPengajuanStandarisasi @default(BARU)
 
   // TIDAK ada FK ke SurveyRekomendasi — "Golongan yang Dipakai Saat Ini"
   // di-resolve LIVE per dokter via getSurveyRekomendasiInfo() di server

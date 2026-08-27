@@ -78,7 +78,6 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
         ownerId: session.userId,
         kodePI,
         tipeStandarisasi: input.tipeStandarisasi,
-        statusPengajuan: input.statusPengajuan,
         periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
         jumlahBedRs: toNum(input.jumlahBedRs) ?? outlet.jumlahBed,
         estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,
@@ -218,8 +217,9 @@ export async function getStandarisasiProdukByOutletAction(kodePI: string, exclud
     },
     select: {
       kodeProduk: true,
+      statusPengajuan: true,
       product: { select: { namaProduk: true } },
-      pengajuan: { select: { tipeStandarisasi: true, statusPengajuan: true, submittedAt: true } },
+      pengajuan: { select: { tipeStandarisasi: true, submittedAt: true } },
     },
     orderBy: { pengajuan: { submittedAt: "desc" } },
   });
@@ -231,7 +231,7 @@ export async function getStandarisasiProdukByOutletAction(kodePI: string, exclud
       kodeProduk: r.kodeProduk,
       namaProduk: r.product.namaProduk,
       tipeStandarisasi: r.pengajuan.tipeStandarisasi,
-      statusPengajuan: r.pengajuan.statusPengajuan,
+      statusPengajuan: r.statusPengajuan,
       submittedAt: r.pengajuan.submittedAt!,
     });
   }
@@ -250,6 +250,7 @@ export interface PlanningDokterKlinisInput {
 export interface PlanningProdukInput {
   id?: string;
   kodeProduk: string;
+  statusPengajuan: "BARU" | "PERPANJANGAN";
   estimasiDiskonPct: number | string | null;
   estimasiBiayaListingRp: number | string | null;
   dokterKlinis: PlanningDokterKlinisInput[];
@@ -265,7 +266,6 @@ export interface PlanningKpdmInput {
 export interface PlanningInput {
   kpdmList: PlanningKpdmInput[];
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
-  statusPengajuan: "BARU" | "PERPANJANGAN";
   periodeBulan: number | string | null;
   jumlahBedRs: number | string | null;
   estimasiTimelineSelesai: string | null; // yyyy-mm-dd
@@ -354,6 +354,7 @@ async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: st
   for (const p of produk) {
     const data = {
       kodeProduk: p.kodeProduk,
+      statusPengajuan: p.statusPengajuan,
       estimasiDiskonPct: toNum(p.estimasiDiskonPct),
       estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
     };
@@ -405,7 +406,6 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
       where: { id },
       data: {
         tipeStandarisasi: input.tipeStandarisasi,
-        statusPengajuan: input.statusPengajuan,
         periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
         jumlahBedRs: toNum(input.jumlahBedRs),
         estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,

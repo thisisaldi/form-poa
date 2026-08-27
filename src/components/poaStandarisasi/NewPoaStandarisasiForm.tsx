@@ -31,7 +31,7 @@ export function NewPoaStandarisasiForm({
   outletOptions,
   productOptions,
 }: {
-  outletOptions: { value: string; label: string; sublabel?: string }[];
+  outletOptions: { value: string; label: string; sublabel?: string; tag?: string; tagColor?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple" }[];
   productOptions: Product[];
 }) {
   const [pending, startTransition] = useTransition();
@@ -45,7 +45,6 @@ export function NewPoaStandarisasiForm({
   // can be more than one. Jabatan per person is derived from spesialisasi.
   const [kpdmList, setKpdmList] = useState<KpdmFormState[]>([]);
   const [tipeStandarisasi, setTipeStandarisasi] = useState<"PERIODIC" | "SISIPAN" | "PERMANEN">("PERIODIC");
-  const [statusPengajuan, setStatusPengajuan] = useState<"BARU" | "PERPANJANGAN">("BARU");
   const [periodeBulan, setPeriodeBulan] = useState("");
   const [jumlahBedRs, setJumlahBedRs] = useState("");
   const [estimasiTimelineSelesai, setEstimasiTimelineSelesai] = useState("");
@@ -139,7 +138,6 @@ export function NewPoaStandarisasiForm({
           kodePI,
           kpdmList: kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan || null, entertainEstimasi: k.entertainEstimasi || null })),
           tipeStandarisasi,
-          statusPengajuan,
           periodeBulan: tipeStandarisasi === "PERMANEN" ? null : periodeBulan || null,
           jumlahBedRs: jumlahBedRs || null,
           estimasiTimelineSelesai: estimasiTimelineSelesai || null,
@@ -149,6 +147,7 @@ export function NewPoaStandarisasiForm({
               (p): PlanningProdukInput => ({
                 id: p.id,
                 kodeProduk: p.kodeProduk,
+                statusPengajuan: p.statusPengajuan,
                 estimasiDiskonPct: p.estimasiDiskonPct || null,
                 estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
                 dokterKlinis: p.dokterKlinis.map((dk) => ({
@@ -194,8 +193,6 @@ export function NewPoaStandarisasiForm({
         updateKpdmEntertainEstimasi={updateKpdmEntertainEstimasi}
         tipeStandarisasi={tipeStandarisasi}
         setTipeStandarisasi={setTipeStandarisasi}
-        statusPengajuan={statusPengajuan}
-        setStatusPengajuan={setStatusPengajuan}
         periodeBulan={periodeBulan}
         setPeriodeBulan={setPeriodeBulan}
         jumlahBedRs={jumlahBedRs}
