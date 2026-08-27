@@ -125,6 +125,41 @@ export async function getSubordinateMRNips(user: User): Promise<string[]> {
   return getMrIdsUnder(user.nip, depth);
 }
 
+/**
+ * Like getSubordinateMRNips, but resolves every nip that could conceivably
+ * OWN a POA within this user's authority — the caller's own nip, plus every
+ * subordinate of ANY role (not just MR) — instead of MR-role nips only.
+ *
+ * An ASM/SM/NSM can own a POA directly when their own MR team is entirely
+ * vacant (see canCreatePoa's "vacant-outlet exception"); getVisiblePoaFilter
+ * already accounts for this per-POA (via getSubordinateIdsUnder, not
+ * getMrIdsUnder — see its ASM/SM/NSM cases), but anything that resolves POA
+ * OWNERSHIP scope via getSubordinateMRNips instead silently drops those
+ * self-owned POAs, since a vacant-team manager's own nip never appears in an
+ * MR-only nip list. Found live 2026-08-27: an NSM's team Excel export
+ * (/api/export/team) was missing all data for 6 ASMs, each with zero MR
+ * reports but their own self-owned DRAFT/REVISI/SUBMITTED POA — invisible to
+ * every sheet because poaWhere.ownerId only ever checked getSubordinateMRNips's
+ * MR-only result.
+ */
+export async function getSubordinateOwnerNips(user: User): Promise<string[]> {
+  if (user.role === Role.MR) return [user.nip];
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) {
+    // Company-wide: every role that can own a POA (MR, or a vacant-team
+    // ASM/SM/NSM) — same isDummy/isActive exclusions as the MR-only branch
+    // above, same reasoning (dummy accounts inflate company-wide aggregates).
+    const owners = await prisma.user.findMany({
+      where: { role: { in: [Role.MR, Role.ASM, Role.SM, Role.NSM] }, isActive: true, isDummy: false },
+      select: { nip: true },
+    });
+    return owners.map((u: { nip: string }) => u.nip);
+  }
+  const depthByRole: Record<string, number> = { [Role.ASM]: 1, [Role.SM]: 2, [Role.NSM]: 3 };
+  const depth = depthByRole[user.role] ?? 0;
+  const subIds = await getSubordinateIdsUnder(user.nip, depth);
+  return [user.nip, ...subIds];
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
