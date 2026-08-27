@@ -39,17 +39,19 @@ export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
 export function describeGoogleDriveConfig(): {
   keySet: boolean;
   keyLength: number;
+  keyWasQuoteWrapped: boolean;
   keyParsesAsJson: boolean;
   clientEmail: string | null;
   projectId: string | null;
 } {
   const raw = env.GOOGLE_SERVICE_ACCOUNT_KEY ?? "";
+  const cleaned = raw ? cleanServiceAccountKeyRaw(raw) : "";
   let clientEmail: string | null = null;
   let projectId: string | null = null;
   let keyParsesAsJson = false;
-  if (raw) {
+  if (cleaned) {
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(cleaned);
       keyParsesAsJson = true;
       clientEmail = typeof parsed.client_email === "string" ? parsed.client_email : null;
       projectId = typeof parsed.project_id === "string" ? parsed.project_id : null;
@@ -57,17 +59,30 @@ export function describeGoogleDriveConfig(): {
       // leave keyParsesAsJson false — that alone is the useful signal
     }
   }
-  return { keySet: !!raw, keyLength: raw.length, keyParsesAsJson, clientEmail, projectId };
+  return { keySet: !!raw, keyLength: raw.length, keyWasQuoteWrapped: cleaned !== raw.trim(), keyParsesAsJson, clientEmail, projectId };
 }
 
 let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
+
+/**
+ * Trims stray whitespace and strips one layer of wrapping quotes some secret
+ * managers add when a value gets exported/pasted (e.g. `"{...}"` instead of
+ * `{...}`) — deterministic cleanup only, never guesses at repairing actually
+ * malformed JSON, so this can't silently produce a wrong/corrupted credential.
+ */
+function cleanServiceAccountKeyRaw(raw: string): string {
+  const trimmed = raw.trim();
+  const wrapped =
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"));
+  return wrapped ? trimmed.slice(1, -1) : trimmed;
+}
 
 function getAuth() {
   if (cachedAuth) return cachedAuth;
   if (!env.GOOGLE_SERVICE_ACCOUNT_KEY) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY belum dikonfigurasi.");
   }
-  const credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_KEY);
+  const credentials = JSON.parse(cleanServiceAccountKeyRaw(env.GOOGLE_SERVICE_ACCOUNT_KEY));
   cachedAuth = new google.auth.GoogleAuth({
     credentials,
     scopes: ["https://www.googleapis.com/auth/drive.file"],
