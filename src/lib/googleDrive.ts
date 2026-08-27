@@ -39,7 +39,7 @@ export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
 export function describeGoogleDriveConfig(): {
   keySet: boolean;
   keyLength: number;
-  keyRepairApplied: "none" | "double-encoded" | "single-quoted";
+  keyRepairApplied: ReturnType<typeof parseServiceAccountKey>["repairApplied"] | "none";
   keyParsesAsJson: boolean;
   keyParseError: string | null;
   clientEmail: string | null;
@@ -49,7 +49,7 @@ export function describeGoogleDriveConfig(): {
   let clientEmail: string | null = null;
   let projectId: string | null = null;
   let keyParsesAsJson = false;
-  let keyRepairApplied: "none" | "double-encoded" | "single-quoted" = "none";
+  let keyRepairApplied: ReturnType<typeof parseServiceAccountKey>["repairApplied"] | "none" = "none";
   let keyParseError: string | null = null;
   if (raw) {
     try {
@@ -72,8 +72,8 @@ let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
 
 /**
  * Trims stray whitespace, then parses GOOGLE_SERVICE_ACCOUNT_KEY as JSON —
- * handling two real, deterministically-recoverable corruption modes seen in
- * practice (2026-08-27 bug reports), tried in order:
+ * handling three real, deterministically-recoverable corruption modes seen
+ * in practice (2026-08-27 bug reports), tried in order:
  *
  * 1. Double-JSON-encoded: the whole credential JSON got JSON.stringify'd
  *    AGAIN somewhere in the pipeline (e.g. a PowerShell
@@ -88,18 +88,26 @@ let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
  *    field in a GCP service account JSON (type/project_id/private_key/
  *    client_email/etc.) can legitimately contain an apostrophe, and
  *    private_key's base64 PEM body can't either.
+ * 3. Escaped-but-unwrapped: the value has `\"` throughout like a JSON
+ *    string's CONTENT, but is missing the pair of outer `"..."` quotes that
+ *    would make it one (e.g. someone copied case 1's already-double-encoded
+ *    value but only the *inside*, not the surrounding quotes — confirmed the
+ *    real cause in production via `diag.keyLength`/`keyParseError`).
+ *    Wrapping it in one added pair of quotes and parsing AS a JSON string
+ *    reproduces exactly what case 1 already unwraps, so it reuses that same
+ *    "parse resolves to a string → parse once more" step.
  *
  * This does NOT attempt to guess-repair genuinely malformed JSON beyond
- * these two known, safe, verified transforms — an earlier version of this
+ * these three known, safe, verified transforms — an earlier version of this
  * function naively stripped a leading/trailing quote character, which
  * actively corrupted the double-encoded case instead of fixing it; that
  * approach was wrong and has been removed.
  */
-function parseServiceAccountKey(raw: string): { credentials: Record<string, unknown>; repairApplied: "none" | "double-encoded" | "single-quoted" } {
+function parseServiceAccountKey(raw: string): { credentials: Record<string, unknown>; repairApplied: "none" | "double-encoded" | "single-quoted" | "escaped-unwrapped" } {
   const trimmed = raw.trim();
 
   let parsed: unknown;
-  let repairApplied: "none" | "double-encoded" | "single-quoted" = "none";
+  let repairApplied: "none" | "double-encoded" | "single-quoted" | "escaped-unwrapped" = "none";
   try {
     parsed = JSON.parse(trimmed);
     if (typeof parsed === "string") {
@@ -111,8 +119,15 @@ function parseServiceAccountKey(raw: string): { credentials: Record<string, unkn
       parsed = JSON.parse(trimmed.replace(/'/g, '"'));
       repairApplied = "single-quoted";
     } catch {
-      // Neither the original nor the single-quote repair parsed — surface the ORIGINAL error, it's the more meaningful one.
-      throw firstErr;
+      try {
+        const wrapped = JSON.parse(`"${trimmed}"`);
+        if (typeof wrapped !== "string") throw new Error("wrap did not yield a string");
+        parsed = JSON.parse(wrapped);
+        repairApplied = "escaped-unwrapped";
+      } catch {
+        // None of the 3 known repairs parsed — surface the ORIGINAL error, it's the more meaningful one.
+        throw firstErr;
+      }
     }
   }
 
