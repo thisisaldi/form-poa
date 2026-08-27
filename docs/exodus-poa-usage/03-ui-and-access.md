@@ -6,7 +6,7 @@ Tidak ada halaman UI baru — ini murni API-to-API antara Exodus dan POA, sama s
 
 | Method | Path | Efek |
 |---|---|---|
-| `GET` | `/api/poa-doctors?nip=...&keyword=...` | List (endpoint utama yang dipakai Exodus, per konfirmasi 2026-08-27) — `keyword` baru, filter `usedInExodus`+`approveUntil==NSM` baru, dan `nip` **OPSIONAL** (dibalik dari wajib — lihat `01-business-rules.md` §7 poin 3): minimal satu dari `nip`/`keyword` wajib diisi, kalau `nip` kosong search jadi company-wide |
+| `GET` | `/api/poa-doctors?nip=...&keyword=...` | List (endpoint utama yang dipakai Exodus, per konfirmasi 2026-08-27) — `keyword` baru, filter `usedInExodus`+`approveUntil==NSM` baru, dan `nip`/`keyword` DUA-DUANYA **OPSIONAL** (lihat `01-business-rules.md` §7 poin 3): kosongkan `nip` untuk company-wide, kosongkan keduanya untuk SEMUA POA di kuartal berjalan |
 | `GET` | `/api/poa-doctors/{id}` | Detail satu baris — TIDAK disentuh permintaan 2026-08-27, tetap perilaku v1 kecuali field baru (idPoa/periode/nilaiR/hna/qty) yang otomatis ikut lewat `buildDoctorRows` bersama |
 | `PATCH` | `/api/poa-doctors/{id}` | Body opsional: tanpa body / `{"usedInExodus":true}` → mark as used (`usedInExodus` → `true`, set `usedInExodusAt`); `{"usedInExodus":false}` → **revert** (baru 2026-08-27, lihat `01-business-rules.md` §8 — membalik aturan "tidak pernah revert" yang tadinya dikonfirmasi eksplisit oleh Exodus, BELUM ada konfirmasi ulang tertulis dari mereka). Idempotent di kedua arah. *(Sempat dipecah jadi `PATCH`+`DELETE` terpisah, digabung lagi jadi satu `PATCH` di hari yang sama atas preferensi Aldi — satu endpoint lebih simpel daripada dua method untuk aksi yang konsepnya sama, "set flag ini".)* |
 
