@@ -12,6 +12,12 @@ import { env } from "@/lib/env";
  * degradation philosophy as src/lib/exodusApi.ts, except this feature has
  * no fallback "return null" shape (an upload either genuinely succeeds or
  * the caller needs to know it failed), so it throws instead.
+ *
+ * GOOGLE_SERVICE_ACCOUNT_KEY is the RAW service account JSON key file
+ * (paste the whole downloaded .json as-is), not base64-encoded — decided
+ * 2026-08-27 (user request) after a base64 mis-encode on staging produced
+ * garbled JSON.parse errors; raw JSON is one less encode/decode step to
+ * get wrong.
  */
 
 export const isGoogleDriveConfigured =
@@ -24,8 +30,7 @@ function getAuth() {
   if (!env.GOOGLE_SERVICE_ACCOUNT_KEY) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY belum dikonfigurasi.");
   }
-  const credentialsJson = Buffer.from(env.GOOGLE_SERVICE_ACCOUNT_KEY, "base64").toString("utf-8");
-  const credentials = JSON.parse(credentialsJson);
+  const credentials = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_KEY);
   cachedAuth = new google.auth.GoogleAuth({
     credentials,
     scopes: ["https://www.googleapis.com/auth/drive.file"],

@@ -43,7 +43,7 @@ Mengikuti pola `EXODUS_AUTH_*` yang sudah ada (dari Vault, path `env/data/centur
 
 | Env var | Isi | Catatan |
 |---|---|---|
-| `GOOGLE_SERVICE_ACCOUNT_KEY` | JSON credential service account (base64-encoded atau raw JSON string) | Perlu diputuskan format persis saat implementasi — base64 lebih aman untuk env var (menghindari masalah escaping newline di private key JSON). |
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | JSON credential service account, RAW (bukan base64) | Keputusan final (2026-08-27, koreksi dari draft awal yang lebih condong ke base64): raw JSON — base64 sempat dipakai lalu kena insiden mis-encode di staging (nilai env-nya bukan base64 valid, `Buffer.from(..., "base64").toString()` menghasilkan garbage lalu `JSON.parse` gagal dengan error yang membingungkan). Satu langkah encode/decode lebih sedikit untuk salah. |
 | `GOOGLE_DRIVE_SURVEY_FOLDER_ID` | ID folder shared drive tujuan upload | Disiapkan pengguna/tim ops (lihat `01-business-rules.md` §2, OQ-3 soal struktur folder). |
 
 Sampai kedua env var ini terisi di suatu environment, endpoint upload harus gagal dengan pesan jelas (`01-business-rules.md` §4), bukan crash — sama pola degradasi yang dipakai Exodus Activity API (`docs/form-poa/03-ui-and-access.md` §6).
