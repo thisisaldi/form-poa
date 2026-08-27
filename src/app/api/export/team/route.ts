@@ -2,6 +2,10 @@
  * GET /api/export/team?period=2026-Q3
  *
  * Bulk Excel export for NSM/SM/ASM — all POA data for their subordinate MRs.
+ * `period` defaults to the CURRENT quarter when omitted (2026-08-26 —
+ * previously unbounded/all-history by default, which caused live 502s for
+ * ADMIN/GM/SFE/VIEWER's company-wide scope; see the `period` assignment
+ * below for the full history).
  * Sheets:
  *   1. Ringkasan Tim     — aggregate totals
  *   2. Per MR            — one row per MR with key metrics
@@ -89,7 +93,17 @@ export async function GET(req: NextRequest) {
   const mrNips = await getSubordinateMRNips(actor);
   if (mrNips.length === 0) return NextResponse.json({ error: "Tidak ada MR di bawah Anda." }, { status: 404 });
 
-  const period = req.nextUrl.searchParams.get("period") ?? null;
+  // Defaults to the CURRENT quarter (2026-08-26 fix) — was `?? null` (no
+  // bound at all) per a 2026-08-04 request ("default export is every quarter
+  // the team has data for"). That's fine for an ASM/SM/NSM's modest team, but
+  // for ADMIN/GM/SFE/VIEWER (company-wide scope via getSubordinateMRNips
+  // above) it meant every non-draft POA + line item EVER created, company-
+  // wide, in one synchronous request — the same unbounded-history class of
+  // bug docs/PERFORMANCE.md already documents (#47), and the reported cause
+  // of this route's live 502s. Explicit ?period=YYYY-QN still works for
+  // anyone who wants a different single quarter; there's just no more
+  // "everything, forever" default for anyone.
+  const period = req.nextUrl.searchParams.get("period") ?? currentQuarter();
 
   // ── Query data ──────────────────────────────────────────────────────────────
 
