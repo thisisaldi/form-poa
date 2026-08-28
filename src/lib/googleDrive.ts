@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
+import { createHash, createPrivateKey } from "crypto";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 
@@ -56,6 +57,18 @@ export function describeGoogleDriveConfig(): {
   privateKeyHasLiteralBackslashN: boolean;
   privateKeyStartsWithPemHeader: boolean;
   privateKeyEndsWithPemFooter: boolean;
+  /**
+   * SHA-256 of the (normalized) private_key, hex-encoded — a one-way
+   * fingerprint, NOT reversible to the key itself (2026-08-28: user asked to
+   * log the raw key directly to verify it matches the source file — declined
+   * that, this is the safe way to answer the same question: compute the same
+   * hash locally from the original downloaded .json and compare strings).
+   */
+  privateKeyFingerprint: string | null;
+  /** Node modulus length in bits if the key decodes successfully (2048/4096/etc — not secret, just confirms it's a real, decodable RSA key of the expected size). */
+  privateKeyModulusBits: number | null;
+  /** The actual crypto.createPrivateKey() error if decode fails — safe: OpenSSL error messages only ever describe the failure class/position, never echo key content. */
+  privateKeyDecodeError: string | null;
 } {
   const raw = env.GOOGLE_SERVICE_ACCOUNT_KEY ?? "";
   let clientEmail: string | null = null;
@@ -69,6 +82,9 @@ export function describeGoogleDriveConfig(): {
   let privateKeyHasLiteralBackslashN = false;
   let privateKeyStartsWithPemHeader = false;
   let privateKeyEndsWithPemFooter = false;
+  let privateKeyFingerprint: string | null = null;
+  let privateKeyModulusBits: number | null = null;
+  let privateKeyDecodeError: string | null = null;
   if (raw) {
     try {
       const parsed = parseServiceAccountKey(raw);
@@ -84,6 +100,13 @@ export function describeGoogleDriveConfig(): {
         privateKeyHasLiteralBackslashN = pk.includes("\\n");
         privateKeyStartsWithPemHeader = pk.trimStart().startsWith("-----BEGIN");
         privateKeyEndsWithPemFooter = pk.trimEnd().endsWith("-----");
+        privateKeyFingerprint = createHash("sha256").update(pk).digest("hex");
+        try {
+          const keyObj = createPrivateKey(pk);
+          privateKeyModulusBits = typeof keyObj.asymmetricKeyDetails?.modulusLength === "number" ? keyObj.asymmetricKeyDetails.modulusLength : null;
+        } catch (e) {
+          privateKeyDecodeError = e instanceof Error ? e.message : String(e);
+        }
       }
     } catch (e) {
       // keyParsesAsJson stays false — the message itself is safe (JSON
@@ -95,7 +118,7 @@ export function describeGoogleDriveConfig(): {
   return {
     keySet: !!raw, keyLength: raw.length, keyRepairApplied, keyParsesAsJson, keyParseError, clientEmail, projectId,
     privateKeySet, privateKeyLength, privateKeyRealNewlineCount, privateKeyHasLiteralBackslashN,
-    privateKeyStartsWithPemHeader, privateKeyEndsWithPemFooter,
+    privateKeyStartsWithPemHeader, privateKeyEndsWithPemFooter, privateKeyFingerprint, privateKeyModulusBits, privateKeyDecodeError,
   };
 }
 
