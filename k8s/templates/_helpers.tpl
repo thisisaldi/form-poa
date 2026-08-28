@@ -105,7 +105,7 @@ Create vault agent inject config template for .env.staging file
 {{- define "k8s.vaultAgentInjectConfigTemplate.env.staging" }}
 {{- printf "{{- with secret \"%s/staging\" -}}" .Values.vault.secretBasePath }}
 {{ `{{- range $key, $value := .Data.data }}` }}
-{{ `{{ $key }}="{{ $value }}"` }}
+{{ `{{ $key }}={{ $value | printf "%q" }}` }}
 {{ `{{- end -}}` }}
 {{ `{{- end -}}` }}
 {{- end }}

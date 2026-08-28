@@ -94,7 +94,7 @@ export function calculateCashbackDetails({
       (a, b) => (b.total_expenditure_pi ?? b.min_sales ?? 0) - (a.total_expenditure_pi ?? a.min_sales ?? 0)
     );
     const piMatch = sortedPi.find((p) => totalEligibleSalesMonthly >= (p.total_expenditure_pi ?? p.min_sales ?? 0));
-    piMultiplier = piMatch?.multiplier ?? 0;
+    piMultiplier = piMatch?.multiplier ?? 1;
   }
 
   let totalFinalCashback = 0;

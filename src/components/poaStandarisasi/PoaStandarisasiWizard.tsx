@@ -179,6 +179,14 @@ function UnitCountInput({
   );
 }
 
+// ponytail: flat margin assumption (same % for every product), not a real
+// per-product HPP/cost figure — no cost data exists in the schema today
+// (2026-08-28 decision). Beban diskon (Rp) > margin (Rp) reduces to
+// diskon% > MARGIN_CAP_PCT since both are the same % of the same sales base,
+// so this is just a percentage ceiling. Warning-only (matches POA Estimasi's
+// "OVER BUDGET" pattern, LineItemEditor.tsx:1419) — doesn't block submit.
+const MARGIN_CAP_PCT = 20;
+
 const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 /** Month-only picker (TODO #10) — separate Bulan + Tahun selects (not one long
@@ -1084,6 +1092,11 @@ export function PlanningPhase(props: {
                 <RpInput label="Estimasi Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
             </div>
+            {p.statusPengajuan === "PERPANJANGAN" && (parseFloat(p.estimasiDiskonPct) || 0) > MARGIN_CAP_PCT && (
+              <p className="text-xs mt-1" style={{ color: "var(--color-error)" }}>
+                ⚠ Diskon {p.estimasiDiskonPct}% melebihi margin {MARGIN_CAP_PCT}% untuk produk perpanjangan — beban diskon berpotensi menggerus profit di bawah histori.
+              </p>
+            )}
             {product && (
               <div className="flex gap-4 text-xs mt-2 mb-1" style={{ color: "var(--color-text-muted)" }}>
                 <span>HNA SJ: <strong>{formatRp(parseFloat(product.hna))}</strong> ({product.satuan})</span>
@@ -1726,7 +1739,8 @@ function FinalisasiPhase({
             <div className="text-sm font-bold mb-3" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</div>
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Finalisasi Biaya</span>
             <div className="grid grid-cols-3 gap-3 mb-4">
-              <UnitCountInput label="Discount Final" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled={disabled} />
+              {/* Sourced live from Exodus discount-request API (principal_percentage), see getPoaStandarisasiDetail — no longer manually editable. */}
+              <UnitCountInput label="Discount Final" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled />
               <UnitCountInput label="Diskon Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled={disabled} />
               <RpInput label="Biaya Listing Final" value={p.finalBiayaListingRp} onChange={(v) => updateProduk(idx, { finalBiayaListingRp: v })} disabled={disabled} />
             </div>

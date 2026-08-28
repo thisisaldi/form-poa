@@ -2,14 +2,15 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getOutletsByUser, getProducts } from "@/lib/masterData";
 import { prisma } from "@/lib/prisma";
+import { canCreatePoa } from "@/lib/authz";
 import { NewPoaStandarisasiForm } from "@/components/poaStandarisasi/NewPoaStandarisasiForm";
 
 export default async function NewPoaStandarisasiPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // ADMIN-only while this feature is under review (2026-08-14), same
-  // convention as /monitoring.
-  if (session.role !== "ADMIN") redirect("/dashboard");
+  // Opened to MR (tim sales) 2026-08-28 — was ADMIN-only while under review.
+  // Same eligibility as regular POA Estimasi (docs/poa-standarisasi/03-ui-and-access.md).
+  if (!(await canCreatePoa(session.userId))) redirect("/dashboard");
 
   const [outlets, productOptions] = await Promise.all([
     getOutletsByUser(session.userId),
