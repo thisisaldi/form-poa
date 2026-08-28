@@ -262,6 +262,7 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
       is_sc: !!o.is_sc,
       jumlah_sc: typeof o.jumlah_sc === "number" ? o.jumlah_sc : o.jumlah_sc ? Number(o.jumlah_sc) : null,
       isBlastIn: blastInSet.has(o.code),
+      created: o.created ?? null,
     }));
   } catch (error) {
     console.error("Error fetching outlets directly from Canvasser API:", error);

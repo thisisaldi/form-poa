@@ -3,6 +3,7 @@
 import type { PoaStatus } from "@prisma/client";
 import { SalesCounterDraftChecklist } from "./SalesCounterDraftChecklist";
 import type { ScDraftFormItem, SalesFigures } from "./types";
+import { ScToastProvider } from "./ui/ScToast";
 
 export function SalesCounterDetailTabs({
   scDrafts = [],
@@ -12,6 +13,9 @@ export function SalesCounterDetailTabs({
   poaVersion,
   showSubmit,
   userCanEdit,
+  canApprove,
+  canFastTrack,
+  userRole,
   selectable = true,
   salesSummary,
   targetArea,
@@ -23,6 +27,9 @@ export function SalesCounterDetailTabs({
   poaVersion?: number;
   showSubmit?: boolean;
   userCanEdit?: boolean;
+  canApprove?: boolean;
+  canFastTrack?: boolean;
+  userRole?: string;
   selectable?: boolean;
   salesSummary?: SalesFigures;
   targetArea?: number;
@@ -30,17 +37,22 @@ export function SalesCounterDetailTabs({
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
 
   return (
-    <div className="space-y-4">
-      <SalesCounterDraftChecklist
-        scDrafts={safeScDrafts}
-        poaId={poaId}
-        poaPeriod={poaPeriod}
-        showSubmit={showSubmit}
-        userCanEdit={userCanEdit}
-        selectable={selectable}
-        salesSummary={salesSummary}
-        targetArea={targetArea}
-      />
-    </div>
+    <ScToastProvider>
+      <div className="space-y-4">
+        <SalesCounterDraftChecklist
+          scDrafts={safeScDrafts}
+          poaId={poaId}
+          poaPeriod={poaPeriod}
+          showSubmit={showSubmit}
+          userCanEdit={userCanEdit}
+          canApprove={canApprove}
+          canFastTrack={canFastTrack}
+          userRole={userRole}
+          selectable={selectable}
+          salesSummary={salesSummary}
+          targetArea={targetArea}
+        />
+      </div>
+    </ScToastProvider>
   );
 }

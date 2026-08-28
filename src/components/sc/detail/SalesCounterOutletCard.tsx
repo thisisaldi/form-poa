@@ -1,13 +1,27 @@
 import { useState, useTransition, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Button } from "@/components/ui/Button";
 import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { deleteSalesCounterFormAction } from "@/app/actions/scActions";
+import {
+  submitSalesCounterFormAction,
+  approveSalesCounterFormAction,
+  reviseSalesCounterFormAction,
+  rejectSalesCounterFormAction,
+  requestEditSalesCounterFormAction,
+  grantEditSalesCounterFormAction,
+  declineEditSalesCounterFormAction,
+} from "@/app/actions/scApprovalActions";
 import { formatRp } from "./SalesCounterStatsPanel";
 import type { ScDraftFormItem } from "../types";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
 import { getScOutletB3SalesAction, getScCashbackPoaAction } from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
+import { useScToast } from "../ui/ScToast";
+import { BlastInTable } from "../edit/BlastInTable";
+import { PosmTable } from "../edit/PosmTable";
 
 function StatTile({ label, value, sub, emphasize = false }: { label: string; value: string; sub?: string; emphasize?: boolean }) {
   return (
@@ -35,6 +49,10 @@ export function SalesCounterOutletCard({
   selectable = true,
   poaId,
   userCanEdit,
+  isOwner,
+  canApprove: parentCanApprove,
+  canFastTrack: parentCanFastTrack,
+  userRole,
 }: {
   draft: ScDraftFormItem;
   checked: boolean;
@@ -42,9 +60,236 @@ export function SalesCounterOutletCard({
   selectable?: boolean;
   poaId: string;
   userCanEdit?: boolean;
+  isOwner?: boolean;
+  canApprove?: boolean;
+  canFastTrack?: boolean;
+  userRole?: string;
 }) {
+  const router = useRouter();
+  const { showToast } = useScToast();
+
+  const canApproveOutlet = useMemo(() => {
+    if (draft.status === "DRAFT" || draft.status === "REVISI" || draft.status === "APPROVED_BY_NSM") {
+      return false;
+    }
+    if (userRole === "ADMIN") {
+      return ["SUBMITTED_TO_ASM", "SUBMITTED_TO_SM", "SUBMITTED_TO_NSM"].includes(draft.status);
+    }
+    if (userRole === "ASM") {
+      return draft.status === "SUBMITTED_TO_ASM";
+    }
+    if (userRole === "SM") {
+      return draft.status === "SUBMITTED_TO_SM";
+    }
+    if (userRole === "NSM") {
+      return draft.status === "SUBMITTED_TO_NSM";
+    }
+    if (parentCanApprove) {
+      if (draft.status === "SUBMITTED_TO_ASM" || draft.status === "SUBMITTED_TO_SM" || draft.status === "SUBMITTED_TO_NSM") {
+        return true;
+      }
+    }
+    return false;
+  }, [userRole, draft.status, parentCanApprove]);
+
+  const canFastTrackOutlet = useMemo(() => {
+    if (draft.status === "DRAFT" || draft.status === "REVISI" || draft.status === "APPROVED_BY_NSM") {
+      return false;
+    }
+    if (userRole === "NSM" || userRole === "ADMIN" || parentCanFastTrack) {
+      return ["SUBMITTED_TO_ASM", "APPROVED_BY_ASM", "SUBMITTED_TO_SM", "APPROVED_BY_SM"].includes(draft.status);
+    }
+    return false;
+  }, [userRole, draft.status, parentCanFastTrack]);
+
+  const canEditThisDraft = useMemo(() => {
+    if (userRole === "ADMIN") return true;
+
+    const roleLevel: Record<string, number> = {
+      MR: 0,
+      ASM: 1,
+      SM: 2,
+      NSM: 3,
+      ADMIN: 4,
+    };
+
+    const userLevel = roleLevel[userRole || "MR"] ?? -1;
+    let lockLevel = 3;
+    if (draft.status === "DRAFT" || draft.status === "REVISI") lockLevel = -1;
+    else if (draft.status === "SUBMITTED_TO_ASM") lockLevel = 0;
+    else if (draft.status === "APPROVED_BY_ASM" || draft.status === "SUBMITTED_TO_SM") lockLevel = 1;
+    else if (draft.status === "APPROVED_BY_SM" || draft.status === "SUBMITTED_TO_NSM") lockLevel = 2;
+    else if (draft.status === "APPROVED_BY_NSM") lockLevel = 3;
+
+    if (isOwner) {
+      if (userRole === "MR") return draft.status === "DRAFT" || draft.status === "REVISI";
+      if (draft.status === "DRAFT" || draft.status === "REVISI") return true;
+    }
+
+    if (userLevel >= 0 && lockLevel >= 0) {
+      if (draft.status === "APPROVED_BY_NSM") return false;
+      return userLevel >= lockLevel;
+    }
+
+    return false;
+  }, [userRole, isOwner, draft.status]);
+
   const [detailOpen, setDetailOpen] = useState(false);
+  const [atasanPanelOpen, setAtasanPanelOpen] = useState(false);
+  const [submitBoxOpen, setSubmitBoxOpen] = useState(false);
+  const [requestEditBoxOpen, setRequestEditBoxOpen] = useState(false);
+  const [requestEditReason, setRequestEditReason] = useState("");
+  const [isRequestingEdit, setIsRequestingEdit] = useState(false);
+  const [submitNotes, setSubmitNotes] = useState("");
+  const [actionNotes, setActionNotes] = useState("");
+  const [rejectCategory, setRejectCategory] = useState("");
+  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+  const [isSubmittingOutlet, setIsSubmittingOutlet] = useState(false);
+
   const [isDeleting, startDelete] = useTransition();
+
+  const lastLog = draft.auditLogs && draft.auditLogs.length > 0 ? draft.auditLogs[draft.auditLogs.length - 1] : null;
+  const hasPendingEditRequest = lastLog?.action === "REQUEST_EDIT";
+  const pendingEditRequestNotes = hasPendingEditRequest ? (lastLog?.snapshot?.notes || "") : "";
+
+  async function handleRequestEditSubmit() {
+    if (isRequestingEdit) return;
+    setIsRequestingEdit(true);
+    try {
+      const res = await requestEditSalesCounterFormAction([draft.id], requestEditReason);
+      if (res.ok) {
+        showToast("Permohonan edit berhasil dikirim ke Atasan.", "success");
+        setRequestEditBoxOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal mengajukan permohonan edit.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat mengajukan permohonan edit.", "error");
+    } finally {
+      setIsRequestingEdit(false);
+    }
+  }
+
+  async function handleGrantEdit() {
+    if (isSubmittingAction) return;
+    setIsSubmittingAction(true);
+    try {
+      const res = await grantEditSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast("Permohonan edit disetujui. Dokumen dikembalikan ke status Revisi.", "success");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menyetujui izin edit.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
+
+  async function handleDeclineEdit() {
+    if (isSubmittingAction) return;
+    if (!actionNotes.trim()) {
+      showToast("Harap isi alasan penolakan permohonan edit.", "error");
+      return;
+    }
+    setIsSubmittingAction(true);
+    try {
+      const res = await declineEditSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast("Permohonan edit ditolak.", "info");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menolak izin edit.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
+
+  async function handleSubmitOutlet() {
+    if (isSubmittingOutlet) return;
+    setIsSubmittingOutlet(true);
+    try {
+      const res = await submitSalesCounterFormAction([draft.id], submitNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} telah berhasil diajukan!`, "success");
+        setSubmitBoxOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal mengajukan Sales Counter.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat mengajukan.", "error");
+    } finally {
+      setIsSubmittingOutlet(false);
+    }
+  }
+
+  async function handleApprove() {
+    if (isSubmittingAction) return;
+    setIsSubmittingAction(true);
+    try {
+      const res = await approveSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} telah berhasil disetujui!`, "success");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menyetujui Sales Counter.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat menyetujui.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
+
+  async function handleRevise() {
+    if (isSubmittingAction) return;
+    if (!confirm(`Minta revisi untuk Sales Counter ${draft.namaOutlet}?`)) return;
+    setIsSubmittingAction(true);
+    try {
+      const res = await reviseSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} dikembalikan ke MR untuk revisi.`, "info");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal meminta revisi.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat meminta revisi.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
+
+  async function handleReject() {
+    if (isSubmittingAction) return;
+    if (!confirm(`Tolak Sales Counter ${draft.namaOutlet}?`)) return;
+    setIsSubmittingAction(true);
+    try {
+      const res = await rejectSalesCounterFormAction([draft.id], actionNotes);
+      if (res.ok) {
+        showToast(`Sales Counter ${draft.namaOutlet} telah ditolak.`, "error");
+        setAtasanPanelOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menolak.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat menolak.", "error");
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  }
 
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [cashbackData, setCashbackData] = useState<any>(null);
@@ -160,8 +405,11 @@ export function SalesCounterOutletCard({
           <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
             SC: {canvasserNames || "Tidak ada SC"}
           </p>
-          <p className="text-[11px] truncate" style={{ color: "var(--color-text-faint)" }}>
-            Resep Dokter: {draft.persenResepDokter}%
+          <p className="text-[11px] truncate flex items-center gap-2 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
+            <span>Karyawan: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahKaryawan ?? 0}</strong></span>
+            <span>· Pasien: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasien ?? 0}</strong></span>
+            <span>· Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienResep ?? 0}</strong></span>
+            <span>· Non-Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienNonResep ?? (draft.jumlahPasien != null && draft.jumlahPasienResep != null ? Math.max(0, draft.jumlahPasien - draft.jumlahPasienResep) : 0)}</strong></span>
           </p>
 
           {/* Stat grid */}
@@ -188,9 +436,40 @@ export function SalesCounterOutletCard({
             <Link
               href={`/sc/${poaId}/edit/${draft.id}`}
               className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
-              style={userCanEdit ? { background: "var(--color-blue)", color: "#fff" } : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-              {userCanEdit ? "Edit" : "Lihat"}
+              style={canEditThisDraft ? { background: "var(--color-blue)", color: "#fff" } : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
+              {canEditThisDraft ? "Edit" : "Lihat"}
             </Link>
+
+            {userCanEdit && (draft.status === "DRAFT" || draft.status === "REVISI") && (
+              <button
+                type="button"
+                onClick={() => setSubmitBoxOpen((v) => !v)}
+                className="text-xs font-semibold px-3 py-1.5 rounded-md whitespace-nowrap text-white transition-opacity hover:opacity-90"
+                style={{ background: "var(--color-primary-orange, #ea580c)" }}>
+                Ajukan outlet ini
+              </button>
+            )}
+
+            {!canEditThisDraft && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
+              <button
+                type="button"
+                onClick={() => setRequestEditBoxOpen((v) => !v)}
+                className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90 cursor-pointer"
+                style={{ background: "var(--color-blue)", color: "#ffffff" }}>
+                Ajukan Edit
+              </button>
+            )}
+
+            {(canApproveOutlet || canFastTrackOutlet) && (
+              <button
+                type="button"
+                onClick={() => setAtasanPanelOpen((v) => !v)}
+                className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90"
+                style={{ background: "var(--color-warning, #C99A3D)", color: "#fff" }}>
+                Approval
+              </button>
+            )}
+
             {userCanEdit && (
               <button type="button" disabled={isDeleting} onClick={handleDelete} className="text-xs" style={{ color: "var(--color-red)" }}>
                 Hapus
@@ -203,6 +482,224 @@ export function SalesCounterOutletCard({
           </button>
         </div>
       </div>
+
+      {hasPendingEditRequest && (
+        <div className="mt-2.5 p-2.5 rounded-md border text-xs flex items-center justify-between" style={{ background: "var(--color-warning-light, #fef3c7)", borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning-dark, #92400e)" }}>
+          <span>
+            ⚠️ <strong>Permohonan Edit Aktif dari MR:</strong> {pendingEditRequestNotes || "Pemilik draf mengajukan permohonan edit."}
+          </span>
+        </div>
+      )}
+
+      {requestEditBoxOpen && (
+        <div
+          className="mt-2.5 rounded-lg px-3 py-2.5 text-xs font-medium space-y-2"
+          style={{
+            background: "var(--color-warning-bg, #fef3c7)",
+            color: "var(--color-warning, #f59e0b)",
+          }}
+        >
+          <p>
+            Outlet ini terkunci untuk diedit — sudah ada tindakan (approve/edit) dari level ASM ke atas.{" "}
+            {hasPendingEditRequest
+              ? "Menunggu persetujuan permintaan edit di bawah ini."
+              : "Tunggu sampai direject/dibatalkan, atau ajukan permintaan edit di bawah ini."}
+          </p>
+          {hasPendingEditRequest ? (
+            <p className="font-normal">
+              Menunggu persetujuan Atasan untuk membuka kembali akses edit.
+              {pendingEditRequestNotes ? ` Alasan: "${pendingEditRequestNotes}"` : ""}
+            </p>
+          ) : (
+            <div className="space-y-2 pt-1">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-normal">
+                  Alasan permintaan edit (opsional) — akan dikirim ke Atasan yang terakhir approve
+                </span>
+                <textarea
+                  value={requestEditReason}
+                  onChange={(e) => setRequestEditReason(e.target.value)}
+                  rows={2}
+                  placeholder="mis. ada koreksi jumlah/estimasi yang perlu diperbaiki…"
+                  className="input-field text-xs"
+                />
+              </label>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={isRequestingEdit}
+                  onClick={handleRequestEditSubmit}
+                >
+                  {isRequestingEdit ? "Mengirim…" : "Ajukan Edit ke Atasan"}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setRequestEditBoxOpen(false)}
+                  className="text-xs font-normal cursor-pointer opacity-70 hover:opacity-100"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {submitBoxOpen && userCanEdit && (
+        <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-primary-orange, #ea580c)" }}>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+              Notes tambahan (opsional)
+            </span>
+            <textarea
+              value={submitNotes}
+              onChange={(e) => setSubmitNotes(e.target.value)}
+              rows={2}
+              placeholder="mis. konteks tambahan…"
+              className="input-field text-xs rounded border p-2"
+              style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+            />
+          </label>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={isSubmittingOutlet}
+              onClick={handleSubmitOutlet}
+              style={{ background: "var(--color-primary-orange, #ea580c)", color: "#fff" }}
+            >
+              {isSubmittingOutlet ? "Memproses…" : `Ajukan ${draft.namaOutlet}`}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setSubmitBoxOpen(false)}>
+              Batal
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {atasanPanelOpen && (canApproveOutlet || canFastTrackOutlet) && (
+        <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-blue)" }}>
+          {hasPendingEditRequest && (
+            <div className="mt-1 rounded-lg border p-3 space-y-3 mb-2" style={{ borderColor: "var(--color-blue)" }}>
+              <p className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Permintaan Edit</p>
+              <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                {draft.namaOutlet} — MR meminta izin untuk mengedit kembali outlet ini yang sudah disetujui.
+                {pendingEditRequestNotes ? ` Alasan: "${pendingEditRequestNotes}"` : ""}
+              </p>
+              <div>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isSubmittingAction}
+                  onClick={handleGrantEdit}
+                  style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}
+                >
+                  Setujui Permintaan Edit (kembali ke Revisi)
+                </Button>
+              </div>
+              <div className="pt-2 space-y-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Menolak</span>
+                  <textarea
+                    value={actionNotes}
+                    onChange={(e) => setActionNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Jelaskan alasan menolak permintaan edit ini…"
+                    className="input-field text-xs"
+                  />
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="danger"
+                  disabled={isSubmittingAction}
+                  onClick={handleDeclineEdit}
+                >
+                  Tolak Permintaan Edit
+                </Button>
+              </div>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {canFastTrackOutlet ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={isSubmittingAction}
+                onClick={handleApprove}
+                style={{ borderColor: "var(--color-warning, #C99A3D)", color: "var(--color-warning, #C99A3D)" }}
+              >
+                {isSubmittingAction ? "Memproses…" : "Approve Langsung (Lewati ASM/SM)"}
+              </Button>
+            ) : canApproveOutlet ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={isSubmittingAction}
+                onClick={handleApprove}
+                style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}
+              >
+                {isSubmittingAction ? "Memproses…" : "Approve & Teruskan"}
+              </Button>
+            ) : null}
+          </div>
+
+          {canFastTrackOutlet && (
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              Sebagai NSM, Anda bisa langsung menyetujui outlet ini sampai final tanpa menunggu approval ASM/SM.
+            </p>
+          )}
+
+          <div className="space-y-2 pt-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Kategori Reject</span>
+              <select
+                value={rejectCategory}
+                onChange={(e) => setRejectCategory(e.target.value)}
+                className="input-field text-xs rounded border p-2"
+                style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+              >
+                <option value="">Pilih kategori…</option>
+                <option value="PRODUK">Produk</option>
+                <option value="OUTLET">Outlet</option>
+                <option value="USER">User / SC</option>
+                <option value="PERIODE">Periode</option>
+                <option value="KALKULASI_PSSP">Kalkulasi Sales Counter</option>
+                <option value="ALASAN_LAIN">Alasan Lain</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Alasan Reject</span>
+              <textarea
+                value={actionNotes}
+                onChange={(e) => setActionNotes(e.target.value)}
+                rows={2}
+                placeholder={`Jelaskan alasan reject outlet ${draft.namaOutlet} - MR akan melihat catatan ini di Riwayat Aktivitas…`}
+                className="input-field text-xs rounded border p-2"
+                style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+              />
+            </label>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="danger"
+              disabled={isSubmittingAction}
+              onClick={handleReject}
+            >
+              {isSubmittingAction ? "Memproses…" : "Tolak Outlet Ini (kembali ke Revisi)"}
+            </Button>
+          </div>
+
+          <Button type="button" size="sm" variant="ghost" onClick={() => setAtasanPanelOpen(false)}>
+            Tutup
+          </Button>
+        </div>
+      )}
 
       {/* Expanded detail */}
       {detailOpen && (
@@ -297,6 +794,10 @@ export function SalesCounterOutletCard({
               </div>
             </div>
           )}
+
+          {/* Tabel BLAST-IN & POSM (Autofill data) */}
+          <BlastInTable poaPeriod={draft.period} />
+          <PosmTable />
         </div>
       )}
     </div>

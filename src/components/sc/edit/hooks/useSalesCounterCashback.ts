@@ -1,4 +1,4 @@
-export interface CashbackData {
+  export interface CashbackData {
   matrix?: Array<{ code?: string; pro_code?: string; cashback_percentage?: number; cashback_percent?: number }>;
   pi?: Array<{ total_expenditure_pi?: number; min_sales?: number; multiplier?: number }>;
   variant?: Array<{ variant?: number; multiplier?: number }>;
@@ -39,11 +39,9 @@ export function calculateCashbackDetails({
 
     const master = masterProducts.find((mp) => mp.kodeProduk === p.kodeProduk);
     const hnaSJ = parseFloat(master?.hna || "0") || 0;
-    const konv = parseInt(master?.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
 
-    const qty = parseFloat(p.qtyPerBulan) || 0;
-    const estimasiSalesMonthly = qty * hnaST;
+    const qtyUb = parseFloat(p.qtyPerBulan) || 0;
+    const estimasiSalesMonthly = qtyUb * hnaSJ;
     const estimasiSales = estimasiSalesMonthly * lamaPeriode;
 
     let rawCashbackPct = parseFloat(p.persenCashback || "0") || 0;
@@ -78,25 +76,25 @@ export function calculateCashbackDetails({
   const totalEligibleSalesMonthly = eligibleItems.reduce((acc, it) => acc + (it.estimasiSalesMonthly || 0), 0);
   const eligibleVariantCount = eligibleItems.length;
 
-  let variantMultiplier = 0;
-  if (cashbackData?.variant && Array.isArray(cashbackData.variant)) {
+  let variantMultiplier = 1;
+  if (cashbackData?.variant && Array.isArray(cashbackData.variant) && cashbackData.variant.length > 0) {
     const vMatch = cashbackData.variant.find((v) => v.variant === eligibleVariantCount);
     if (vMatch) {
-      variantMultiplier = vMatch.multiplier ?? 0;
+      variantMultiplier = vMatch.multiplier ?? 1;
     } else if (eligibleVariantCount > 0) {
       const sortedV = [...cashbackData.variant].sort((a, b) => (b.variant ?? 0) - (a.variant ?? 0));
       const match = sortedV.find((v) => (v.variant ?? 0) <= eligibleVariantCount);
-      variantMultiplier = match?.multiplier ?? 0;
+      variantMultiplier = match?.multiplier ?? 1;
     }
   }
 
-  let piMultiplier = 0;
-  if (cashbackData?.pi && Array.isArray(cashbackData.pi)) {
+  let piMultiplier = 1;
+  if (cashbackData?.pi && Array.isArray(cashbackData.pi) && cashbackData.pi.length > 0) {
     const sortedPi = [...cashbackData.pi].sort(
       (a, b) => (b.total_expenditure_pi ?? b.min_sales ?? 0) - (a.total_expenditure_pi ?? a.min_sales ?? 0)
     );
     const piMatch = sortedPi.find((p) => totalEligibleSalesMonthly >= (p.total_expenditure_pi ?? p.min_sales ?? 0));
-    piMultiplier = piMatch?.multiplier ?? 0;
+    piMultiplier = piMatch?.multiplier ?? 1;
   }
 
   let totalFinalCashback = 0;
@@ -108,7 +106,7 @@ export function calculateCashbackDetails({
 
   for (const item of items) {
     if (item.eligible) {
-      const monthlyVal = (item.rawCashbackValMonthly || 0) * variantMultiplier * piMultiplier;
+      const monthlyVal = (item.estimasiSalesMonthly || 0) * ((item.rawCashbackPct || 0) / 100) * variantMultiplier * piMultiplier;
       const finalVal = monthlyVal * duration;
       item.finalCashbackVal = finalVal;
       resultMap.set(item.kodeProduk, finalVal);
@@ -124,6 +122,13 @@ export function calculateCashbackDetails({
     }
   }
 
+  const itemEligibilityMap = new Map<string, boolean>();
+  for (const item of items) {
+    if (item.kodeProduk) {
+      itemEligibilityMap.set(item.kodeProduk, item.eligible);
+    }
+  }
+
   return {
     limitVal,
     eligibleVariantCount,
@@ -132,6 +137,7 @@ export function calculateCashbackDetails({
     variantMultiplier,
     piMultiplier,
     items,
+    itemEligibilityMap,
     resultMap,
     monthlyResultMap,
     totalFinalCashback,

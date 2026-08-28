@@ -3,21 +3,36 @@ import { prisma } from "@/lib/prisma";
 import { getSalesCounterOutletsDirect, getScProducts } from "@/lib/masterData";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 
-export async function getSalesCounterEditData(id: string, periodParam: string | undefined, sessionUserId: string) {
+import { canUserEditScForm } from "@/lib/authz";
+
+export async function getSalesCounterEditData(id: string, periodParam: string | undefined, sessionUserId: string, sessionRole?: string) {
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: sessionUserId } });
 
-  // id is the period, e.g. "2026-Q2"
+  let targetPeriod = id;
+  let targetOwnerId = sessionUserId;
+
+  // Check if id is a form ID (cuid / uuid)
+  const formById = await prisma.poaScForm.findUnique({
+    where: { id },
+    select: { period: true, ownerId: true, status: true, version: true },
+  });
+
+  if (formById) {
+    targetPeriod = formById.period;
+    targetOwnerId = formById.ownerId;
+  }
+
   const poa = {
-    id,
-    period: id,
-    status: "DRAFT" as PoaStatus,
-    version: 1,
-    ownerId: actor.nip,
+    id: targetPeriod,
+    period: targetPeriod,
+    status: formById?.status || ("DRAFT" as PoaStatus),
+    version: formById?.version || 1,
+    ownerId: targetOwnerId,
     owner: actor,
   };
 
   const savedDrafts = await prisma.poaScForm.findMany({
-    where: { ownerId: sessionUserId, period: id },
+    where: { ownerId: targetOwnerId, period: targetPeriod },
     include: {
       products: true,
       persons: true,
@@ -47,6 +62,7 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
       is_sc: !!(o as any).is_sc,
       jumlah_sc: (o as any).jumlah_sc ?? null,
       isBlastIn: blastInSet.has(o.kodePI as string),
+      created: (o as any).created ?? (o as any).created_at ?? null,
     }));
 
   const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!(o as any).is_sc]));
@@ -68,8 +84,10 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
     })),
   }));
 
+  const userCanEdit = canUserEditScForm(sessionRole || "MR", sessionUserId, targetOwnerId, poa.status);
+
   return {
-    userCanEdit: true,
+    userCanEdit,
     poa,
     actor,
     outlets,

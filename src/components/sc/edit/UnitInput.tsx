@@ -65,7 +65,7 @@ export function UnitInput({
 
   return (
     <div
-      className="flex items-stretch rounded-md overflow-hidden"
+      className="flex items-stretch rounded-md overflow-hidden h-[32px]"
       style={{ border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}
     >
       <input
@@ -75,7 +75,7 @@ export function UnitInput({
         value={displayValue}
         onChange={handleChange}
         disabled={disabled}
-        className="flex-1 min-w-0 w-0 px-2.5 py-1.5 text-sm outline-none disabled:opacity-75 disabled:cursor-not-allowed"
+        className="flex-1 min-w-0 w-full px-1.5 text-[11px] outline-none disabled:opacity-75 disabled:cursor-not-allowed h-full"
         style={{ background: disabled ? "var(--color-bg-subtle)" : "transparent", color: "var(--color-text)" }}
       />
       {step != null && !disabled && (
@@ -111,7 +111,7 @@ export function UnitInput({
         <>
           <span style={{ width: 1, background: "var(--color-border-strong)" }} />
           <span
-            className="flex items-center px-2 text-xs font-medium whitespace-nowrap"
+            className="flex items-center px-1.5 text-[11px] font-medium whitespace-nowrap"
             style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
           >
             {unit}

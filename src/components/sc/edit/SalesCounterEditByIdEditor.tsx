@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/Button";
 import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 import { quarterToMonths } from "@/lib/quarterUtils";
+import { BlastInTable } from "./BlastInTable";
+import { PosmTable } from "./PosmTable";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
   if (rawVal == null) return "0";
@@ -18,6 +20,10 @@ function formatDiskonPct(rawVal: number | string | undefined | null): string {
   if (isNaN(num)) return "0";
   const pct = num > 0 && num <= 1 ? num * 100 : num;
   return String(Number(pct.toFixed(2)));
+}
+
+function formatRp(val: number): string {
+  return new Intl.NumberFormat("id-ID").format(Math.round(val || 0));
 }
 
 function findDiskonItem(list: any[], targetCode: string) {
@@ -115,8 +121,13 @@ interface SalesCounterEditByIdEditorProps {
   initialPeriodeAwal: string;
   initialLamaPeriode: number;
   initialPersenResepDokter: number;
+  initialJumlahKaryawan?: number | null;
+  initialJumlahPasien?: number | null;
+  initialJumlahPasienResep?: number | null;
+  initialJumlahPasienNonResep?: number | null;
   masterProducts: Product[];
   readOnly?: boolean;
+  isOwner?: boolean;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -152,8 +163,13 @@ export function SalesCounterEditByIdEditor({
   initialPeriodeAwal,
   initialLamaPeriode,
   initialPersenResepDokter,
+  initialJumlahKaryawan,
+  initialJumlahPasien,
+  initialJumlahPasienResep,
+  initialJumlahPasienNonResep,
   masterProducts,
   readOnly = false,
+  isOwner,
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -164,7 +180,19 @@ export function SalesCounterEditByIdEditor({
   // Editable states - pre-filled from DB
   const [periodeAwal] = useState(initialPeriodeAwal);
   const [lamaPeriode] = useState(initialLamaPeriode);
-  const [persenResepDokter, setPersenResepDokter] = useState(String(initialPersenResepDokter ?? ""));
+  const [persenResepDokter, setPersenResepDokter] = useState(String(initialPersenResepDokter ?? "0"));
+  const [jumlahKaryawan, setJumlahKaryawan] = useState(String(initialJumlahKaryawan ?? ""));
+  const [jumlahPasien, setJumlahPasien] = useState(String(initialJumlahPasien ?? ""));
+  const [jumlahPasienResep, setJumlahPasienResep] = useState(String(initialJumlahPasienResep ?? ""));
+
+  const jumlahPasienNonResep = useMemo(() => {
+    const numPasien = parseInt(jumlahPasien, 10);
+    const numResep = parseInt(jumlahPasienResep, 10);
+    if (!isNaN(numPasien) && !isNaN(numResep)) {
+      return String(Math.max(0, numPasien - numResep));
+    }
+    return String(initialJumlahPasienNonResep ?? "0");
+  }, [jumlahPasien, jumlahPasienResep, initialJumlahPasienNonResep]);
 
   // Products editable
   const [products, setProducts] = useState<ProductRow[]>(() =>
@@ -183,9 +211,9 @@ export function SalesCounterEditByIdEditor({
 
   // Entertain
   const [entertainList, setEntertainList] = useState(() => {
-    const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
-    const quarterMatch = poaPeriod.match(/-Q([1-4])/);
-    const q = quarterMatch ? parseInt(quarterMatch[1], 10) : 1;
+    const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+    const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
+    const q = validPeriodMatch ? parseInt(validPeriodMatch[2], 10) : 1;
     const qPeriod = `${poaYear}-Q${q}`;
     const months = quarterToMonths(qPeriod);
 
@@ -556,6 +584,61 @@ export function SalesCounterEditByIdEditor({
     ? ((totalEstSalesBln - totalAvgB3Bln) / totalAvgB3Bln) * 100
     : null;
 
+  const monthlyMonths = useMemo(() => {
+    const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+    const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
+    const q = validPeriodMatch ? parseInt(validPeriodMatch[2], 10) : 1;
+    const qPeriod = `${poaYear}-Q${q}`;
+    return quarterToMonths(qPeriod);
+  }, [poaPeriod]);
+
+  const monthlyBreakdown = useMemo(() => {
+    return monthlyMonths.map((m: string) => {
+      let monthlyEstimasiSales = 0;
+      let monthlyNilaiSc = 0;
+
+      for (const row of products) {
+        if (!row.kodeProduk) continue;
+        const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
+        if (!masterProduct) continue;
+        const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
+
+        const hnaSJ = parseFloat(masterProduct.hna) || 0;
+        const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
+        const hnaST = hnaSJ / konv;
+
+        const qty = parseFloat(row.qtyPerBulan) || 0;
+
+        const estSalesPerMonth = qty * hnaST;
+        const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
+
+        const qtySjBln = konv > 0 ? qty / konv : 0;
+        const scVal = canvasserProd?.sales_counter_value;
+        const scMin = canvasserProd?.sales_counter_minimum || 0;
+
+        let valScPerMonth = 0;
+        if (scVal != null && scVal > 0) {
+          valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+        } else {
+          valScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+        }
+
+        monthlyEstimasiSales += estSalesPerMonth;
+        monthlyNilaiSc += valScPerMonth;
+      }
+
+      return {
+        month: m,
+        label: formatMonthLabel(m),
+        estimasiSales: monthlyEstimasiSales,
+        nilaiSc: monthlyNilaiSc,
+      };
+    });
+  }, [monthlyMonths, products, masterProducts, canvasserProducts]);
+
+  const totalMonthlyEstimasiSales = monthlyBreakdown.reduce((sum: number, item: { estimasiSales: number }) => sum + item.estimasiSales, 0);
+  const totalMonthlyNilaiSc = monthlyBreakdown.reduce((sum: number, item: { nilaiSc: number }) => sum + item.nilaiSc, 0);
+
   const updateEntertainValue = (month: string, val: string) => {
     setEntertainList((prev) => prev.map((item) => item.month === month ? { ...item, value: val } : item));
   };
@@ -629,14 +712,6 @@ export function SalesCounterEditByIdEditor({
   const validate = () => {
     const nextErrors: Record<string, string> = {};
     if (!periodeAwal) nextErrors.periodeAwal = "Periode awal wajib diisi";
-    if (!persenResepDokter) {
-      nextErrors.persenResepDokter = "% Resep Dokter wajib diisi";
-    } else {
-      const val = parseFloat(persenResepDokter) || 0;
-      if (val < 0 || val > 100) {
-        nextErrors.persenResepDokter = "% Resep Dokter harus antara 0% - 100%";
-      }
-    }
     const hasValidProduct = products.some((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0);
     if (!hasValidProduct) nextErrors.products = "Minimal pilih 1 produk dengan kuantitas > 0";
     setErrors(nextErrors);
@@ -655,10 +730,14 @@ export function SalesCounterEditByIdEditor({
         products,
         entertainList,
         parseInt(persenResepDokter, 10) || 0,
-        namaOutlet || undefined
+        namaOutlet || undefined,
+        parseInt(jumlahKaryawan, 10) || 0,
+        parseInt(jumlahPasien, 10) || 0,
+        parseInt(jumlahPasienResep, 10) || 0,
+        parseInt(jumlahPasienNonResep, 10) || 0
       );
       if (res.ok) {
-        router.push(`/sc/${poaPeriod}`);
+        router.push(`/sc/${scId}`);
       } else {
         alert(res.error || "Gagal menyimpan data.");
       }
@@ -671,7 +750,9 @@ export function SalesCounterEditByIdEditor({
       {readOnly && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-          Mode Lihat (Read-Only) — Form ini tidak dalam status Draft/Revisi sehingga tidak dapat diubah.
+          {isOwner === false
+            ? "Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only). Perubahan hanya dapat dilakukan oleh pemilik draf (MR)."
+            : "Mode Lihat (Read-Only) — Form ini tidak dalam status Draft/Revisi sehingga tidak dapat diubah."}
         </div>
       )}
       <div className="space-y-6">
@@ -727,25 +808,69 @@ export function SalesCounterEditByIdEditor({
           )}
         </div>
 
-        {/* % Resep Dokter */}
+        {/* Statistik Karyawan & Pasien */}
         <div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: errors.persenResepDokter ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                % Resep Dokter <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                Jumlah Karyawan
               </span>
-              <div style={errors.persenResepDokter ? ERR_RING : undefined}>
-                <UnitInput
-                  value={persenResepDokter}
-                  onChange={setPersenResepDokter}
-                  unit="%"
-                  placeholder="0"
-                  min={0}
-                  max={100}
-                  disabled={readOnly}
-                />
-              </div>
-              {errors.persenResepDokter && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.persenResepDokter}</span>}
+              <input
+                type="number"
+                value={jumlahKaryawan}
+                onChange={(e) => setJumlahKaryawan(e.target.value)}
+                placeholder="0"
+                min={0}
+                disabled={readOnly}
+                className="input-field text-center font-semibold text-sm h-[38px]"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                Jumlah Pasien
+              </span>
+              <input
+                type="number"
+                value={jumlahPasien}
+                onChange={(e) => setJumlahPasien(e.target.value)}
+                placeholder="0"
+                min={0}
+                disabled={readOnly}
+                className="input-field text-center font-semibold text-sm h-[38px]"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                Jumlah Pasien Resep
+              </span>
+              <input
+                type="number"
+                value={jumlahPasienResep}
+                onChange={(e) => setJumlahPasienResep(e.target.value)}
+                placeholder="0"
+                min={0}
+                disabled={readOnly}
+                className="input-field text-center font-semibold text-sm h-[38px]"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                Jumlah Pasien Non Resep
+              </span>
+              <input
+                type="number"
+                value={jumlahPasienNonResep}
+                readOnly
+                disabled
+                className="input-field text-center font-semibold text-sm h-[38px]"
+                style={{ background: "var(--color-bg-subtle)", opacity: 0.85, cursor: "not-allowed" }}
+              />
+              <span className="text-[10px] leading-tight mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                Pasien Non Resep = Jumlah Pasien - Jumlah Pasien Resep
+              </span>
             </div>
           </div>
         </div>
@@ -780,7 +905,12 @@ export function SalesCounterEditByIdEditor({
           {/* Entertain */}
           {entertainList.length > 0 && (
             <div className="space-y-2 mt-4">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
+                <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                  Total Entertain: Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
+                </span>
+              </div>
               <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
                 <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
                   <thead>
@@ -801,16 +931,29 @@ export function SalesCounterEditByIdEditor({
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="font-semibold" style={{ background: "var(--color-bg-subtle)", borderTop: "1px solid var(--color-border)" }}>
+                      <td className="px-4 py-2.5" style={{ color: "var(--color-text)" }}>Total Entertain</td>
+                      <td className="px-4 py-2.5 text-xs font-bold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                        Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
           )}
         </div>
 
+        {/* Tabel BLAST-IN & POSM (Autofill data) */}
+        <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />
+        <PosmTable />
+
         {/* PRODUK */}
         <div>
           <SectionLabel>Produk yang Dipromosikan</SectionLabel>
           <ProductSelector
+            kodePI={kodePI}
             rows={products}
             onAddRow={addProductRow}
             onRemoveRow={removeProductRow}
@@ -841,6 +984,59 @@ export function SalesCounterEditByIdEditor({
           />
         </div>
 
+        {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
+        {monthlyBreakdown.length > 0 && products.some(p => p.kodeProduk) && (
+          <div className="rounded-xl border px-4 py-3 space-y-3"
+            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+              Estimasi &amp; Nilai SC/Cashback per Bulan
+            </p>
+            <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                    <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
+                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
+                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
+                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyBreakdown.map((m: { month: string; label: string; estimasiSales: number; nilaiSc: number }) => {
+                    const mCashback = totalCashbackVal / (lamaPeriode || 1);
+                    return (
+                      <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                        <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
+                        <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
+                          {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
+                        </td>
+                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
+                          {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
+                        </td>
+                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                          {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ fontWeight: 600 }}>
+                    <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text)" }}>Total</td>
+                    <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
+                      Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
+                    </td>
+                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
+                      Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
+                    </td>
+                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                      Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* TOTAL */}
         <div className="rounded-xl border px-4 py-3 space-y-4"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
@@ -865,9 +1061,11 @@ export function SalesCounterEditByIdEditor({
               </div>
               <div className="text-[11px] mt-1 space-y-0.5" style={{ color: "var(--color-text-muted)" }}>
                 <div>INSENTIF SC : <strong>Rp {Math.round(totalNilaiSc).toLocaleString("id-ID")}</strong></div>
-                <div>CASHBACK : <strong>Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}</strong></div>
-                <div>ENTERTAIN : <strong>Rp {Math.round(totalEntertainVal).toLocaleString("id-ID")}</strong></div>
                 <div>DISKON : <strong>Rp {Math.round(totalDiskonVal).toLocaleString("id-ID")}</strong></div>
+                <div>ENTERTAIN : <strong>Rp {Math.round(totalEntertainVal).toLocaleString("id-ID")}</strong></div>
+                <div>CASHBACK : <strong>Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}</strong></div>
+                <div>BLAST-IN : <strong>Rp 0</strong></div>
+                <div>POSM : <strong>Rp 0</strong></div>
               </div>
             </div>
             <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>

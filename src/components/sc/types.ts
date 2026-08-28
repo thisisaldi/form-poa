@@ -52,12 +52,18 @@ export interface ScDraftFormItem {
   kodePI: string;
   namaOutlet: string;
   persenResepDokter: number;
+  jumlahKaryawan?: number | null;
+  jumlahPasien?: number | null;
+  jumlahPasienResep?: number | null;
+  jumlahPasienNonResep?: number | null;
   ownerId: string;
+  currentHolderId?: string | null;
   is_sc?: boolean;
   isBlastIn?: boolean;
   products: ScProductItemData[];
   persons: ScPersonItemData[];
   entertainItems: ScEntertainItemData[];
+  auditLogs?: any[];
 }
 
 export interface SalesFigures {
