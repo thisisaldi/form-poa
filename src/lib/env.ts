@@ -26,17 +26,19 @@ const envSchema = z.object({
   EXODUS_AUTH_CLIENT_ID: z.string().optional(),
   EXODUS_AUTH_CLIENT_SECRET: z.string().optional(),
   EXODUS_API_BASE_URL: z.string().optional(),
-  // Optional — Google Drive upload for "Input Data Survey" (see
-  // docs/survey-pasien-features/, src/lib/googleDrive.ts). Service account
-  // credential JSON, base64-encoded (avoids private-key newline escaping
-  // issues in env vars) — set via Vault per deployment, not baked into the
-  // image. Feature degrades to a clear "belum dikonfigurasi" error when
-  // unset, same pattern as EXODUS_* above.
+  // Optional — Google Drive upload for "Input Data Survey" + POA
+  // Standarisasi (see docs/survey-pasien-features/, src/lib/googleDrive.ts).
+  // Service account credential JSON, RAW (not base64-encoded, see
+  // googleDrive.ts's doc comment for why) — set via Vault per deployment,
+  // not baked into the image. Feature degrades to a clear "belum
+  // dikonfigurasi" error when unset, same pattern as EXODUS_* above.
+  // Destination folder id is NOT here anymore — moved to the DB-backed
+  // GoogleDriveConfig table (2026-08-27, ADMIN-settable, see admin.ts).
   GOOGLE_SERVICE_ACCOUNT_KEY: z.string().optional(),
-  GOOGLE_DRIVE_SURVEY_FOLDER_ID: z.string().optional(),
   // Optional — Nexus API (api-nexus.pharos.id) now requires HTTP Basic Auth
-  // (2026-08-18) — used by fetchNexusCustomersByOutlet (customer.ts) and
-  // outletSync.ts's per-NIP outlet fetch. Same degrade-gracefully pattern as
+  // (2026-08-18) — used by outletSync.ts's per-NIP outlet fetch (customer.ts's
+  // dokter/customer lookup moved to Exodus 2026-08-27, no longer uses this).
+  // Same degrade-gracefully pattern as
   // EXODUS_*/GOOGLE_* above: unset means requests go out unauthenticated
   // (will just get 401'd by Nexus, treated as "no data" by the existing
   // try/catch — never a hard failure), not an env validation error.
@@ -88,7 +90,6 @@ function validateEnv(): Env {
         EXODUS_AUTH_CLIENT_SECRET: undefined,
         EXODUS_API_BASE_URL: undefined,
         GOOGLE_SERVICE_ACCOUNT_KEY: undefined,
-        GOOGLE_DRIVE_SURVEY_FOLDER_ID: undefined,
         NEXUS_API_USERNAME: undefined,
         NEXUS_API_PASSWORD: undefined,
         SIPP_BASE_URL: undefined,

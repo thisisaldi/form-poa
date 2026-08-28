@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { getOutletsForSurveyUpload } from "@/lib/masterData";
-import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
+import { uploadFileToSurveyDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { SURVEY_SUMBER_OPTIONS } from "@/lib/surveySumber";
 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB — docs/survey-pasien-features/01-business-rules.md OQ-1
@@ -63,6 +63,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: WRITE_BLOCKED_MESSAGE }, { status: 423 });
   }
   if (!isGoogleDriveConfigured) {
+    const folderRow = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
+    console.error("[survey/upload] not configured —", {
+      ...describeGoogleDriveConfig(),
+      folderIdSet: !!folderRow?.surveyFolderId,
+      folderId: folderRow?.surveyFolderId ?? null, // not a secret, safe to log
+    });
     return NextResponse.json({ error: "Fitur upload survey belum dikonfigurasi." }, { status: 503 });
   }
 
@@ -128,8 +134,16 @@ export async function POST(req: Request) {
     const result = await uploadFileToSurveyDrive(namaFile, mimeType, buffer);
     driveFileId = result.driveFileId;
   } catch (err) {
-    console.error("[survey/upload] Google Drive upload failed:", err);
-    return NextResponse.json({ error: "Upload ke Google Drive gagal, coba lagi." }, { status: 502 });
+    const diag = describeGoogleDriveConfig();
+    console.error("[survey/upload] Google Drive upload failed:", err, diag);
+    // detail/diag = real error + safe (no secret content) config diagnostics,
+    // surfaced to the client so they show up in the browser console/network
+    // tab — server logs aren't reachable by whoever's debugging a failed
+    // upload from the browser side.
+    return NextResponse.json(
+      { error: "Upload ke Google Drive gagal, coba lagi.", detail: err instanceof Error ? err.message : String(err), diag },
+      { status: 502 }
+    );
   }
 
   const log = await prisma.surveyUploadLog.create({

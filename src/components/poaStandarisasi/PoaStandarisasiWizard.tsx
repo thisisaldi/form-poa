@@ -27,6 +27,10 @@ import {
   submitPoaStandarisasiAction,
   uploadPoaStandarisasiFileAction,
   getPoaStandarisasiFileAccessLogAction,
+  getStatusPengajuanPreviewAction,
+} from "@/app/actions/poaStandarisasi";
+import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import {
   type PoaStandarisasiDetail,
   type PlanningInput,
   type PlanningProdukInput,
@@ -289,6 +293,9 @@ function kpdmFromDetail(k: PoaStandarisasiDetail["kpdmList"][number]): KpdmFormS
 export interface ProdukFormState {
   id?: string;
   kodeProduk: string;
+  // Baru vs Perpanjangan — per produk (2026-08-27: dipindah dari level
+  // pengajuan, status standarisasi memang berbeda per produk).
+  statusPengajuan: "BARU" | "PERPANJANGAN";
   estimasiDiskonPct: string;
   estimasiBiayaListingRp: string;
   dokterKlinis: DokterKlinisFormState[];
@@ -301,6 +308,7 @@ export interface ProdukFormState {
 export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
   return {
     kodeProduk: "",
+    statusPengajuan: inherit?.statusPengajuan ?? "BARU",
     estimasiDiskonPct: "",
     estimasiBiayaListingRp: "",
     // New product inherits WHICH dokter to consider, not their estimate figures.
@@ -318,6 +326,7 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
   return {
     id: p.id,
     kodeProduk: p.kodeProduk,
+    statusPengajuan: p.statusPengajuan,
     estimasiDiskonPct: p.estimasiDiskonPct != null ? String(p.estimasiDiskonPct) : "",
     estimasiBiayaListingRp: p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
     dokterKlinis: p.dokterApproval.map((d) => ({
@@ -416,7 +425,6 @@ export function PoaStandarisasiWizard({
   // per person is that customer's spesialisasi, read-only.
   const [kpdmList, setKpdmList] = useState<KpdmFormState[]>(() => pengajuan.kpdmList.map(kpdmFromDetail));
   const [tipeStandarisasi, setTipeStandarisasi] = useState(pengajuan.tipeStandarisasi);
-  const [statusPengajuan, setStatusPengajuan] = useState(pengajuan.statusPengajuan);
   const [periodeBulan, setPeriodeBulan] = useState(pengajuan.periodeBulan != null ? String(pengajuan.periodeBulan) : "");
   const [jumlahBedRs, setJumlahBedRs] = useState(pengajuan.jumlahBedRs != null ? String(pengajuan.jumlahBedRs) : "");
   const [estimasiTimelineSelesai, setEstimasiTimelineSelesai] = useState(isoDateInput(pengajuan.estimasiTimelineSelesai));
@@ -470,7 +478,7 @@ export function PoaStandarisasiWizard({
     setKpdmList((prev) =>
       prev.some((k) => k.customerId === realId)
         ? prev
-        : [...prev, { customerId: realId, nama: opt.namaCustomer, jabatan: opt.spesialisasi, entertainEstimasi: "", entertainFinal: "" }]
+        : [...prev, { customerId: realId, nama: opt.namaCustomer, jabatan: opt.jabatan, entertainEstimasi: "", entertainFinal: "" }]
     );
   }
   function removeKpdm(customerId: string) {
@@ -487,7 +495,6 @@ export function PoaStandarisasiWizard({
     return {
       kpdmList: kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan || null, entertainEstimasi: k.entertainEstimasi || null })),
       tipeStandarisasi,
-      statusPengajuan,
       periodeBulan: tipeStandarisasi === "PERMANEN" ? null : periodeBulan || null,
       jumlahBedRs: jumlahBedRs || null,
       estimasiTimelineSelesai: estimasiTimelineSelesai || null,
@@ -682,8 +689,6 @@ export function PoaStandarisasiWizard({
           updateKpdmEntertainEstimasi={updateKpdmEntertainEstimasi}
           tipeStandarisasi={tipeStandarisasi}
           setTipeStandarisasi={setTipeStandarisasi}
-          statusPengajuan={statusPengajuan}
-          setStatusPengajuan={setStatusPengajuan}
           periodeBulan={periodeBulan}
           setPeriodeBulan={setPeriodeBulan}
           jumlahBedRs={jumlahBedRs}
@@ -854,7 +859,7 @@ export function PlanningPhase(props: {
   /** Existing pengajuan's own id — passed so the "Sudah Standarisasi" sidebar tab excludes this pengajuan's own produk. Undefined on the "new" (create) form, where there's no id yet. */
   pengajuanId?: string;
   /** When set, "Nama Outlet" renders as an editable Combobox instead of a read-only box — used by the "new" (create) form, where outlet isn't fixed yet. */
-  outletPicker?: { options: { value: string; label: string; sublabel?: string }[]; onChange: (v: string) => void };
+  outletPicker?: { options: { value: string; label: string; sublabel?: string; tag?: string; tagColor?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple" }[]; onChange: (v: string) => void };
   /** Can be more than one KPDM per outlet — picked from the same outlet customer pool as Dokter Klinis (dokterList below), not a separate master-data entity. */
   kpdmList: KpdmFormState[];
   addKpdm: (rawId: string) => Promise<void>;
@@ -862,8 +867,6 @@ export function PlanningPhase(props: {
   updateKpdmEntertainEstimasi: (customerId: string, v: string) => void;
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
   setTipeStandarisasi: (v: "PERIODIC" | "SISIPAN" | "PERMANEN") => void;
-  statusPengajuan: "BARU" | "PERPANJANGAN";
-  setStatusPengajuan: (v: "BARU" | "PERPANJANGAN") => void;
   periodeBulan: string;
   setPeriodeBulan: (v: string) => void;
   jumlahBedRs: string;
@@ -885,7 +888,7 @@ export function PlanningPhase(props: {
   const {
     canEdit, kodePI, namaOutlet, pengajuanId, outletPicker,
     kpdmList, addKpdm, removeKpdm, updateKpdmEntertainEstimasi,
-    tipeStandarisasi, setTipeStandarisasi, statusPengajuan, setStatusPengajuan,
+    tipeStandarisasi, setTipeStandarisasi,
     periodeBulan, setPeriodeBulan, jumlahBedRs, setJumlahBedRs, estimasiTimelineSelesai, setEstimasiTimelineSelesai,
     produkList, productOptions, productByKode, dokterList, dokterById, updateProduk, addProduk, removeProduk,
     addDokterToProduk, removeDokterFromProduk, updateDokterKlinis,
@@ -899,6 +902,29 @@ export function PlanningPhase(props: {
   // (which need one specific dokter) don't apply, only the shared paket/kontes
   // categorization.
   const productComboOptions = useMemo(() => buildProductOptions(productOptions, undefined), [productOptions]);
+
+  // Status Pengajuan (Baru/Perpanjangan) is auto-derived server-side from 12-
+  // month sales history (see getStatusPengajuanPreviewAction) — this refetches
+  // the preview whenever the outlet or the SET of picked kodeProduk changes,
+  // so the read-only label updates live as the MR builds the produk list,
+  // without waiting for a save. Keyed on kodeProduk values only (not the
+  // whole produkList) so editing unrelated fields (diskon, dokter, ...)
+  // doesn't retrigger it.
+  const kodeProdukKey = produkList.map((p) => p.kodeProduk).join(",");
+  useEffect(() => {
+    const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
+    if (!kodePI || kodeList.length === 0) return;
+    let cancelled = false;
+    getStatusPengajuanPreviewAction(kodePI, kodeList).then((map) => {
+      if (cancelled) return;
+      produkList.forEach((p, idx) => {
+        const derived = p.kodeProduk ? map[p.kodeProduk] : undefined;
+        if (derived && derived !== p.statusPengajuan) updateProduk(idx, { statusPengajuan: derived });
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kodePI, kodeProdukKey]);
 
   return (
     <>
@@ -949,7 +975,7 @@ export function PlanningPhase(props: {
           {!disabled && (
             <Combobox
               name="kpdmAdd"
-              options={dokterList.filter((d) => !kpdmList.some((k) => k.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+              options={dokterList.filter((d) => !kpdmList.some((k) => k.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
               value=""
               onChange={addKpdm}
               disabled={disabled}
@@ -960,19 +986,6 @@ export function PlanningPhase(props: {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div>
-            <span className="text-sm font-medium block mb-1">Status Pengajuan <span style={{ color: "var(--color-error)" }}>*</span></span>
-            <Combobox
-              name="statusPengajuan"
-              options={[
-                { value: "BARU", label: "Standarisasi Baru" },
-                { value: "PERPANJANGAN", label: "Perpanjangan" },
-              ]}
-              value={statusPengajuan}
-              onChange={(v) => setStatusPengajuan(v as "BARU" | "PERPANJANGAN")}
-              disabled={disabled}
-            />
-          </div>
           <div>
             <span className="text-sm font-medium block mb-1">Tipe Standarisasi <span style={{ color: "var(--color-error)" }}>*</span></span>
             <Combobox
@@ -1050,6 +1063,20 @@ export function PlanningPhase(props: {
                   placeholder="Cari produk…"
                 />
               </div>
+              <div className="w-40 shrink-0">
+                <span className="text-xs font-medium block mb-1">Status Pengajuan</span>
+                <div
+                  className="rounded px-3 py-2 text-sm font-semibold"
+                  style={{
+                    background: p.statusPengajuan === "PERPANJANGAN" ? "var(--color-blue-light)" : "var(--color-bg-subtle)",
+                    color: p.statusPengajuan === "PERPANJANGAN" ? "var(--color-blue)" : "var(--color-text-muted)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  title="Otomatis: Perpanjangan kalau ada histori sales produk ini di outlet ini 12 bulan terakhir, Baru kalau tidak ada."
+                >
+                  {p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"}
+                </div>
+              </div>
               <div className="w-24 shrink-0">
                 <UnitCountInput label="Estimasi Diskon" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
               </div>
@@ -1058,9 +1085,19 @@ export function PlanningPhase(props: {
               </div>
             </div>
             {product && (
-              <div className="flex gap-4 text-xs mt-2 mb-3" style={{ color: "var(--color-text-muted)" }}>
+              <div className="flex gap-4 text-xs mt-2 mb-1" style={{ color: "var(--color-text-muted)" }}>
                 <span>HNA SJ: <strong>{formatRp(parseFloat(product.hna))}</strong> ({product.satuan})</span>
                 <span>HNA ST: <strong>{formatRp(hst)}</strong> ({product.satuanTerkecil ?? product.satuan})</span>
+              </div>
+            )}
+            {/* Same "Referensi PM" reference as POA Estimasi's Jml Produk ST/Pasien field (LineItemEditor.tsx) — recommended resep/pasien ratio from product master data, to help fill Resep/Pasien below. */}
+            {product && (product.qtyPerRxPasien != null || product.jumlahPemberianPerHari != null) && (
+              <div className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
+                <span className="font-medium">Rekomendasi Resep: </span>
+                {product.qtyPerRxPasien != null && product.lamaPemberianHari != null
+                  ? `${product.qtyPerRxPasien} ${product.satuanTerkecil ?? product.satuan} / ${product.lamaPemberianHari} hari`
+                  : "-"}
+                {product.jumlahPemberianPerHari != null && <> · Dosis per hari: {product.jumlahPemberianPerHari} / hari</>}
               </div>
             )}
 
@@ -1119,7 +1156,7 @@ export function PlanningPhase(props: {
             {!disabled && (
               <Combobox
                 name={`dokter-add-${idx}`}
-                options={dokterList.filter((d) => !p.dokterKlinis.some((dk) => dk.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+                options={dokterList.filter((d) => !p.dokterKlinis.some((dk) => dk.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
                 value=""
                 onChange={(v) => addDokterToProduk(idx, v)}
                 placeholder="+ Tambah dokter user…"
@@ -1340,10 +1377,12 @@ function ApprovalUserDokterPhase({
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   async function handleUploadBuktiTtd(produkId: string, customerId: string, file: File) {
     const key = `${produkId}:${customerId}`;
     setUploadingKey(key);
+    setLocalError(null);
     try {
       const fd = new FormData();
       fd.set("file", file);
@@ -1354,7 +1393,7 @@ function ApprovalUserDokterPhase({
       await uploadPoaStandarisasiFileAction(fd);
       window.location.reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Upload gagal.");
+      setLocalError(e instanceof Error ? e.message : "Upload gagal.");
       setUploadingKey(null);
     }
   }
@@ -1362,12 +1401,13 @@ function ApprovalUserDokterPhase({
   async function handleAddDokter(rawId: string) {
     if (!rawId || !p) return;
     setBusy(true);
+    setLocalError(null);
     try {
       const realId = await resolveDokterId(rawId);
       await addDokterApprovalAction(p.id, realId);
       window.location.reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal menambah dokter.");
+      setLocalError(e instanceof Error ? e.message : "Gagal menambah dokter.");
       setBusy(false);
     }
   }
@@ -1375,11 +1415,12 @@ function ApprovalUserDokterPhase({
   async function handleRemoveDokter(customerId: string) {
     if (!p) return;
     setBusy(true);
+    setLocalError(null);
     try {
       await removeDokterApprovalAction(p.id, customerId);
       window.location.reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Gagal menghapus dokter.");
+      setLocalError(e instanceof Error ? e.message : "Gagal menghapus dokter.");
       setBusy(false);
     }
   }
@@ -1397,8 +1438,18 @@ function ApprovalUserDokterPhase({
     <div className="flex gap-4 items-start mb-4 flex-col lg:flex-row">
       <Card className="flex-1 min-w-0">
         <CardHeader><CardTitle>Approval User / Dokter</CardTitle></CardHeader>
+        {POA_STANDARISASI_UPLOAD_DISABLED && (
+          <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-warning-bg, #FEF9C3)", color: "var(--color-warning, #92400E)" }}>
+            {POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE}
+          </p>
+        )}
+        {localError && (
+          <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
+            {localError}
+          </p>
+        )}
         <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-          Dokter di bawah ini masih bisa ditambah/dihapus di tahap ini (tidak fixed dari Planning) — upload Bukti TTD sebagai bukti tanda tangan, menggantikan checkbox &quot;Sudah TTD&quot;. Dokumen Standarisasi &amp; Form Approval Standarisasi diupload di tahap Menunggu Meeting KFT / Finalisasi.
+          Dokter di bawah ini masih bisa ditambah/dihapus di tahap ini (tidak fixed dari Planning) — upload Memo sebagai bukti tanda tangan, menggantikan checkbox &quot;Sudah TTD&quot;. Dokumen Standarisasi &amp; Form Approval Standarisasi diupload di tahap Menunggu Meeting KFT / Finalisasi.
         </p>
 
         <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--color-blue)" }}>{p.product.namaProduk}</h3>
@@ -1433,10 +1484,11 @@ function ApprovalUserDokterPhase({
                   type="button"
                   size="sm"
                   variant="secondary"
-                  disabled={uploadingKey === key}
+                  disabled={uploadingKey === key || POA_STANDARISASI_UPLOAD_DISABLED}
+                  title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
                   onClick={() => fileInputRefs.current[key]?.click()}
                 >
-                  {uploadingKey === key ? "Mengupload…" : d.buktiTtdDriveFileId ? "Ganti" : "Upload Bukti TTD"}
+                  {uploadingKey === key ? "Mengupload…" : d.buktiTtdDriveFileId ? "Ganti" : "Upload Memo"}
                 </Button>
               )}
               {canEdit && (
@@ -1451,7 +1503,7 @@ function ApprovalUserDokterPhase({
         {canEdit && (
           <Combobox
             name="dokterApprovalAdd"
-            options={dokterList.filter((d) => !p.dokterApproval.some((da) => da.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+            options={dokterList.filter((d) => !p.dokterApproval.some((da) => da.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
             value=""
             onChange={handleAddDokter}
             disabled={busy}
@@ -1543,9 +1595,11 @@ function FinalisasiPhase({
   // Approval Standarisasi KFT di atas, jadi ditaruh berdekatan).
   const formApprovalInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [uploadingFormApproval, setUploadingFormApproval] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   async function handleUploadKft(file: File) {
     setUploadingKft(true);
+    setLocalError(null);
     try {
       const fd = new FormData();
       fd.set("file", file);
@@ -1554,7 +1608,7 @@ function FinalisasiPhase({
       await uploadPoaStandarisasiFileAction(fd);
       window.location.reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Upload gagal.");
+      setLocalError(e instanceof Error ? e.message : "Upload gagal.");
     } finally {
       setUploadingKft(false);
     }
@@ -1562,6 +1616,7 @@ function FinalisasiPhase({
 
   async function handleUploadFormApproval(produkId: string, file: File) {
     setUploadingFormApproval(produkId);
+    setLocalError(null);
     try {
       const fd = new FormData();
       fd.set("file", file);
@@ -1571,7 +1626,7 @@ function FinalisasiPhase({
       await uploadPoaStandarisasiFileAction(fd);
       window.location.reload();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Upload gagal.");
+      setLocalError(e instanceof Error ? e.message : "Upload gagal.");
       setUploadingFormApproval(null);
     }
   }
@@ -1579,6 +1634,16 @@ function FinalisasiPhase({
   return (
     <Card className="mb-4">
       <CardHeader><CardTitle>Finalisasi</CardTitle></CardHeader>
+      {POA_STANDARISASI_UPLOAD_DISABLED && (
+        <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-warning-bg, #FEF9C3)", color: "var(--color-warning, #92400E)" }}>
+          {POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE}
+        </p>
+      )}
+      {localError && (
+        <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
+          {localError}
+        </p>
+      )}
 
       <div className="mb-4">
         <span className="text-sm font-medium block mb-2">KPDM</span>
@@ -1614,7 +1679,14 @@ function FinalisasiPhase({
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadKft(f); }}
               />
-              <Button type="button" size="sm" variant="secondary" disabled={uploadingKft} onClick={() => kftInputRef.current?.click()}>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={uploadingKft || POA_STANDARISASI_UPLOAD_DISABLED}
+                title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
+                onClick={() => kftInputRef.current?.click()}
+              >
                 {uploadingKft ? "Mengupload…" : "Upload"}
               </Button>
             </>
@@ -1707,7 +1779,7 @@ function FinalisasiPhase({
             {!disabled && (
               <Combobox
                 name={`dokteruser-add-${idx}`}
-                options={dokterList.filter((d) => !p.dokterUser.some((du) => du.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.spesialisasi, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+                options={dokterList.filter((d) => !p.dokterUser.some((du) => du.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
                 value=""
                 onChange={(v) => addDokterUser(idx, v)}
                 placeholder="+ Tambah dokter…"
@@ -1756,7 +1828,14 @@ function FinalisasiPhase({
                         <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum diupload</span>
                       )}
                       {!disabled && (
-                        <Button type="button" size="sm" variant="secondary" disabled={uploadingFormApproval === p.id} onClick={() => formApprovalInputRefs.current[p.id!]?.click()}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={uploadingFormApproval === p.id || POA_STANDARISASI_UPLOAD_DISABLED}
+                          title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
+                          onClick={() => formApprovalInputRefs.current[p.id!]?.click()}
+                        >
                           {rawProduk.formApprovalDriveFileId ? "Ganti" : "Upload"}
                         </Button>
                       )}

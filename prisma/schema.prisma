@@ -1179,6 +1179,22 @@ model PoaDoctorsApiCredential {
   updatedAt    DateTime @updatedAt
 }
 
+// Google Drive destination folder for "Input Data Survey" + POA Standarisasi
+// uploads — DB-backed instead of GOOGLE_DRIVE_SURVEY_FOLDER_ID env var
+// (2026-08-27, user request) so an ADMIN can set/change it from the Admin
+// page without a redeploy, same singleton-row pattern as
+// PoaDoctorsApiCredential/MaintenanceMode above. NOT a secret (just a Drive
+// folder id) — unlike PoaDoctorsApiCredential this is never hashed, the
+// admin panel can show the current value as-is. GOOGLE_SERVICE_ACCOUNT_KEY
+// itself stays an env var (a real secret, shouldn't be editable/visible via
+// a web form).
+model GoogleDriveConfig {
+  id             Int      @id @default(1)
+  surveyFolderId String
+  updatedByNip   String?
+  updatedAt      DateTime @updatedAt
+}
+
 // Cross-replica mutex for in-process schedulers (see
 // salesHistoryMonthlyScheduler.ts) — multiple pods each run their own
 // setTimeout/setInterval, so without this every replica would re-run the
@@ -1276,10 +1292,6 @@ model PoaStandarisasi {
   kpdmList PoaStandarisasiKpdm[]
 
   tipeStandarisasi TipeStandarisasi
-  // Baru vs Perpanjangan — dipilih manual oleh MR di Planning (docs/TODO.md
-  // #12), bukan diturunkan otomatis dari histori. Default BARU biar baris
-  // existing (kalau ada) tidak perlu backfill manual.
-  statusPengajuan  StatusPengajuanStandarisasi @default(BARU)
   // Wajib utk PERIODIC/SISIPAN, null utk PERMANEN — kondisional, divalidasi
   // di server action (bukan constraint DB).
   periodeBulan     Int?
@@ -1325,6 +1337,12 @@ model PoaStandarisasiProduk {
 
   kodeProduk String
   product    Product @relation(fields: [kodeProduk], references: [kodeProduk])
+
+  // Baru vs Perpanjangan — dipilih manual oleh MR di Planning, PER PRODUK
+  // (2026-08-27: dipindah dari level pengajuan — status standarisasi memang
+  // berbeda per produk, bukan satu status gabungan untuk seluruh pengajuan).
+  // Default BARU biar baris existing tidak perlu backfill manual.
+  statusPengajuan StatusPengajuanStandarisasi @default(BARU)
 
   // TIDAK ada FK ke SurveyRekomendasi — "Golongan yang Dipakai Saat Ini"
   // di-resolve LIVE per dokter via getSurveyRekomendasiInfo() di server

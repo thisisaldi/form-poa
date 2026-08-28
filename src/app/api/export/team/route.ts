@@ -29,7 +29,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getSubordinateMRNips } from "@/lib/authz";
+import { getSubordinateOwnerNips } from "@/lib/authz";
 import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistoryByCustomers, getSurveyRekomendasiByCustomers, getDiskonByOutlets, getDiskonHistoryByOutlets, getNexusSpesialisasiByOutlets, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
 import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown, computeJumlahPeriode } from "@/lib/poaUtils";
@@ -90,13 +90,21 @@ export async function GET(req: NextRequest) {
   if (session.role === "MR") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  const mrNips = await getSubordinateMRNips(actor);
-  if (mrNips.length === 0) return NextResponse.json({ error: "Tidak ada MR di bawah Anda." }, { status: 404 });
+  // mrNips despite the name now also includes the actor's own nip plus any
+  // vacant-team ASM/SM/NSM in scope who own a POA directly (2026-08-27 fix,
+  // see getSubordinateOwnerNips) — NOT MR-role-only. Everything below (the
+  // "Per MR" sheet, poaWhere.ownerId, org-hierarchy walk) already works
+  // unmodified for a non-MR row here: the `mrUsers` query below has no
+  // `role:` filter of its own, so a self-owning ASM/SM/NSM just shows up as
+  // a normal row, and getAncestors correctly walks up from THEIR OWN
+  // nipAtasan same as any MR's.
+  const mrNips = await getSubordinateOwnerNips(actor);
+  if (mrNips.length === 0) return NextResponse.json({ error: "Tidak ada tim di bawah Anda." }, { status: 404 });
 
   // Defaults to the CURRENT quarter (2026-08-26 fix) — was `?? null` (no
   // bound at all) per a 2026-08-04 request ("default export is every quarter
   // the team has data for"). That's fine for an ASM/SM/NSM's modest team, but
-  // for ADMIN/GM/SFE/VIEWER (company-wide scope via getSubordinateMRNips
+  // for ADMIN/GM/SFE/VIEWER (company-wide scope via getSubordinateOwnerNips
   // above) it meant every non-draft POA + line item EVER created, company-
   // wide, in one synchronous request — the same unbounded-history class of
   // bug docs/PERFORMANCE.md already documents (#47), and the reported cause

@@ -18,7 +18,8 @@ import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canApprov
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
-import { uploadFileToSurveyDrive, isGoogleDriveConfigured } from "@/lib/googleDrive";
+import { uploadFileToSurveyDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
+import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -78,7 +79,6 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
         ownerId: session.userId,
         kodePI,
         tipeStandarisasi: input.tipeStandarisasi,
-        statusPengajuan: input.statusPengajuan,
         periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
         jumlahBedRs: toNum(input.jumlahBedRs) ?? outlet.jumlahBed,
         estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,
@@ -86,7 +86,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
       },
     });
     await applyPlanningKpdm(tx, pengajuan.id, input.kpdmList);
-    await applyPlanningProduk(tx, pengajuan.id, input.produk);
+    await applyPlanningProduk(tx, pengajuan.id, kodePI, input.produk);
     return pengajuan.id;
   });
 
@@ -218,8 +218,9 @@ export async function getStandarisasiProdukByOutletAction(kodePI: string, exclud
     },
     select: {
       kodeProduk: true,
+      statusPengajuan: true,
       product: { select: { namaProduk: true } },
-      pengajuan: { select: { tipeStandarisasi: true, statusPengajuan: true, submittedAt: true } },
+      pengajuan: { select: { tipeStandarisasi: true, submittedAt: true } },
     },
     orderBy: { pengajuan: { submittedAt: "desc" } },
   });
@@ -231,7 +232,7 @@ export async function getStandarisasiProdukByOutletAction(kodePI: string, exclud
       kodeProduk: r.kodeProduk,
       namaProduk: r.product.namaProduk,
       tipeStandarisasi: r.pengajuan.tipeStandarisasi,
-      statusPengajuan: r.pengajuan.statusPengajuan,
+      statusPengajuan: r.statusPengajuan,
       submittedAt: r.pengajuan.submittedAt!,
     });
   }
@@ -265,7 +266,6 @@ export interface PlanningKpdmInput {
 export interface PlanningInput {
   kpdmList: PlanningKpdmInput[];
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
-  statusPengajuan: "BARU" | "PERPANJANGAN";
   periodeBulan: number | string | null;
   jumlahBedRs: number | string | null;
   estimasiTimelineSelesai: string | null; // yyyy-mm-dd
@@ -302,6 +302,43 @@ async function computeEstimasiPerBulan(kodeProduk: string, jumlahPasien: number 
   const hst = hargaST(toProductLite(product));
   const qty = jumlahPasien * resepPerPasienSt;
   return { estimasiQtyPerBulan: qty, estimasiNilaiRpPerBulan: Math.round(qty * hst) };
+}
+
+/**
+ * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
+ * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
+ * read-only). Logic: kalau ada histori sales produk ini di outlet ini dalam
+ * 12 bulan terakhir (OutletSalesHistory.totalSales12Bln > 0) → Perpanjangan,
+ * kalau tidak ada (baik row-nya nggak ada sama sekali ATAU ada tapi 0) →
+ * Baru. Batched (satu findMany utk seluruh kodeProduk sekaligus), bukan
+ * query per produk — sama pola no-N+1 seperti applyPlanningProduk lainnya.
+ */
+async function computeStatusPengajuanMap(
+  client: Prisma.TransactionClient | typeof prisma,
+  kodePI: string,
+  kodeProdukList: string[]
+): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
+  const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
+  if (kodeProdukList.length === 0) return map;
+  const rows = await client.outletSalesHistory.findMany({
+    where: { kodePI, itemKode: { in: kodeProdukList } },
+    select: { itemKode: true, totalSales12Bln: true },
+  });
+  for (const r of rows) {
+    if (parseFloat(r.totalSales12Bln.toString()) > 0) map.set(r.itemKode, "PERPANJANGAN");
+  }
+  return map;
+}
+
+/** Read-only preview for the Planning UI — same logic as computeStatusPengajuanMap,
+ * called live as the MR picks products, before anything is saved. */
+export async function getStatusPengajuanPreviewAction(
+  kodePI: string,
+  kodeProdukList: string[]
+): Promise<Record<string, "BARU" | "PERPANJANGAN">> {
+  if (!kodePI || kodeProdukList.length === 0) return {};
+  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList);
+  return Object.fromEntries(map);
 }
 
 function validatePlanningInput(input: PlanningInput) {
@@ -350,10 +387,13 @@ async function applyPlanningKpdm(tx: Prisma.TransactionClient, pengajuanId: stri
 /** Upserts produk + per-dokter estimasi rows for a pengajuan — shared between
  * savePlanningAction (existing pengajuan, may delete removed produk) and
  * createPoaStandarisasiAction (freshly created pengajuan, produk are all new). */
-async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, produk: PlanningProdukInput[]) {
+async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, kodePI: string, produk: PlanningProdukInput[]) {
+  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk));
+
   for (const p of produk) {
     const data = {
       kodeProduk: p.kodeProduk,
+      statusPengajuan: statusMap.get(p.kodeProduk) ?? "BARU",
       estimasiDiskonPct: toNum(p.estimasiDiskonPct),
       estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
     };
@@ -405,7 +445,6 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
       where: { id },
       data: {
         tipeStandarisasi: input.tipeStandarisasi,
-        statusPengajuan: input.statusPengajuan,
         periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
         jumlahBedRs: toNum(input.jumlahBedRs),
         estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,
@@ -421,7 +460,7 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
       await tx.poaStandarisasiProduk.deleteMany({ where: { id: { in: toDelete } } });
     }
 
-    await applyPlanningProduk(tx, id, input.produk);
+    await applyPlanningProduk(tx, id, pengajuan.kodePI, input.produk);
   });
 
   revalidatePath(`/poa-standarisasi/${id}`);
@@ -709,10 +748,11 @@ function sanitizeForFileName(s: string): string {
  * replaces the old manual "Sudah TTD" checkbox, docs/TODO.md #14: uploading
  * sets sudahTtd=true server-side, never toggled directly by the client).
  * Same Google Drive service account/folder as Input Data Survey — no
- * dedicated folder for this feature yet (env var would need to be
- * provisioned separately; reusing GOOGLE_DRIVE_SURVEY_FOLDER_ID for v1).
+ * dedicated folder for this feature, reuses the single ADMIN-settable
+ * GoogleDriveConfig folder (2026-08-27, see src/lib/googleDrive.ts).
  */
 export async function uploadPoaStandarisasiFileAction(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
+  if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
   const { session, actor } = await requireActor();
   if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
 
@@ -742,7 +782,20 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const mimeType = MIME_BY_EXT[ext] ?? "application/octet-stream";
-  const { driveFileId } = await uploadFileToSurveyDrive(namaFile, mimeType, buffer);
+  let driveFileId: string;
+  try {
+    ({ driveFileId } = await uploadFileToSurveyDrive(namaFile, mimeType, buffer));
+  } catch (err) {
+    // Same degradation as /api/survey/upload's POST — an unhandled throw
+    // here becomes an opaque "Server Components render" digest error in
+    // production (2026-08-27 bug report), so surface a real message instead.
+    // Server Actions only propagate the Error's message to the client (no
+    // separate JSON body to attach a `diag` field to like the REST route
+    // does), so the safe diagnostic is appended into the message itself.
+    const diag = describeGoogleDriveConfig();
+    console.error("[poaStandarisasi/upload] Google Drive upload failed:", err, diag);
+    throw new Error(`Upload ke Google Drive gagal, coba lagi. (${JSON.stringify(diag)})`);
+  }
 
   if (kind === "suratKft") {
     await prisma.poaStandarisasi.update({

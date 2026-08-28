@@ -30,7 +30,7 @@
 
 🟡 **Item #10 sudah RESOLVED (2026-08-10) — siap diimplementasikan.** Awalnya sangat ambigu (app sudah punya 2 fitur "survey" berbeda: `surveyPasienHarian` dan `SurveyRekomendasi`), tapi pengguna mengonfirmasi ini genuinely fitur baru ketiga: **MR upload file Excel, diteruskan ke shared drive (Google Drive) via service account**, dengan audit trail di database dan format nama file yang sudah ditentukan (`01-business-rules.md` §3a). Ini infrastruktur yang **genuinely belum ada sama sekali** di codebase (belum ada dependency Google API, belum ada endpoint upload file apapun) — lihat detail di `01-business-rules.md` §2.
 
-⚠️ **Kredensial service account Google Drive belum disiapkan** — pengguna akan menyiapkan belakangan, implementasi jalan dengan env var placeholder dulu (`GOOGLE_SERVICE_ACCOUNT_KEY`, `GOOGLE_DRIVE_SURVEY_FOLDER_ID`, lihat `02-data-model.md`) — tidak blocking untuk mulai coding, tapi fitur tidak akan genuinely berfungsi sampai kredensial asli diisi di environment yang sesuai.
+✅ **Update 2026-08-27**: kredensial sudah disiapkan dan feature genuinely berfungsi di staging. `GOOGLE_SERVICE_ACCOUNT_KEY` tetap env var (raw JSON, bukan base64 — lihat `02-data-model.md`), tapi folder tujuan upload sekarang ADMIN-settable dari halaman Admin (tabel `GoogleDriveConfig`), bukan env var `GOOGLE_DRIVE_SURVEY_FOLDER_ID` lagi (dihapus).
 
 ⬜ **Item #12 (warning outlet kosong) masih BUTUH KONFIRMASI** — definisi "kosong" belum jelas (3 kandidat interpretasi, lihat `01-business-rules.md` §4), dan sedikit terkait item #10 (kalau "kosong" ternyata merujuk ke belum-ada-upload-survey-Excel, bukan `surveyPasienHarian`).
 

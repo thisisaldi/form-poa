@@ -3,8 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getVisitCountByCustomerOutlet, lastNMonthsRange } from "@/lib/exodusApi";
-import { nexusAuthHeaders } from "@/lib/nexusAuth";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersForMr } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -84,6 +83,15 @@ export interface CustomerOption {
   kodeCustomer: string | null;
   namaCustomer: string;
   spesialisasi: string;
+  /**
+   * "Jabatan" — POA Standarisasi label (2026-08-27, user request), computed
+   * from Exodus's position/specialist: position "Non Dokter" (case-
+   * insensitive) → specialist is the jabatan, otherwise position itself is.
+   * Same underlying data as `spesialisasi`, just the position-aware label
+   * POA Standarisasi displays instead — POA Estimasi keeps using
+   * `spesialisasi` as before, unaffected.
+   */
+  jabatan: string;
   isFokus: boolean;
 }
 
@@ -573,71 +581,76 @@ export async function getCustomersByOutletSpesialisasi(
     kodeCustomer: r.customer.kodeCustomer,
     namaCustomer: r.customer.namaCustomer,
     spesialisasi: r.customer.spesialisasi,
+    jabatan: r.customer.spesialisasi,
     isFokus: r.isFokus,
   }));
 }
 
-interface NexusCustomer {
+interface SourcedCustomer {
   vbCode: string | null;
   namaCustomer: string;
   spesialisasi: string;
+  /** Raw Exodus "position" (e.g. "Dokter", "Non Dokter") — used to compute `jabatan`, see computeJabatan(). */
+  position: string | null;
+}
+
+/** IF position is "Non Dokter" (case-insensitive) → jabatan = specialist, ELSE jabatan = position (2026-08-27, user request). */
+function computeJabatan(position: string | null, specialist: string): string {
+  const isNonDokter = (position ?? "").trim().toLowerCase() === "non dokter";
+  const value = isNonDokter ? specialist : position;
+  return value && value.trim() ? value.trim() : "-";
 }
 
 /**
- * Live fallback lookup against the company-wide Nexus API — public, no auth
- * (confirmed 2026-07-23). Best-effort only: any failure (network, timeout,
- * unexpected shape) is swallowed and treated as "no extra results", since
- * this is purely a safety net for gaps in our own DB, not a hard dependency
- * the outlet/customer search should ever be blocked by.
+ * Latest MR assigned to this outlet (MrOutletAssignment, most recent synced
+ * periode — same "latest periode only" pattern as getOutletsByUser), falling
+ * back to Outlet.coveredByNip for outlets an ASM/SM/NSM covers via a vacant
+ * MR chain (those never get their own MrOutletAssignment rows).
  */
-async function fetchNexusCustomersByOutlet(kodePI: string): Promise<NexusCustomer[]> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(
-      `https://api-nexus.pharos.id/api/r/poa/get_customer_by_outlet?outlet_code=${encodeURIComponent(kodePI)}`,
-      { signal: controller.signal, headers: nexusAuthHeaders() }
-    );
-    clearTimeout(timeout);
-    if (!res.ok) return [];
-
-    const json = await res.json();
-    const customers = json?.data?.customers;
-    if (!Array.isArray(customers)) return [];
-
-    return customers
-      // Only customer_name is actually required — specialist coming back
-      // null (real Nexus data, e.g. outlet F1016654's "AJENG GANURMALA") used
-      // to silently drop the whole doctor from the list via a `typeof
-      // c.specialist === "string"` filter (2026-08-14 bug report: doctor
-      // missing from the Input POA picker even though Nexus has it). "-" is
-      // a non-empty placeholder so createCustomerAction's required-field
-      // check still passes when this doctor gets materialized into a real
-      // Customer row on pick (see resolveNexusCustomer in LineItemEditor.tsx).
-      .filter((c): c is { vb_code?: string; customer_name?: string; specialist?: string | null } =>
-        !!c && typeof c.customer_name === "string")
-      .map((c) => ({
-        vbCode: typeof c.vb_code === "string" && c.vb_code.trim() ? c.vb_code.trim() : null,
-        namaCustomer: c.customer_name!.trim(),
-        spesialisasi: typeof c.specialist === "string" && c.specialist.trim() ? c.specialist.trim() : "-",
-      }));
-  } catch {
-    return [];
-  }
+async function resolveMrNipForOutlet(kodePI: string): Promise<string | null> {
+  const assignment = await prisma.mrOutletAssignment.findFirst({
+    where: { kodePI },
+    orderBy: { periode: "desc" },
+    select: { nipMR: true },
+  });
+  if (assignment) return assignment.nipMR;
+  const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { coveredByNip: true } });
+  return outlet?.coveredByNip ?? null;
 }
 
 /**
- * Bulk kodeCustomer → spesialisasi lookup, built from Nexus get_customer_by_outlet
- * across every given outlet (2026-08-13 request: "customer full pakai
- * Nexus" — replaces the old batched `prisma.customer.findMany` lookup used
- * by Summary "Per Spesialisasi" and the team Excel export). Nexus has no
- * bulk-by-code endpoint, only per-outlet, so this fans out one call per
- * outlet with limited concurrency — an explicit latency/reliability
- * tradeoff the business chose over keeping a local DB copy authoritative
- * (2026-08-13 decision, see docs/PERFORMANCE.md for why this would
- * otherwise be avoided on a company-wide page). Best-effort per outlet,
- * same as fetchNexusCustomersByOutlet — an outlet Nexus fails to answer for
- * just contributes no spesialisasi entries, never throws.
+ * Customer/dokter source for POA Estimasi + POA Standarisasi — switched
+ * 2026-08-27 (user request) from the Nexus per-outlet endpoint to the Exodus
+ * core customers API (`getExodusCustomersForMr`, src/lib/exodusApi.ts).
+ * Exodus has no per-outlet endpoint/field at all — only per-MR (confirmed
+ * against the real API) — so this resolves the outlet's assigned MR first,
+ * then returns that MR's WHOLE roster unfiltered by outlet (explicit
+ * user-confirmed tradeoff after checking local CustomerOutlet coverage is
+ * only ~37% of outlets — see getCustomersByOutlet's doc comment). Best-effort
+ * only, same "no data" degradation as the rest of exodusApi.ts.
+ */
+async function fetchCustomersForOutlet(kodePI: string): Promise<SourcedCustomer[]> {
+  const nip = await resolveMrNipForOutlet(kodePI);
+  if (!nip) return [];
+  const customers = await getExodusCustomersForMr(nip);
+  if (!customers) return [];
+
+  return customers.map((c) => ({
+    vbCode: c.customerCode,
+    namaCustomer: c.name,
+    spesialisasi: c.specialist && c.specialist.trim() ? c.specialist.trim() : "-",
+    position: c.position,
+  }));
+}
+
+/**
+ * Bulk kodeCustomer → spesialisasi lookup, now built from the Exodus-backed
+ * fetchCustomersForOutlet across every given outlet (was Nexus
+ * get_customer_by_outlet — see fetchCustomersForOutlet's doc comment for the
+ * 2026-08-27 switch). Still fans out per outlet with limited concurrency;
+ * outlets sharing the same MR transparently reuse getExodusCustomersForMr's
+ * per-nip cache instead of re-fetching. Best-effort per outlet — an outlet
+ * this fails to resolve for just contributes no spesialisasi entries, never throws.
  */
 export async function getNexusSpesialisasiByOutlets(outletKodes: string[]): Promise<Map<string, string>> {
   const spesByKode = new Map<string, string>();
@@ -645,7 +658,7 @@ export async function getNexusSpesialisasiByOutlets(outletKodes: string[]): Prom
   const uniqueOutlets = [...new Set(outletKodes)];
   for (let i = 0; i < uniqueOutlets.length; i += CONCURRENCY) {
     const batch = uniqueOutlets.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(batch.map((kodePI) => fetchNexusCustomersByOutlet(kodePI)));
+    const results = await Promise.all(batch.map((kodePI) => fetchCustomersForOutlet(kodePI)));
     for (const customers of results) {
       for (const c of customers) {
         if (c.vbCode) spesByKode.set(c.vbCode.toUpperCase(), c.spesialisasi);
@@ -656,38 +669,35 @@ export async function getNexusSpesialisasiByOutlets(outletKodes: string[]): Prom
 }
 
 /**
- * Every customer at a given outlet, regardless of spesialisasi — lets an MR
- * search by the doctor's own NAME first when they don't know/remember the
- * spesialisasi, instead of being forced to guess through the spesialisasi
- * dropdown before the customer list can even load (2026-07-23).
+ * Every customer under the outlet's assigned MR — lets an MR search by the
+ * doctor's own NAME first when they don't know/remember the spesialisasi,
+ * instead of being forced to guess through the spesialisasi dropdown before
+ * the customer list can even load (2026-07-23).
  *
- * FULLY Nexus-sourced as of 2026-08-14 (explicit instruction: "pakai fully
- * nexus, tidak sama sekali dari local db untuk list dokter nya") — the SET of
- * doctors shown is exactly what Nexus returns for this outlet, full stop. No
- * local-only rows are appended anymore (this reverses the 2026-08-13
- * "append local-only doctors Nexus doesn't return" decision — a real
- * duplicate-entry bug surfaced while checking outlet F1000271 was the
- * trigger: a Nexus record with no vb_code and a local Customer with no
- * kodeCustomer but the same name both showed up as separate options).
+ * Exodus-sourced as of 2026-08-27 (see fetchCustomersForOutlet's doc comment
+ * — replaces the "fully Nexus-sourced" 2026-08-14 decision, same philosophy:
+ * the SET shown is exactly the external source's answer, local DB only
+ * ENRICHES (isFokus, existing Customer.id), never gates the set).
  * `isFokus` and existing `Customer.id` are still read from the local DB
  * where a match exists (by kodeCustomer/vb_code, or by name when neither
- * side has a code) — this ENRICHES a Nexus-returned entry, it never ADDS
- * one, so it doesn't violate "fully from Nexus" for the list itself. It also
- * keeps re-picking an already-registered doctor from creating a duplicate
- * Customer row (see `createCustomerAction` materialization below).
- * Nexus entries with no local match get a synthetic "nexus:<vbCode|name>"
- * id — the caller (LineItemEditor's handleCustomerChange) detects that
- * prefix and materializes a real Customer row via createCustomerAction
- * before using it as a line item's customerId, since addLineItemAction
- * requires a real Customer.id to exist.
+ * side has a code) — this ENRICHES a source-returned entry, it never ADDS
+ * one. It also keeps re-picking an already-registered doctor from creating a
+ * duplicate Customer row (see `createCustomerAction` materialization below).
+ * Entries with no local match get a synthetic "nexus:<vbCode|name>" id (kept
+ * as-is, not renamed to "exodus:" — it's just a generic "needs
+ * materializing" marker string, not read anywhere as meaning literally
+ * Nexus) — the caller (LineItemEditor's handleCustomerChange /
+ * PoaStandarisasiWizard's resolveDokterId) detects that prefix and
+ * materializes a real Customer row via createCustomerAction before using it
+ * as a FK, since addLineItemAction/etc. require a real Customer.id to exist.
  */
 export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOption[]> {
-  const [localRows, nexusCustomers] = await Promise.all([
+  const [localRows, sourcedCustomers] = await Promise.all([
     prisma.customerOutlet.findMany({
       where: { kodePI },
       include: { customer: true },
     }),
-    fetchNexusCustomersByOutlet(kodePI),
+    fetchCustomersForOutlet(kodePI),
   ]);
 
   type LocalRow = (typeof localRows)[number];
@@ -698,13 +708,13 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
     else localByName.set(r.customer.namaCustomer.trim().toUpperCase(), r);
   }
 
-  const result: CustomerOption[] = nexusCustomers.map((nc) => {
+  const result: CustomerOption[] = sourcedCustomers.map((nc) => {
     const key = nc.vbCode?.toUpperCase();
-    // Fall back to a name match even when Nexus gives a vbCode: an old
-    // manually-entered Customer row (pre-Nexus, kodeCustomer null) never
-    // lands in localByKode, so without this fallback it's never found once
-    // Nexus starts returning a code for that same doctor — sending it down
-    // the "new nexus customer" materialize path, which then either trips
+    // Fall back to a name match even when the source gives a vbCode: an old
+    // manually-entered Customer row (kodeCustomer null) never lands in
+    // localByKode, so without this fallback it's never found once the source
+    // starts returning a code for that same doctor — sending it down the
+    // "new customer" materialize path, which then either trips
     // createCustomerAction's exact-duplicate error or leaves the picker
     // stuck on an unresolved "nexus:" id (2026-08-26 bug report).
     const localMatch = (key ? localByKode.get(key) : undefined)
@@ -714,6 +724,7 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
       kodeCustomer: nc.vbCode,
       namaCustomer: nc.namaCustomer,
       spesialisasi: nc.spesialisasi,
+      jabatan: computeJabatan(nc.position, nc.spesialisasi),
       isFokus: localMatch?.isFokus ?? false,
     };
   });

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getOutletsByUser, getProducts } from "@/lib/masterData";
+import { prisma } from "@/lib/prisma";
 import { NewPoaStandarisasiForm } from "@/components/poaStandarisasi/NewPoaStandarisasiForm";
 
 export default async function NewPoaStandarisasiPage() {
@@ -15,6 +16,17 @@ export default async function NewPoaStandarisasiPage() {
     getProducts(),
   ]);
 
+  // ADMIN sees every outlet company-wide here (getOutletsByUser → getCustomers()
+  // for ADMIN, docs/PERFORMANCE.md §2) — a per-outlet Nexus/count lookup in a
+  // loop would be a real N+1 at that scale, so this is ONE grouped count query
+  // against the local CustomerOutlet table instead (indexed on kodePI).
+  const userCounts = await prisma.customerOutlet.groupBy({
+    by: ["kodePI"],
+    where: { kodePI: { in: outlets.map((o) => o.kodeRequest) } },
+    _count: { customerId: true },
+  });
+  const userCountByKodePI = new Map(userCounts.map((c: (typeof userCounts)[number]) => [c.kodePI, c._count.customerId]));
+
   // Chain-first sort, group name shown as sublabel — same convention as the
   // outlet Combobox in POA Estimasi (LineItemEditor's isChainGroup + sublabel).
   const isChainGroup = (groupRS?: string | null) => !!groupRS && groupRS !== "NON CHAIN";
@@ -24,6 +36,8 @@ export default async function NewPoaStandarisasiPage() {
       value: o.kodeRequest,
       label: o.namaCust,
       sublabel: o.groupRS ?? "NON CHAIN",
+      tag: `${userCountByKodePI.get(o.kodeRequest) ?? 0} user`,
+      tagColor: "indigo" as const,
     }));
 
   return (

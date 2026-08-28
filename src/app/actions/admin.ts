@@ -832,3 +832,41 @@ export async function setPoaDoctorsApiCredentialAction(formData: FormData): Prom
   });
   return { ok: true };
 }
+
+// ─── Google Drive survey folder (2026-08-27) ───────────────────────────────
+//
+// DB-backed instead of GOOGLE_DRIVE_SURVEY_FOLDER_ID env var so an ADMIN can
+// set/change it from the Admin page without a redeploy — see
+// GoogleDriveConfig in schema.prisma and src/lib/googleDrive.ts. Not a
+// secret (just a Drive folder id), unlike PoaDoctorsApiCredential's password
+// — the current value is shown as-is, not hashed.
+
+export interface GoogleDriveConfigState {
+  surveyFolderId: string | null;
+  updatedAt: string | null;
+}
+
+export async function getGoogleDriveConfigStateAction(): Promise<GoogleDriveConfigState> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return { surveyFolderId: null, updatedAt: null };
+
+  const row = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
+  return { surveyFolderId: row?.surveyFolderId ?? null, updatedAt: row?.updatedAt.toISOString() ?? null };
+}
+
+/** Sets/changes the shared Drive folder "Input Data Survey" + POA Standarisasi uploads go into. */
+export async function setGoogleDriveFolderIdAction(formData: FormData): Promise<AdminActionResult> {
+  const authCheck = await requireAdmin();
+  if (!authCheck.ok) return authCheck;
+  const session = await getCurrentUser();
+
+  const surveyFolderId = str(formData, "surveyFolderId");
+  if (!surveyFolderId) return { ok: false, error: "Folder ID wajib diisi." };
+
+  await prisma.googleDriveConfig.upsert({
+    where: { id: 1 },
+    update: { surveyFolderId, updatedByNip: session?.userId },
+    create: { id: 1, surveyFolderId, updatedByNip: session?.userId },
+  });
+  return { ok: true };
+}
