@@ -21,6 +21,7 @@ interface ProductRow {
   belumStandarisasi: number;
   jumlahSpesialisasi: number;
   jumlahPSSP: number;
+  target: number;
 }
 
 // Placeholder shown while PmDashboardContent streams in (2026-08-03) — same
@@ -117,6 +118,7 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
         belumStandarisasi: 0,
         jumlahSpesialisasi: 0,
         jumlahPSSP: 0,
+        target: 0,
       });
     }
     const row = produkMap.get(key)!;
@@ -137,6 +139,21 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
   for (const [key, spes] of spesPerProduk) {
     const row = produkMap.get(key);
     if (row) row.jumlahSpesialisasi = spes.size;
+  }
+
+  // Real target value = ProductTargetAllocation.qty * Product.hna, same as
+  // monitoring/page.tsx's "produk" tab.
+  const targetAllocRaw = await prisma.productTargetAllocation.groupBy({
+    by: ["kodeProduk"],
+    where: { nip: { in: mrNips.length > 0 ? mrNips : [actor.nip] } },
+    _sum: { qty: true },
+  });
+  const productCodes = [...new Set([...produkMap.keys()].map((k) => k.split("::")[1]))];
+  const hnaRows = (await prisma.product.findMany({ where: { kodeProduk: { in: productCodes } }, select: { kodeProduk: true, hna: true } })) as { kodeProduk: string; hna: { toString(): string } }[];
+  const hnaByKodeProduk = new Map(hnaRows.map((p) => [p.kodeProduk, parseFloat(p.hna.toString())]));
+  for (const { kodeProduk, _sum } of targetAllocRaw) {
+    const row = produkMap.get(`${nsmNip}::${kodeProduk}`);
+    if (row) row.target = parseFloat((_sum.qty ?? 0).toString()) * (hnaByKodeProduk.get(kodeProduk) ?? 0);
   }
 
   const rows = Array.from(produkMap.values()).sort((a, b) => b.estimasiSales - a.estimasiSales);
@@ -185,8 +202,8 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
                 <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
                   {[
                     "Nama NSM", "Produk", "Kategori",
-                    "Estimasi Sales", "Target*",
-                    "Ratio Est/Target*",
+                    "Estimasi Sales", "Target",
+                    "Ratio Est/Target",
                     "Sudah Std", "Proses Std", "Belum Std",
                     "Jml Spesialisasi", "Jml PSSP",
                   ].map((h) => (
@@ -210,8 +227,12 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
                     <td className="py-2.5 px-2 text-xs font-medium text-right" style={{ color: "var(--color-text)" }}>
                       {formatRp(row.estimasiSales)}
                     </td>
-                    <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-faint)" }}>-</td>
-                    <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-faint)" }}>-</td>
+                    <td className="py-2.5 px-2 text-xs text-right" style={{ color: "var(--color-text-muted)" }}>
+                      {row.target > 0 ? formatRp(row.target) : "-"}
+                    </td>
+                    <td className="py-2.5 px-2 text-xs text-center" style={{ color: "var(--color-text-muted)" }}>
+                      {row.target > 0 ? `${((row.estimasiSales / row.target) * 100).toFixed(0)}%` : "-"}
+                    </td>
                     <td className="py-2.5 px-2 text-xs text-center font-medium"
                       style={{ color: row.sudahStandarisasi > 0 ? "var(--color-success, #16a34a)" : "var(--color-text-faint)" }}>
                       {row.sudahStandarisasi || "-"}
@@ -234,9 +255,6 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
             </table>
           </div>
         )}
-        <p className="mt-3 text-xs" style={{ color: "var(--color-text-faint)" }}>
-          * Target belum tersedia - akan diisi setelah data target tersedia.
-        </p>
       </Card>
     </div>
   );
