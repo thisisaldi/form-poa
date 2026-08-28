@@ -789,6 +789,9 @@ export function PoaStandarisasiWizard({
           {isViewingCurrentPhase && pengajuan.currentPhase === "FINALISASI" && canEdit && !pengajuan.submittedAt && (
             <>
               <Button variant="secondary" disabled={pending} onClick={handleSaveFinalisasi}>Simpan</Button>
+              {/* Placeholder only (docs/poa-standarisasi/01-business-rules.md §7 Q7) — no
+                  real DPL/DPF system integration in v1, not wired to anything yet. */}
+              <Button variant="secondary" disabled title="Belum tersedia — integrasi sistem DPL/DPF belum ada di v1">+ Buat DPL/DPF baru</Button>
               <Button disabled={pending} onClick={handleSubmit}>Submit untuk Approval Standarisasi</Button>
             </>
           )}
