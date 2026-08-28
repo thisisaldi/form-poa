@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import type { Product } from "@/lib/masterData";
 import { useSalesCounterEditor } from "./hooks/useSalesCounterEditor";
 import { ProductSelector } from "./ProductSelector";
+import { buildScProductOptions } from "./productOptionUtils";
 import { UnitInput } from "./UnitInput";
 import { ScSidebar } from "./ScSidebar";
 import { Button } from "@/components/ui/Button";
@@ -95,6 +96,7 @@ export function SalesCounterLineItemEditor({
     productsInsentif,
     insentifHistory,
     historySalesData,
+    surveyData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,
@@ -161,106 +163,16 @@ export function SalesCounterLineItemEditor({
   }, [outletId, selectedProducts, poaPeriod]);
 
   const productOptions = useMemo(() => {
-    const scCodes = new Set(canvasserProducts.map((p) => p.pro_code));
-    const menangCodes = new Set([
-      ...(productsMenang || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
-      ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
-    ].filter(Boolean));
-
-    const historySalesMap = new Map<string, number>();
-    if (historySalesData) {
-      const items = Array.isArray(historySalesData?.data)
-        ? historySalesData.data
-        : Array.isArray(historySalesData)
-        ? historySalesData
-        : [];
-      for (const it of items) {
-        const code = String(it.code || "").trim();
-        const qty = Number(it.history_sales) || 0;
-        if (code && qty > 0) {
-          historySalesMap.set(code, qty);
-          historySalesMap.set(code.replace(/^0+/, ""), qty);
-        }
-      }
-    }
-
-    const promilanKeywords = ["PRORIS", "MICROLAX", "POLYSILANE"];
-
-    const scOptions = canvasserProducts.map((p) => {
-      const masterP = products.find((mp) => mp.kodeProduk === p.pro_code);
-      const code = String(p.pro_code || "").trim();
-      const strippedCode = code.replace(/^0+/, "");
-      const isMenang = menangCodes.has(code);
-
-      const hasHistorySales = (historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0) > 0;
-      const nameUpper = String(p.pro_name || masterP?.namaProduk || "").toUpperCase();
-      const isPromilan = promilanKeywords.some((kw) => nameUpper.includes(kw));
-
-      let tag = "Produk SC";
-      let tagColor: "orange" | "blue" | "green" | "purple" | "gray" = "orange";
-
-      if (hasHistorySales) {
-        tag = "Pernah Order";
-        tagColor = "blue";
-      } else if (isPromilan) {
-        tag = "Promilan SC";
-        tagColor = "green";
-      } else {
-        tag = "Produk SC";
-        tagColor = "orange";
-      }
-
-      return {
-        value: p.pro_code,
-        label: p.pro_name,
-        sublabel: `${p.pro_code} · ${masterP?.namaGroupBrand || "Produk SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-        group: isMenang ? "PERNAH SC" : "PRODUK SC",
-        tag,
-        tagColor,
-        tag2: isMenang ? "Pernah SC" : undefined,
-        tag2Color: isMenang ? ("green" as any) : undefined,
-      };
+    return buildScProductOptions({
+      canvasserProducts,
+      princodeProducts,
+      productsMenang,
+      productsInsentif,
+      masterProducts: products,
+      historySalesData,
+      surveyData,
     });
-
-    const otherOptions = princodeProducts
-      .filter((p) => !scCodes.has(p.code))
-      .map((p) => {
-        const masterP = products.find((mp) => mp.kodeProduk === p.code);
-        const isMenang = menangCodes.has(p.code);
-        return {
-          value: p.code,
-          label: p.name,
-          sublabel: `${p.code} · ${masterP?.namaGroupBrand || "Master Produk"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-          group: isMenang ? "PERNAH SC" : "PRODUK LAINNYA",
-          tag2: isMenang ? "Pernah SC" : undefined,
-          tag2Color: isMenang ? ("green" as any) : undefined,
-        };
-      });
-
-    const existingValues = new Set([
-      ...scOptions.map((o) => o.value),
-      ...otherOptions.map((o) => o.value),
-    ]);
-
-    const menangExtraOptions: any[] = [];
-    menangCodes.forEach((code) => {
-      if (!existingValues.has(code)) {
-        const masterP = products.find((mp) => mp.kodeProduk === code);
-        menangExtraOptions.push({
-          value: code,
-          label: masterP?.namaProduk || code,
-          sublabel: `${code} · ${masterP?.namaGroupBrand || "Rekomendasi SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-          group: "PERNAH SC",
-          tag: "Pernah SC",
-          tagColor: "green" as any,
-          tag2: "Pernah SC",
-          tag2Color: "green" as any,
-        });
-      }
-    });
-
-    return [...menangExtraOptions, ...scOptions, ...otherOptions];
-  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products, historySalesData]);
+  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products, historySalesData, surveyData]);
 
   const selectedPerson = personId ? personsList.find((p) => p.person_id === personId) : null;
   const totalEstimasi = selectedProducts.reduce((sum, p) => sum + p.rencanaTotalBiaya, 0);
@@ -1013,6 +925,7 @@ export function SalesCounterLineItemEditor({
           productsInsentif={productsInsentif}
           insentifHistory={insentifHistory}
           historySalesData={historySalesData}
+          surveyData={surveyData}
           rekomendasiProduk={rekomendasiProduk}
           masterProducts={products}
           canvasserProducts={canvasserProducts}

@@ -57,10 +57,10 @@ export function SalesCounterApprovalsChecklist({ mrGroups }: { mrGroups: MrAppro
             <div>
               <Link
                 href={`/sc/${g.forms[0]?.id || g.period}`}
-                className="px-4 py-1.5 rounded-md text-xs font-semibold inline-block text-white transition-opacity hover:opacity-90"
-                style={{ background: "var(--color-blue)" }}
+                className="px-4 py-1.5 rounded-md text-xs font-semibold inline-block transition-opacity hover:opacity-90"
+                style={{ background: "var(--color-blue)", color: "#ffffff" }}
               >
-                Review
+                Review Pengajuan
               </Link>
             </div>
           </div>

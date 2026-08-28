@@ -233,7 +233,6 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
       next: { revalidate: 0 },
     });
     if (!res.ok) {
-      console.error(`Failed to fetch outlets from Canvasser API: ${res.status} ${res.statusText}`);
       return getOutletsByUser(userId);
     }
     const json = await res.json();

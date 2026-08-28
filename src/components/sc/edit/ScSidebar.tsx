@@ -147,6 +147,7 @@ export function ScSidebar({
   productsInsentif = [],
   insentifHistory,
   historySalesData,
+  surveyData = [],
   rekomendasiProduk = [],
   masterProducts = [],
   canvasserProducts = [],
@@ -158,6 +159,7 @@ export function ScSidebar({
   productsInsentif?: any[];
   insentifHistory?: any;
   historySalesData?: any;
+  surveyData?: any[];
   rekomendasiProduk?: any[];
   masterProducts?: any[];
   canvasserProducts?: any[];
@@ -427,11 +429,42 @@ export function ScSidebar({
         {activeTab === "survey" ? (
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>
-              Data Survey Nexus
+              Data Survey Nexus ({surveyData.length})
             </p>
-            <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
-              Belum ada data survey untuk outlet ini.
-            </div>
+            {surveyData.length > 0 ? (
+              <div className="space-y-2">
+                {surveyData.map((item: any, i: number) => {
+                  const targetCode = String(item.kodeProduk || "").trim();
+                  const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
+                  return (
+                    <div
+                      key={i}
+                      onClick={() => targetCode && onSelectProduct?.(targetCode)}
+                      className={`p-2.5 rounded-lg border text-xs space-y-1 transition-all ${
+                        onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                      }`}
+                      style={{
+                        background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                        borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-1.5 font-semibold">
+                        <span style={{ color: "var(--color-text)" }}>{item.namaProdukRekomendasi || item.kodeProduk}</span>
+                        {isSelected && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white font-mono">✓ Terpilih</span>}
+                      </div>
+                      <div className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+                        Kode: {item.kodeProduk}
+                        {item.totalPotensiBulan ? ` · Potensi: ${item.totalPotensiBulan} UB/bln` : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                Belum ada data survey untuk outlet ini.
+              </div>
+            )}
           </div>
         ) : activeTab === "rekomendasi" ? (
           <div className="space-y-4 animate-fade-in">
@@ -439,15 +472,62 @@ export function ScSidebar({
             <div className="space-y-1.5">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                  PRODUK YANG SUDAH DI SURVEY (0)
+                  PRODUK YANG SUDAH DI SURVEY ({surveyData.length})
                 </p>
                 <p className="text-[9px] font-medium" style={{ color: "var(--color-text-faint)", marginTop: 1 }}>
                   ( NEXUS )
                 </p>
               </div>
-              <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
-                Belum ada data survey.
-              </div>
+              {surveyData.length > 0 ? (
+                <div className="space-y-1.5">
+                  {surveyData.map((item: any, i: number) => {
+                    const targetCode = String(item.kodeProduk || "").trim();
+                    const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => targetCode && onSelectProduct?.(targetCode)}
+                        className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                          onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                        }`}
+                        style={{
+                          background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                          borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                              {item.namaProdukRekomendasi || item.kodeProduk}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                              style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
+                            >
+                              ✓ Terpilih
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
+                          <span
+                            className="font-medium px-1.5 py-0.5 rounded"
+                            style={{ background: "#f3e8ff", color: "#6b21a8" }}
+                          >
+                            Produk Survey{item.totalPotensiBulan ? `: ${item.totalPotensiBulan} UB/bln` : ""}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                  Belum ada data survey.
+                </div>
+              )}
             </div>
 
             {/* 2. PRODUK PERNAH DI ORDER */}

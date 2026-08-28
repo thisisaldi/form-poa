@@ -20,8 +20,11 @@ export function useSalesCounterDetail({
     getScCashbackPoaAction().then((res) => setCashbackData(res));
   }, []);
 
-  const allIds = useMemo(() => safeScDrafts.map((d) => d.id), [safeScDrafts]);
-  const [checked, setChecked] = useState<Set<string>>(() => new Set(allIds));
+  const submittableIds = useMemo(
+    () => safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id),
+    [safeScDrafts]
+  );
+  const [checked, setChecked] = useState<Set<string>>(() => new Set(submittableIds));
 
   function toggle(id: string) {
     setChecked((prev) => {
@@ -33,7 +36,7 @@ export function useSalesCounterDetail({
   }
 
   function toggleAll() {
-    setChecked(checked.size === allIds.length ? new Set() : new Set(allIds));
+    setChecked(checked.size === submittableIds.length ? new Set() : new Set(submittableIds));
   }
 
   const quarterMonths = useMemo(() => {
@@ -185,7 +188,7 @@ export function useSalesCounterDetail({
     checked,
     toggle,
     toggleAll,
-    allSelected: checked.size === allIds.length,
+    allSelected: submittableIds.length > 0 && checked.size === submittableIds.length,
     selectedDrafts,
     quarterMonths,
     metrics,

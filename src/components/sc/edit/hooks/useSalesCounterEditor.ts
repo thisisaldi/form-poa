@@ -18,6 +18,7 @@ import {
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
+import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { calculateCashbackDetails, type CashbackData } from "./useSalesCounterCashback";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
@@ -129,6 +130,7 @@ export function useSalesCounterEditor({
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
   const [historySalesData, setHistorySalesData] = useState<any>(null);
+  const [surveyData, setSurveyData] = useState<any[]>([]);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
   const [cashbackData, setCashbackData] = useState<CashbackData | null>(null);
@@ -209,6 +211,7 @@ export function useSalesCounterEditor({
       setProductsMenang([]);
       setProductsInsentif([]);
       setRekomendasiProduk([]);
+      setSurveyData([]);
       setCashbackData(null);
       setCashbackMatrix([]);
       return;
@@ -245,6 +248,7 @@ export function useSalesCounterEditor({
     getScProductWithInsentifAction(outletId).then((res) => setProductsInsentif(res?.data || []));
     getScInsentifHistoryAction(outletId).then((res) => setInsentifHistory(res?.data || null));
     getHistorySalesAction(outletId).then((res) => setHistorySalesData(res || null));
+    getSurveyRekomendasiByOutletAggregate(outletId).then((res) => setSurveyData(res || []));
     getScCashbackPoaAction(outletId).then((res) => {
       setCashbackData(res || null);
       const array = Array.isArray(res?.matrix)
@@ -674,6 +678,7 @@ export function useSalesCounterEditor({
     productsInsentif,
     insentifHistory,
     historySalesData,
+    surveyData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,
