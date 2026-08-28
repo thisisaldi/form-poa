@@ -315,7 +315,7 @@ async function computeEstimasiPerBulan(kodeProduk: string, jumlahPasien: number 
 /**
  * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
  * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
- * read-only). PERPANJANGAN kalau SALAH SATU dari dua sinyal berikut true
+ * read-only). PERPANJANGAN kalau SALAH SATU dari tiga sinyal berikut true
  * (OR, 2026-08-28 user request — "sudah standarisasi" berarti pernah
  * standarisasi dan sekarang mau diajukan lagi, jadi harus konsisten dengan
  * label "Sudah Standarisasi" sidebar, bukan cuma sinyal sales):
@@ -324,8 +324,16 @@ async function computeEstimasiPerBulan(kodeProduk: string, jumlahPasien: number 
  * 2. Produk ini pernah di-submit di POA Standarisasi lain di outlet yang
  *    sama (query sama seperti getStandarisasiProdukByOutletAction's "Sudah
  *    Standarisasi" — excludePengajuanId supaya pengajuan yang sedang dibuka
- *    tidak menghitung dirinya sendiri).
- * Kalau kedua sinyal negatif → Baru. Batched (satu findMany per sinyal utk
+ *    tidak menghitung dirinya sendiri);
+ * 3. Import master data `OutletProductKriteria.kriteriaBaru` untuk
+ *    produk×outlet ini sudah berlabel "Produk Sudah Terstandarisasi..." (baik
+ *    "- Ada Sales" maupun "- Tidak Ada Sales") — sinyal INDEPENDEN dari #1/#2
+ *    (bisa saja sudah dilabeli standarisasi di import lama sebelum pernah ada
+ *    sales tercatat ATAU pengajuan ter-submit di app ini). Match EXACT sama
+ *    seperti RekomendasiSidebar's `standarisasiMerged` (`.startsWith(...)`),
+ *    supaya auto-fill ini konsisten dengan label "Sudah Standarisasi" yang
+ *    dilihat user di sidebar.
+ * Kalau ketiga sinyal negatif → Baru. Batched (satu findMany per sinyal utk
  * seluruh kodeProduk sekaligus), bukan query per produk — sama pola
  * no-N+1 seperti applyPlanningProduk lainnya.
  */
@@ -337,7 +345,7 @@ async function computeStatusPengajuanMap(
 ): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
   const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
   if (kodeProdukList.length === 0) return map;
-  const [salesRows, priorSubmittedRows] = await Promise.all([
+  const [salesRows, priorSubmittedRows, kriteriaRows] = await Promise.all([
     client.outletSalesHistory.findMany({
       where: { kodePI, itemKode: { in: kodeProdukList } },
       select: { itemKode: true, totalSales12Bln: true },
@@ -353,12 +361,19 @@ async function computeStatusPengajuanMap(
       },
       select: { kodeProduk: true },
     }),
+    client.outletProductKriteria.findMany({
+      where: { kodePI, kodeProduk: { in: kodeProdukList } },
+      select: { kodeProduk: true, kriteriaBaru: true },
+    }),
   ]);
   for (const r of salesRows) {
     if (parseFloat(r.totalSales12Bln.toString()) > 0) map.set(r.itemKode, "PERPANJANGAN");
   }
   for (const r of priorSubmittedRows) {
     map.set(r.kodeProduk, "PERPANJANGAN");
+  }
+  for (const r of kriteriaRows) {
+    if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) map.set(r.kodeProduk, "PERPANJANGAN");
   }
   return map;
 }
