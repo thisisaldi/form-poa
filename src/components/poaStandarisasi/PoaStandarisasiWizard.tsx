@@ -1151,7 +1151,7 @@ export function PlanningPhase(props: {
                       <th className="text-right py-1 px-2">Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2">Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 110 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1781,7 +1781,7 @@ function FinalisasiPhase({
                       <th className="text-right py-1 px-2">Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2">Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 110 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>
