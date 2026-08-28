@@ -37,11 +37,12 @@ const NAV_ITEMS: NavItem[] = [
     href: "/poa-standarisasi",
     label: "POA Standarisasi",
     icon: <IconTable />,
-    // Opened to MR (tim sales) 2026-08-28 — was ADMIN-only while under
-    // review. Points at the list page (not /new directly, 2026-08-20) — same
-    // "list page holds its own create button" convention as Dashboard for
-    // POA Estimasi, so submitted pengajuan are actually reachable again.
-    roles: ["MR", "ADMIN"],
+    // Re-disabled for non-ADMIN 2026-08-28 (user request) — was briefly
+    // opened to MR same day, ADMIN-only again while under review. Points at
+    // the list page (not /new directly, 2026-08-20) — same "list page holds
+    // its own create button" convention as Dashboard for POA Estimasi, so
+    // submitted pengajuan are actually reachable again.
+    roles: ["ADMIN"],
   },
   {
     href: "/approvals",
