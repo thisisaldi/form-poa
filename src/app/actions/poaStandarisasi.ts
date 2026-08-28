@@ -594,7 +594,10 @@ export async function advanceToMenungguMeetingKftAction(id: string): Promise<voi
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase Approval User/Dokter.");
-  const belumTtd = pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) =>
+  // Gate skipped while upload is disabled (POA_STANDARISASI_UPLOAD_DISABLED)
+  // so the flow past this phase stays testable even though uploading Bukti
+  // TTD to satisfy it is currently impossible.
+  const belumTtd = !POA_STANDARISASI_UPLOAD_DISABLED && pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) =>
     p.dokterApproval.some((d: (typeof p.dokterApproval)[number]) => d.wajib && !d.sudahTtd)
   );
   if (belumTtd) throw new Error("Upload Bukti TTD untuk semua dokter wajib sebelum lanjut.");
@@ -748,12 +751,15 @@ export async function submitPoaStandarisasiAction(id: string): Promise<void> {
   if (pengajuan.currentPhase !== "FINALISASI") throw new Error("Pengajuan belum di fase Finalisasi.");
   // Form Approval Standarisasi upload dipindah ke Finalisasi (2026-08-26,
   // user request) — jadi gate-nya pindah ke sini juga, bukan lagi di
-  // advanceToMenungguMeetingKftAction.
-  if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
-    throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum submit.");
-  }
-  if (!pengajuan.suratApprovalStandarisasiKftDriveFileId) {
-    throw new Error("Upload Surat Approval Standarisasi KFT sebelum submit.");
+  // advanceToMenungguMeetingKftAction. Skipped while upload is disabled
+  // (POA_STANDARISASI_UPLOAD_DISABLED) so submit stays testable.
+  if (!POA_STANDARISASI_UPLOAD_DISABLED) {
+    if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
+      throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum submit.");
+    }
+    if (!pengajuan.suratApprovalStandarisasiKftDriveFileId) {
+      throw new Error("Upload Surat Approval Standarisasi KFT sebelum submit.");
+    }
   }
 
   await prisma.poaStandarisasi.update({ where: { id }, data: { submittedAt: new Date() } });
