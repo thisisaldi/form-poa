@@ -35,7 +35,11 @@ export async function saveSalesCounterFormAction(
     value: string;
   }[],
   persenResepDokter: number,
-  namaOutletParam?: string
+  namaOutletParam?: string,
+  jumlahKaryawan?: number | null,
+  jumlahPasien?: number | null,
+  jumlahPasienResep?: number | null,
+  jumlahPasienNonResep?: number | null
 ): Promise<{ ok: boolean; error?: string; poaScId?: string }> {
   const session = await requireSession();
 
@@ -92,7 +96,11 @@ export async function saveSalesCounterFormAction(
       let hasChanges = isNew;
       if (existing) {
         if (
-          existing.persenResepDokter !== persenResepDokter
+          existing.persenResepDokter !== persenResepDokter ||
+          existing.jumlahKaryawan !== jumlahKaryawan ||
+          existing.jumlahPasien !== jumlahPasien ||
+          existing.jumlahPasienResep !== jumlahPasienResep ||
+          existing.jumlahPasienNonResep !== jumlahPasienNonResep
         ) {
           hasChanges = true;
         }
@@ -202,12 +210,20 @@ export async function saveSalesCounterFormAction(
           status: PoaStatus.DRAFT,
           version: 1,
           persenResepDokter,
+          jumlahKaryawan: jumlahKaryawan ?? null,
+          jumlahPasien: jumlahPasien ?? null,
+          jumlahPasienResep: jumlahPasienResep ?? null,
+          jumlahPasienNonResep: jumlahPasienNonResep ?? null,
         },
         update: {
           status: PoaStatus.DRAFT,
           version: existing ? existing.version + 1 : 1,
           namaOutlet: namaOutlet || existing?.namaOutlet,
           persenResepDokter,
+          jumlahKaryawan: jumlahKaryawan ?? null,
+          jumlahPasien: jumlahPasien ?? null,
+          jumlahPasienResep: jumlahPasienResep ?? null,
+          jumlahPasienNonResep: jumlahPasienNonResep ?? null,
         },
       });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useRef, useEffect, useId, useCallback, useMemo } from "react";
+import { Fragment, useState, useRef, useEffect, useLayoutEffect, useId, useCallback, useMemo } from "react";
 
 export interface ComboboxOption {
   value: string;
@@ -18,12 +18,12 @@ export interface ComboboxOption {
   tagDotOnly?: boolean;
   /** Second, independent badge (e.g. PSSP history) — shown alongside `tag`, not instead of it. */
   tag2?: string;
-  tag2Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple";
+  tag2Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple" | "gray";
   /** Third, independent badge (e.g. "Retensi") — rendered solid/high-contrast rather
    * than as a pastel pill, so it stands out from tag/tag2 instead of blending in
    * (2026-07-27: previously baked into tag2's text, easy to miss). */
   tag3?: string;
-  tag3Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple";
+  tag3Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple" | "gray";
 }
 
 export const TAG_COLORS = {
@@ -35,6 +35,7 @@ export const TAG_COLORS = {
   lime: { bg: "#dcfce7", fg: "#166534" },
   indigo: { bg: "#e0e7ff", fg: "#3730a3" },
   purple: { bg: "#f3e8ff", fg: "#6b21a8" },
+  gray: { bg: "#f3f4f6", fg: "#4b5563" },
 } as const;
 
 interface Props {
@@ -97,10 +98,42 @@ export function Combobox({
     item?.scrollIntoView({ block: "nearest" });
   }, [highlighted, open]);
 
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+
+  const updateMenuPosition = useCallback(() => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setMenuStyle({
+        position: "fixed",
+        top: rect.bottom + 4,
+        left: rect.left,
+        minWidth: Math.max(rect.width, 220),
+        zIndex: 9999,
+      });
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (open) {
+      updateMenuPosition();
+      window.addEventListener("scroll", updateMenuPosition, true);
+      window.addEventListener("resize", updateMenuPosition);
+      return () => {
+        window.removeEventListener("scroll", updateMenuPosition, true);
+        window.removeEventListener("resize", updateMenuPosition);
+      };
+    }
+  }, [open, updateMenuPosition]);
+
   // Close on outside click
   useEffect(() => {
     function handlePointerDown(e: PointerEvent) {
-      if (!containerRef.current?.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node) &&
+        listRef.current &&
+        !listRef.current.contains(e.target as Node)
+      ) {
         setOpen(false);
         setQuery("");
       }
@@ -120,6 +153,7 @@ export function Combobox({
   );
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    updateMenuPosition();
     setQuery(e.target.value);
     setHighlighted(0);
     if (!open) setOpen(true);
@@ -127,6 +161,7 @@ export function Combobox({
   }
 
   function handleInputFocus() {
+    updateMenuPosition();
     setOpen(true);
     setQuery("");
   }
@@ -207,12 +242,13 @@ export function Combobox({
           ref={listRef}
           role="listbox"
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute z-50 min-w-full w-max mt-1 rounded-md border shadow-lg overflow-auto"
+          className="w-max rounded-md border shadow-lg overflow-auto"
           style={{
             background: "var(--color-bg)",
             borderColor: "var(--color-border)",
             maxHeight: "14rem",
             maxWidth: "min(28rem, 90vw)",
+            ...menuStyle,
           }}
         >
           {filtered.length === 0 ? (
@@ -257,10 +293,10 @@ export function Combobox({
                           background: isHighlighted
                             ? "var(--color-blue)"
                             : isSelected
-                            ? "var(--color-blue-light)"
-                            : option.accent
-                            ? "var(--color-blue-faint, rgba(59,130,246,0.06))"
-                            : "transparent",
+                              ? "var(--color-blue-light)"
+                              : option.accent
+                                ? "var(--color-blue-faint, rgba(59,130,246,0.06))"
+                                : "transparent",
                           color: isHighlighted ? "#fff" : "var(--color-text)",
                         }}
                       >
@@ -324,7 +360,7 @@ export function Combobox({
                           </span>
                           {option.sublabel && (
                             <span
-                              className="block text-xs truncate"
+                              className="block text-xs whitespace-pre-line"
                               style={{ color: isHighlighted ? "rgba(255,255,255,0.8)" : "var(--color-text-muted)" }}
                             >
                               {option.sublabel}

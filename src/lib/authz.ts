@@ -100,6 +100,28 @@ const getSubordinateIdsUnder = cache(async function getSubordinateIdsUnder(manag
   return ids;
 });
 
+/**
+ * Dedicated recursive helper for Sales Counter authorization.
+ * Leaves regular POA getSubordinateIdsUnder completely untouched.
+ */
+export const getScSubordinateIdsUnder = cache(async function getScSubordinateIdsUnder(managerId: string, depth: number): Promise<string[]> {
+  const ids: string[] = [];
+  let currentLevelManagerIds = [managerId];
+  for (let level = 0; level < depth && currentLevelManagerIds.length > 0; level++) {
+    const directReports = await prisma.user.findMany({
+      where: { nipAtasan: { in: currentLevelManagerIds }, isActive: true },
+      select: { nip: true, role: true },
+    });
+    const nextLevelManagerIds: string[] = [];
+    for (const report of directReports) {
+      ids.push(report.nip);
+      if (report.role !== Role.MR) nextLevelManagerIds.push(report.nip);
+    }
+    currentLevelManagerIds = nextLevelManagerIds;
+  }
+  return ids;
+});
+
 /** Public: returns all MR nips in the subtree of the given user (for monitoring, PM dashboard). */
 export async function getSubordinateMRNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
@@ -442,6 +464,81 @@ export function getPendingActionFilter(user: User): Prisma.PoaFormWhereInput {
   // diapprove" baru muncul). Checking the PoaDoctorApproval rows directly
   // instead surfaces the draft to SM as soon as ANY doctor reaches them.
   return { doctorApprovals: { some: { currentHolderId: user.nip } } };
+}
+
+export function getPendingActionScFilter(user: User): Prisma.PoaScFormWhereInput {
+  if (user.role === Role.MR) {
+    return { ownerId: user.nip, status: { in: [PoaStatus.DRAFT, PoaStatus.REVISI] } };
+  }
+  return { currentHolderId: user.nip };
+}
+
+export async function getVisiblePoaScFilter(user: User): Promise<Prisma.PoaScFormWhereInput> {
+  if (user.role === Role.MR) {
+    return { ownerId: user.nip };
+  }
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE) {
+    return {};
+  }
+  const depthByRole: Record<string, number> = {
+    ASM: 1,
+    SM: 2,
+    NSM: 3,
+  };
+  const depth = depthByRole[user.role] ?? 1;
+  const subIds = await getScSubordinateIdsUnder(user.nip, depth);
+  return {
+    OR: [
+      { ownerId: user.nip },
+      { ownerId: { in: subIds } },
+    ],
+  };
+}
+
+export function getScEditLockLevel(status: PoaStatus): number {
+  if (status === PoaStatus.DRAFT || status === PoaStatus.REVISI) return -1;
+  if (status === PoaStatus.SUBMITTED_TO_ASM) return 0;
+  if (status === PoaStatus.APPROVED_BY_ASM || status === PoaStatus.SUBMITTED_TO_SM) return 1;
+  if (status === PoaStatus.APPROVED_BY_SM || status === PoaStatus.SUBMITTED_TO_NSM) return 2;
+  if (status === PoaStatus.APPROVED_BY_NSM) return 3;
+  return 3;
+}
+
+export function canUserEditScForm(
+  userRole: string,
+  sessionUserId: string,
+  ownerId: string,
+  status: PoaStatus
+): boolean {
+  if (userRole === "ADMIN") return true;
+
+  const roleLevel: Record<string, number> = {
+    MR: 0,
+    ASM: 1,
+    SM: 2,
+    NSM: 3,
+    ADMIN: 4,
+  };
+
+  const userLevel = roleLevel[userRole] ?? -1;
+  const lockLevel = getScEditLockLevel(status);
+
+  // MR (Owner): Can ONLY edit directly if DRAFT or REVISI
+  if (sessionUserId === ownerId) {
+    if (userRole === "MR") {
+      return status === PoaStatus.DRAFT || status === PoaStatus.REVISI;
+    }
+    if (status === PoaStatus.DRAFT || status === PoaStatus.REVISI) return true;
+  }
+
+  // Managers (ASM, SM, NSM):
+  // Can edit directly if userLevel >= lockLevel AND status is not APPROVED_BY_NSM
+  if (userLevel >= 0 && lockLevel >= 0) {
+    if (status === PoaStatus.APPROVED_BY_NSM) return false;
+    return userLevel >= lockLevel;
+  }
+
+  return false;
 }
 
 // ─── Per-doctor approval (docs/poa-per-doctor-approval/) ──────────────────────

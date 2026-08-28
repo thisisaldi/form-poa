@@ -22,13 +22,13 @@ export default async function EditSalesCounterByIdPage({
   const data = await getSalesCounterFormById(scId, session.userId, session.role);
   if (!data) notFound();
 
-  const { form, products, userCanEdit } = data;
+  const { form, products, userCanEdit, isOwner } = data;
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-7xl w-full space-y-5">
       <div>
         <Link
-          href={`/sc/${period}`}
+          href={`/sc/${scId}`}
           className="text-xs mb-1 inline-flex items-center gap-1"
           style={{ color: "var(--color-text-faint)" }}
         >
@@ -67,8 +67,13 @@ export default async function EditSalesCounterByIdPage({
           initialPeriodeAwal={form.periodeAwal}
           initialLamaPeriode={form.lamaPeriode}
           initialPersenResepDokter={form.persenResepDokter}
+          initialJumlahKaryawan={form.jumlahKaryawan}
+          initialJumlahPasien={form.jumlahPasien}
+          initialJumlahPasienResep={form.jumlahPasienResep}
+          initialJumlahPasienNonResep={form.jumlahPasienNonResep}
           masterProducts={products}
           readOnly={!userCanEdit}
+          isOwner={isOwner}
         />
       </Card>
     </div>
