@@ -4,7 +4,7 @@ WORKDIR=/app
 NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
 
 cp /vault/secrets/.env.$NAMESPACE $WORKDIR/.env.$NAMESPACE
-cp /vault/secrets/$NAMESPACE.json $WORKDIR/assets/serviceaccount/$NAMESPACE.json
+cp -r /vault/secrets/$NAMESPACE.json $WORKDIR/assets/serviceaccount/$NAMESPACE.json
 
 set -a
 # shellcheck source=/dev/null
