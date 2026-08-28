@@ -44,6 +44,18 @@ export function describeGoogleDriveConfig(): {
   keyParseError: string | null;
   clientEmail: string | null;
   projectId: string | null;
+  // Structural facts about private_key ONLY — never its content. A valid PEM
+  // block needs real newline characters between header/body/footer; if the
+  // JSON's `\n` escape got double-escaped somewhere upstream (`\\n` instead
+  // of `\n`), JSON.parse still succeeds (produces a literal 2-char "\n" in
+  // the string) but the PEM has zero real line breaks — that's exactly what
+  // these 3 fields catch, safely, without exposing the key itself.
+  privateKeySet: boolean;
+  privateKeyLength: number;
+  privateKeyRealNewlineCount: number;
+  privateKeyHasLiteralBackslashN: boolean;
+  privateKeyStartsWithPemHeader: boolean;
+  privateKeyEndsWithPemFooter: boolean;
 } {
   const raw = env.GOOGLE_SERVICE_ACCOUNT_KEY ?? "";
   let clientEmail: string | null = null;
@@ -51,6 +63,12 @@ export function describeGoogleDriveConfig(): {
   let keyParsesAsJson = false;
   let keyRepairApplied: ReturnType<typeof parseServiceAccountKey>["repairApplied"] | "none" = "none";
   let keyParseError: string | null = null;
+  let privateKeySet = false;
+  let privateKeyLength = 0;
+  let privateKeyRealNewlineCount = 0;
+  let privateKeyHasLiteralBackslashN = false;
+  let privateKeyStartsWithPemHeader = false;
+  let privateKeyEndsWithPemFooter = false;
   if (raw) {
     try {
       const parsed = parseServiceAccountKey(raw);
@@ -58,6 +76,15 @@ export function describeGoogleDriveConfig(): {
       keyRepairApplied = parsed.repairApplied;
       clientEmail = typeof parsed.credentials.client_email === "string" ? parsed.credentials.client_email : null;
       projectId = typeof parsed.credentials.project_id === "string" ? parsed.credentials.project_id : null;
+      const pk = parsed.credentials.private_key;
+      if (typeof pk === "string") {
+        privateKeySet = true;
+        privateKeyLength = pk.length;
+        privateKeyRealNewlineCount = (pk.match(/\n/g) ?? []).length;
+        privateKeyHasLiteralBackslashN = pk.includes("\\n");
+        privateKeyStartsWithPemHeader = pk.trimStart().startsWith("-----BEGIN");
+        privateKeyEndsWithPemFooter = pk.trimEnd().endsWith("-----");
+      }
     } catch (e) {
       // keyParsesAsJson stays false — the message itself is safe (JSON
       // syntax errors only ever quote surrounding punctuation/position, the
@@ -65,7 +92,11 @@ export function describeGoogleDriveConfig(): {
       keyParseError = e instanceof Error ? e.message : String(e);
     }
   }
-  return { keySet: !!raw, keyLength: raw.length, keyRepairApplied, keyParsesAsJson, keyParseError, clientEmail, projectId };
+  return {
+    keySet: !!raw, keyLength: raw.length, keyRepairApplied, keyParsesAsJson, keyParseError, clientEmail, projectId,
+    privateKeySet, privateKeyLength, privateKeyRealNewlineCount, privateKeyHasLiteralBackslashN,
+    privateKeyStartsWithPemHeader, privateKeyEndsWithPemFooter,
+  };
 }
 
 let cachedAuth: InstanceType<typeof google.auth.GoogleAuth> | null = null;
