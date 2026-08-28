@@ -15,9 +15,8 @@ function phaseLabel(phase: string): string {
 export default async function PoaStandarisasiListPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // ADMIN-only while this feature is under review (2026-08-14), same
-  // convention as /monitoring and the rest of this feature's routes.
-  if (session.role !== "ADMIN") redirect("/dashboard");
+  // Opened to MR (tim sales) 2026-08-28 — was ADMIN-only while under review.
+  if (!["MR", "ADMIN"].includes(session.role)) redirect("/dashboard");
 
   const pengajuanList = await listMyPoaStandarisasiAction();
 

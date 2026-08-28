@@ -221,6 +221,185 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
   }
 }
 
+// Per-outlet cache, same idea as cachedPricing/customersCacheByNip above.
+const discountRequestsCacheByOutlet = new Map<string, { list: ExodusDiscountRequest[]; expiresAt: number }>();
+const DISCOUNT_TTL_MS = 5 * 60 * 1000;
+
+interface DiscountProductOutletResponse {
+  data?: {
+    discount_type?: string;
+    request_doc_date: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    products?: { product_code: string; principal_percentage: number | null }[];
+  }[];
+  error?: { status: boolean };
+}
+
+interface ExodusDiscountRequest {
+  discountType: string;
+  requestDocDate: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  products: { productCode: string; principalPct: number }[];
+}
+
+/**
+ * Raw discount requests for one outlet, from the Exodus discount-request API
+ * ("Doc API Eksternal Promotion", request/discount/product-outlet) — shared
+ * fetch backing getDiscountsForOutlet, getExodusDplContracts and
+ * getExodusDiskonHistory below, so those three views cost one HTTP round
+ * trip (+ pagination) per outlet, not three. Endpoint requires page/limit,
+ * so this pages through to exhaustion. Only outlet-scoped (single outlet_code
+ * per call) — deliberately NOT used for company-wide/multi-outlet batch
+ * lookups (see getDiskonByOutlets in customer.ts, which stays DB-only) since
+ * that would mean one HTTP call per outlet in a loop (docs/PERFORMANCE.md §2
+ * point 4, N+1-via-external-call).
+ */
+async function getDiscountRequestsForOutlet(outletCode: string): Promise<ExodusDiscountRequest[] | null> {
+  if (!isConfigured || !outletCode) return null;
+  const cached = discountRequestsCacheByOutlet.get(outletCode);
+  if (cached && cached.expiresAt > Date.now()) return cached.list;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const list: ExodusDiscountRequest[] = [];
+    const limit = 100;
+    // ponytail: hard page cap as a runaway-loop guard, not a real limit —
+    // raise if an outlet ever legitimately has 5000+ discount requests.
+    for (let page = 1; page <= 50; page++) {
+      const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount/product-outlet`);
+      url.searchParams.set("page", String(page));
+      url.searchParams.set("limit", String(limit));
+      url.searchParams.set("outlet_code", outletCode);
+
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+      if (!res.ok) break;
+      const body = (await res.json()) as DiscountProductOutletResponse;
+      if (body.error?.status || !Array.isArray(body.data)) break;
+
+      for (const req of body.data) {
+        list.push({
+          discountType: req.discount_type ?? "",
+          requestDocDate: req.request_doc_date ?? null,
+          startDate: req.start_date ?? null,
+          endDate: req.end_date ?? null,
+          products: (req.products ?? [])
+            .filter((p) => p.product_code && p.principal_percentage != null)
+            .map((p) => ({ productCode: p.product_code, principalPct: p.principal_percentage! })),
+        });
+      }
+
+      if (body.data.length < limit) break;
+    }
+
+    discountRequestsCacheByOutlet.set(outletCode, { list, expiresAt: Date.now() + DISCOUNT_TTL_MS });
+    return list;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Principal-side discount percentage per product code, for one outlet —
+ * replaces the previously hardcoded/manual finalDiscountPct on POA
+ * Standarisasi's Finalisasi phase (2026-08-28 decision, see
+ * poaStandarisasi.ts's getPoaStandarisasiDetail). Only principal_percentage
+ * is used; distributor_percentage is explicitly ignored — diskonDistributorPct
+ * stays a manual field. Duplicate product_code across multiple discount
+ * requests for the same outlet: latest request_doc_date wins (DPL rows have
+ * no request_doc_date — treated as oldest, so any dated DPF request wins the
+ * tie against them).
+ */
+export async function getDiscountsForOutlet(outletCode: string): Promise<Map<string, number> | null> {
+  const reqs = await getDiscountRequestsForOutlet(outletCode);
+  if (!reqs) return null;
+
+  const map = new Map<string, number>();
+  const dateByCode = new Map<string, string>();
+  for (const req of reqs) {
+    const docDate = req.requestDocDate ?? "";
+    for (const p of req.products) {
+      const prevDate = dateByCode.get(p.productCode);
+      if (prevDate !== undefined && prevDate >= docDate) continue;
+      dateByCode.set(p.productCode, docDate);
+      map.set(p.productCode, p.principalPct);
+    }
+  }
+  return map;
+}
+
+/** Local YYYYMM for an Exodus ISO date — dates come back as WIB midnight expressed in UTC (e.g. "...T17:00:00Z" == 00:00 WIB next day), so add the +7h offset before reading the month to avoid an off-by-one near month boundaries. */
+function isoToYYYYMM(iso: string): string {
+  const d = new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export interface ExodusDplContract {
+  kodeProduk: string;
+  newOnPi: number;
+  prdAwal: string;
+  prdAkhir: string;
+}
+
+/**
+ * DPL (period-scoped) discount contracts for one outlet, live from Exodus —
+ * replaces DiskonKontrak (previously imported from "internal/DPL <bulan
+ * tahun>.xlsx", see scripts/importDpl.ts) as the PRIMARY source behind POA
+ * Estimasi's "% Diskon (DPL/DPF)" default (2026-08-28 decision, see
+ * customer.ts's getDiskonByOutlet). Same shape as customer.ts's
+ * DiskonByProduct so callers' existing resolveDiskonContract period-overlap
+ * logic (LineItemEditor.tsx) needs no changes. Only rows with both
+ * start_date/end_date are usable as a period — DPF rows (no date range) are
+ * NOT included here, see getExodusDiskonHistory for those.
+ */
+export async function getExodusDplContracts(outletCode: string): Promise<ExodusDplContract[] | null> {
+  const reqs = await getDiscountRequestsForOutlet(outletCode);
+  if (!reqs) return null;
+
+  const out: ExodusDplContract[] = [];
+  for (const req of reqs) {
+    if (req.discountType !== "DPL" || !req.startDate || !req.endDate) continue;
+    const prdAwal = isoToYYYYMM(req.startDate);
+    const prdAkhir = isoToYYYYMM(req.endDate);
+    for (const p of req.products) out.push({ kodeProduk: p.productCode, newOnPi: p.principalPct, prdAwal, prdAkhir });
+  }
+  return out;
+}
+
+export interface ExodusDiskonHistoryRow {
+  kodeProduk: string;
+  maxDiskonPct: number;
+}
+
+/**
+ * DPF (single-PO, not period-scoped) discount requests for one outlet, live
+ * from Exodus — replaces DiskonHistory (previously imported from
+ * "internal/*Data Diskon All Product*.xlsx", see
+ * scripts/importDiskonHistory.ts) as the FALLBACK source behind POA
+ * Estimasi's "% Diskon (DPL/DPF)" default, used only when no DPL contract
+ * covers the outlet+product+period (2026-08-28 decision, see customer.ts's
+ * getDiskonHistoryByOutlet). Same "highest single-invoice %" semantic as the
+ * old DiskonHistory.maxDiskonPct — takes the max principal_percentage across
+ * every DPF request on file for a product, not the most recent.
+ */
+export async function getExodusDiskonHistory(outletCode: string): Promise<ExodusDiskonHistoryRow[] | null> {
+  const reqs = await getDiscountRequestsForOutlet(outletCode);
+  if (!reqs) return null;
+
+  const maxByCode = new Map<string, number>();
+  for (const req of reqs) {
+    if (req.discountType !== "DPF") continue;
+    for (const p of req.products) {
+      const prev = maxByCode.get(p.productCode);
+      if (prev === undefined || p.principalPct > prev) maxByCode.set(p.productCode, p.principalPct);
+    }
+  }
+  return [...maxByCode.entries()].map(([kodeProduk, maxDiskonPct]) => ({ kodeProduk, maxDiskonPct }));
+}
+
 /** Every "YYYYMM" month from n-1 months ago through the current month, inclusive (n total months). */
 export function lastNMonthsRange(n: number, from: Date = new Date()): { periodeAwal: string; periodeAkhir: string } {
   const periodeAkhir = `${from.getFullYear()}${String(from.getMonth() + 1).padStart(2, "0")}`;

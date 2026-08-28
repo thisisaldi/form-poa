@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersForMr } from "@/lib/exodusApi";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersForMr, getExodusDplContracts, getExodusDiskonHistory } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -999,6 +999,12 @@ export interface DiskonByProduct {
  */
 export async function getDiskonByOutlet(kodePI: string): Promise<DiskonByProduct[]> {
   if (!kodePI) return [];
+  // Live Exodus DPL contracts replace DiskonKontrak as the primary source
+  // (2026-08-28 decision) — falls back to the DB/Excel-import table only
+  // when Exodus is unreachable/unconfigured, same degrade contract as
+  // masterData.ts's applyLivePricing.
+  const live = await getExodusDplContracts(kodePI);
+  if (live) return live;
   const rows = await prisma.diskonKontrak.findMany({
     where: { kodePI, newOnPi: { not: null } },
     select: { kodeProduk: true, newOnPi: true, prdAwal: true, prdAkhir: true },
@@ -1023,6 +1029,11 @@ export interface DiskonHistoryByProduct {
  */
 export async function getDiskonHistoryByOutlet(kodePI: string): Promise<DiskonHistoryByProduct[]> {
   if (!kodePI) return [];
+  // Live Exodus DPF requests replace DiskonHistory as the fallback source
+  // (2026-08-28 decision) — see getDiskonByOutlet above for the same
+  // degrade-to-DB contract.
+  const live = await getExodusDiskonHistory(kodePI);
+  if (live) return live;
   const rows = await prisma.diskonHistory.findMany({
     where: { kodePI },
     select: { kodeProduk: true, maxDiskonPct: true },

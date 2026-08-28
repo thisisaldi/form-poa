@@ -10,10 +10,10 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
   const { id } = await params;
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // ADMIN-only while this feature is under review (2026-08-14), same
-  // convention as /monitoring.
-  if (session.role !== "ADMIN") redirect("/dashboard");
-
+  // Opened to MR (tim sales) 2026-08-28 — was ADMIN-only while under review.
+  // getPoaStandarisasiDetail already gates per-pengajuan via
+  // canViewPoaStandarisasi (owner MR, or ASM/SM/NSM in the approval chain,
+  // or ADMIN/GM/SFE/VIEWER company-wide) and returns null otherwise.
   const pengajuan = await getPoaStandarisasiDetail(id);
   if (!pengajuan) notFound();
 

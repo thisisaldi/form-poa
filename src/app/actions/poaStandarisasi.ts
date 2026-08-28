@@ -17,6 +17,7 @@ import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
+import { getDiscountsForOutlet } from "@/lib/exodusApi";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
 import { uploadFileToSurveyDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
@@ -52,10 +53,8 @@ function toNum(v: unknown): number | null {
  */
 export async function createPoaStandarisasiAction(input: PlanningInput & { kodePI: string }): Promise<void> {
   const session = await requireSession();
-  // ADMIN-only while this feature is under review (2026-08-14), same
-  // convention as /monitoring — bypasses the normal MR/ASM/SM/NSM
-  // eligibility check below entirely until this is opened back up.
-  if (session.role !== "ADMIN") redirect("/dashboard");
+  // Opened to MR (tim sales) 2026-08-28 — was ADMIN-only while under review.
+  // The real eligibility check is canCreatePoa just below (same as POA Estimasi).
 
   const kodePI = input.kodePI.trim();
   if (!kodePI) throw new Error("Outlet wajib dipilih.");
@@ -113,8 +112,16 @@ type RawDetail = Prisma.PoaStandarisasiGetPayload<{ include: typeof detailInclud
 
 const d = (v: { toString(): string } | null | undefined): number | null => (v == null ? null : parseFloat(v.toString()));
 
-/** Prisma Decimal fields can't cross the Server→Client Component boundary as-is — stringify/numberify everything before returning. */
-function serializeDetail(p: RawDetail) {
+/**
+ * Prisma Decimal fields can't cross the Server→Client Component boundary as-is
+ * — stringify/numberify everything before returning. `discounts` (live Exodus
+ * principal_percentage per kodeProduk, see getDiscountsForOutlet) replaces
+ * finalDiscountPct entirely: null (empty) when this outlet+product has no
+ * discount request, even though a DB value may exist from before this field
+ * became read-only. Only falls back to the stored DB value when `discounts`
+ * itself is null — Exodus unreachable/unconfigured for this environment.
+ */
+function serializeDetail(p: RawDetail, discounts: Map<string, number> | null) {
   return {
     ...p,
     outlet: { ...p.outlet },
@@ -127,7 +134,7 @@ function serializeDetail(p: RawDetail) {
       ...prod,
       estimasiDiskonPct: d(prod.estimasiDiskonPct),
       estimasiBiayaListingRp: d(prod.estimasiBiayaListingRp),
-      finalDiscountPct: d(prod.finalDiscountPct),
+      finalDiscountPct: discounts ? discounts.get(prod.product.kodeProduk) ?? null : d(prod.finalDiscountPct),
       diskonDistributorPct: d(prod.diskonDistributorPct),
       finalBiayaListingRp: d(prod.finalBiayaListingRp),
       product: {
@@ -168,7 +175,8 @@ export async function getPoaStandarisasiDetail(id: string): Promise<PoaStandaris
   if (!pengajuan) return null;
   if (!(await canViewPoaStandarisasi(actor, pengajuan))) return null;
 
-  return serializeDetail(pengajuan);
+  const discounts = await getDiscountsForOutlet(pengajuan.kodePI);
+  return serializeDetail(pengajuan, discounts);
 }
 
 export async function listMyPoaStandarisasiAction() {
