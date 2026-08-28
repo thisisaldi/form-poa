@@ -165,7 +165,24 @@ function parseServiceAccountKey(raw: string): { credentials: Record<string, unkn
   if (typeof parsed !== "object" || parsed === null) {
     throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY tidak berbentuk objek JSON yang valid.");
   }
-  return { credentials: parsed as Record<string, unknown>, repairApplied };
+  return { credentials: normalizePrivateKey(parsed as Record<string, unknown>), repairApplied };
+}
+
+/**
+ * Normalizes private_key's line endings/trailing whitespace — deterministic,
+ * content-safe cleanup (never guesses at the base64 body itself), covering
+ * encoding quirks that can survive JSON parsing fine but still trip up
+ * Node's stricter OpenSSL 3.x PEM decoder ("error:1E08010C:DECODER
+ * routines::unsupported", 2026-08-28 bug report): CRLF line endings from a
+ * Windows-edited value, and irregular trailing whitespace/blank lines after
+ * "-----END ... KEY-----". No-op if private_key is missing/not a string.
+ */
+function normalizePrivateKey(credentials: Record<string, unknown>): Record<string, unknown> {
+  const pk = credentials.private_key;
+  if (typeof pk !== "string") return credentials;
+  const normalized = pk.replace(/\r\n?/g, "\n").trimEnd() + "\n";
+  if (normalized === pk) return credentials;
+  return { ...credentials, private_key: normalized };
 }
 
 function getAuth() {
