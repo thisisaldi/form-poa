@@ -28,6 +28,7 @@ import {
   uploadPoaStandarisasiFileAction,
   getPoaStandarisasiFileAccessLogAction,
   getStatusPengajuanPreviewAction,
+  getEstimasiDiskonPreviewAction,
 } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import {
@@ -934,6 +935,28 @@ export function PlanningPhase(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kodePI, kodeProdukKey]);
 
+  // Pre-fills "Estimasi Diskon" from live Exodus discount (same source as
+  // Finalisasi's read-only Discount Final) so the MR sees a real default
+  // instead of a blank field and can adjust it to see the margin warning
+  // react (2026-08-28 user request). Only applied when the row's own value
+  // is still empty — never overwrites what the MR already typed or what was
+  // already saved, so this only fires once per produk row in practice.
+  useEffect(() => {
+    const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
+    if (!kodePI || kodeList.length === 0) return;
+    let cancelled = false;
+    getEstimasiDiskonPreviewAction(kodePI).then((map) => {
+      if (cancelled) return;
+      produkList.forEach((p, idx) => {
+        if (p.estimasiDiskonPct) return;
+        const pct = p.kodeProduk ? map[p.kodeProduk] : undefined;
+        if (pct != null) updateProduk(idx, { estimasiDiskonPct: String(pct) });
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kodePI, kodeProdukKey]);
+
   return (
     <>
       <RekomendasiSidebar kodePI={kodePI} pengajuanId={pengajuanId} productByKode={productByKode} dokterList={dokterList} />
@@ -1085,7 +1108,7 @@ export function PlanningPhase(props: {
                   {p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"}
                 </div>
               </div>
-              <div className="w-24 shrink-0">
+              <div className="w-32 shrink-0">
                 <UnitCountInput label="Estimasi Diskon" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
               </div>
               <div className="w-36 shrink-0">

@@ -198,6 +198,21 @@ export async function getDokterOptionsAction(kodePI: string) {
   return getCustomersByOutlet(kodePI);
 }
 
+/**
+ * Live Exodus discount (principal_percentage), keyed by kodeProduk, for
+ * pre-filling Planning's "Estimasi Diskon" so an MR doesn't start from a
+ * blank field and can immediately see/adjust the margin math (2026-08-28
+ * user request) — same source as Finalisasi's read-only Discount Final
+ * (`getDiscountsForOutlet`), but here it's just a DEFAULT: the field stays
+ * editable, the caller only applies this when the row's own value is still
+ * empty (never overwrites what the MR already typed/saved).
+ */
+export async function getEstimasiDiskonPreviewAction(kodePI: string): Promise<Record<string, number>> {
+  if (!kodePI) return {};
+  const discounts = await getDiscountsForOutlet(kodePI);
+  return discounts ? Object.fromEntries(discounts) : {};
+}
+
 export interface StandarisasiProdukOutletRow {
   kodeProduk: string;
   namaProduk: string;
