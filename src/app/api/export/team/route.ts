@@ -1,28 +1,35 @@
 /**
  * GET /api/export/team?period=2026-Q3
  *
- * Bulk Excel export for NSM/SM/ASM — all POA data for their subordinate MRs.
+ * Bulk Excel export for NSM/SM/ASM/ADMIN/GM/SFE/VIEWER — all POA data for
+ * their subordinate MRs (or company-wide for the latter 4).
  * `period` defaults to the CURRENT quarter when omitted (2026-08-26 —
  * previously unbounded/all-history by default, which caused live 502s for
  * ADMIN/GM/SFE/VIEWER's company-wide scope; see the `period` assignment
  * below for the full history).
+ *
+ * Sheets 1/2/5-10 are gated behind `fullReportScope` (ASM/SM/NSM only,
+ * 2026-08-28) — ADMIN/GM/SFE/VIEWER's company-wide scope made those sheets'
+ * extra queries (esp. the per-outlet Nexus spesialisasi lookup ahead of
+ * Sheet 9, measured ~96s company-wide) this route's reported 502/500 cause,
+ * so those roles get just Sheets 3-4 (Semua Pengajuan + PSSP Aktif).
  * Sheets:
- *   1. Ringkasan Tim     — aggregate totals
- *   2. Per MR            — one row per MR with key metrics
+ *   1. Ringkasan Tim     — aggregate totals                          [ASM/SM/NSM only]
+ *   2. Per MR            — one row per MR with key metrics           [ASM/SM/NSM only]
  *   3. Semua Pengajuan   — all line items across all POAs
  *   4. PSSP Aktif        — every still-running PSSP contract + Hospinet snapshot
  *   5. Summary Per Outlet — same metrics as the /summary "Per Outlet" tab (#47),
- *                           scoped to this export's team (2026-07-27, #55)
+ *                           scoped to this export's team (2026-07-27, #55)   [ASM/SM/NSM only]
  *   6. Summary by Produk  — same metrics as the /summary "Per Produk" tab,
- *                           scoped to this export's team (2026-07-28, #6)
+ *                           scoped to this export's team (2026-07-28, #6)   [ASM/SM/NSM only]
  *   7. Summary Ringkasan  — grand-total cards from the /summary "Ringkasan" tab,
  *                           scoped to this export's team + a single quarter
- *                           (2026-08-13, stakeholder #15)
+ *                           (2026-08-13, stakeholder #15)   [ASM/SM/NSM only]
  *   8. Summary Per Personil    — "Per Personil" tab, same Outlet/Produk-sheet
- *                                metric shape, grouped by MR instead (#15)
- *   9. Summary Per Customer    — "Per Customer" tab, ditto, grouped by customer (#15)
+ *                                metric shape, grouped by MR instead (#15)   [ASM/SM/NSM only]
+ *   9. Summary Per Customer    — "Per Customer" tab, ditto, grouped by customer (#15)   [ASM/SM/NSM only]
  *  10. Summary Per Spesialisasi — "Per Spesialisasi" tab, ditto, grouped by
- *                                 spesialisasi label (#15)
+ *                                 spesialisasi label (#15)   [ASM/SM/NSM only]
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -112,6 +119,14 @@ export async function GET(req: NextRequest) {
   // anyone who wants a different single quarter; there's just no more
   // "everything, forever" default for anyone.
   const period = req.nextUrl.searchParams.get("period") ?? currentQuarter();
+
+  // ADMIN/GM/SFE/VIEWER get the trimmed 2-sheet report (Semua Pengajuan + PSSP
+  // Aktif) only — their scope is company-wide via getSubordinateOwnerNips
+  // above, and the other 8 sheets' extra queries (esp. the per-outlet Nexus
+  // spesialisasi lookup below Sheet 9, measured ~96s company-wide) were the
+  // cause of this route's reported 502/500s (2026-08-28). ASM/SM/NSM have a
+  // real, modest-sized team and keep the full report.
+  const fullReportScope = (["ASM", "SM", "NSM"] as string[]).includes(session.role);
 
   // ── Query data ──────────────────────────────────────────────────────────────
 
@@ -500,6 +515,27 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Shared by Sheet 1 (Ringkasan Tim) and Sheet 7 (Summary Ringkasan) — kept
+  // at this scope (not nested in the fullReportScope block below) so both
+  // gated sections can use them.
+  function addKv(ws: ExcelJS.Worksheet, label: string, value: string | number, bold = false) {
+    const row = ws.addRow([label, value]);
+    row.getCell(2).alignment = { horizontal: "right" };
+    if (bold) row.font = { bold: true };
+  }
+  function addDivider(ws: ExcelJS.Worksheet, title: string) {
+    ws.addRow([]);
+    const row = ws.addRow([title]);
+    ws.mergeCells(row.number, 1, row.number, 2);
+    row.getCell(1).font = { bold: true, color: { argb: WHITE } };
+    row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+    row.height = 18;
+  }
+
+  // Sheets 1/2/"Estimasi PSSP per Bulan" below are ASM/SM/NSM-only (see
+  // fullReportScope above) — skipped entirely for ADMIN/GM/SFE/VIEWER.
+  if (fullReportScope) {
+
   // ── Sheet 1: Ringkasan Tim ──────────────────────────────────────────────────
 
   const totalEst     = mrRows.reduce((s, r) => s + r.estimasi, 0);
@@ -525,23 +561,6 @@ export async function GET(req: NextRequest) {
     { key: "label", width: 36 },
     { key: "value", width: 28 },
   ];
-
-  // Generalized to take a worksheet param (2026-08-13) — originally ws1-only,
-  // reused as-is for the new "Summary Ringkasan" sheet (#15) instead of a
-  // second near-duplicate KV-sheet builder.
-  function addKv(ws: ExcelJS.Worksheet, label: string, value: string | number, bold = false) {
-    const row = ws.addRow([label, value]);
-    row.getCell(2).alignment = { horizontal: "right" };
-    if (bold) row.font = { bold: true };
-  }
-  function addDivider(ws: ExcelJS.Worksheet, title: string) {
-    ws.addRow([]);
-    const row = ws.addRow([title]);
-    ws.mergeCells(row.number, 1, row.number, 2);
-    row.getCell(1).font = { bold: true, color: { argb: WHITE } };
-    row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-    row.height = 18;
-  }
 
   ws1.addRow(["Laporan Rekap POA"]);
   ws1.getRow(1).font = { bold: true, size: 14 };
@@ -677,6 +696,8 @@ export async function GET(req: NextRequest) {
   psspMonthsSorted.forEach((m) => { wsPssp.getColumn(m).numFmt = '#,##0'; });
   shadeAlt(wsPssp, 1);
   if (psspLevelsPresent.length === 0) wsPssp.addRow(["(Tidak ada data Estimasi PSSP)"]);
+
+  } // end fullReportScope (Sheets 1/2/Estimasi PSSP per Bulan)
 
   // ── Sheet 3: Semua Pengajuan ─────────────────────────────────────────────────
 
@@ -1049,6 +1070,12 @@ export async function GET(req: NextRequest) {
   shadeAlt(ws4, 1);
 
   if (activePsspAll.length === 0 && hospinetSnapshotsAll.length === 0) ws4.addRow(["(Tidak ada data PSSP aktif)"]);
+
+  // Sheets 5-10 below are ASM/SM/NSM-only (see fullReportScope above) —
+  // skipped entirely for ADMIN/GM/SFE/VIEWER, whose company-wide scope made
+  // these queries (esp. the per-outlet Nexus spesialisasi lookup ahead of
+  // Sheet 9, measured ~96s company-wide) this route's reported 502/500 cause.
+  if (fullReportScope) {
 
   // ── Sheet 5: Summary Per Outlet ──────────────────────────────────────────────
   // Same metrics as the /summary "Per Outlet" tab (src/app/(app)/summary/page.tsx,
@@ -1845,6 +1872,8 @@ export async function GET(req: NextRequest) {
   ws10.getColumn("costRatio").numFmt = '0.0"%"';
   shadeAlt(ws10, 1);
   if (spesialisasiSummaryRows.length === 0) ws10.addRow(["(Belum ada data pengajuan)"]);
+
+  } // end fullReportScope (Sheets 5-10)
 
   // ── Response ─────────────────────────────────────────────────────────────────
 

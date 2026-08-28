@@ -128,17 +128,23 @@ Perbedaan inti: **Monitoring** = target vs pencapaian sales nyata (dipakai ADMIN
 | PSSP Aktif | Semua kontrak PSSP yang sedang berjalan (`PsspKontrak`) + semua snapshot Hospinet untuk outlet MR tersebut, digabungkan dengan kolom "Sumber" |
 | Audit Log | Histori approval/perubahan status POA |
 
-### `GET /api/export/team` — bulk untuk ASM/SM/NSM
+### `GET /api/export/team` — bulk untuk ASM/SM/NSM/ADMIN/GM/SFE/VIEWER
 
-| Sheet | Isi |
-|---|---|
-| Ringkasan Tim | Total agregat lintas seluruh tim subordinate MR |
-| Per MR | 1 baris per (MR, POA) — MR dengan beberapa kuartal submit mendapat beberapa baris, tidak di-collapse |
-| Estimasi PSSP per Bulan | Logic monthly-breakdown yang sama, di-roll-up per level personil |
-| Semua Pengajuan | Semua line item lintas semua POA — **struktur kolom SAMA PERSIS dengan sheet "Pengisian"** (diselaraskan 2026-08-05, stakeholder request), plus 2 kolom tambahan di depan (Periode POA, Status Approval) yang tidak ada equivalent-nya di sheet MR karena sheet ini mencakup banyak POA sekaligus |
-| PSSP Aktif | Sama seperti single-POA, scope ke outlet seluruh tim, + atribusi MR/ASM/SM/NSM |
-| Summary Per Outlet | Rollup per-outlet, mencerminkan tab "Per Outlet" `/summary` |
-| Summary by Produk | Rollup per-produk, mencerminkan tab "Per Produk" `/summary` |
+Jumlah sheet tergantung role (`fullReportScope`, 2026-08-28) — ASM/SM/NSM (tim beneran, scope wajar) dapat laporan lengkap; ADMIN/GM/SFE/VIEWER (scope company-wide via `getSubordinateOwnerNips`) dapat versi ringkas 2 sheet saja, karena 8 sheet lainnya (terutama lookup spesialisasi via Nexus per-outlet di Summary Per Customer, terukur ~96 detik untuk scope company-wide) adalah biang keladi 502/500 di route ini untuk scope seluas itu.
+
+| Sheet | Isi | Scope |
+|---|---|---|
+| Ringkasan Tim | Total agregat lintas seluruh tim subordinate MR | ASM/SM/NSM saja |
+| Per MR | 1 baris per (MR, POA) — MR dengan beberapa kuartal submit mendapat beberapa baris, tidak di-collapse | ASM/SM/NSM saja |
+| Estimasi PSSP per Bulan | Logic monthly-breakdown yang sama, di-roll-up per level personil | ASM/SM/NSM saja |
+| Semua Pengajuan | Semua line item lintas semua POA — **struktur kolom SAMA PERSIS dengan sheet "Pengisian"** (diselaraskan 2026-08-05, stakeholder request), plus 2 kolom tambahan di depan (Periode POA, Status Approval) yang tidak ada equivalent-nya di sheet MR karena sheet ini mencakup banyak POA sekaligus | Semua role |
+| PSSP Aktif | Sama seperti single-POA, scope ke outlet seluruh tim, + atribusi MR/ASM/SM/NSM | Semua role |
+| Summary Per Outlet | Rollup per-outlet, mencerminkan tab "Per Outlet" `/summary` | ASM/SM/NSM saja |
+| Summary by Produk | Rollup per-produk, mencerminkan tab "Per Produk" `/summary` | ASM/SM/NSM saja |
+| Summary Ringkasan | Grand-total cards dari tab "Ringkasan" `/summary`, scoped ke 1 kuartal | ASM/SM/NSM saja |
+| Summary Per Personil | Sama bentuk metrik Per Outlet/Produk, dikelompokkan per MR | ASM/SM/NSM saja |
+| Summary Per Customer | Ditto, dikelompokkan per customer | ASM/SM/NSM saja |
+| Summary Per Spesialisasi | Ditto, dikelompokkan per label spesialisasi | ASM/SM/NSM saja |
 
 Kedua route berbagi fungsi helper yang **sengaja diduplikasi** (bukan modul bersama) — `resolveDiskonPeriodLabel`, `computePelunasanPct`, `computeOldEstPerMonth`, `BENTUK_PSSP_LABELS` — konvensi per-file yang secara eksplisit diakui di komentar kode.
 

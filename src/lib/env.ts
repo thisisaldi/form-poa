@@ -28,12 +28,21 @@ const envSchema = z.object({
   EXODUS_API_BASE_URL: z.string().optional(),
   // Optional — Google Drive upload for "Input Data Survey" + POA
   // Standarisasi (see docs/survey-pasien-features/, src/lib/googleDrive.ts).
-  // Service account credential JSON, RAW (not base64-encoded, see
-  // googleDrive.ts's doc comment for why) — set via Vault per deployment,
-  // not baked into the image. Feature degrades to a clear "belum
-  // dikonfigurasi" error when unset, same pattern as EXODUS_* above.
-  // Destination folder id is NOT here anymore — moved to the DB-backed
-  // GoogleDriveConfig table (2026-08-27, ADMIN-settable, see admin.ts).
+  // Two ways to provide the service account credential, either is fine
+  // (GOOGLE_SERVICE_ACCOUNT_KEY_FILE checked first if both are set):
+  //   - GOOGLE_SERVICE_ACCOUNT_KEY_FILE: path to the mounted .json key file
+  //     (2026-08-28, preferred — sidesteps every env-var-transport encoding
+  //     bug this app hit: base64 mis-encode, double-JSON-encode, single-quote
+  //     JS-object-literal, escaped-but-unwrapped, whitespace-mangled PEM body
+  //     — a mounted file is read as raw bytes, no string transport involved).
+  //   - GOOGLE_SERVICE_ACCOUNT_KEY: the RAW service account JSON, RAW (not
+  //     base64-encoded — see googleDrive.ts's doc comment) — kept as a
+  //     fallback for deployments that don't support mounting a secret file.
+  // Set via Vault per deployment, not baked into the image. Feature degrades
+  // to a clear "belum dikonfigurasi" error when neither is set, same pattern
+  // as EXODUS_* above. Destination folder id is NOT here — moved to the
+  // DB-backed GoogleDriveConfig table (2026-08-27, ADMIN-settable, admin.ts).
+  GOOGLE_SERVICE_ACCOUNT_KEY_FILE: z.string().optional(),
   GOOGLE_SERVICE_ACCOUNT_KEY: z.string().optional(),
   // Optional — Nexus API (api-nexus.pharos.id) now requires HTTP Basic Auth
   // (2026-08-18) — used by outletSync.ts's per-NIP outlet fetch (customer.ts's
@@ -89,6 +98,7 @@ function validateEnv(): Env {
         EXODUS_AUTH_CLIENT_ID: undefined,
         EXODUS_AUTH_CLIENT_SECRET: undefined,
         EXODUS_API_BASE_URL: undefined,
+        GOOGLE_SERVICE_ACCOUNT_KEY_FILE: undefined,
         GOOGLE_SERVICE_ACCOUNT_KEY: undefined,
         NEXUS_API_USERNAME: undefined,
         NEXUS_API_PASSWORD: undefined,

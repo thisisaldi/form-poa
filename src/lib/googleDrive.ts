@@ -1,5 +1,7 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
+import { createHash, createPrivateKey } from "crypto";
+import { readFileSync } from "fs";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 
@@ -8,26 +10,40 @@ import { prisma } from "@/lib/prisma";
  * docs/survey-pasien-features/) — MR uploads an Excel file from the
  * browser, this forwards it to a shared drive folder via a service
  * account. Optional feature: degrades to a clear "belum dikonfigurasi"
- * error (never a generic 500) when GOOGLE_SERVICE_ACCOUNT_KEY / the
+ * error (never a generic 500) when neither credential source / the
  * destination folder aren't set for this environment — same degradation
  * philosophy as src/lib/exodusApi.ts, except this feature has no fallback
  * "return null" shape (an upload either genuinely succeeds or the caller
  * needs to know it failed), so it throws instead.
  *
- * GOOGLE_SERVICE_ACCOUNT_KEY is the RAW service account JSON key file
- * (paste the whole downloaded .json as-is), not base64-encoded — decided
- * 2026-08-27 (user request) after a base64 mis-encode on staging produced
- * garbled JSON.parse errors; raw JSON is one less encode/decode step to
- * get wrong.
+ * Credential source (GOOGLE_SERVICE_ACCOUNT_KEY_FILE checked first):
+ * - GOOGLE_SERVICE_ACCOUNT_KEY_FILE: path to the mounted .json key file
+ *   (2026-08-28, preferred — sidesteps every env-var-STRING-transport
+ *   encoding bug this app hit across a long debugging session: base64
+ *   mis-encode, double-JSON-encode, single-quote JS-object-literal,
+ *   escaped-but-unwrapped, whitespace-mangled PEM body. A mounted file is
+ *   read as raw bytes — no string transport/templating layer to corrupt it).
+ * - GOOGLE_SERVICE_ACCOUNT_KEY: the RAW service account JSON as a string,
+ *   not base64-encoded (see readServiceAccountKeyRaw below) — kept as a
+ *   fallback for deployments that can't mount a secret file.
  *
  * The destination folder id is DB-backed (GoogleDriveConfig, singleton row
  * id=1), not GOOGLE_DRIVE_SURVEY_FOLDER_ID env var (retired 2026-08-27, user
  * request) — an ADMIN sets/changes it from the Admin page without a
  * redeploy, same pattern as PoaDoctorsApiCredential. Only the credential
- * itself stays an env var — that's a real secret, unlike a folder id.
+ * itself stays env/file-based — that's a real secret, unlike a folder id.
  */
 
-export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
+export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE || !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
+
+/** Reads the raw (unparsed) credential JSON text from whichever source is configured — file takes priority. Throws if the configured file path can't be read (missing/permissions), same "fail loud" contract as the rest of this file. */
+function readServiceAccountKeyRaw(): string {
+  if (env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE) {
+    return readFileSync(env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, "utf-8");
+  }
+  if (env.GOOGLE_SERVICE_ACCOUNT_KEY) return env.GOOGLE_SERVICE_ACCOUNT_KEY;
+  throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY_FILE atau GOOGLE_SERVICE_ACCOUNT_KEY belum dikonfigurasi.");
+}
 
 /**
  * SAFE-to-log config diagnostics — deliberately never includes the actual
@@ -37,6 +53,8 @@ export const isGoogleDriveConfigured = !!env.GOOGLE_SERVICE_ACCOUNT_KEY;
  * to log the raw key — declined that, this is the safe alternative).
  */
 export function describeGoogleDriveConfig(): {
+  keySource: "file" | "env" | "none";
+  keyReadError: string | null;
   keySet: boolean;
   keyLength: number;
   keyRepairApplied: ReturnType<typeof parseServiceAccountKey>["repairApplied"] | "none";
@@ -56,8 +74,27 @@ export function describeGoogleDriveConfig(): {
   privateKeyHasLiteralBackslashN: boolean;
   privateKeyStartsWithPemHeader: boolean;
   privateKeyEndsWithPemFooter: boolean;
+  /**
+   * SHA-256 of the (normalized) private_key, hex-encoded — a one-way
+   * fingerprint, NOT reversible to the key itself (2026-08-28: user asked to
+   * log the raw key directly to verify it matches the source file — declined
+   * that, this is the safe way to answer the same question: compute the same
+   * hash locally from the original downloaded .json and compare strings).
+   */
+  privateKeyFingerprint: string | null;
+  /** Node modulus length in bits if the key decodes successfully (2048/4096/etc — not secret, just confirms it's a real, decodable RSA key of the expected size). */
+  privateKeyModulusBits: number | null;
+  /** The actual crypto.createPrivateKey() error if decode fails — safe: OpenSSL error messages only ever describe the failure class/position, never echo key content. */
+  privateKeyDecodeError: string | null;
 } {
-  const raw = env.GOOGLE_SERVICE_ACCOUNT_KEY ?? "";
+  const keySource: "file" | "env" | "none" = env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE ? "file" : env.GOOGLE_SERVICE_ACCOUNT_KEY ? "env" : "none";
+  let raw = "";
+  let keyReadError: string | null = null;
+  try {
+    raw = keySource === "none" ? "" : readServiceAccountKeyRaw();
+  } catch (e) {
+    keyReadError = e instanceof Error ? e.message : String(e);
+  }
   let clientEmail: string | null = null;
   let projectId: string | null = null;
   let keyParsesAsJson = false;
@@ -69,6 +106,9 @@ export function describeGoogleDriveConfig(): {
   let privateKeyHasLiteralBackslashN = false;
   let privateKeyStartsWithPemHeader = false;
   let privateKeyEndsWithPemFooter = false;
+  let privateKeyFingerprint: string | null = null;
+  let privateKeyModulusBits: number | null = null;
+  let privateKeyDecodeError: string | null = null;
   if (raw) {
     try {
       const parsed = parseServiceAccountKey(raw);
@@ -84,6 +124,13 @@ export function describeGoogleDriveConfig(): {
         privateKeyHasLiteralBackslashN = pk.includes("\\n");
         privateKeyStartsWithPemHeader = pk.trimStart().startsWith("-----BEGIN");
         privateKeyEndsWithPemFooter = pk.trimEnd().endsWith("-----");
+        privateKeyFingerprint = createHash("sha256").update(pk).digest("hex");
+        try {
+          const keyObj = createPrivateKey(pk);
+          privateKeyModulusBits = typeof keyObj.asymmetricKeyDetails?.modulusLength === "number" ? keyObj.asymmetricKeyDetails.modulusLength : null;
+        } catch (e) {
+          privateKeyDecodeError = e instanceof Error ? e.message : String(e);
+        }
       }
     } catch (e) {
       // keyParsesAsJson stays false — the message itself is safe (JSON
@@ -93,9 +140,9 @@ export function describeGoogleDriveConfig(): {
     }
   }
   return {
-    keySet: !!raw, keyLength: raw.length, keyRepairApplied, keyParsesAsJson, keyParseError, clientEmail, projectId,
+    keySource, keyReadError, keySet: !!raw, keyLength: raw.length, keyRepairApplied, keyParsesAsJson, keyParseError, clientEmail, projectId,
     privateKeySet, privateKeyLength, privateKeyRealNewlineCount, privateKeyHasLiteralBackslashN,
-    privateKeyStartsWithPemHeader, privateKeyEndsWithPemFooter,
+    privateKeyStartsWithPemHeader, privateKeyEndsWithPemFooter, privateKeyFingerprint, privateKeyModulusBits, privateKeyDecodeError,
   };
 }
 
@@ -169,28 +216,37 @@ function parseServiceAccountKey(raw: string): { credentials: Record<string, unkn
 }
 
 /**
- * Normalizes private_key's line endings/trailing whitespace — deterministic,
- * content-safe cleanup (never guesses at the base64 body itself), covering
- * encoding quirks that can survive JSON parsing fine but still trip up
- * Node's stricter OpenSSL 3.x PEM decoder ("error:1E08010C:DECODER
- * routines::unsupported", 2026-08-28 bug report): CRLF line endings from a
- * Windows-edited value, and irregular trailing whitespace/blank lines after
- * "-----END ... KEY-----". No-op if private_key is missing/not a string.
+ * Rebuilds private_key into a canonical PEM (standard 64-char-wrapped base64
+ * body, single header/footer, no stray whitespace) — 2026-08-28 bug report:
+ * "error:1E08010C:DECODER routines::unsupported" from Node's OpenSSL 3.x PEM
+ * decoder, root cause narrowed down (via a real repro against the exact
+ * staging image, node:20-alpine, in Docker) to irregular whitespace INSIDE
+ * the base64 body — confirmed an extra blank line alone reproduces the exact
+ * error, while re-decoding the base64 (stripping ALL whitespace first, so
+ * line width/blank lines/CRLF/trailing spaces don't matter) and re-wrapping
+ * it into a standard PEM makes it decode fine again. Verified this doesn't
+ * silently corrupt a valid key either — round-tripped sign+verify against
+ * several deliberately-mangled variants, all matched a normal key's
+ * behavior. Only rewrites what's between the BEGIN/END markers; if
+ * private_key isn't PEM-shaped at all, left untouched (caller's error
+ * surfaces normally instead of this masking a different, real problem).
  */
 function normalizePrivateKey(credentials: Record<string, unknown>): Record<string, unknown> {
   const pk = credentials.private_key;
   if (typeof pk !== "string") return credentials;
-  const normalized = pk.replace(/\r\n?/g, "\n").trimEnd() + "\n";
+  const match = pk.match(/-----BEGIN ([^-]+)-----([\s\S]*?)-----END \1-----/);
+  if (!match) return credentials;
+  const [, type, body] = match;
+  const base64 = body.replace(/\s+/g, "");
+  const wrapped = (base64.match(/.{1,64}/g) ?? []).join("\n");
+  const normalized = `-----BEGIN ${type}-----\n${wrapped}\n-----END ${type}-----\n`;
   if (normalized === pk) return credentials;
   return { ...credentials, private_key: normalized };
 }
 
 function getAuth() {
   if (cachedAuth) return cachedAuth;
-  if (!env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY belum dikonfigurasi.");
-  }
-  const { credentials } = parseServiceAccountKey(env.GOOGLE_SERVICE_ACCOUNT_KEY);
+  const { credentials } = parseServiceAccountKey(readServiceAccountKeyRaw());
   cachedAuth = new google.auth.GoogleAuth({
     credentials,
     scopes: ["https://www.googleapis.com/auth/drive.file"],

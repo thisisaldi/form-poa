@@ -669,27 +669,23 @@ export async function getNexusSpesialisasiByOutlets(outletKodes: string[]): Prom
 }
 
 /**
- * Every customer under the outlet's assigned MR — lets an MR search by the
- * doctor's own NAME first when they don't know/remember the spesialisasi,
- * instead of being forced to guess through the spesialisasi dropdown before
- * the customer list can even load (2026-07-23).
+ * Customers actually AT this outlet — lets an MR search by the doctor's own
+ * NAME first when they don't know/remember the spesialisasi, instead of
+ * being forced to guess through the spesialisasi dropdown before the
+ * customer list can even load (2026-07-23).
  *
- * Exodus-sourced as of 2026-08-27 (see fetchCustomersForOutlet's doc comment
- * — replaces the "fully Nexus-sourced" 2026-08-14 decision, same philosophy:
- * the SET shown is exactly the external source's answer, local DB only
- * ENRICHES (isFokus, existing Customer.id), never gates the set).
- * `isFokus` and existing `Customer.id` are still read from the local DB
- * where a match exists (by kodeCustomer/vb_code, or by name when neither
- * side has a code) — this ENRICHES a source-returned entry, it never ADDS
- * one. It also keeps re-picking an already-registered doctor from creating a
- * duplicate Customer row (see `createCustomerAction` materialization below).
- * Entries with no local match get a synthetic "nexus:<vbCode|name>" id (kept
- * as-is, not renamed to "exodus:" — it's just a generic "needs
- * materializing" marker string, not read anywhere as meaning literally
- * Nexus) — the caller (LineItemEditor's handleCustomerChange /
- * PoaStandarisasiWizard's resolveDokterId) detects that prefix and
- * materializes a real Customer row via createCustomerAction before using it
- * as a FK, since addLineItemAction/etc. require a real Customer.id to exist.
+ * Exodus (`fetchCustomersForOutlet`) still supplies the whole MR roster (no
+ * per-outlet endpoint exists), but as of 2026-08-28 (user request) that
+ * roster is FILTERED down to only the entries with a local `CustomerOutlet`
+ * row for this exact `kodePI` — local DB now GATES the set, not just
+ * enriches it (reverses the 2026-08-27 "never gates the set" decision).
+ * Known tradeoff: outlets with no local `CustomerOutlet` coverage (~37% of
+ * outlets have any, per the prior decision's own measurement) return an
+ * empty list here even though the MR's Exodus roster isn't empty — accepted
+ * explicitly by the user over the old "show everything, might be wrong
+ * outlet" behavior. No more synthetic "nexus:<id>" entries either: since
+ * every returned row now has a confirmed local match, `id` is always a real
+ * `Customer.id`.
  */
 export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOption[]> {
   const [localRows, sourcedCustomers] = await Promise.all([
@@ -708,26 +704,27 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
     else localByName.set(r.customer.namaCustomer.trim().toUpperCase(), r);
   }
 
-  const result: CustomerOption[] = sourcedCustomers.map((nc) => {
+  const result: CustomerOption[] = [];
+  for (const nc of sourcedCustomers) {
     const key = nc.vbCode?.toUpperCase();
     // Fall back to a name match even when the source gives a vbCode: an old
     // manually-entered Customer row (kodeCustomer null) never lands in
     // localByKode, so without this fallback it's never found once the source
-    // starts returning a code for that same doctor — sending it down the
-    // "new customer" materialize path, which then either trips
-    // createCustomerAction's exact-duplicate error or leaves the picker
-    // stuck on an unresolved "nexus:" id (2026-08-26 bug report).
+    // starts returning a code for that same doctor (2026-08-26 bug report).
     const localMatch = (key ? localByKode.get(key) : undefined)
       ?? localByName.get(nc.namaCustomer.trim().toUpperCase());
-    return {
-      id: localMatch ? localMatch.customer.id : `nexus:${nc.vbCode ?? nc.namaCustomer}`,
+    // No local CustomerOutlet row for THIS outlet → not confirmed to be here,
+    // drop it (2026-08-28) rather than showing the MR's whole roster.
+    if (!localMatch) continue;
+    result.push({
+      id: localMatch.customer.id,
       kodeCustomer: nc.vbCode,
       namaCustomer: nc.namaCustomer,
       spesialisasi: nc.spesialisasi,
       jabatan: computeJabatan(nc.position, nc.spesialisasi),
-      isFokus: localMatch?.isFokus ?? false,
-    };
-  });
+      isFokus: localMatch.isFokus,
+    });
+  }
 
   result.sort((a, b) => {
     if (a.isFokus !== b.isFokus) return a.isFokus ? -1 : 1;

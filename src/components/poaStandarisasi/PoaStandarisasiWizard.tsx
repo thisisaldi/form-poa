@@ -28,6 +28,7 @@ import {
   uploadPoaStandarisasiFileAction,
   getPoaStandarisasiFileAccessLogAction,
   getStatusPengajuanPreviewAction,
+  getEstimasiDiskonPreviewAction,
 } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import {
@@ -788,6 +789,9 @@ export function PoaStandarisasiWizard({
           {isViewingCurrentPhase && pengajuan.currentPhase === "FINALISASI" && canEdit && !pengajuan.submittedAt && (
             <>
               <Button variant="secondary" disabled={pending} onClick={handleSaveFinalisasi}>Simpan</Button>
+              {/* Placeholder only (docs/poa-standarisasi/01-business-rules.md §7 Q7) — no
+                  real DPL/DPF system integration in v1, not wired to anything yet. */}
+              <Button variant="secondary" disabled title="Belum tersedia — integrasi sistem DPL/DPF belum ada di v1">+ Buat DPL/DPF baru</Button>
               <Button disabled={pending} onClick={handleSubmit}>Submit untuk Approval Standarisasi</Button>
             </>
           )}
@@ -923,11 +927,33 @@ export function PlanningPhase(props: {
     const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
     if (!kodePI || kodeList.length === 0) return;
     let cancelled = false;
-    getStatusPengajuanPreviewAction(kodePI, kodeList).then((map) => {
+    getStatusPengajuanPreviewAction(kodePI, kodeList, pengajuanId).then((map) => {
       if (cancelled) return;
       produkList.forEach((p, idx) => {
         const derived = p.kodeProduk ? map[p.kodeProduk] : undefined;
         if (derived && derived !== p.statusPengajuan) updateProduk(idx, { statusPengajuan: derived });
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kodePI, kodeProdukKey]);
+
+  // Pre-fills "Estimasi Diskon" from live Exodus discount (same source as
+  // Finalisasi's read-only Discount Final) so the MR sees a real default
+  // instead of a blank field and can adjust it to see the margin warning
+  // react (2026-08-28 user request). Only applied when the row's own value
+  // is still empty — never overwrites what the MR already typed or what was
+  // already saved, so this only fires once per produk row in practice.
+  useEffect(() => {
+    const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
+    if (!kodePI || kodeList.length === 0) return;
+    let cancelled = false;
+    getEstimasiDiskonPreviewAction(kodePI).then((map) => {
+      if (cancelled) return;
+      produkList.forEach((p, idx) => {
+        if (p.estimasiDiskonPct) return;
+        const pct = p.kodeProduk ? map[p.kodeProduk] : undefined;
+        if (pct != null) updateProduk(idx, { estimasiDiskonPct: String(pct) });
       });
     });
     return () => { cancelled = true; };
@@ -1085,7 +1111,7 @@ export function PlanningPhase(props: {
                   {p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"}
                 </div>
               </div>
-              <div className="w-24 shrink-0">
+              <div className="w-32 shrink-0">
                 <UnitCountInput label="Estimasi Diskon" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
               </div>
               <div className="w-36 shrink-0">
@@ -1128,7 +1154,7 @@ export function PlanningPhase(props: {
                       <th className="text-right py-1 px-2">Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2">Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 110 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1391,6 +1417,7 @@ function ApprovalUserDokterPhase({
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [replacingKey, setReplacingKey] = useState<string | null>(null);
 
   async function handleUploadBuktiTtd(produkId: string, customerId: string, file: File) {
     const key = `${produkId}:${customerId}`;
@@ -1434,6 +1461,23 @@ function ApprovalUserDokterPhase({
       window.location.reload();
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : "Gagal menghapus dokter.");
+      setBusy(false);
+    }
+  }
+
+  /** "Ganti" = remove old + add new in one action, reusing the same two
+   * server actions Hapus/+Tambah already call — no new backend needed. */
+  async function handleReplaceDokter(oldCustomerId: string, rawId: string) {
+    if (!rawId || !p) return;
+    setBusy(true);
+    setLocalError(null);
+    try {
+      const realId = await resolveDokterId(rawId);
+      await removeDokterApprovalAction(p.id, oldCustomerId);
+      await addDokterApprovalAction(p.id, realId);
+      window.location.reload();
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : "Gagal mengganti dokter.");
       setBusy(false);
     }
   }
@@ -1505,9 +1549,26 @@ function ApprovalUserDokterPhase({
                 </Button>
               )}
               {canEdit && (
+                <button type="button" className="text-xs" style={{ color: "var(--color-blue)" }} disabled={busy} onClick={() => setReplacingKey(replacingKey === key ? null : key)}>
+                  Ganti Dokter
+                </button>
+              )}
+              {canEdit && (
                 <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} disabled={busy} onClick={() => handleRemoveDokter(d.customerId)}>
                   Hapus
                 </button>
+              )}
+              {canEdit && replacingKey === key && (
+                <div className="basis-full">
+                  <Combobox
+                    name={`dokterApprovalReplace-${key}`}
+                    options={dokterList.filter((o) => !p.dokterApproval.some((da) => da.customerId === o.id)).map((o) => ({ value: o.id, label: o.namaCustomer, sublabel: o.jabatan, tag: o.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+                    value=""
+                    onChange={(rawId) => { setReplacingKey(null); handleReplaceDokter(d.customerId, rawId); }}
+                    disabled={busy}
+                    placeholder={`Ganti ${d.customer.namaCustomer} dengan…`}
+                  />
+                </div>
               )}
             </div>
           );
@@ -1758,7 +1819,7 @@ function FinalisasiPhase({
                       <th className="text-right py-1 px-2">Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2">Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 110 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>

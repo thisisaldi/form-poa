@@ -198,6 +198,21 @@ export async function getDokterOptionsAction(kodePI: string) {
   return getCustomersByOutlet(kodePI);
 }
 
+/**
+ * Live Exodus discount (principal_percentage), keyed by kodeProduk, for
+ * pre-filling Planning's "Estimasi Diskon" so an MR doesn't start from a
+ * blank field and can immediately see/adjust the margin math (2026-08-28
+ * user request) — same source as Finalisasi's read-only Discount Final
+ * (`getDiscountsForOutlet`), but here it's just a DEFAULT: the field stays
+ * editable, the caller only applies this when the row's own value is still
+ * empty (never overwrites what the MR already typed/saved).
+ */
+export async function getEstimasiDiskonPreviewAction(kodePI: string): Promise<Record<string, number>> {
+  if (!kodePI) return {};
+  const discounts = await getDiscountsForOutlet(kodePI);
+  return discounts ? Object.fromEntries(discounts) : {};
+}
+
 export interface StandarisasiProdukOutletRow {
   kodeProduk: string;
   namaProduk: string;
@@ -315,25 +330,65 @@ async function computeEstimasiPerBulan(kodeProduk: string, jumlahPasien: number 
 /**
  * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
  * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
- * read-only). Logic: kalau ada histori sales produk ini di outlet ini dalam
- * 12 bulan terakhir (OutletSalesHistory.totalSales12Bln > 0) → Perpanjangan,
- * kalau tidak ada (baik row-nya nggak ada sama sekali ATAU ada tapi 0) →
- * Baru. Batched (satu findMany utk seluruh kodeProduk sekaligus), bukan
- * query per produk — sama pola no-N+1 seperti applyPlanningProduk lainnya.
+ * read-only). PERPANJANGAN kalau SALAH SATU dari tiga sinyal berikut true
+ * (OR, 2026-08-28 user request — "sudah standarisasi" berarti pernah
+ * standarisasi dan sekarang mau diajukan lagi, jadi harus konsisten dengan
+ * label "Sudah Standarisasi" sidebar, bukan cuma sinyal sales):
+ * 1. Ada histori sales produk ini di outlet ini dalam 12 bulan terakhir
+ *    (OutletSalesHistory.totalSales12Bln > 0);
+ * 2. Produk ini pernah di-submit di POA Standarisasi lain di outlet yang
+ *    sama (query sama seperti getStandarisasiProdukByOutletAction's "Sudah
+ *    Standarisasi" — excludePengajuanId supaya pengajuan yang sedang dibuka
+ *    tidak menghitung dirinya sendiri);
+ * 3. Import master data `OutletProductKriteria.kriteriaBaru` untuk
+ *    produk×outlet ini sudah berlabel "Produk Sudah Terstandarisasi..." (baik
+ *    "- Ada Sales" maupun "- Tidak Ada Sales") — sinyal INDEPENDEN dari #1/#2
+ *    (bisa saja sudah dilabeli standarisasi di import lama sebelum pernah ada
+ *    sales tercatat ATAU pengajuan ter-submit di app ini). Match EXACT sama
+ *    seperti RekomendasiSidebar's `standarisasiMerged` (`.startsWith(...)`),
+ *    supaya auto-fill ini konsisten dengan label "Sudah Standarisasi" yang
+ *    dilihat user di sidebar.
+ * Kalau ketiga sinyal negatif → Baru. Batched (satu findMany per sinyal utk
+ * seluruh kodeProduk sekaligus), bukan query per produk — sama pola
+ * no-N+1 seperti applyPlanningProduk lainnya.
  */
 async function computeStatusPengajuanMap(
   client: Prisma.TransactionClient | typeof prisma,
   kodePI: string,
-  kodeProdukList: string[]
+  kodeProdukList: string[],
+  excludePengajuanId?: string
 ): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
   const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
   if (kodeProdukList.length === 0) return map;
-  const rows = await client.outletSalesHistory.findMany({
-    where: { kodePI, itemKode: { in: kodeProdukList } },
-    select: { itemKode: true, totalSales12Bln: true },
-  });
-  for (const r of rows) {
+  const [salesRows, priorSubmittedRows, kriteriaRows] = await Promise.all([
+    client.outletSalesHistory.findMany({
+      where: { kodePI, itemKode: { in: kodeProdukList } },
+      select: { itemKode: true, totalSales12Bln: true },
+    }),
+    client.poaStandarisasiProduk.findMany({
+      where: {
+        kodeProduk: { in: kodeProdukList },
+        pengajuan: {
+          kodePI,
+          submittedAt: { not: null },
+          ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
+        },
+      },
+      select: { kodeProduk: true },
+    }),
+    client.outletProductKriteria.findMany({
+      where: { kodePI, kodeProduk: { in: kodeProdukList } },
+      select: { kodeProduk: true, kriteriaBaru: true },
+    }),
+  ]);
+  for (const r of salesRows) {
     if (parseFloat(r.totalSales12Bln.toString()) > 0) map.set(r.itemKode, "PERPANJANGAN");
+  }
+  for (const r of priorSubmittedRows) {
+    map.set(r.kodeProduk, "PERPANJANGAN");
+  }
+  for (const r of kriteriaRows) {
+    if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) map.set(r.kodeProduk, "PERPANJANGAN");
   }
   return map;
 }
@@ -342,10 +397,11 @@ async function computeStatusPengajuanMap(
  * called live as the MR picks products, before anything is saved. */
 export async function getStatusPengajuanPreviewAction(
   kodePI: string,
-  kodeProdukList: string[]
+  kodeProdukList: string[],
+  excludePengajuanId?: string
 ): Promise<Record<string, "BARU" | "PERPANJANGAN">> {
   if (!kodePI || kodeProdukList.length === 0) return {};
-  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList);
+  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList, excludePengajuanId);
   return Object.fromEntries(map);
 }
 
@@ -396,7 +452,7 @@ async function applyPlanningKpdm(tx: Prisma.TransactionClient, pengajuanId: stri
  * savePlanningAction (existing pengajuan, may delete removed produk) and
  * createPoaStandarisasiAction (freshly created pengajuan, produk are all new). */
 async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, kodePI: string, produk: PlanningProdukInput[]) {
-  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk));
+  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk), pengajuanId);
 
   for (const p of produk) {
     const data = {
@@ -568,7 +624,10 @@ export async function advanceToMenungguMeetingKftAction(id: string): Promise<voi
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase Approval User/Dokter.");
-  const belumTtd = pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) =>
+  // Gate skipped while upload is disabled (POA_STANDARISASI_UPLOAD_DISABLED)
+  // so the flow past this phase stays testable even though uploading Bukti
+  // TTD to satisfy it is currently impossible.
+  const belumTtd = !POA_STANDARISASI_UPLOAD_DISABLED && pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) =>
     p.dokterApproval.some((d: (typeof p.dokterApproval)[number]) => d.wajib && !d.sudahTtd)
   );
   if (belumTtd) throw new Error("Upload Bukti TTD untuk semua dokter wajib sebelum lanjut.");
@@ -604,12 +663,30 @@ export async function saveMenungguMeetingKftAction(id: string, input: MenungguMe
 /** Phase 4 → Phase 5. Requires "Form Approval Standarisasi" uploaded for every produk. */
 export async function advanceToFinalisasiAction(id: string): Promise<void> {
   const { actor } = await requireActor();
-  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  const pengajuan = await prisma.poaStandarisasi.findUnique({
+    where: { id },
+    include: { produk: { include: { dokterApproval: true } } },
+  });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "MENUNGGU_MEETING_KFT") throw new Error("Pengajuan tidak sedang di fase Menunggu Meeting KFT.");
 
-  await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "FINALISASI" } });
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    // Seed PoaStandarisasiDokterUser from every sudahTtd dokter in Phase 3
+    // (docs/poa-standarisasi/02-data-model.md — "defaultnya di-seed dari
+    // dokter yang sudah TTD di Phase 3") — was never actually done, leaving
+    // Finalisasi's dokter list permanently empty. skipDuplicates makes this
+    // safe to re-run if the pengajuan ever revisits this transition.
+    for (const p of pengajuan.produk) {
+      const ttdCustomerIds = p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
+      if (ttdCustomerIds.length === 0) continue;
+      await tx.poaStandarisasiDokterUser.createMany({
+        data: ttdCustomerIds.map((customerId: string) => ({ produkId: p.id, customerId })),
+        skipDuplicates: true,
+      });
+    }
+    await tx.poaStandarisasi.update({ where: { id }, data: { currentPhase: "FINALISASI" } });
+  });
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
@@ -722,12 +799,15 @@ export async function submitPoaStandarisasiAction(id: string): Promise<void> {
   if (pengajuan.currentPhase !== "FINALISASI") throw new Error("Pengajuan belum di fase Finalisasi.");
   // Form Approval Standarisasi upload dipindah ke Finalisasi (2026-08-26,
   // user request) — jadi gate-nya pindah ke sini juga, bukan lagi di
-  // advanceToMenungguMeetingKftAction.
-  if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
-    throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum submit.");
-  }
-  if (!pengajuan.suratApprovalStandarisasiKftDriveFileId) {
-    throw new Error("Upload Surat Approval Standarisasi KFT sebelum submit.");
+  // advanceToMenungguMeetingKftAction. Skipped while upload is disabled
+  // (POA_STANDARISASI_UPLOAD_DISABLED) so submit stays testable.
+  if (!POA_STANDARISASI_UPLOAD_DISABLED) {
+    if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
+      throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum submit.");
+    }
+    if (!pengajuan.suratApprovalStandarisasiKftDriveFileId) {
+      throw new Error("Upload Surat Approval Standarisasi KFT sebelum submit.");
+    }
   }
 
   await prisma.poaStandarisasi.update({ where: { id }, data: { submittedAt: new Date() } });
