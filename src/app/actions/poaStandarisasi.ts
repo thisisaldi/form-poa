@@ -315,25 +315,50 @@ async function computeEstimasiPerBulan(kodeProduk: string, jumlahPasien: number 
 /**
  * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
  * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
- * read-only). Logic: kalau ada histori sales produk ini di outlet ini dalam
- * 12 bulan terakhir (OutletSalesHistory.totalSales12Bln > 0) → Perpanjangan,
- * kalau tidak ada (baik row-nya nggak ada sama sekali ATAU ada tapi 0) →
- * Baru. Batched (satu findMany utk seluruh kodeProduk sekaligus), bukan
- * query per produk — sama pola no-N+1 seperti applyPlanningProduk lainnya.
+ * read-only). PERPANJANGAN kalau SALAH SATU dari dua sinyal berikut true
+ * (OR, 2026-08-28 user request — "sudah standarisasi" berarti pernah
+ * standarisasi dan sekarang mau diajukan lagi, jadi harus konsisten dengan
+ * label "Sudah Standarisasi" sidebar, bukan cuma sinyal sales):
+ * 1. Ada histori sales produk ini di outlet ini dalam 12 bulan terakhir
+ *    (OutletSalesHistory.totalSales12Bln > 0);
+ * 2. Produk ini pernah di-submit di POA Standarisasi lain di outlet yang
+ *    sama (query sama seperti getStandarisasiProdukByOutletAction's "Sudah
+ *    Standarisasi" — excludePengajuanId supaya pengajuan yang sedang dibuka
+ *    tidak menghitung dirinya sendiri).
+ * Kalau kedua sinyal negatif → Baru. Batched (satu findMany per sinyal utk
+ * seluruh kodeProduk sekaligus), bukan query per produk — sama pola
+ * no-N+1 seperti applyPlanningProduk lainnya.
  */
 async function computeStatusPengajuanMap(
   client: Prisma.TransactionClient | typeof prisma,
   kodePI: string,
-  kodeProdukList: string[]
+  kodeProdukList: string[],
+  excludePengajuanId?: string
 ): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
   const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
   if (kodeProdukList.length === 0) return map;
-  const rows = await client.outletSalesHistory.findMany({
-    where: { kodePI, itemKode: { in: kodeProdukList } },
-    select: { itemKode: true, totalSales12Bln: true },
-  });
-  for (const r of rows) {
+  const [salesRows, priorSubmittedRows] = await Promise.all([
+    client.outletSalesHistory.findMany({
+      where: { kodePI, itemKode: { in: kodeProdukList } },
+      select: { itemKode: true, totalSales12Bln: true },
+    }),
+    client.poaStandarisasiProduk.findMany({
+      where: {
+        kodeProduk: { in: kodeProdukList },
+        pengajuan: {
+          kodePI,
+          submittedAt: { not: null },
+          ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
+        },
+      },
+      select: { kodeProduk: true },
+    }),
+  ]);
+  for (const r of salesRows) {
     if (parseFloat(r.totalSales12Bln.toString()) > 0) map.set(r.itemKode, "PERPANJANGAN");
+  }
+  for (const r of priorSubmittedRows) {
+    map.set(r.kodeProduk, "PERPANJANGAN");
   }
   return map;
 }
@@ -342,10 +367,11 @@ async function computeStatusPengajuanMap(
  * called live as the MR picks products, before anything is saved. */
 export async function getStatusPengajuanPreviewAction(
   kodePI: string,
-  kodeProdukList: string[]
+  kodeProdukList: string[],
+  excludePengajuanId?: string
 ): Promise<Record<string, "BARU" | "PERPANJANGAN">> {
   if (!kodePI || kodeProdukList.length === 0) return {};
-  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList);
+  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList, excludePengajuanId);
   return Object.fromEntries(map);
 }
 
@@ -396,7 +422,7 @@ async function applyPlanningKpdm(tx: Prisma.TransactionClient, pengajuanId: stri
  * savePlanningAction (existing pengajuan, may delete removed produk) and
  * createPoaStandarisasiAction (freshly created pengajuan, produk are all new). */
 async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, kodePI: string, produk: PlanningProdukInput[]) {
-  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk));
+  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk), pengajuanId);
 
   for (const p of produk) {
     const data = {

@@ -923,7 +923,7 @@ export function PlanningPhase(props: {
     const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
     if (!kodePI || kodeList.length === 0) return;
     let cancelled = false;
-    getStatusPengajuanPreviewAction(kodePI, kodeList).then((map) => {
+    getStatusPengajuanPreviewAction(kodePI, kodeList, pengajuanId).then((map) => {
       if (cancelled) return;
       produkList.forEach((p, idx) => {
         const derived = p.kodeProduk ? map[p.kodeProduk] : undefined;
