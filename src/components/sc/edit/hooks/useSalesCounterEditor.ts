@@ -13,10 +13,12 @@ import {
   getPrincodeProductsAction,
   getScCashbackPoaAction,
   getRekomendasiProdukAction,
+  getHistorySalesAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
+import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { calculateCashbackDetails, type CashbackData } from "./useSalesCounterCashback";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
@@ -127,6 +129,8 @@ export function useSalesCounterEditor({
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
+  const [historySalesData, setHistorySalesData] = useState<any>(null);
+  const [surveyData, setSurveyData] = useState<any[]>([]);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
   const [cashbackData, setCashbackData] = useState<CashbackData | null>(null);
@@ -207,6 +211,7 @@ export function useSalesCounterEditor({
       setProductsMenang([]);
       setProductsInsentif([]);
       setRekomendasiProduk([]);
+      setSurveyData([]);
       setCashbackData(null);
       setCashbackMatrix([]);
       return;
@@ -242,6 +247,8 @@ export function useSalesCounterEditor({
     getScProductMenangAction(outletId).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(outletId).then((res) => setProductsInsentif(res?.data || []));
     getScInsentifHistoryAction(outletId).then((res) => setInsentifHistory(res?.data || null));
+    getHistorySalesAction(outletId).then((res) => setHistorySalesData(res || null));
+    getSurveyRekomendasiByOutletAggregate(outletId).then((res) => setSurveyData(res || []));
     getScCashbackPoaAction(outletId).then((res) => {
       setCashbackData(res || null);
       const array = Array.isArray(res?.matrix)
@@ -360,17 +367,14 @@ export function useSalesCounterEditor({
     });
   }, [periodeAwal, rowQuarter, outletId, savedDrafts]);
 
-  // Helper to calculate product row estimate using HNA ST (Satuan Terkecil)
+  // Helper to calculate product row estimate
   const calculateRowCost = (row: SelectedProductRow, duration: number) => {
     const master = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
     if (!master) return 0;
 
     const hnaSJ = parseFloat(master.hna) || 0;
-    const konv = parseInt(master.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv; // Use Satuan Terkecil price!
-
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    return qty * hnaST * duration;
+    return qty * hnaSJ * duration;
   };
 
   // Recalculate product estimate costs when duration updates
@@ -673,6 +677,8 @@ export function useSalesCounterEditor({
     productsMenang,
     productsInsentif,
     insentifHistory,
+    historySalesData,
+    surveyData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,

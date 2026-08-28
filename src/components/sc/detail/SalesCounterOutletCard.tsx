@@ -25,12 +25,12 @@ import { PosmTable } from "../edit/PosmTable";
 
 function StatTile({ label, value, sub, emphasize = false }: { label: string; value: string; sub?: string; emphasize?: boolean }) {
   return (
-    <div className="rounded-md px-2.5 py-2 min-w-0" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-      <p className="text-[11px] leading-tight" style={{ color: "var(--color-text-faint)" }}>{label}</p>
-      <p className={`leading-tight truncate ${emphasize ? "text-sm font-bold" : "text-sm font-semibold"}`} style={{ color: "var(--color-text)" }}>
+    <div className="rounded-md px-2 py-1.5 min-w-0" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+      <p className="text-[11px] leading-tight truncate" style={{ color: "var(--color-text-faint)" }}>{label}</p>
+      <p className={`leading-tight whitespace-nowrap overflow-visible ${emphasize ? "text-xs sm:text-sm font-bold" : "text-xs sm:text-sm font-semibold"}`} style={{ color: "var(--color-text)" }}>
         {value}
       </p>
-      {sub && <p className="text-[11px] leading-tight mt-0.5 truncate" style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
+      {sub && <p className="text-[10px] leading-tight mt-0.5 whitespace-nowrap overflow-visible" style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
     </div>
   );
 }
@@ -151,6 +151,13 @@ export function SalesCounterOutletCard({
   const lastLog = draft.auditLogs && draft.auditLogs.length > 0 ? draft.auditLogs[draft.auditLogs.length - 1] : null;
   const hasPendingEditRequest = lastLog?.action === "REQUEST_EDIT";
   const pendingEditRequestNotes = hasPendingEditRequest ? (lastLog?.snapshot?.notes || "") : "";
+
+  const lastRevisionLog = useMemo(() => {
+    if (!draft.auditLogs || draft.auditLogs.length === 0) return null;
+    return [...draft.auditLogs].reverse().find(
+      (log) => log.action === "REVISE" || log.action === "REJECT"
+    ) || null;
+  }, [draft.auditLogs]);
 
   async function handleRequestEditSubmit() {
     if (isRequestingEdit) return;
@@ -348,19 +355,17 @@ export function SalesCounterOutletCard({
 
   for (const p of draft.products) {
     const hnaSJ = p.hnaSJ || 0;
-    const konv = p.konversiPembagi || 1;
-    const hnaST = hnaSJ / konv;
+    const qty = p.qtyPerBulan || 0;
 
-    const estMonth = (p.qtyPerBulan || 0) * hnaST;
+    const estMonth = qty * hnaSJ;
     const estFull = estMonth * lama;
     
-    const qtySjBln = konv > 0 ? (p.qtyPerBulan || 0) / konv : 0;
     const scVal = p.salesCounterValue;
     const scMin = p.salesCounterMinimum || 0;
 
     let valScPerMonth = 0;
     if (scVal != null && scVal > 0) {
-      valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      valScPerMonth = qty >= scMin ? qty * scVal : 0;
     } else {
       valScPerMonth = estMonth * ((p.persenMatriksSc || 0) / 100);
     }
@@ -482,6 +487,17 @@ export function SalesCounterOutletCard({
           </button>
         </div>
       </div>
+
+      {draft.status === "REVISI" && (
+        <div className="mt-2.5 p-2.5 rounded-md border text-xs space-y-1" style={{ background: "#fef2f2", borderColor: "#fca5a5", color: "#991b1b" }}>
+          <div className="flex items-center gap-1.5 font-semibold">
+            <span>📝 Catatan Revisi / Penolakan dari Atasan:</span>
+          </div>
+          <p className="text-xs leading-relaxed font-normal" style={{ color: "#7f1d1d" }}>
+            {lastRevisionLog?.snapshot?.notes || "Atasan meminta revisi pada outlet ini. Silakan perbaiki data lalu klik Ajukan kembali."}
+          </p>
+        </div>
+      )}
 
       {hasPendingEditRequest && (
         <div className="mt-2.5 p-2.5 rounded-md border text-xs flex items-center justify-between" style={{ background: "var(--color-warning-light, #fef3c7)", borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning-dark, #92400e)" }}>
@@ -727,19 +743,17 @@ export function SalesCounterOutletCard({
               <tbody>
                 {draft.products.map((p) => {
                   const hnaSJ = p.hnaSJ || 0;
-                  const konv = p.konversiPembagi || 1;
-                  const hnaST = hnaSJ / konv;
+                  const qty = p.qtyPerBulan || 0;
 
-                  const estSalesFull = (p.qtyPerBulan || 0) * hnaST * lama;
-                  const qtySjBln = konv > 0 ? (p.qtyPerBulan || 0) / konv : 0;
+                  const estSalesFull = qty * hnaSJ * lama;
                   const scVal = p.salesCounterValue;
                   const scMin = p.salesCounterMinimum || 0;
 
                   let nilaiScPerMonth = 0;
                   if (scVal != null && scVal > 0) {
-                    nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+                    nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
                   } else {
-                    nilaiScPerMonth = ((p.qtyPerBulan || 0) * hnaST) * ((p.persenMatriksSc || 0) / 100);
+                    nilaiScPerMonth = (qty * hnaSJ) * ((p.persenMatriksSc || 0) / 100);
                   }
                   const nilaiScFull = nilaiScPerMonth * lama;
                   const valCashbackFull = cashbackData

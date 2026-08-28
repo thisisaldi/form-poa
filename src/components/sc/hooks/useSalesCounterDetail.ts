@@ -20,8 +20,11 @@ export function useSalesCounterDetail({
     getScCashbackPoaAction().then((res) => setCashbackData(res));
   }, []);
 
-  const allIds = useMemo(() => safeScDrafts.map((d) => d.id), [safeScDrafts]);
-  const [checked, setChecked] = useState<Set<string>>(() => new Set(allIds));
+  const submittableIds = useMemo(
+    () => safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id),
+    [safeScDrafts]
+  );
+  const [checked, setChecked] = useState<Set<string>>(() => new Set(submittableIds));
 
   function toggle(id: string) {
     setChecked((prev) => {
@@ -33,7 +36,7 @@ export function useSalesCounterDetail({
   }
 
   function toggleAll() {
-    setChecked(checked.size === allIds.length ? new Set() : new Set(allIds));
+    setChecked(checked.size === submittableIds.length ? new Set() : new Set(submittableIds));
   }
 
   const quarterMonths = useMemo(() => {
@@ -109,22 +112,18 @@ export function useSalesCounterDetail({
         totalProductEntries++;
 
         const hnaSJ = p.hnaSJ || 0;
-        const konv = p.konversiPembagi || 1;
-        const hnaST = hnaSJ / konv;
-
         const qty = p.qtyPerBulan || 0;
 
-        const estSalesPerMonth = qty * hnaST;
+        const estSalesPerMonth = qty * hnaSJ;
         const estSalesFull = estSalesPerMonth * lama;
 
         const pctMatriks = p.persenMatriksSc || 0;
-        const qtySjBln = konv > 0 ? qty / konv : 0;
         const scVal = p.salesCounterValue;
         const scMin = p.salesCounterMinimum || 0;
 
         let nilaiScPerMonth = 0;
         if (scVal != null && scVal > 0) {
-          nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+          nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
         } else {
           nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
         }
@@ -189,7 +188,7 @@ export function useSalesCounterDetail({
     checked,
     toggle,
     toggleAll,
-    allSelected: checked.size === allIds.length,
+    allSelected: submittableIds.length > 0 && checked.size === submittableIds.length,
     selectedDrafts,
     quarterMonths,
     metrics,

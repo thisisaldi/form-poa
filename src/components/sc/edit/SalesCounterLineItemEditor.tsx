@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import type { Product } from "@/lib/masterData";
 import { useSalesCounterEditor } from "./hooks/useSalesCounterEditor";
 import { ProductSelector } from "./ProductSelector";
+import { buildScProductOptions } from "./productOptionUtils";
 import { UnitInput } from "./UnitInput";
 import { ScSidebar } from "./ScSidebar";
 import { Button } from "@/components/ui/Button";
@@ -94,6 +95,8 @@ export function SalesCounterLineItemEditor({
     productsMenang,
     productsInsentif,
     insentifHistory,
+    historySalesData,
+    surveyData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,
@@ -160,66 +163,16 @@ export function SalesCounterLineItemEditor({
   }, [outletId, selectedProducts, poaPeriod]);
 
   const productOptions = useMemo(() => {
-    const scCodes = new Set(canvasserProducts.map((p) => p.pro_code));
-    const menangCodes = new Set([
-      ...(productsMenang || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
-      ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
-    ].filter(Boolean));
-
-    const scOptions = canvasserProducts.map((p) => {
-      const masterP = products.find((mp) => mp.kodeProduk === p.pro_code);
-      const isMenang = menangCodes.has(p.pro_code);
-      return {
-        value: p.pro_code,
-        label: p.pro_name,
-        sublabel: `${p.pro_code} · ${masterP?.namaGroupBrand || "Produk SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-        group: isMenang ? "PERNAH SC" : "PRODUK SC",
-        tag: "Produk SC",
-        tagColor: "orange" as any,
-        tag2: isMenang ? "Pernah SC" : undefined,
-        tag2Color: isMenang ? ("green" as any) : undefined,
-      };
+    return buildScProductOptions({
+      canvasserProducts,
+      princodeProducts,
+      productsMenang,
+      productsInsentif,
+      masterProducts: products,
+      historySalesData,
+      surveyData,
     });
-
-    const otherOptions = princodeProducts
-      .filter((p) => !scCodes.has(p.code))
-      .map((p) => {
-        const masterP = products.find((mp) => mp.kodeProduk === p.code);
-        const isMenang = menangCodes.has(p.code);
-        return {
-          value: p.code,
-          label: p.name,
-          sublabel: `${p.code} · ${masterP?.namaGroupBrand || "Master Produk"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-          group: isMenang ? "PERNAH SC" : "PRODUK LAINNYA",
-          tag2: isMenang ? "Pernah SC" : undefined,
-          tag2Color: isMenang ? ("green" as any) : undefined,
-        };
-      });
-
-    const existingValues = new Set([
-      ...scOptions.map((o) => o.value),
-      ...otherOptions.map((o) => o.value),
-    ]);
-
-    const menangExtraOptions: any[] = [];
-    menangCodes.forEach((code) => {
-      if (!existingValues.has(code)) {
-        const masterP = products.find((mp) => mp.kodeProduk === code);
-        menangExtraOptions.push({
-          value: code,
-          label: masterP?.namaProduk || code,
-          sublabel: `${code} · ${masterP?.namaGroupBrand || "Rekomendasi SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-          group: "PERNAH SC",
-          tag: "Pernah SC",
-          tagColor: "green" as any,
-          tag2: "Pernah SC",
-          tag2Color: "green" as any,
-        });
-      }
-    });
-
-    return [...menangExtraOptions, ...scOptions, ...otherOptions];
-  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products]);
+  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products, historySalesData, surveyData]);
 
   const selectedPerson = personId ? personsList.find((p) => p.person_id === personId) : null;
   const totalEstimasi = selectedProducts.reduce((sum, p) => sum + p.rencanaTotalBiaya, 0);
@@ -236,21 +189,16 @@ export function SalesCounterLineItemEditor({
       const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
 
       const hnaSJ = parseFloat(masterProduct.hna) || 0;
-      const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-      const hnaST = hnaSJ / konv;
-
       const qty = parseFloat(row.qtyPerBulan) || 0;
-
-      const estSalesPerMonth = qty * hnaST;
+      const estSalesPerMonth = qty * hnaSJ;
       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-      const qtySjBln = konv > 0 ? qty / konv : 0;
       const scVal = canvasserProd?.sales_counter_value;
       const scMin = canvasserProd?.sales_counter_minimum || 0;
 
       let valScPerMonth = 0;
       if (scVal != null && scVal > 0) {
-        valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+        valScPerMonth = qty >= scMin ? qty * scVal : 0;
       } else {
         valScPerMonth = estSalesPerMonth * (pctMatriks / 100);
       }
@@ -275,10 +223,8 @@ export function SalesCounterLineItemEditor({
     const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    return sum + (qty * hnaST * lamaPeriode);
+    return sum + (qty * hnaSJ * lamaPeriode);
   }, 0);
 
   const totalNilaiSc = selectedProducts.reduce((sum, row) => {
@@ -287,16 +233,13 @@ export function SalesCounterLineItemEditor({
     if (!masterProduct) return sum;
     const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
-    const qtySjBln = konv > 0 ? qty / konv : 0;
+    const estSalesBln = qty * hnaSJ;
     const scVal = canvasserProd?.sales_counter_value;
     const scMin = canvasserProd?.sales_counter_minimum || 0;
     let valScBln = 0;
     if (scVal != null && scVal > 0) {
-      valScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      valScBln = qty >= scMin ? qty * scVal : 0;
     } else {
       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
       valScBln = estSalesBln * (pctMatriks / 100);
@@ -311,10 +254,8 @@ export function SalesCounterLineItemEditor({
     const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
+    const estSalesBln = qty * hnaSJ;
     const pctDiskon = parseFloat(row.persenDiskon) || 0;
     return sum + (estSalesBln * (pctDiskon / 100) * lamaPeriode);
   }, 0);
@@ -673,10 +614,10 @@ export function SalesCounterLineItemEditor({
             {/* 5. Rencana Entertain Breakdown Table */}
             {entertainList.length > 0 && (
               <div className="space-y-2 mt-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
                   <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
-                    Total Entertain: Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
+                    History Entertain: Rp 100.000
                   </span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
@@ -835,25 +776,21 @@ export function SalesCounterLineItemEditor({
                         if (!masterProduct) return null;
 
                         const hnaSJ = parseFloat(masterProduct.hna) || 0;
-                        const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-                        const hnaST = hnaSJ / konv;
-
                         const qty = parseFloat(row.qtyPerBulan) || 0;
 
                         const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
-                        const qtyTotal = konv > 0 ? (qty * lamaPeriode) / konv : 0;
-                        const estimasiSales = qty * hnaST * lamaPeriode;
+                        const qtyTotal = qty * lamaPeriode;
+                        const estimasiSales = qty * hnaSJ * lamaPeriode;
                         const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-                        const qtySjBln = konv > 0 ? qty / konv : 0;
                         const scVal = canvasserProd?.sales_counter_value;
                         const scMin = canvasserProd?.sales_counter_minimum || 0;
 
                         let nilaiScBln = 0;
                         if (scVal != null && scVal > 0) {
-                          nilaiScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+                          nilaiScBln = qty >= scMin ? qty * scVal : 0;
                         } else {
-                          nilaiScBln = (qty * hnaST) * (pctMatriks / 100);
+                          nilaiScBln = (qty * hnaSJ) * (pctMatriks / 100);
                         }
                         const nilaiSc = nilaiScBln * lamaPeriode;
                         const valCashback = cashbackDetails?.resultMap?.get(row.kodeProduk) ?? 0;
@@ -987,8 +924,11 @@ export function SalesCounterLineItemEditor({
           productsMenang={productsMenang}
           productsInsentif={productsInsentif}
           insentifHistory={insentifHistory}
+          historySalesData={historySalesData}
+          surveyData={surveyData}
           rekomendasiProduk={rekomendasiProduk}
           masterProducts={products}
+          canvasserProducts={canvasserProducts}
           selectedProductCodes={new Set(selectedProducts.map((p) => p.kodeProduk).filter(Boolean))}
           onSelectProduct={selectProductFromSidebar}
         />

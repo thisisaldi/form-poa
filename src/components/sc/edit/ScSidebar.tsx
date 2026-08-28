@@ -18,6 +18,37 @@ function formatMonthKey(key: string) {
   return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
+function formatHistoryPeriodRange(periodArr?: string[]): string {
+  if (!Array.isArray(periodArr) || periodArr.length === 0) return "";
+  const validPeriods = periodArr.filter((p) => typeof p === "string" && p.length === 6).sort();
+  if (validPeriods.length === 0) return "";
+
+  const MONTH_NAMES = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+  ];
+
+  const minStr = validPeriods[0];
+  const maxStr = validPeriods[validPeriods.length - 1];
+
+  const minYear = minStr.slice(0, 4);
+  const minMonthIdx = parseInt(minStr.slice(4, 6), 10) - 1;
+
+  const maxYear = maxStr.slice(0, 4);
+  const maxMonthIdx = parseInt(maxStr.slice(4, 6), 10) - 1;
+
+  if (minMonthIdx < 0 || minMonthIdx > 11 || maxMonthIdx < 0 || maxMonthIdx > 11) return "";
+
+  const minMonthName = MONTH_NAMES[minMonthIdx];
+  const maxMonthName = MONTH_NAMES[maxMonthIdx];
+
+  if (minYear === maxYear) {
+    return `Data diambil dari bulan ${minMonthName} - ${maxMonthName} ${maxYear}`;
+  } else {
+    return `Data diambil dari bulan ${minMonthName} ${minYear} - ${maxMonthName} ${maxYear}`;
+  }
+}
+
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_BLUE = "var(--color-blue, #0063a0)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
@@ -83,13 +114,6 @@ function SidebarTabSwitcher({
       </button>
       <button
         type="button"
-        onClick={() => onChange("loss_sales")}
-        style={pillStyle(SIDEBAR_PURPLE, activeTab === "loss_sales")}
-      >
-        Potensi Sales
-      </button>
-      <button
-        type="button"
         onClick={() => onChange("history")}
         style={pillStyle(SIDEBAR_BLUE, activeTab === "history")}
       >
@@ -122,8 +146,11 @@ export function ScSidebar({
   productsMenang = [],
   productsInsentif = [],
   insentifHistory,
+  historySalesData,
+  surveyData = [],
   rekomendasiProduk = [],
   masterProducts = [],
+  canvasserProducts = [],
   selectedProductCodes = new Set<string>(),
   onSelectProduct,
 }: {
@@ -131,12 +158,99 @@ export function ScSidebar({
   productsMenang?: any[];
   productsInsentif?: any[];
   insentifHistory?: any;
+  historySalesData?: any;
+  surveyData?: any[];
   rekomendasiProduk?: any[];
   masterProducts?: any[];
+  canvasserProducts?: any[];
   selectedProductCodes?: Set<string>;
   onSelectProduct?: (code: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<SidebarTab | null>(null);
+
+  const historyPeriodSubtext = useMemo(() => {
+    return formatHistoryPeriodRange(historySalesData?.period);
+  }, [historySalesData]);
+
+  // Map of product codes to history sales quantities (> 0)
+  const historySalesMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!historySalesData) return map;
+    const items = Array.isArray(historySalesData?.data)
+      ? historySalesData.data
+      : Array.isArray(historySalesData)
+      ? historySalesData
+      : [];
+
+    for (const it of items) {
+      const code = String(it.code || "").trim();
+      const qty = Number(it.history_sales) || 0;
+      if (code && qty > 0) {
+        map.set(code, qty);
+        map.set(code.replace(/^0+/, ""), qty);
+      }
+    }
+    return map;
+  }, [historySalesData]);
+
+  // Category 2: Only SC products from canvasserProducts that HAVE history sales (> 0)
+  const historySalesList = useMemo(() => {
+    if (!Array.isArray(canvasserProducts) || historySalesMap.size === 0) return [];
+
+    const matchedList: { code: string; name: string; targetCode: string; salesQty: number; item: any }[] = [];
+
+    for (const cp of canvasserProducts) {
+      const code = String(cp.pro_code || cp.kode_item || cp.kodeProduk || "").trim();
+      if (!code) continue;
+      const strippedCode = code.replace(/^0+/, "");
+
+      const salesQty = historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0;
+      if (salesQty > 0) {
+        const name = cp.pro_name || cp.namaProduk || cp.name || code;
+        matchedList.push({ code, name, targetCode: code, salesQty, item: cp });
+      }
+    }
+
+    return matchedList.sort((a, b) => b.salesQty - a.salesQty);
+  }, [canvasserProducts, historySalesMap]);
+
+  // Set of codes already placed in Category 2 (Pernah diorder)
+  const orderedScCodesSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of historySalesList) {
+      set.add(entry.code);
+      set.add(entry.code.replace(/^0+/, ""));
+    }
+    return set;
+  }, [historySalesList]);
+
+  // SC Products from canvasserProducts that HAVE NO sales history
+  const noSalesScProducts = useMemo(() => {
+    if (!Array.isArray(canvasserProducts)) return [];
+    return canvasserProducts.filter((cp: any) => {
+      const code = String(cp.pro_code || cp.kode_item || cp.kodeProduk || "").trim();
+      const strippedCode = code.replace(/^0+/, "");
+      return !orderedScCodesSet.has(code) && !orderedScCodesSet.has(strippedCode);
+    });
+  }, [canvasserProducts, orderedScCodesSet]);
+
+  // Category 3: PRODUK PROMILAN SC (SC products with NO sales history matching Promilan keywords)
+  const promilanProducts = useMemo(() => {
+    const keywords = ["PRORIS", "MICROLAX", "POLYSILANE"];
+    return noSalesScProducts.filter((item: any) => {
+      const name = String(item.pro_name || item.namaProduk || item.name || "").toUpperCase();
+      return keywords.some((kw) => name.includes(kw));
+    });
+  }, [noSalesScProducts]);
+
+  // Category 4: PRODUK SC (SC products with NO sales history that are NOT Promilan)
+  const scNoSalesProducts = useMemo(() => {
+    const keywords = ["PRORIS", "MICROLAX", "POLYSILANE"];
+    return noSalesScProducts.filter((item: any) => {
+      const name = String(item.pro_name || item.namaProduk || item.name || "").toUpperCase();
+      return !keywords.some((kw) => name.includes(kw));
+    });
+  }, [noSalesScProducts]);
 
   const recommendationList = useMemo(() => {
     const map = new Map<
@@ -250,13 +364,6 @@ export function ScSidebar({
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("loss_sales")}
-          style={sidebarEdgeTabStyle(SIDEBAR_PURPLE)}
-        >
-          Potensi Sales
-        </button>
-        <button
-          type="button"
           onClick={() => setActiveTab("history")}
           style={sidebarEdgeTabStyle(SIDEBAR_BLUE)}
         >
@@ -322,29 +429,18 @@ export function ScSidebar({
         {activeTab === "survey" ? (
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>
-              Data Survey Nexus
+              Data Survey Nexus ({surveyData.length})
             </p>
-            <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
-              Belum ada data survey untuk outlet ini.
-            </div>
-          </div>
-        ) : activeTab === "rekomendasi" ? (
-          <div className="space-y-3 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                PERNAH SC ({recommendationList.length})
-              </p>
-            </div>
-            {recommendationList.length > 0 ? (
-              <div className="space-y-1.5">
-                {recommendationList.map((item, i) => {
-                  const targetCode = item.code || item.name;
-                  const isSelected = (item.code && selectedProductCodes.has(item.code)) || (item.name && selectedProductCodes.has(item.name));
+            {surveyData.length > 0 ? (
+              <div className="space-y-2">
+                {surveyData.map((item: any, i: number) => {
+                  const targetCode = String(item.kodeProduk || "").trim();
+                  const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
                   return (
                     <div
                       key={i}
                       onClick={() => targetCode && onSelectProduct?.(targetCode)}
-                      className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                      className={`p-2.5 rounded-lg border text-xs space-y-1 transition-all ${
                         onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
                       }`}
                       style={{
@@ -352,53 +448,13 @@ export function ScSidebar({
                         borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
                       }}
                     >
-                      <div className="flex items-start justify-between gap-1.5">
-                        <div className="min-w-0 flex-1">
-                          <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
-                            {item.name}
-                          </span>
-
-                        </div>
-                        {isSelected && (
-                          <span
-                            className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
-                            style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
-                          >
-                            ✓ Terpilih
-                          </span>
-                        )}
+                      <div className="flex items-start justify-between gap-1.5 font-semibold">
+                        <span style={{ color: "var(--color-text)" }}>{item.namaProdukRekomendasi || item.kodeProduk}</span>
+                        {isSelected && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white font-mono">✓ Terpilih</span>}
                       </div>
-
-                      <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
-                        {item.avgSellout != null && (
-                          <span
-                            className="font-medium px-1.5 py-0.5 rounded"
-                            style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
-                          >
-                            Avg Sellout: {item.avgSellout}
-                          </span>
-                        )}
-                        {item.avgInsentif != null && (
-                          <span
-                            className="font-medium px-1.5 py-0.5 rounded"
-                            style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
-                          >
-                            Avg Insentif: {formatRp(item.avgInsentif)}
-                          </span>
-                        )}
-                        {item.insentifValue != null && item.avgInsentif == null && (
-                          <span
-                            className="font-medium px-1.5 py-0.5 rounded"
-                            style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
-                          >
-                            Insentif: {formatRp(item.insentifValue)}
-                          </span>
-                        )}
-                        {item.activePeriods && item.activePeriods.length > 0 && (
-                          <span className="text-[9px]" style={{ color: "var(--color-text-faint)" }}>
-                            Periode: {item.activePeriods.join(", ")}
-                          </span>
-                        )}
+                      <div className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+                        Kode: {item.kodeProduk}
+                        {item.totalPotensiBulan ? ` · Potensi: ${item.totalPotensiBulan} UB/bln` : ""}
                       </div>
                     </div>
                   );
@@ -406,9 +462,267 @@ export function ScSidebar({
               </div>
             ) : (
               <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
-                Tidak ada produk rekomendasi untuk outlet ini.
+                Belum ada data survey untuk outlet ini.
               </div>
             )}
+          </div>
+        ) : activeTab === "rekomendasi" ? (
+          <div className="space-y-4 animate-fade-in">
+            {/* 1. PRODUK YANG SUDAH DI SURVEY ( NEXUS ) */}
+            <div className="space-y-1.5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                  PRODUK YANG SUDAH DI SURVEY ({surveyData.length})
+                </p>
+                <p className="text-[9px] font-medium" style={{ color: "var(--color-text-faint)", marginTop: 1 }}>
+                  ( NEXUS )
+                </p>
+              </div>
+              {surveyData.length > 0 ? (
+                <div className="space-y-1.5">
+                  {surveyData.map((item: any, i: number) => {
+                    const targetCode = String(item.kodeProduk || "").trim();
+                    const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => targetCode && onSelectProduct?.(targetCode)}
+                        className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                          onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                        }`}
+                        style={{
+                          background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                          borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                              {item.namaProdukRekomendasi || item.kodeProduk}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                              style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
+                            >
+                              ✓ Terpilih
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
+                          <span
+                            className="font-medium px-1.5 py-0.5 rounded"
+                            style={{ background: "#f3e8ff", color: "#6b21a8" }}
+                          >
+                            Produk Survey{item.totalPotensiBulan ? `: ${item.totalPotensiBulan} UB/bln` : ""}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                  Belum ada data survey.
+                </div>
+              )}
+            </div>
+
+            {/* 2. PRODUK PERNAH DI ORDER */}
+            <div className="space-y-1.5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                  PRODUK PERNAH DI ORDER ({historySalesList.length})
+                </p>
+                {historyPeriodSubtext && (
+                  <p className="text-[9px] font-medium" style={{ color: "var(--color-text-faint)", marginTop: 1 }}>
+                    ( {historyPeriodSubtext} )
+                  </p>
+                )}
+              </div>
+              {historySalesList.length > 0 ? (
+                <div className="space-y-1.5">
+                  {historySalesList.map((entry, i) => {
+                    const isSelected = entry.targetCode ? selectedProductCodes.has(entry.targetCode) || selectedProductCodes.has(entry.code) : false;
+
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => entry.targetCode && onSelectProduct?.(entry.targetCode)}
+                        className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                          onSelectProduct && entry.targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                        }`}
+                        style={{
+                          background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                          borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                              {entry.name}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                              style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
+                            >
+                              ✓ Terpilih
+                            </span>
+                          )}
+                        </div>
+
+                        {(() => {
+                          const hna = getHnaForProduct(entry.code, masterProducts) || parseFloat(String(entry.item?.hna || entry.item?.pro_hna || 0)) || 0;
+                          const salesVal = entry.salesQty * hna;
+                          return (
+                            <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
+                              <span
+                                className="font-medium px-1.5 py-0.5 rounded"
+                                style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
+                              >
+                                History Sales: {salesVal > 0 ? `Rp ${Math.round(salesVal).toLocaleString("id-ID")} (${Number(entry.salesQty.toFixed(2))} UB)` : `${Number(entry.salesQty.toFixed(2))} UB`}
+                              </span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                  Belum ada data order.
+                </div>
+              )}
+            </div>
+
+            {/* 3. PRODUK PROMILAN SC */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                PRODUK PROMILAN SC ({promilanProducts.length})
+              </p>
+              {promilanProducts.length > 0 ? (
+                <div className="space-y-1.5">
+                  {promilanProducts.map((item: any, i: number) => {
+                    const targetCode = String(item.pro_code || item.kode_item || "").trim();
+                    const name = item.pro_name || item.namaProduk || item.name || targetCode;
+                    const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
+                    const insentif = item.sales_counter_value != null ? Number(item.sales_counter_value) : null;
+
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => targetCode && onSelectProduct?.(targetCode)}
+                        className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                          onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                        }`}
+                        style={{
+                          background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                          borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                              {name}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                              style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
+                            >
+                              ✓ Terpilih
+                            </span>
+                          )}
+                        </div>
+
+                        {insentif != null && !isNaN(insentif) && (
+                          <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
+                            <span
+                              className="font-medium px-1.5 py-0.5 rounded"
+                              style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
+                            >
+                              Insentif: {formatRp(insentif)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                  Tidak ada produk Promilan SC.
+                </div>
+              )}
+            </div>
+
+            {/* 4. PRODUK SC */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                PRODUK SC ({scNoSalesProducts.length})
+              </p>
+              {scNoSalesProducts.length > 0 ? (
+                <div className="space-y-1.5">
+                  {scNoSalesProducts.map((item: any, i: number) => {
+                    const targetCode = String(item.pro_code || item.kode_item || "").trim();
+                    const name = item.pro_name || item.namaProduk || item.name || targetCode;
+                    const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
+                    const insentif = item.sales_counter_value != null ? Number(item.sales_counter_value) : null;
+
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => targetCode && onSelectProduct?.(targetCode)}
+                        className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                          onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                        }`}
+                        style={{
+                          background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                          borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                              {name}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                              style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
+                            >
+                              ✓ Terpilih
+                            </span>
+                          )}
+                        </div>
+
+                        {insentif != null && !isNaN(insentif) && (
+                          <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
+                            <span
+                              className="font-medium px-1.5 py-0.5 rounded"
+                              style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
+                            >
+                              Insentif: {formatRp(insentif)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                  Tidak ada produk SC.
+                </div>
+              )}
+            </div>
           </div>
         ) : activeTab === "loss_sales" ? (
           <div className="space-y-3 animate-fade-in">
