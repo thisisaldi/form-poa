@@ -132,13 +132,10 @@ Perbedaan inti: **Monitoring** = target vs pencapaian sales nyata (dipakai ADMIN
 
 | Sheet | Isi |
 |---|---|
-| Ringkasan Tim | Total agregat lintas seluruh tim subordinate MR |
-| Per MR | 1 baris per (MR, POA) — MR dengan beberapa kuartal submit mendapat beberapa baris, tidak di-collapse |
-| Estimasi PSSP per Bulan | Logic monthly-breakdown yang sama, di-roll-up per level personil |
 | Semua Pengajuan | Semua line item lintas semua POA — **struktur kolom SAMA PERSIS dengan sheet "Pengisian"** (diselaraskan 2026-08-05, stakeholder request), plus 2 kolom tambahan di depan (Periode POA, Status Approval) yang tidak ada equivalent-nya di sheet MR karena sheet ini mencakup banyak POA sekaligus |
 | PSSP Aktif | Sama seperti single-POA, scope ke outlet seluruh tim, + atribusi MR/ASM/SM/NSM |
-| Summary Per Outlet | Rollup per-outlet, mencerminkan tab "Per Outlet" `/summary` |
-| Summary by Produk | Rollup per-produk, mencerminkan tab "Per Produk" `/summary` |
+
+🟡 **Dipangkas jadi 2 sheet (2026-08-28, "export excel terlalu berat")** — sebelumnya juga ada Ringkasan Tim, Per MR, Estimasi PSSP per Bulan, dan 4 sheet Summary (Per Outlet/by Produk/Ringkasan/Per Personil/Per Customer/Per Spesialisasi). Sheet-sheet itu (terutama lookup spesialisasi via Nexus per-outlet di Summary Per Customer, terukur ~96 detik untuk scope company-wide) adalah biang keladi 502/500 di route ini. Kode lama ada di git history file ini kalau perlu dikembalikan dengan sumber data yang lebih ringan.
 
 Kedua route berbagi fungsi helper yang **sengaja diduplikasi** (bukan modul bersama) — `resolveDiskonPeriodLabel`, `computePelunasanPct`, `computeOldEstPerMonth`, `BENTUK_PSSP_LABELS` — konvensi per-file yang secara eksplisit diakui di komentar kode.
 
