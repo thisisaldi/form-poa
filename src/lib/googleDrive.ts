@@ -169,18 +169,30 @@ function parseServiceAccountKey(raw: string): { credentials: Record<string, unkn
 }
 
 /**
- * Normalizes private_key's line endings/trailing whitespace — deterministic,
- * content-safe cleanup (never guesses at the base64 body itself), covering
- * encoding quirks that can survive JSON parsing fine but still trip up
- * Node's stricter OpenSSL 3.x PEM decoder ("error:1E08010C:DECODER
- * routines::unsupported", 2026-08-28 bug report): CRLF line endings from a
- * Windows-edited value, and irregular trailing whitespace/blank lines after
- * "-----END ... KEY-----". No-op if private_key is missing/not a string.
+ * Rebuilds private_key into a canonical PEM (standard 64-char-wrapped base64
+ * body, single header/footer, no stray whitespace) — 2026-08-28 bug report:
+ * "error:1E08010C:DECODER routines::unsupported" from Node's OpenSSL 3.x PEM
+ * decoder, root cause narrowed down (via a real repro against the exact
+ * staging image, node:20-alpine, in Docker) to irregular whitespace INSIDE
+ * the base64 body — confirmed an extra blank line alone reproduces the exact
+ * error, while re-decoding the base64 (stripping ALL whitespace first, so
+ * line width/blank lines/CRLF/trailing spaces don't matter) and re-wrapping
+ * it into a standard PEM makes it decode fine again. Verified this doesn't
+ * silently corrupt a valid key either — round-tripped sign+verify against
+ * several deliberately-mangled variants, all matched a normal key's
+ * behavior. Only rewrites what's between the BEGIN/END markers; if
+ * private_key isn't PEM-shaped at all, left untouched (caller's error
+ * surfaces normally instead of this masking a different, real problem).
  */
 function normalizePrivateKey(credentials: Record<string, unknown>): Record<string, unknown> {
   const pk = credentials.private_key;
   if (typeof pk !== "string") return credentials;
-  const normalized = pk.replace(/\r\n?/g, "\n").trimEnd() + "\n";
+  const match = pk.match(/-----BEGIN ([^-]+)-----([\s\S]*?)-----END \1-----/);
+  if (!match) return credentials;
+  const [, type, body] = match;
+  const base64 = body.replace(/\s+/g, "");
+  const wrapped = (base64.match(/.{1,64}/g) ?? []).join("\n");
+  const normalized = `-----BEGIN ${type}-----\n${wrapped}\n-----END ${type}-----\n`;
   if (normalized === pk) return credentials;
   return { ...credentials, private_key: normalized };
 }
