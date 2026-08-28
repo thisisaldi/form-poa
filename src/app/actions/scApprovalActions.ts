@@ -89,6 +89,48 @@ export async function submitSalesCounterFormAction(
   }
 }
 
+function buildApprovalWhereClause(actorRole: string, actorNip: string, poaScIds: string[]) {
+  const baseWhere: any = { id: { in: poaScIds } };
+
+  if (actorRole === "NSM" || actorRole === "ADMIN") {
+    baseWhere.status = {
+      in: [
+        PoaStatus.SUBMITTED_TO_ASM,
+        PoaStatus.APPROVED_BY_ASM,
+        PoaStatus.SUBMITTED_TO_SM,
+        PoaStatus.APPROVED_BY_SM,
+        PoaStatus.SUBMITTED_TO_NSM,
+      ],
+    };
+  } else if (actorRole === "SM") {
+    baseWhere.OR = [
+      { currentHolderId: actorNip },
+      {
+        status: {
+          in: [
+            PoaStatus.SUBMITTED_TO_ASM,
+            PoaStatus.APPROVED_BY_ASM,
+            PoaStatus.SUBMITTED_TO_SM,
+            PoaStatus.APPROVED_BY_SM,
+          ],
+        },
+      },
+    ];
+  } else if (actorRole === "ASM") {
+    baseWhere.OR = [
+      { currentHolderId: actorNip },
+      { status: PoaStatus.SUBMITTED_TO_ASM },
+    ];
+  } else {
+    baseWhere.OR = [
+      { currentHolderId: actorNip },
+      { ownerId: actorNip },
+    ];
+  }
+
+  return baseWhere;
+}
+
 export async function approveSalesCounterFormAction(
   poaScIds: string[],
   notes?: string
@@ -108,21 +150,7 @@ export async function approveSalesCounterFormAction(
     if (!actor) return { ok: false, error: "User tidak ditemukan." };
 
     await prisma.$transaction(async (tx: any) => {
-      const whereClause: any = { id: { in: poaScIds } };
-      if (actor.role === "NSM" || actor.role === "ADMIN") {
-        whereClause.status = {
-          in: [
-            PoaStatus.SUBMITTED_TO_ASM,
-            PoaStatus.APPROVED_BY_ASM,
-            PoaStatus.SUBMITTED_TO_SM,
-            PoaStatus.APPROVED_BY_SM,
-            PoaStatus.SUBMITTED_TO_NSM,
-          ],
-        };
-      } else {
-        whereClause.currentHolderId = session.userId;
-      }
-
+      const whereClause = buildApprovalWhereClause(actor.role, session.userId, poaScIds);
       const forms = await tx.poaScForm.findMany({ where: whereClause });
 
       if (forms.length === 0) {
@@ -134,11 +162,27 @@ export async function approveSalesCounterFormAction(
         let nextHolderId: string | null = null;
 
         if (actor.role === "ASM") {
-          nextStatus = actor.nipAtasan ? PoaStatus.SUBMITTED_TO_SM : PoaStatus.APPROVED_BY_ASM;
-          nextHolderId = actor.nipAtasan || null;
+          let smNip = actor.nipAtasan;
+          if (!smNip) {
+            const sm = await tx.user.findFirst({
+              where: { isActive: true, role: { in: ["SM", "NSM"] } },
+              select: { nip: true },
+            });
+            smNip = sm?.nip || null;
+          }
+          nextStatus = smNip ? PoaStatus.SUBMITTED_TO_SM : PoaStatus.APPROVED_BY_ASM;
+          nextHolderId = smNip;
         } else if (actor.role === "SM") {
-          nextStatus = actor.nipAtasan ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.APPROVED_BY_SM;
-          nextHolderId = actor.nipAtasan || null;
+          let nsmNip = actor.nipAtasan;
+          if (!nsmNip) {
+            const nsm = await tx.user.findFirst({
+              where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
+              select: { nip: true },
+            });
+            nsmNip = nsm?.nip || null;
+          }
+          nextStatus = nsmNip ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.APPROVED_BY_SM;
+          nextHolderId = nsmNip;
         } else {
           nextStatus = PoaStatus.APPROVED_BY_NSM;
           nextHolderId = null;
@@ -191,21 +235,7 @@ export async function reviseSalesCounterFormAction(
     });
 
     await prisma.$transaction(async (tx: any) => {
-      const whereClause: any = { id: { in: poaScIds } };
-      if (actor?.role === "NSM" || actor?.role === "ADMIN") {
-        whereClause.status = {
-          in: [
-            PoaStatus.SUBMITTED_TO_ASM,
-            PoaStatus.APPROVED_BY_ASM,
-            PoaStatus.SUBMITTED_TO_SM,
-            PoaStatus.APPROVED_BY_SM,
-            PoaStatus.SUBMITTED_TO_NSM,
-          ],
-        };
-      } else {
-        whereClause.currentHolderId = session.userId;
-      }
-
+      const whereClause = buildApprovalWhereClause(actor?.role || "MR", session.userId, poaScIds);
       const forms = await tx.poaScForm.findMany({ where: whereClause });
 
       if (forms.length === 0) {
@@ -261,21 +291,7 @@ export async function rejectSalesCounterFormAction(
     });
 
     await prisma.$transaction(async (tx: any) => {
-      const whereClause: any = { id: { in: poaScIds } };
-      if (actor?.role === "NSM" || actor?.role === "ADMIN") {
-        whereClause.status = {
-          in: [
-            PoaStatus.SUBMITTED_TO_ASM,
-            PoaStatus.APPROVED_BY_ASM,
-            PoaStatus.SUBMITTED_TO_SM,
-            PoaStatus.APPROVED_BY_SM,
-            PoaStatus.SUBMITTED_TO_NSM,
-          ],
-        };
-      } else {
-        whereClause.currentHolderId = session.userId;
-      }
-
+      const whereClause = buildApprovalWhereClause(actor?.role || "MR", session.userId, poaScIds);
       const forms = await tx.poaScForm.findMany({ where: whereClause });
 
       if (forms.length === 0) {

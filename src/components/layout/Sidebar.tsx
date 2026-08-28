@@ -47,7 +47,13 @@ const NAV_ITEMS: NavItem[] = [
     href: "/approvals",
     label: "Approvals",
     icon: <IconCheck />,
-    roles: ["ASM", "SM", "NSM"],
+    roles: ["ASM", "SM", "NSM", "ADMIN"],
+  },
+  {
+    href: "/sc/approvals",
+    label: "Approvals",
+    icon: <IconCheck />,
+    roles: ["ASM", "SM", "NSM", "ADMIN"],
   },
   {
     href: "/summary",
@@ -155,10 +161,22 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
     if (item.href === "/sc/new" && userProject !== "OMEGA") {
       return false;
     }
+    if (item.href === "/approvals" && userProject === "OMEGA") {
+      return false;
+    }
+    if (item.href === "/sc/approvals" && userProject !== "OMEGA") {
+      return false;
+    }
     return true;
   }).map((item) => {
     if (item.href === "/dashboard" && userProject === "OMEGA") {
       return { ...item, href: "/sc/dashboard" };
+    }
+    if (item.href === "/sc/approvals" && userProject === "OMEGA") {
+      return { ...item, label: "Approvals" };
+    }
+    if (item.href === "/approvals" && userProject !== "OMEGA") {
+      return { ...item, label: "Approvals" };
     }
     return item;
   });

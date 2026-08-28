@@ -107,6 +107,10 @@ export interface MockCustomer {
   jumlah_sc?: number | null;
   isBlastIn?: boolean;
   created?: string | null;
+  jumlah_karyawan?: number | null;
+  jumlah_pasien?: number | null;
+  jumlah_pasien_resep?: number | null;
+  jumlah_pasien_non_resep?: number | null;
 }
 
 export interface MockProduct {
