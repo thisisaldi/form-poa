@@ -1414,6 +1414,7 @@ function ApprovalUserDokterPhase({
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [replacingKey, setReplacingKey] = useState<string | null>(null);
 
   async function handleUploadBuktiTtd(produkId: string, customerId: string, file: File) {
     const key = `${produkId}:${customerId}`;
@@ -1457,6 +1458,23 @@ function ApprovalUserDokterPhase({
       window.location.reload();
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : "Gagal menghapus dokter.");
+      setBusy(false);
+    }
+  }
+
+  /** "Ganti" = remove old + add new in one action, reusing the same two
+   * server actions Hapus/+Tambah already call — no new backend needed. */
+  async function handleReplaceDokter(oldCustomerId: string, rawId: string) {
+    if (!rawId || !p) return;
+    setBusy(true);
+    setLocalError(null);
+    try {
+      const realId = await resolveDokterId(rawId);
+      await removeDokterApprovalAction(p.id, oldCustomerId);
+      await addDokterApprovalAction(p.id, realId);
+      window.location.reload();
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : "Gagal mengganti dokter.");
       setBusy(false);
     }
   }
@@ -1528,9 +1546,26 @@ function ApprovalUserDokterPhase({
                 </Button>
               )}
               {canEdit && (
+                <button type="button" className="text-xs" style={{ color: "var(--color-blue)" }} disabled={busy} onClick={() => setReplacingKey(replacingKey === key ? null : key)}>
+                  Ganti Dokter
+                </button>
+              )}
+              {canEdit && (
                 <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} disabled={busy} onClick={() => handleRemoveDokter(d.customerId)}>
                   Hapus
                 </button>
+              )}
+              {canEdit && replacingKey === key && (
+                <div className="basis-full">
+                  <Combobox
+                    name={`dokterApprovalReplace-${key}`}
+                    options={dokterList.filter((o) => !p.dokterApproval.some((da) => da.customerId === o.id)).map((o) => ({ value: o.id, label: o.namaCustomer, sublabel: o.jabatan, tag: o.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+                    value=""
+                    onChange={(rawId) => { setReplacingKey(null); handleReplaceDokter(d.customerId, rawId); }}
+                    disabled={busy}
+                    placeholder={`Ganti ${d.customer.namaCustomer} dengan…`}
+                  />
+                </div>
               )}
             </div>
           );
