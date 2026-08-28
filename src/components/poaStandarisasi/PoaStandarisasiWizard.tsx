@@ -29,6 +29,7 @@ import {
   getPoaStandarisasiFileAccessLogAction,
   getStatusPengajuanPreviewAction,
   getEstimasiDiskonPreviewAction,
+  getMarginWarningBaselineAction,
 } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import {
@@ -180,12 +181,11 @@ function UnitCountInput({
   );
 }
 
-// ponytail: flat margin assumption (same % for every product), not a real
-// per-product HPP/cost figure — no cost data exists in the schema today
-// (2026-08-28 decision). Beban diskon (Rp) > margin (Rp) reduces to
-// diskon% > MARGIN_CAP_PCT since both are the same % of the same sales base,
-// so this is just a percentage ceiling. Warning-only (matches POA Estimasi's
-// "OVER BUDGET" pattern, LineItemEditor.tsx:1419) — doesn't block submit.
+// Target gross margin — historical sales × this %, compared against the NEW
+// discount's Rp cost on NEW estimated sales (see getMarginWarningBaselineAction).
+// Replaces a flat "diskon% > 20%" cap that had no historical basis (2026-08-28
+// user correction). Warning-only (matches POA Estimasi's "OVER BUDGET"
+// pattern, LineItemEditor.tsx:1419) — doesn't block submit.
 const MARGIN_CAP_PCT = 20;
 
 const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -960,6 +960,22 @@ export function PlanningPhase(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kodePI, kodeProdukKey]);
 
+  // Baseline for the margin warning below (2026-08-28 user correction — see
+  // getMarginWarningBaselineAction): keyed by kodeProduk, value is that
+  // outlet+produk's 12-month sales history. A kodeProduk missing from this
+  // map means no live Exodus discount exists for it, so the warning is
+  // skipped entirely for that row.
+  const [marginBaseline, setMarginBaseline] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
+    if (!kodePI || kodeList.length === 0) { setMarginBaseline({}); return; }
+    let cancelled = false;
+    getMarginWarningBaselineAction(kodePI, kodeList).then((map) => {
+      if (!cancelled) setMarginBaseline(map);
+    });
+    return () => { cancelled = true; };
+  }, [kodePI, kodeProdukKey]);
+
   return (
     <>
       <RekomendasiSidebar kodePI={kodePI} pengajuanId={pengajuanId} productByKode={productByKode} dokterList={dokterList} />
@@ -1118,11 +1134,18 @@ export function PlanningPhase(props: {
                 <RpInput label="Estimasi Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
             </div>
-            {p.statusPengajuan === "PERPANJANGAN" && (parseFloat(p.estimasiDiskonPct) || 0) > MARGIN_CAP_PCT && (
-              <p className="text-xs mt-1" style={{ color: "var(--color-error)" }}>
-                ⚠ Diskon {p.estimasiDiskonPct}% melebihi margin {MARGIN_CAP_PCT}% untuk produk perpanjangan — beban diskon berpotensi menggerus profit di bawah histori.
-              </p>
-            )}
+            {(() => {
+              const salesLama12Bln = p.kodeProduk ? marginBaseline[p.kodeProduk] : undefined;
+              if (salesLama12Bln === undefined) return null; // no live Exodus discount for this produk — nothing to warn against
+              const biayaDiskonBaru = totalSales * ((parseFloat(p.estimasiDiskonPct) || 0) / 100);
+              const marginBudgetLama = (salesLama12Bln / 12) * (MARGIN_CAP_PCT / 100);
+              if (biayaDiskonBaru <= marginBudgetLama) return null;
+              return (
+                <p className="text-xs mt-1" style={{ color: "var(--color-error)" }}>
+                  ⚠ Estimasi beban diskon {formatRp(biayaDiskonBaru)}/bln melebihi budget margin histori {formatRp(marginBudgetLama)}/bln ({MARGIN_CAP_PCT}% dari sales 12 bulan terakhir) — margin standarisasi berpotensi tergerus lebih dalam dari sebelumnya.
+                </p>
+              );
+            })()}
             {product && (
               <div className="flex gap-4 text-xs mt-2 mb-1" style={{ color: "var(--color-text-muted)" }}>
                 <span>HNA SJ: <strong>{formatRp(parseFloat(product.hna))}</strong> ({product.satuan})</span>

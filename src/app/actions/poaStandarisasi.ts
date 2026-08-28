@@ -213,6 +213,33 @@ export async function getEstimasiDiskonPreviewAction(kodePI: string): Promise<Re
   return discounts ? Object.fromEntries(discounts) : {};
 }
 
+/**
+ * Baseline for the "estimasi diskon" margin warning (2026-08-28, replaces a
+ * flat "diskon% > 20%" cap that compared the NEW discount straight to a
+ * constant with no historical basis — user-confirmed correct formula):
+ * warn when the NEW proposed discount cost (this outlet+produk's new
+ * estimated sales × new diskon%) exceeds the historical margin budget (this
+ * outlet+produk's 12-month sales history × 20%, the company's target gross
+ * margin). Only returns an entry — i.e. only shows the warning at all — for
+ * a kodeProduk that currently HAS a live Exodus discount request; existence
+ * is the gate, the live discount's own rate isn't used in the math.
+ */
+export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukList: string[]): Promise<Record<string, number>> {
+  if (!kodePI || kodeProdukList.length === 0) return {};
+  const discounts = await getDiscountsForOutlet(kodePI);
+  if (!discounts) return {};
+  const salesRows = await prisma.outletSalesHistory.findMany({
+    where: { kodePI, itemKode: { in: kodeProdukList } },
+    select: { itemKode: true, totalSales12Bln: true },
+  });
+  const salesByKode = new Map<string, number>(salesRows.map((r: (typeof salesRows)[number]) => [r.itemKode, parseFloat(r.totalSales12Bln.toString())]));
+  const result: Record<string, number> = {};
+  for (const kodeProduk of kodeProdukList) {
+    if (discounts.has(kodeProduk)) result[kodeProduk] = salesByKode.get(kodeProduk) ?? 0;
+  }
+  return result;
+}
+
 export interface StandarisasiProdukOutletRow {
   kodeProduk: string;
   namaProduk: string;
