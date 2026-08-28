@@ -10,22 +10,21 @@ export async function getScCashbackPoa(piCode?: string): Promise<any | null> {
       headers: {
         "Content-Type": "application/json",
       },
+      redirect: "follow",
       cache: "no-store",
     });
 
     if (!res.ok) {
-      console.error(`Canvasser Cashback POA API returned status ${res.status} for ${url}`);
       try {
         const errorData = await res.json();
-        return errorData || { status: false, message: "Gudang Tidak Ditemukan" };
+        return errorData || { status: false, message: "Gudang Tidak Ditemukan", matrix: [] };
       } catch {
-        return { status: false, message: "Gudang Tidak Ditemukan" };
+        return { status: false, message: "Gudang Tidak Ditemukan", matrix: [] };
       }
     }
 
     return await res.json();
   } catch (error) {
-    console.error(`Failed fetching cashback POA from Canvasser API:`, error);
-    return { status: false, message: "Gudang Tidak Ditemukan" };
+    return { status: false, message: "Gudang Tidak Ditemukan", matrix: [] };
   }
 }

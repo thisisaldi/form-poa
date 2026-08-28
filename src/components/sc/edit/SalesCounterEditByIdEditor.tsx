@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { ProductSelector } from "./ProductSelector";
+import { buildScProductOptions } from "./productOptionUtils";
+import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { ScSidebar } from "./ScSidebar";
 import { UnitInput } from "./UnitInput";
 import { Button } from "@/components/ui/Button";
@@ -48,6 +50,7 @@ import {
   getScCashbackPoaAction,
   getScOutletB3SalesAction,
   getRekomendasiProdukAction,
+  getHistorySalesAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
@@ -240,6 +243,8 @@ export function SalesCounterEditByIdEditor({
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
+  const [historySalesData, setHistorySalesData] = useState<any>(null);
+  const [surveyData, setSurveyData] = useState<any[]>([]);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
@@ -309,6 +314,8 @@ export function SalesCounterEditByIdEditor({
     getScProductMenangAction(kodePI).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(kodePI).then((res) => setProductsInsentif(res?.data || []));
     getScInsentifHistoryAction(kodePI).then((res) => setInsentifHistory(res?.data || null));
+    getHistorySalesAction(kodePI).then((res) => setHistorySalesData(res || null));
+    getSurveyRekomendasiByOutletAggregate(kodePI).then((res) => setSurveyData(res || []));
     getRekomendasiProdukAction(kodePI).then((res) => {
       if (!res?.data) {
         setRekomendasiProduk([]);
@@ -448,76 +455,24 @@ export function SalesCounterEditByIdEditor({
   const months = quarterToMonths(rowQuarterPeriod);
 
   const productOptions = useMemo(() => {
-    const scCodes = new Set(canvasserProducts.map((p) => p.pro_code));
-    const menangCodes = new Set([
-      ...(productsMenang || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
-      ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
-    ].filter(Boolean));
-
-    const scOptions = canvasserProducts.map((p) => {
-      const masterP = masterProducts.find((mp) => mp.kodeProduk === p.pro_code);
-      const isMenang = menangCodes.has(p.pro_code);
-      return {
-        value: p.pro_code,
-        label: p.pro_name,
-        sublabel: `${p.pro_code} · ${masterP?.namaGroupBrand || "Produk SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-        group: isMenang ? "PERNAH SC" : "PRODUK SC",
-        tag: "Produk SC",
-        tagColor: "orange" as any,
-        tag2: isMenang ? "Pernah SC" : undefined,
-        tag2Color: isMenang ? ("green" as any) : undefined,
-      };
+    return buildScProductOptions({
+      canvasserProducts,
+      princodeProducts,
+      productsMenang,
+      productsInsentif,
+      masterProducts,
+      historySalesData,
+      surveyData,
     });
-
-    const otherOptions = princodeProducts
-      .filter((p) => !scCodes.has(p.code))
-      .map((p) => {
-        const masterP = masterProducts.find((mp) => mp.kodeProduk === p.code);
-        const isMenang = menangCodes.has(p.code);
-        return {
-          value: p.code,
-          label: p.name,
-          sublabel: `${p.code} · ${masterP?.namaGroupBrand || "Master Produk"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-          group: isMenang ? "PERNAH SC" : "PRODUK LAINNYA",
-          tag2: isMenang ? "Pernah SC" : undefined,
-          tag2Color: isMenang ? ("green" as any) : undefined,
-        };
-      });
-
-    const existingValues = new Set([
-      ...scOptions.map((o) => o.value),
-      ...otherOptions.map((o) => o.value),
-    ]);
-
-    const menangExtraOptions: any[] = [];
-    menangCodes.forEach((code) => {
-      if (!existingValues.has(code)) {
-        const masterP = masterProducts.find((mp) => mp.kodeProduk === code);
-        menangExtraOptions.push({
-          value: code,
-          label: masterP?.namaProduk || code,
-          sublabel: `${code} · ${masterP?.namaGroupBrand || "Rekomendasi SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-          group: "PERNAH SC",
-          tag: "Pernah SC",
-          tagColor: "green" as any,
-          tag2: "Pernah SC",
-          tag2Color: "green" as any,
-        });
-      }
-    });
-
-    return [...menangExtraOptions, ...scOptions, ...otherOptions];
-  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, masterProducts]);
+  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, masterProducts, historySalesData, surveyData]);
 
   const totalEstimasiSales = products.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
     const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    return sum + (qty * hnaST * lamaPeriode);
+    return sum + (qty * hnaSJ * lamaPeriode);
   }, 0);
 
   const totalNilaiSc = products.reduce((sum, row) => {
@@ -526,16 +481,13 @@ export function SalesCounterEditByIdEditor({
     if (!masterProduct) return sum;
     const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
-    const qtySjBln = konv > 0 ? qty / konv : 0;
+    const estSalesBln = qty * hnaSJ;
     const scVal = canvasserProd?.sales_counter_value;
     const scMin = canvasserProd?.sales_counter_minimum || 0;
     let valScBln = 0;
     if (scVal != null && scVal > 0) {
-      valScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      valScBln = qty >= scMin ? qty * scVal : 0;
     } else {
       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
       valScBln = estSalesBln * (pctMatriks / 100);
@@ -557,10 +509,8 @@ export function SalesCounterEditByIdEditor({
     const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
+    const estSalesBln = qty * hnaSJ;
     const pctDiskon = parseFloat(row.persenDiskon) || 0;
     return sum + (estSalesBln * (pctDiskon / 100) * lamaPeriode);
   }, 0);
@@ -604,21 +554,16 @@ export function SalesCounterEditByIdEditor({
         const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
 
         const hnaSJ = parseFloat(masterProduct.hna) || 0;
-        const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-        const hnaST = hnaSJ / konv;
-
         const qty = parseFloat(row.qtyPerBulan) || 0;
-
-        const estSalesPerMonth = qty * hnaST;
+        const estSalesPerMonth = qty * hnaSJ;
         const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-        const qtySjBln = konv > 0 ? qty / konv : 0;
         const scVal = canvasserProd?.sales_counter_value;
         const scMin = canvasserProd?.sales_counter_minimum || 0;
 
         let valScPerMonth = 0;
         if (scVal != null && scVal > 0) {
-          valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+          valScPerMonth = qty >= scMin ? qty * scVal : 0;
         } else {
           valScPerMonth = estSalesPerMonth * (pctMatriks / 100);
         }
@@ -698,11 +643,9 @@ export function SalesCounterEditByIdEditor({
         const masterProd = masterProducts.find((p) => p.kodeProduk === updated.kodeProduk);
         if (masterProd) {
           const hna = parseFloat(masterProd.hna) || 0;
-          const konv = parseInt(masterProd.konversiPembagi || "1", 10) || 1;
-          const hnaST = hna / konv;
           const qty = parseFloat(updated.qtyPerBulan) || 0;
           const pctMatriks = parseFloat(updated.persenMatriksSc) || 0;
-          updated.rencanaTotalBiaya = qty * hnaST * lamaPeriode * (pctMatriks / 100);
+          updated.rencanaTotalBiaya = qty * hna * lamaPeriode * (pctMatriks / 100);
         }
         return updated;
       })
@@ -875,17 +818,10 @@ export function SalesCounterEditByIdEditor({
           </div>
         </div>
 
-        {/* RENCANA POA — Periode locked */}
+        {/* RENCANA SC — Periode locked */}
         <div>
-          <SectionLabel>Rencana POA</SectionLabel>
-          <div className="grid grid-cols-3 gap-3 mb-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Quarter</span>
-              <select className="input-field w-full text-sm" disabled
-                style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", opacity: 0.85 }}>
-                <option>Q{rowQuarter}</option>
-              </select>
-            </div>
+          <SectionLabel>Rencana SC</SectionLabel>
+          <div className="grid grid-cols-2 gap-3 mb-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Periode Awal</span>
               <div className="input-field flex items-center"
@@ -902,13 +838,48 @@ export function SalesCounterEditByIdEditor({
             </div>
           </div>
 
+          {/* PRODUK YANG DIPROMOSIKAN */}
+          <div>
+            <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+            <ProductSelector
+              kodePI={kodePI}
+              rows={products}
+              onAddRow={addProductRow}
+              onRemoveRow={removeProductRow}
+              onUpdateRow={updateProductRow}
+              productsOptions={productOptions}
+              canvasserProducts={canvasserProducts}
+              masterProducts={masterProducts}
+              lamaPeriode={lamaPeriode}
+              periodeAwal={periodeAwal}
+              diskonPeriode={diskonPeriode}
+              cashbackPeriode={rawCashbackData?.period || rawCashbackData?.data?.period}
+              cashbackData={rawCashbackData}
+              hideCashback={
+                rawCashbackData?.message === "Gudang Tidak Ditemukan" ||
+                (typeof rawCashbackData?.message === "string" &&
+                  (rawCashbackData.message.toLowerCase().includes("tidak ditemukan") ||
+                   rawCashbackData.message.toLowerCase().includes("gudang"))) ||
+                (typeof rawCashbackData?.data?.message === "string" &&
+                  (rawCashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
+                   rawCashbackData.data.message.toLowerCase().includes("gudang"))) ||
+                rawCashbackData?.status === false ||
+                rawCashbackData?.success === false
+              }
+              error={errors.products}
+              readOnly={readOnly}
+              b3SalesMap={b3SalesMap}
+              b3RangeLabel={b3RangeLabel}
+            />
+          </div>
+
           {/* Entertain */}
           {entertainList.length > 0 && (
             <div className="space-y-2 mt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
                 <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
-                  Total Entertain: Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
+                  History Entertain: Rp 100.000
                 </span>
               </div>
               <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
@@ -943,45 +914,10 @@ export function SalesCounterEditByIdEditor({
               </div>
             </div>
           )}
-        </div>
 
-        {/* Tabel BLAST-IN & POSM (Autofill data) */}
-        <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />
-        <PosmTable />
-
-        {/* PRODUK */}
-        <div>
-          <SectionLabel>Produk yang Dipromosikan</SectionLabel>
-          <ProductSelector
-            kodePI={kodePI}
-            rows={products}
-            onAddRow={addProductRow}
-            onRemoveRow={removeProductRow}
-            onUpdateRow={updateProductRow}
-            productsOptions={productOptions}
-            canvasserProducts={canvasserProducts}
-            masterProducts={masterProducts}
-            lamaPeriode={lamaPeriode}
-            periodeAwal={periodeAwal}
-            diskonPeriode={diskonPeriode}
-            cashbackPeriode={rawCashbackData?.period || rawCashbackData?.data?.period}
-            cashbackData={rawCashbackData}
-            hideCashback={
-              rawCashbackData?.message === "Gudang Tidak Ditemukan" ||
-              (typeof rawCashbackData?.message === "string" &&
-                (rawCashbackData.message.toLowerCase().includes("tidak ditemukan") ||
-                 rawCashbackData.message.toLowerCase().includes("gudang"))) ||
-              (typeof rawCashbackData?.data?.message === "string" &&
-                (rawCashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
-                 rawCashbackData.data.message.toLowerCase().includes("gudang"))) ||
-              rawCashbackData?.status === false ||
-              rawCashbackData?.success === false
-            }
-            error={errors.products}
-            readOnly={readOnly}
-            b3SalesMap={b3SalesMap}
-            b3RangeLabel={b3RangeLabel}
-          />
+          {/* Tabel BLAST-IN & POSM (Autofill data) */}
+          <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />
+          <PosmTable />
         </div>
 
         {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
@@ -1138,8 +1074,11 @@ export function SalesCounterEditByIdEditor({
         productsMenang={productsMenang}
         productsInsentif={productsInsentif}
         insentifHistory={insentifHistory}
+        historySalesData={historySalesData}
+        surveyData={surveyData}
         rekomendasiProduk={rekomendasiProduk}
         masterProducts={masterProducts}
+        canvasserProducts={canvasserProducts}
         selectedProductCodes={new Set(products.map((p) => p.kodeProduk).filter(Boolean))}
         onSelectProduct={selectProductFromSidebar}
       />

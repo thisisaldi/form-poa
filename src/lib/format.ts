@@ -20,8 +20,18 @@ export function formatCurrency(
 
   if (withSuffix) {
     const absN = Math.abs(n);
-    if (absN >= 1_000_000) {
-      return Math.round(n / 1_000_000).toLocaleString("id-ID") + " Jt";
+    if (absN >= 1_000_000_000) {
+      const valMil = n / 1_000_000_000;
+      const formatted = Number.isInteger(valMil)
+        ? valMil.toLocaleString("id-ID")
+        : valMil.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+      return formatted + " M";
+    } else if (absN >= 1_000_000) {
+      const valJt = n / 1_000_000;
+      const formatted = Number.isInteger(valJt)
+        ? valJt.toLocaleString("id-ID")
+        : valJt.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+      return formatted + " Jt";
     } else if (absN >= 1_000) {
       return Math.round(n / 1_000).toLocaleString("id-ID") + " Rb";
     } else {

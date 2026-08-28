@@ -554,10 +554,8 @@ export function ProductSelector({
 
         const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
         const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
-        const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
-        const hnaST = hnaSJ / konv;
         const qty = parseFloat(row.qtyPerBulan) || 0;
-        const estSalesMonthly = qty * hnaST;
+        const estSalesMonthly = qty * hnaSJ;
         const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
         let growthPct: number | null = null;
         if (avgSalesBln > 0) {

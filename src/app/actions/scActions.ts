@@ -195,37 +195,41 @@ export async function saveSalesCounterFormAction(
         }
       }
 
-      // Upsert PoaScForm since there are changes
-      const poaSc = await tx.poaScForm.upsert({
-        where: {
-          id: existing?.id || "",
-        },
-        create: {
-          period,
-          periodeAwal,
-          lamaPeriode,
-          kodePI: outletId,
-          namaOutlet,
-          ownerId: session.userId,
-          status: PoaStatus.DRAFT,
-          version: 1,
-          persenResepDokter,
-          jumlahKaryawan: jumlahKaryawan ?? null,
-          jumlahPasien: jumlahPasien ?? null,
-          jumlahPasienResep: jumlahPasienResep ?? null,
-          jumlahPasienNonResep: jumlahPasienNonResep ?? null,
-        },
-        update: {
-          status: PoaStatus.DRAFT,
-          version: existing ? existing.version + 1 : 1,
-          namaOutlet: namaOutlet || existing?.namaOutlet,
-          persenResepDokter,
-          jumlahKaryawan: jumlahKaryawan ?? null,
-          jumlahPasien: jumlahPasien ?? null,
-          jumlahPasienResep: jumlahPasienResep ?? null,
-          jumlahPasienNonResep: jumlahPasienNonResep ?? null,
-        },
-      });
+      // Save PoaScForm since there are changes
+      let poaSc: any = null;
+      if (existing) {
+        poaSc = await tx.poaScForm.update({
+          where: { id: existing.id },
+          data: {
+            status: PoaStatus.DRAFT,
+            version: existing.version + 1,
+            namaOutlet: namaOutlet || existing.namaOutlet,
+            persenResepDokter,
+            jumlahKaryawan: jumlahKaryawan ?? null,
+            jumlahPasien: jumlahPasien ?? null,
+            jumlahPasienResep: jumlahPasienResep ?? null,
+            jumlahPasienNonResep: jumlahPasienNonResep ?? null,
+          },
+        });
+      } else {
+        poaSc = await tx.poaScForm.create({
+          data: {
+            period,
+            periodeAwal,
+            lamaPeriode,
+            kodePI: outletId,
+            namaOutlet,
+            ownerId: session.userId,
+            status: PoaStatus.DRAFT,
+            version: 1,
+            persenResepDokter,
+            jumlahKaryawan: jumlahKaryawan ?? null,
+            jumlahPasien: jumlahPasien ?? null,
+            jumlahPasienResep: jumlahPasienResep ?? null,
+            jumlahPasienNonResep: jumlahPasienNonResep ?? null,
+          },
+        });
+      }
 
       // 4. Delete old child items
       if (!isNew) {
