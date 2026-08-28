@@ -114,13 +114,6 @@ function SidebarTabSwitcher({
       </button>
       <button
         type="button"
-        onClick={() => onChange("loss_sales")}
-        style={pillStyle(SIDEBAR_PURPLE, activeTab === "loss_sales")}
-      >
-        Potensi Sales
-      </button>
-      <button
-        type="button"
         onClick={() => onChange("history")}
         style={pillStyle(SIDEBAR_BLUE, activeTab === "history")}
       >
@@ -366,13 +359,6 @@ export function ScSidebar({
           style={sidebarEdgeTabStyle(SIDEBAR_GREEN)}
         >
           Produk Rekomendasi
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("loss_sales")}
-          style={sidebarEdgeTabStyle(SIDEBAR_PURPLE)}
-        >
-          Potensi Sales
         </button>
         <button
           type="button"

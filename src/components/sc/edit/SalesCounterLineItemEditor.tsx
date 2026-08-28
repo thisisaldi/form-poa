@@ -167,16 +167,56 @@ export function SalesCounterLineItemEditor({
       ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
     ].filter(Boolean));
 
+    const historySalesMap = new Map<string, number>();
+    if (historySalesData) {
+      const items = Array.isArray(historySalesData?.data)
+        ? historySalesData.data
+        : Array.isArray(historySalesData)
+        ? historySalesData
+        : [];
+      for (const it of items) {
+        const code = String(it.code || "").trim();
+        const qty = Number(it.history_sales) || 0;
+        if (code && qty > 0) {
+          historySalesMap.set(code, qty);
+          historySalesMap.set(code.replace(/^0+/, ""), qty);
+        }
+      }
+    }
+
+    const promilanKeywords = ["PRORIS", "MICROLAX", "POLYSILANE"];
+
     const scOptions = canvasserProducts.map((p) => {
       const masterP = products.find((mp) => mp.kodeProduk === p.pro_code);
-      const isMenang = menangCodes.has(p.pro_code);
+      const code = String(p.pro_code || "").trim();
+      const strippedCode = code.replace(/^0+/, "");
+      const isMenang = menangCodes.has(code);
+
+      const hasHistorySales = (historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0) > 0;
+      const nameUpper = String(p.pro_name || masterP?.namaProduk || "").toUpperCase();
+      const isPromilan = promilanKeywords.some((kw) => nameUpper.includes(kw));
+
+      let tag = "Produk SC";
+      let tagColor: "orange" | "blue" | "green" | "purple" | "gray" = "orange";
+
+      if (hasHistorySales) {
+        tag = "Pernah Order";
+        tagColor = "blue";
+      } else if (isPromilan) {
+        tag = "Promilan SC";
+        tagColor = "green";
+      } else {
+        tag = "Produk SC";
+        tagColor = "orange";
+      }
+
       return {
         value: p.pro_code,
         label: p.pro_name,
         sublabel: `${p.pro_code} · ${masterP?.namaGroupBrand || "Produk SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
         group: isMenang ? "PERNAH SC" : "PRODUK SC",
-        tag: "Produk SC",
-        tagColor: "orange" as any,
+        tag,
+        tagColor,
         tag2: isMenang ? "Pernah SC" : undefined,
         tag2Color: isMenang ? ("green" as any) : undefined,
       };
@@ -220,7 +260,7 @@ export function SalesCounterLineItemEditor({
     });
 
     return [...menangExtraOptions, ...scOptions, ...otherOptions];
-  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products]);
+  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products, historySalesData]);
 
   const selectedPerson = personId ? personsList.find((p) => p.person_id === personId) : null;
   const totalEstimasi = selectedProducts.reduce((sum, p) => sum + p.rencanaTotalBiaya, 0);
@@ -664,6 +704,9 @@ export function SalesCounterLineItemEditor({
               <div className="space-y-2 mt-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
+                  <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                    History Entertain: Rp 100.000
+                  </span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
                   <table className="w-full text-xs text-left animate-fade-in" style={{ borderCollapse: "collapse" }}>

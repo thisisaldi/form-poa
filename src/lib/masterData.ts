@@ -263,6 +263,10 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
       jumlah_sc: typeof o.jumlah_sc === "number" ? o.jumlah_sc : o.jumlah_sc ? Number(o.jumlah_sc) : null,
       isBlastIn: blastInSet.has(o.code),
       created: o.created ?? null,
+      jumlah_karyawan: typeof o.jumlah_karyawan === "number" ? o.jumlah_karyawan : o.jumlah_karyawan ? Number(o.jumlah_karyawan) : (typeof o.jumlahKaryawan === "number" ? o.jumlahKaryawan : o.jumlahKaryawan ? Number(o.jumlahKaryawan) : (typeof o.karyawan === "number" ? o.karyawan : o.karyawan ? Number(o.karyawan) : null)),
+      jumlah_pasien: typeof o.jumlah_pasien === "number" ? o.jumlah_pasien : o.jumlah_pasien ? Number(o.jumlah_pasien) : (typeof o.jumlahPasien === "number" ? o.jumlahPasien : o.jumlahPasien ? Number(o.jumlahPasien) : (typeof o.pasien === "number" ? o.pasien : o.pasien ? Number(o.pasien) : null)),
+      jumlah_pasien_resep: typeof o.jumlah_pasien_resep === "number" ? o.jumlah_pasien_resep : o.jumlah_pasien_resep ? Number(o.jumlah_pasien_resep) : (typeof o.jumlahPasienResep === "number" ? o.jumlahPasienResep : o.jumlahPasienResep ? Number(o.jumlahPasienResep) : (typeof o.resep === "number" ? o.resep : o.resep ? Number(o.resep) : null)),
+      jumlah_pasien_non_resep: typeof o.jumlah_pasien_non_resep === "number" ? o.jumlah_pasien_non_resep : o.jumlah_pasien_non_resep ? Number(o.jumlah_pasien_non_resep) : (typeof o.jumlahPasienNonResep === "number" ? o.jumlahPasienNonResep : o.jumlahPasienNonResep ? Number(o.jumlahPasienNonResep) : (typeof o.non_resep === "number" ? o.non_resep : o.non_resep ? Number(o.non_resep) : null)),
     }));
   } catch (error) {
     console.error("Error fetching outlets directly from Canvasser API:", error);

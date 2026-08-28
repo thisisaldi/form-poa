@@ -457,16 +457,56 @@ export function SalesCounterEditByIdEditor({
       ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
     ].filter(Boolean));
 
+    const historySalesMap = new Map<string, number>();
+    if (historySalesData) {
+      const items = Array.isArray(historySalesData?.data)
+        ? historySalesData.data
+        : Array.isArray(historySalesData)
+        ? historySalesData
+        : [];
+      for (const it of items) {
+        const code = String(it.code || "").trim();
+        const qty = Number(it.history_sales) || 0;
+        if (code && qty > 0) {
+          historySalesMap.set(code, qty);
+          historySalesMap.set(code.replace(/^0+/, ""), qty);
+        }
+      }
+    }
+
+    const promilanKeywords = ["PRORIS", "MICROLAX", "POLYSILANE"];
+
     const scOptions = canvasserProducts.map((p) => {
       const masterP = masterProducts.find((mp) => mp.kodeProduk === p.pro_code);
-      const isMenang = menangCodes.has(p.pro_code);
+      const code = String(p.pro_code || "").trim();
+      const strippedCode = code.replace(/^0+/, "");
+      const isMenang = menangCodes.has(code);
+
+      const hasHistorySales = (historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0) > 0;
+      const nameUpper = String(p.pro_name || masterP?.namaProduk || "").toUpperCase();
+      const isPromilan = promilanKeywords.some((kw) => nameUpper.includes(kw));
+
+      let tag = "Produk SC";
+      let tagColor: "orange" | "blue" | "green" | "purple" | "gray" = "orange";
+
+      if (hasHistorySales) {
+        tag = "Pernah Order";
+        tagColor = "blue";
+      } else if (isPromilan) {
+        tag = "Promilan SC";
+        tagColor = "green";
+      } else {
+        tag = "Produk SC";
+        tagColor = "orange";
+      }
+
       return {
         value: p.pro_code,
         label: p.pro_name,
         sublabel: `${p.pro_code} · ${masterP?.namaGroupBrand || "Produk SC"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
         group: isMenang ? "PERNAH SC" : "PRODUK SC",
-        tag: "Produk SC",
-        tagColor: "orange" as any,
+        tag,
+        tagColor,
         tag2: isMenang ? "Pernah SC" : undefined,
         tag2Color: isMenang ? ("green" as any) : undefined,
       };
@@ -510,7 +550,7 @@ export function SalesCounterEditByIdEditor({
     });
 
     return [...menangExtraOptions, ...scOptions, ...otherOptions];
-  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, masterProducts]);
+  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, masterProducts, historySalesData]);
 
   const totalEstimasiSales = products.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
@@ -864,17 +904,10 @@ export function SalesCounterEditByIdEditor({
           </div>
         </div>
 
-        {/* RENCANA POA — Periode locked */}
+        {/* RENCANA SC — Periode locked */}
         <div>
-          <SectionLabel>Rencana POA</SectionLabel>
-          <div className="grid grid-cols-3 gap-3 mb-3">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Quarter</span>
-              <select className="input-field w-full text-sm" disabled
-                style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", opacity: 0.85 }}>
-                <option>Q{rowQuarter}</option>
-              </select>
-            </div>
+          <SectionLabel>Rencana SC</SectionLabel>
+          <div className="grid grid-cols-2 gap-3 mb-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Periode Awal</span>
               <div className="input-field flex items-center"
@@ -891,11 +924,49 @@ export function SalesCounterEditByIdEditor({
             </div>
           </div>
 
+          {/* PRODUK YANG DIPROMOSIKAN */}
+          <div>
+            <SectionLabel>Produk yang Dipromosikan</SectionLabel>
+            <ProductSelector
+              kodePI={kodePI}
+              rows={products}
+              onAddRow={addProductRow}
+              onRemoveRow={removeProductRow}
+              onUpdateRow={updateProductRow}
+              productsOptions={productOptions}
+              canvasserProducts={canvasserProducts}
+              masterProducts={masterProducts}
+              lamaPeriode={lamaPeriode}
+              periodeAwal={periodeAwal}
+              diskonPeriode={diskonPeriode}
+              cashbackPeriode={rawCashbackData?.period || rawCashbackData?.data?.period}
+              cashbackData={rawCashbackData}
+              hideCashback={
+                rawCashbackData?.message === "Gudang Tidak Ditemukan" ||
+                (typeof rawCashbackData?.message === "string" &&
+                  (rawCashbackData.message.toLowerCase().includes("tidak ditemukan") ||
+                   rawCashbackData.message.toLowerCase().includes("gudang"))) ||
+                (typeof rawCashbackData?.data?.message === "string" &&
+                  (rawCashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
+                   rawCashbackData.data.message.toLowerCase().includes("gudang"))) ||
+                rawCashbackData?.status === false ||
+                rawCashbackData?.success === false
+              }
+              error={errors.products}
+              readOnly={readOnly}
+              b3SalesMap={b3SalesMap}
+              b3RangeLabel={b3RangeLabel}
+            />
+          </div>
+
           {/* Entertain */}
           {entertainList.length > 0 && (
             <div className="space-y-2 mt-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
+                <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                  History Entertain: Rp 100.000
+                </span>
               </div>
               <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
                 <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
@@ -929,45 +1000,10 @@ export function SalesCounterEditByIdEditor({
               </div>
             </div>
           )}
-        </div>
 
-        {/* Tabel BLAST-IN & POSM (Autofill data) */}
-        <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />
-        <PosmTable />
-
-        {/* PRODUK */}
-        <div>
-          <SectionLabel>Produk yang Dipromosikan</SectionLabel>
-          <ProductSelector
-            kodePI={kodePI}
-            rows={products}
-            onAddRow={addProductRow}
-            onRemoveRow={removeProductRow}
-            onUpdateRow={updateProductRow}
-            productsOptions={productOptions}
-            canvasserProducts={canvasserProducts}
-            masterProducts={masterProducts}
-            lamaPeriode={lamaPeriode}
-            periodeAwal={periodeAwal}
-            diskonPeriode={diskonPeriode}
-            cashbackPeriode={rawCashbackData?.period || rawCashbackData?.data?.period}
-            cashbackData={rawCashbackData}
-            hideCashback={
-              rawCashbackData?.message === "Gudang Tidak Ditemukan" ||
-              (typeof rawCashbackData?.message === "string" &&
-                (rawCashbackData.message.toLowerCase().includes("tidak ditemukan") ||
-                 rawCashbackData.message.toLowerCase().includes("gudang"))) ||
-              (typeof rawCashbackData?.data?.message === "string" &&
-                (rawCashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
-                 rawCashbackData.data.message.toLowerCase().includes("gudang"))) ||
-              rawCashbackData?.status === false ||
-              rawCashbackData?.success === false
-            }
-            error={errors.products}
-            readOnly={readOnly}
-            b3SalesMap={b3SalesMap}
-            b3RangeLabel={b3RangeLabel}
-          />
+          {/* Tabel BLAST-IN & POSM (Autofill data) */}
+          <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />
+          <PosmTable />
         </div>
 
         {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
