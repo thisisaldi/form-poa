@@ -663,12 +663,30 @@ export async function saveMenungguMeetingKftAction(id: string, input: MenungguMe
 /** Phase 4 → Phase 5. Requires "Form Approval Standarisasi" uploaded for every produk. */
 export async function advanceToFinalisasiAction(id: string): Promise<void> {
   const { actor } = await requireActor();
-  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  const pengajuan = await prisma.poaStandarisasi.findUnique({
+    where: { id },
+    include: { produk: { include: { dokterApproval: true } } },
+  });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "MENUNGGU_MEETING_KFT") throw new Error("Pengajuan tidak sedang di fase Menunggu Meeting KFT.");
 
-  await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "FINALISASI" } });
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    // Seed PoaStandarisasiDokterUser from every sudahTtd dokter in Phase 3
+    // (docs/poa-standarisasi/02-data-model.md — "defaultnya di-seed dari
+    // dokter yang sudah TTD di Phase 3") — was never actually done, leaving
+    // Finalisasi's dokter list permanently empty. skipDuplicates makes this
+    // safe to re-run if the pengajuan ever revisits this transition.
+    for (const p of pengajuan.produk) {
+      const ttdCustomerIds = p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
+      if (ttdCustomerIds.length === 0) continue;
+      await tx.poaStandarisasiDokterUser.createMany({
+        data: ttdCustomerIds.map((customerId: string) => ({ produkId: p.id, customerId })),
+        skipDuplicates: true,
+      });
+    }
+    await tx.poaStandarisasi.update({ where: { id }, data: { currentPhase: "FINALISASI" } });
+  });
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
