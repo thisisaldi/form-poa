@@ -973,59 +973,6 @@ export function SalesCounterEditByIdEditor({
           </div>
         )}
 
-        {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
-        {monthlyBreakdown.length > 0 && products.some(p => p.kodeProduk) && (
-          <div className="rounded-xl border px-4 py-3 space-y-3"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              Estimasi &amp; Nilai SC/Cashback per Bulan
-            </p>
-            <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                    <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthlyBreakdown.map((m: { month: string; label: string; estimasiSales: number; nilaiSc: number }) => {
-                    const mCashback = totalCashbackVal / (lamaPeriode || 1);
-                    return (
-                      <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                        <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
-                        <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                          {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                          {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                          {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr style={{ fontWeight: 600 }}>
-                    <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text)" }}>Total</td>
-                    <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                      Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
-                    </td>
-                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                      Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
-                    </td>
-                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                      Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
         {/* TOTAL */}
         <div className="rounded-xl border px-4 py-3 space-y-4"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
