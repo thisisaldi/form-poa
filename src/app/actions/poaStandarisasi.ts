@@ -704,8 +704,13 @@ export async function advanceToFinalisasiAction(id: string): Promise<void> {
     // dokter yang sudah TTD di Phase 3") — was never actually done, leaving
     // Finalisasi's dokter list permanently empty. skipDuplicates makes this
     // safe to re-run if the pengajuan ever revisits this transition.
+    // While upload is disabled (POA_STANDARISASI_UPLOAD_DISABLED), sudahTtd
+    // can never become true (only Bukti TTD upload sets it), so seed from
+    // EVERY dokter added at Planning instead — otherwise Finalisasi looks
+    // like the Phase 1 dokter just vanished, when they're only being held
+    // back by an unrelated flag.
     for (const p of pengajuan.produk) {
-      const ttdCustomerIds = p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
+      const ttdCustomerIds = (POA_STANDARISASI_UPLOAD_DISABLED ? p.dokterApproval : p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd)).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
       if (ttdCustomerIds.length === 0) continue;
       await tx.poaStandarisasiDokterUser.createMany({
         data: ttdCustomerIds.map((customerId: string) => ({ produkId: p.id, customerId })),
