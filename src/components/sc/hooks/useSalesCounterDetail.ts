@@ -109,22 +109,18 @@ export function useSalesCounterDetail({
         totalProductEntries++;
 
         const hnaSJ = p.hnaSJ || 0;
-        const konv = p.konversiPembagi || 1;
-        const hnaST = hnaSJ / konv;
-
         const qty = p.qtyPerBulan || 0;
 
-        const estSalesPerMonth = qty * hnaST;
+        const estSalesPerMonth = qty * hnaSJ;
         const estSalesFull = estSalesPerMonth * lama;
 
         const pctMatriks = p.persenMatriksSc || 0;
-        const qtySjBln = konv > 0 ? qty / konv : 0;
         const scVal = p.salesCounterValue;
         const scMin = p.salesCounterMinimum || 0;
 
         let nilaiScPerMonth = 0;
         if (scVal != null && scVal > 0) {
-          nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+          nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
         } else {
           nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
         }

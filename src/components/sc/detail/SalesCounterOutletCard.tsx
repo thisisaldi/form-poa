@@ -348,19 +348,17 @@ export function SalesCounterOutletCard({
 
   for (const p of draft.products) {
     const hnaSJ = p.hnaSJ || 0;
-    const konv = p.konversiPembagi || 1;
-    const hnaST = hnaSJ / konv;
+    const qty = p.qtyPerBulan || 0;
 
-    const estMonth = (p.qtyPerBulan || 0) * hnaST;
+    const estMonth = qty * hnaSJ;
     const estFull = estMonth * lama;
     
-    const qtySjBln = konv > 0 ? (p.qtyPerBulan || 0) / konv : 0;
     const scVal = p.salesCounterValue;
     const scMin = p.salesCounterMinimum || 0;
 
     let valScPerMonth = 0;
     if (scVal != null && scVal > 0) {
-      valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      valScPerMonth = qty >= scMin ? qty * scVal : 0;
     } else {
       valScPerMonth = estMonth * ((p.persenMatriksSc || 0) / 100);
     }
@@ -727,19 +725,17 @@ export function SalesCounterOutletCard({
               <tbody>
                 {draft.products.map((p) => {
                   const hnaSJ = p.hnaSJ || 0;
-                  const konv = p.konversiPembagi || 1;
-                  const hnaST = hnaSJ / konv;
+                  const qty = p.qtyPerBulan || 0;
 
-                  const estSalesFull = (p.qtyPerBulan || 0) * hnaST * lama;
-                  const qtySjBln = konv > 0 ? (p.qtyPerBulan || 0) / konv : 0;
+                  const estSalesFull = qty * hnaSJ * lama;
                   const scVal = p.salesCounterValue;
                   const scMin = p.salesCounterMinimum || 0;
 
                   let nilaiScPerMonth = 0;
                   if (scVal != null && scVal > 0) {
-                    nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+                    nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
                   } else {
-                    nilaiScPerMonth = ((p.qtyPerBulan || 0) * hnaST) * ((p.persenMatriksSc || 0) / 100);
+                    nilaiScPerMonth = (qty * hnaSJ) * ((p.persenMatriksSc || 0) / 100);
                   }
                   const nilaiScFull = nilaiScPerMonth * lama;
                   const valCashbackFull = cashbackData

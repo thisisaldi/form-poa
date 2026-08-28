@@ -94,6 +94,7 @@ export function SalesCounterLineItemEditor({
     productsMenang,
     productsInsentif,
     insentifHistory,
+    historySalesData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,
@@ -236,21 +237,16 @@ export function SalesCounterLineItemEditor({
       const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
 
       const hnaSJ = parseFloat(masterProduct.hna) || 0;
-      const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-      const hnaST = hnaSJ / konv;
-
       const qty = parseFloat(row.qtyPerBulan) || 0;
-
-      const estSalesPerMonth = qty * hnaST;
+      const estSalesPerMonth = qty * hnaSJ;
       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-      const qtySjBln = konv > 0 ? qty / konv : 0;
       const scVal = canvasserProd?.sales_counter_value;
       const scMin = canvasserProd?.sales_counter_minimum || 0;
 
       let valScPerMonth = 0;
       if (scVal != null && scVal > 0) {
-        valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+        valScPerMonth = qty >= scMin ? qty * scVal : 0;
       } else {
         valScPerMonth = estSalesPerMonth * (pctMatriks / 100);
       }
@@ -275,10 +271,8 @@ export function SalesCounterLineItemEditor({
     const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    return sum + (qty * hnaST * lamaPeriode);
+    return sum + (qty * hnaSJ * lamaPeriode);
   }, 0);
 
   const totalNilaiSc = selectedProducts.reduce((sum, row) => {
@@ -287,16 +281,13 @@ export function SalesCounterLineItemEditor({
     if (!masterProduct) return sum;
     const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
-    const qtySjBln = konv > 0 ? qty / konv : 0;
+    const estSalesBln = qty * hnaSJ;
     const scVal = canvasserProd?.sales_counter_value;
     const scMin = canvasserProd?.sales_counter_minimum || 0;
     let valScBln = 0;
     if (scVal != null && scVal > 0) {
-      valScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      valScBln = qty >= scMin ? qty * scVal : 0;
     } else {
       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
       valScBln = estSalesBln * (pctMatriks / 100);
@@ -311,10 +302,8 @@ export function SalesCounterLineItemEditor({
     const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
+    const estSalesBln = qty * hnaSJ;
     const pctDiskon = parseFloat(row.persenDiskon) || 0;
     return sum + (estSalesBln * (pctDiskon / 100) * lamaPeriode);
   }, 0);
@@ -673,11 +662,8 @@ export function SalesCounterLineItemEditor({
             {/* 5. Rencana Entertain Breakdown Table */}
             {entertainList.length > 0 && (
               <div className="space-y-2 mt-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
-                  <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
-                    Total Entertain: Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
-                  </span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
                   <table className="w-full text-xs text-left animate-fade-in" style={{ borderCollapse: "collapse" }}>
@@ -835,25 +821,21 @@ export function SalesCounterLineItemEditor({
                         if (!masterProduct) return null;
 
                         const hnaSJ = parseFloat(masterProduct.hna) || 0;
-                        const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-                        const hnaST = hnaSJ / konv;
-
                         const qty = parseFloat(row.qtyPerBulan) || 0;
 
                         const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
-                        const qtyTotal = konv > 0 ? (qty * lamaPeriode) / konv : 0;
-                        const estimasiSales = qty * hnaST * lamaPeriode;
+                        const qtyTotal = qty * lamaPeriode;
+                        const estimasiSales = qty * hnaSJ * lamaPeriode;
                         const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-                        const qtySjBln = konv > 0 ? qty / konv : 0;
                         const scVal = canvasserProd?.sales_counter_value;
                         const scMin = canvasserProd?.sales_counter_minimum || 0;
 
                         let nilaiScBln = 0;
                         if (scVal != null && scVal > 0) {
-                          nilaiScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+                          nilaiScBln = qty >= scMin ? qty * scVal : 0;
                         } else {
-                          nilaiScBln = (qty * hnaST) * (pctMatriks / 100);
+                          nilaiScBln = (qty * hnaSJ) * (pctMatriks / 100);
                         }
                         const nilaiSc = nilaiScBln * lamaPeriode;
                         const valCashback = cashbackDetails?.resultMap?.get(row.kodeProduk) ?? 0;
@@ -987,8 +969,10 @@ export function SalesCounterLineItemEditor({
           productsMenang={productsMenang}
           productsInsentif={productsInsentif}
           insentifHistory={insentifHistory}
+          historySalesData={historySalesData}
           rekomendasiProduk={rekomendasiProduk}
           masterProducts={products}
+          canvasserProducts={canvasserProducts}
           selectedProductCodes={new Set(selectedProducts.map((p) => p.kodeProduk).filter(Boolean))}
           onSelectProduct={selectProductFromSidebar}
         />

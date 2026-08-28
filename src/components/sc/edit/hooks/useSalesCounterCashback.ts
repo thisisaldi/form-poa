@@ -76,25 +76,25 @@ export function calculateCashbackDetails({
   const totalEligibleSalesMonthly = eligibleItems.reduce((acc, it) => acc + (it.estimasiSalesMonthly || 0), 0);
   const eligibleVariantCount = eligibleItems.length;
 
-  let variantMultiplier = 1;
+  let variantMultiplier = 0;
   if (cashbackData?.variant && Array.isArray(cashbackData.variant) && cashbackData.variant.length > 0) {
-    const vMatch = cashbackData.variant.find((v) => v.variant === eligibleVariantCount);
-    if (vMatch) {
-      variantMultiplier = vMatch.multiplier ?? 1;
-    } else if (eligibleVariantCount > 0) {
-      const sortedV = [...cashbackData.variant].sort((a, b) => (b.variant ?? 0) - (a.variant ?? 0));
+    const sortedV = [...cashbackData.variant].sort((a, b) => (b.variant ?? 0) - (a.variant ?? 0));
+    const minVariantInConfig = sortedV[sortedV.length - 1]?.variant ?? 2;
+    if (eligibleVariantCount >= minVariantInConfig) {
       const match = sortedV.find((v) => (v.variant ?? 0) <= eligibleVariantCount);
-      variantMultiplier = match?.multiplier ?? 1;
+      variantMultiplier = match?.multiplier ?? 0;
+    } else {
+      variantMultiplier = 0;
     }
   }
 
-  let piMultiplier = 1;
+  let piMultiplier = 0;
   if (cashbackData?.pi && Array.isArray(cashbackData.pi) && cashbackData.pi.length > 0) {
     const sortedPi = [...cashbackData.pi].sort(
       (a, b) => (b.total_expenditure_pi ?? b.min_sales ?? 0) - (a.total_expenditure_pi ?? a.min_sales ?? 0)
     );
     const piMatch = sortedPi.find((p) => totalEligibleSalesMonthly >= (p.total_expenditure_pi ?? p.min_sales ?? 0));
-    piMultiplier = piMatch?.multiplier ?? 1;
+    piMultiplier = piMatch?.multiplier ?? 0;
   }
 
   let totalFinalCashback = 0;
@@ -125,7 +125,8 @@ export function calculateCashbackDetails({
   const itemEligibilityMap = new Map<string, boolean>();
   for (const item of items) {
     if (item.kodeProduk) {
-      itemEligibilityMap.set(item.kodeProduk, item.eligible);
+      const finalVal = resultMap.get(item.kodeProduk) ?? 0;
+      itemEligibilityMap.set(item.kodeProduk, item.eligible && finalVal > 0);
     }
   }
 

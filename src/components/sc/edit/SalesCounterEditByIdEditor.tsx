@@ -48,6 +48,7 @@ import {
   getScCashbackPoaAction,
   getScOutletB3SalesAction,
   getRekomendasiProdukAction,
+  getHistorySalesAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
@@ -240,6 +241,7 @@ export function SalesCounterEditByIdEditor({
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
+  const [historySalesData, setHistorySalesData] = useState<any>(null);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
@@ -309,6 +311,7 @@ export function SalesCounterEditByIdEditor({
     getScProductMenangAction(kodePI).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(kodePI).then((res) => setProductsInsentif(res?.data || []));
     getScInsentifHistoryAction(kodePI).then((res) => setInsentifHistory(res?.data || null));
+    getHistorySalesAction(kodePI).then((res) => setHistorySalesData(res || null));
     getRekomendasiProdukAction(kodePI).then((res) => {
       if (!res?.data) {
         setRekomendasiProduk([]);
@@ -514,10 +517,8 @@ export function SalesCounterEditByIdEditor({
     const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    return sum + (qty * hnaST * lamaPeriode);
+    return sum + (qty * hnaSJ * lamaPeriode);
   }, 0);
 
   const totalNilaiSc = products.reduce((sum, row) => {
@@ -526,16 +527,13 @@ export function SalesCounterEditByIdEditor({
     if (!masterProduct) return sum;
     const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
-    const qtySjBln = konv > 0 ? qty / konv : 0;
+    const estSalesBln = qty * hnaSJ;
     const scVal = canvasserProd?.sales_counter_value;
     const scMin = canvasserProd?.sales_counter_minimum || 0;
     let valScBln = 0;
     if (scVal != null && scVal > 0) {
-      valScBln = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+      valScBln = qty >= scMin ? qty * scVal : 0;
     } else {
       const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
       valScBln = estSalesBln * (pctMatriks / 100);
@@ -557,10 +555,8 @@ export function SalesCounterEditByIdEditor({
     const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
     if (!masterProduct) return sum;
     const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-    const hnaST = hnaSJ / konv;
     const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaST;
+    const estSalesBln = qty * hnaSJ;
     const pctDiskon = parseFloat(row.persenDiskon) || 0;
     return sum + (estSalesBln * (pctDiskon / 100) * lamaPeriode);
   }, 0);
@@ -604,21 +600,16 @@ export function SalesCounterEditByIdEditor({
         const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
 
         const hnaSJ = parseFloat(masterProduct.hna) || 0;
-        const konv = parseInt(masterProduct.konversiPembagi || "1", 10) || 1;
-        const hnaST = hnaSJ / konv;
-
         const qty = parseFloat(row.qtyPerBulan) || 0;
-
-        const estSalesPerMonth = qty * hnaST;
+        const estSalesPerMonth = qty * hnaSJ;
         const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-        const qtySjBln = konv > 0 ? qty / konv : 0;
         const scVal = canvasserProd?.sales_counter_value;
         const scMin = canvasserProd?.sales_counter_minimum || 0;
 
         let valScPerMonth = 0;
         if (scVal != null && scVal > 0) {
-          valScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+          valScPerMonth = qty >= scMin ? qty * scVal : 0;
         } else {
           valScPerMonth = estSalesPerMonth * (pctMatriks / 100);
         }
@@ -698,11 +689,9 @@ export function SalesCounterEditByIdEditor({
         const masterProd = masterProducts.find((p) => p.kodeProduk === updated.kodeProduk);
         if (masterProd) {
           const hna = parseFloat(masterProd.hna) || 0;
-          const konv = parseInt(masterProd.konversiPembagi || "1", 10) || 1;
-          const hnaST = hna / konv;
           const qty = parseFloat(updated.qtyPerBulan) || 0;
           const pctMatriks = parseFloat(updated.persenMatriksSc) || 0;
-          updated.rencanaTotalBiaya = qty * hnaST * lamaPeriode * (pctMatriks / 100);
+          updated.rencanaTotalBiaya = qty * hna * lamaPeriode * (pctMatriks / 100);
         }
         return updated;
       })
@@ -905,11 +894,8 @@ export function SalesCounterEditByIdEditor({
           {/* Entertain */}
           {entertainList.length > 0 && (
             <div className="space-y-2 mt-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
-                <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
-                  Total Entertain: Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
-                </span>
               </div>
               <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
                 <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
@@ -1138,8 +1124,10 @@ export function SalesCounterEditByIdEditor({
         productsMenang={productsMenang}
         productsInsentif={productsInsentif}
         insentifHistory={insentifHistory}
+        historySalesData={historySalesData}
         rekomendasiProduk={rekomendasiProduk}
         masterProducts={masterProducts}
+        canvasserProducts={canvasserProducts}
         selectedProductCodes={new Set(products.map((p) => p.kodeProduk).filter(Boolean))}
         onSelectProduct={selectProductFromSidebar}
       />
