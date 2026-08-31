@@ -153,9 +153,14 @@ export async function GET(req: NextRequest) {
   const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips } };
   if (period) poaWhere.period = period;
 
+  // Both narrowed to a `select` (2026-08-31, were full-row fetches — `owner:
+  // true` in particular pulled every User column, e.g. sippAbsPtId/syncedAt/
+  // kodeWilayah, for each POA row) — matters most with `?period=all`, where
+  // `poas` can be every non-draft POA a team has ever submitted.
   const [mrUsers, poas] = await Promise.all([
     prisma.user.findMany({
       where: { nip: { in: mrNips } },
+      select: { nip: true, name: true, nipAtasan: true, isDummy: true },
       orderBy: { name: "asc" },
     }) as Promise<{ nip: string; name: string; nipAtasan: string | null; isDummy: boolean }[]>,
     // Unlike the web UI's canView (which keeps DRAFT/REVISI private to the MR
@@ -167,7 +172,10 @@ export async function GET(req: NextRequest) {
     // rules). Only needs `mrNips`/`poaWhere` — independent of `mrUsers`.
     prisma.poaForm.findMany({
       where: poaWhere,
-      include: { owner: true },
+      select: {
+        id: true, ownerId: true, period: true, status: true, createdAt: true, updatedAt: true, target: true,
+        owner: { select: { nip: true, name: true, role: true, jabatan: true } },
+      },
       orderBy: { updatedAt: "desc" },
     }) as Promise<{ id: string; ownerId: string; period: string; status: string; createdAt: Date; updatedAt: Date; target: { toString(): string } | null; owner: { nip: string; name: string; role: string; jabatan: string | null } }[]>,
   ]);
@@ -249,13 +257,38 @@ export async function GET(req: NextRequest) {
   //    survey recommendations, diskon, product master) + per-POA audit logs
   //    — depends on `poaIds` only.
   const lineItemBranch = (async () => {
-    // No `select:` — full row fetch, the `as` cast below just narrows which
-    // columns TypeScript knows about. Widened 2026-08-05 (itemKode/satuanTerkecil/
-    // hargaSatuanTerkecil/historySales3Bln/rasioEstimasiGrowth/labelCustomer) to
-    // reach full column parity with /api/poa/[id]/export's "Pengisian" sheet —
-    // the data was always there, just not exposed to this file's types before.
+    // Explicit `select` (2026-08-31, was a full-row fetch — the `as` cast
+    // below already documented exactly which columns are used; PoaLineItem
+    // has several more columns than that — kodeRequest, historisPSSP,
+    // jenisPssp, pihakPssp, jenisPsSp, surveyPasienHarian, etc — that were
+    // being pulled and serialized over the wire for nothing. Matters most
+    // here: with `?period=all` (added same day) this can be every line item
+    // company-wide across all history, not just one quarter.
     const lineItems = poaIds.length > 0
-      ? await prisma.poaLineItem.findMany({ where: { poaId: { in: poaIds } } }) as {
+      ? await prisma.poaLineItem.findMany({
+          where: { poaId: { in: poaIds } },
+          select: {
+            id: true, poaId: true, kodePI: true, namaOutlet: true,
+            namaCust: true, kodeCust: true, spesialisasi: true, role: true,
+            isManualCustomer: true,
+            kodeProduk: true, namaProduk: true, itemKode: true, satuanTerkecil: true,
+            periodeAwal: true, lamaPeriode: true,
+            statusStandarisasi: true, rencanaTotalBiaya: true,
+            rencanaVisitMinggu: true, hariKerjaBulan: true,
+            jumlahResepHari: true, qtyProdukResep: true, jumlahPasienHari: true,
+            persenPsspDokter: true,
+            persenDiskon: true, persenDp: true,
+            persenListingFee: true, persenEntertain: true,
+            pengaliNilaiR: true,
+            hargaSatuanTerkecil: true,
+            historySales3Bln: true,
+            rasioEstimasiGrowth: true,
+            labelCustomer: true,
+            produkKompetitor: true,
+            bentukPssp: true,
+            kriteriaProduk: true,
+          },
+        }) as {
           id: string; poaId: string; kodePI: string | null; namaOutlet: string;
           namaCust: string; kodeCust: string | null; spesialisasi: string; role: string;
           isManualCustomer: boolean;
