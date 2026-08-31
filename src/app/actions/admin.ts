@@ -821,7 +821,7 @@ export async function setPoaDoctorsApiCredentialAction(formData: FormData): Prom
   const session = await getCurrentUser();
 
   const username = str(formData, "username");
-  const password = str(formData, "password");
+  const password = formData.get("password") as string | null;
   if (!username || !password) return { ok: false, error: "Username dan password wajib diisi." };
 
   const { hash, salt } = hashSecret(password);

@@ -129,131 +129,176 @@ export async function GET(req: NextRequest) {
   const fullReportScope = (["ASM", "SM", "NSM"] as string[]).includes(session.role);
 
   // ── Query data ──────────────────────────────────────────────────────────────
+  //
+  // Restructured 2026-08-31 (still hitting 502 for ADMIN's company-wide scope
+  // even after the earlier trim-to-2-sheets fix): every query below used to
+  // be a single sequential `await` chain even where two branches had NO data
+  // dependency on each other (e.g. `poas` never needed `assignments`/
+  // `mrUsers` — it only needs `mrNips`, known from the top of the function;
+  // `auditLogsAll` only needs `poaIds`, not `lineItems`/the history/diskon
+  // chain that came before it). Measured live company-wide: mrOutletAssignment
+  // ~4200 outlets, poaLineItem ~8000 rows, psspKontrak ~6000+6000 rows,
+  // surveyRekomendasi ~9000 rows — each a few seconds, and purely additive
+  // when awaited one after another (13-15s+ before any Excel work even
+  // starts). Grouping the truly-independent branches into `Promise.all`
+  // (same fan-out pattern as the existing PSSP/history/diskon pairs below)
+  // cuts that to the length of the LONGEST chain instead of the SUM of all
+  // of them — no change to what's queried or how rows are computed.
 
-  const mrUsers = await prisma.user.findMany({
-    where: { nip: { in: mrNips } },
-    orderBy: { name: "asc" },
-  }) as { nip: string; name: string; nipAtasan: string | null; isDummy: boolean }[];
-
-  // ── Active PSSP contracts across every subordinate MR's outlet territory ──
-  const realMrNips = mrUsers.filter(m => !m.isDummy).map(m => m.nip);
-  const assignments = realMrNips.length > 0
-    ? await prisma.mrOutletAssignment.findMany({
-        where: { nipMR: { in: realMrNips }, periode: (() => { const now = new Date(); return now.getFullYear() * 100 + (now.getMonth() + 1); })() },
-        select: { kodePI: true, nipMR: true },
-      })
-    : [];
-  const outletToMR = new Map<string, string>(assignments.map((a: { kodePI: string; nipMR: string }) => [a.kodePI, a.nipMR]));
-  const assignedOutlets = assignments.map((a: { kodePI: string }) => a.kodePI);
-  const [activePsspAll, hospinetSnapshotsAll] = assignedOutlets.length > 0
-    ? await Promise.all([getActivePsspByOutlets(assignedOutlets), getHospinetSnapshotsByOutlets(assignedOutlets)])
-    : [[], []];
-
-  // Raw org-structure text per outlet (includes "(VACANT) ..."/"DUMMY ..."
-  // placeholder names for unfilled ASM/SM/NSM positions) — OutletStrukturBaru
-  // is the staging copy of the source file, refreshed wholesale on import,
-  // and unlike the User table it does NOT skip placeholder rows (see
-  // importStrukturVerifiedKAM.ts). Used below as a fallback so a genuinely
-  // vacant level shows its real placeholder label instead of "—" (2026-07-24
-  // request) — the nipAtasan hierarchy chain itself skip-links straight past
-  // vacant levels by design (that's what makes approval-routing skip them),
-  // so it alone can never recover this text.
-  const mrToOutlets = new Map<string, string[]>();
-  for (const a of assignments as { kodePI: string; nipMR: string }[]) {
-    const list = mrToOutlets.get(a.nipMR) ?? [];
-    list.push(a.kodePI);
-    mrToOutlets.set(a.nipMR, list);
-  }
-  type StrukturRow = { kodePI: string; asmNama: string | null; smNama: string | null; nsmNama: string | null };
-  const strukturRows: StrukturRow[] = assignedOutlets.length > 0
-    ? await prisma.outletStrukturBaru.findMany({
-        where: { kodePI: { in: assignedOutlets } },
-        select: { kodePI: true, asmNama: true, smNama: true, nsmNama: true },
-      })
-    : [];
-  const strukturByOutlet = new Map<string, StrukturRow>(strukturRows.map((r) => [r.kodePI, r]));
-
-  // Unlike the web UI's canView (which keeps DRAFT/REVISI private to the MR
-  // until submitted), this team rekap includes every status — a manager
-  // exporting their team's numbers wants to see real in-progress work too,
-  // not "BELUM SUBMIT" with everything at 0 (2026-07-22, business owner:
-  // "jangan [sengaja 0-in], tampilkan saja" re-scoping this specifically for
-  // the export, not the rest of the app's approval-flow visibility rules).
   const poaWhere: Record<string, unknown> = { ownerId: { in: mrNips } };
   if (period) poaWhere.period = period;
 
-  const poas = await prisma.poaForm.findMany({
-    where: poaWhere,
-    include: { owner: true },
-    orderBy: { updatedAt: "desc" },
-  }) as { id: string; ownerId: string; period: string; status: string; createdAt: Date; updatedAt: Date; target: { toString(): string } | null; owner: { nip: string; name: string; role: string; jabatan: string | null } }[];
+  const [mrUsers, poas] = await Promise.all([
+    prisma.user.findMany({
+      where: { nip: { in: mrNips } },
+      orderBy: { name: "asc" },
+    }) as Promise<{ nip: string; name: string; nipAtasan: string | null; isDummy: boolean }[]>,
+    // Unlike the web UI's canView (which keeps DRAFT/REVISI private to the MR
+    // until submitted), this team rekap includes every status — a manager
+    // exporting their team's numbers wants to see real in-progress work too,
+    // not "BELUM SUBMIT" with everything at 0 (2026-07-22, business owner:
+    // "jangan [sengaja 0-in], tampilkan saja" re-scoping this specifically
+    // for the export, not the rest of the app's approval-flow visibility
+    // rules). Only needs `mrNips`/`poaWhere` — independent of `mrUsers`.
+    prisma.poaForm.findMany({
+      where: poaWhere,
+      include: { owner: true },
+      orderBy: { updatedAt: "desc" },
+    }) as Promise<{ id: string; ownerId: string; period: string; status: string; createdAt: Date; updatedAt: Date; target: { toString(): string } | null; owner: { nip: string; name: string; role: string; jabatan: string | null } }[]>,
+  ]);
 
   const poaIds = poas.map(p => p.id);
 
-  // No `select:` — full row fetch, the `as` cast below just narrows which
-  // columns TypeScript knows about. Widened 2026-08-05 (itemKode/satuanTerkecil/
-  // hargaSatuanTerkecil/historySales3Bln/rasioEstimasiGrowth/labelCustomer) to
-  // reach full column parity with /api/poa/[id]/export's "Pengisian" sheet —
-  // the data was always there, just not exposed to this file's types before.
-  const lineItems = poaIds.length > 0
-    ? await prisma.poaLineItem.findMany({ where: { poaId: { in: poaIds } } }) as {
-        id: string; poaId: string; kodePI: string | null; namaOutlet: string;
-        namaCust: string; kodeCust: string | null; spesialisasi: string; role: string;
-        isManualCustomer: boolean;
-        kodeProduk: string; namaProduk: string; itemKode: string; satuanTerkecil: string;
-        periodeAwal: string; lamaPeriode: number;
-        statusStandarisasi: string | null; rencanaTotalBiaya: { toString(): string };
-        rencanaVisitMinggu: number; hariKerjaBulan: number | null;
-        jumlahResepHari: number | null; qtyProdukResep: number | null; jumlahPasienHari: number | null;
-        persenPsspDokter: { toString(): string } | null;
-        persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
-        persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
-        pengaliNilaiR: { toString(): string } | null;
-        hargaSatuanTerkecil: { toString(): string } | null;
-        historySales3Bln: { toString(): string } | null;
-        rasioEstimasiGrowth: { toString(): string } | null;
-        labelCustomer: string | null;
-        produkKompetitor: string | null;
-        bentukPssp: string | null;
-        kriteriaProduk: string | null;
-      }[]
-    : [];
+  // ── Branch 1: active PSSP contracts + org-struktur text across every
+  //    subordinate MR's outlet territory — depends on `mrUsers` only.
+  const outletBranch = (async () => {
+    const realMrNips = mrUsers.filter(m => !m.isDummy).map(m => m.nip);
+    const assignments = realMrNips.length > 0
+      ? await prisma.mrOutletAssignment.findMany({
+          where: { nipMR: { in: realMrNips }, periode: (() => { const now = new Date(); return now.getFullYear() * 100 + (now.getMonth() + 1); })() },
+          select: { kodePI: true, nipMR: true },
+        })
+      : [];
+    const assignedOutlets = assignments.map((a: { kodePI: string }) => a.kodePI);
+    type StrukturRow = { kodePI: string; asmNama: string | null; smNama: string | null; nsmNama: string | null };
+    const [activePsspAll, hospinetSnapshotsAll, strukturRows] = assignedOutlets.length > 0
+      ? await Promise.all([
+          getActivePsspByOutlets(assignedOutlets),
+          getHospinetSnapshotsByOutlets(assignedOutlets),
+          // Raw org-structure text per outlet (includes "(VACANT) ..."/"DUMMY ..."
+          // placeholder names for unfilled ASM/SM/NSM positions) — OutletStrukturBaru
+          // is the staging copy of the source file, refreshed wholesale on import,
+          // and unlike the User table it does NOT skip placeholder rows (see
+          // importStrukturVerifiedKAM.ts). Used below as a fallback so a genuinely
+          // vacant level shows its real placeholder label instead of "—" (2026-07-24
+          // request) — the nipAtasan hierarchy chain itself skip-links straight past
+          // vacant levels by design (that's what makes approval-routing skip them),
+          // so it alone can never recover this text.
+          prisma.outletStrukturBaru.findMany({
+            where: { kodePI: { in: assignedOutlets } },
+            select: { kodePI: true, asmNama: true, smNama: true, nsmNama: true },
+          }) as Promise<StrukturRow[]>,
+        ])
+      : [[], [], [] as StrukturRow[]];
+    return { assignments, assignedOutlets, activePsspAll, hospinetSnapshotsAll, strukturRows };
+  })();
 
-  // ── PSSP history + survey recommendations (for "Historis PSSP" / "Jenis
-  //    PSSP" / "Keterangan Produk" columns on "Semua Pengajuan" — same
-  //    columns already on the single-POA export, missing here) ──────────────
-  // Batched (2026-08-18 fix — was one getPsspHistory/getSurveyRekomendasiByOutlet
-  // call PER DISTINCT customer/outlet-pair in a sequential loop: ~1,400+ extra
-  // round trips company-wide, long enough to trip the reverse proxy's timeout
-  // (502 Bad Gateway) for ADMIN/SFE/VIEWER's full-scope export). See
-  // getPsspHistoryByCustomers/getSurveyRekomendasiByCustomers doc comments.
-  const distinctKodeCust = [...new Set(lineItems.map((li) => li.kodeCust).filter((k): k is string => !!k))];
-  const [psspHistoryMap, surveyRowsByKey] = await Promise.all([
-    getPsspHistoryByCustomers(distinctKodeCust),
-    getSurveyRekomendasiByCustomers(distinctKodeCust),
-  ]);
-  const surveyByOutletMap = new Map<string, Set<string>>();
-  for (const [key, rows] of surveyRowsByKey) {
-    surveyByOutletMap.set(key, new Set(rows.map((r) => r.kodeProduk)));
-  }
+  // ── Branch 2: ASM → SM → NSM hierarchy walk — depends on `mrUsers` only,
+  //    independent of the outlet/PSSP branch above and the POA/line-item
+  //    branch below.
+  const hierarchyBranch = (async () => {
+    type HierUser = { nip: string; name: string; role: string; nipAtasan: string | null };
+    const hierMap = new Map<string, HierUser>();
 
-  // ── Product master (hna/nilaiRPersen) + Hospinet-by-doctor + per-POA audit
-  //    logs — added 2026-08-05 to reach full column parity with the
-  //    single-POA "Pengisian" sheet ("Jumlah Satuan Jual", "Nilai R (%)",
-  //    "% Pelunasan Sebelumnya"/"Estimasi ... Sebelumnya" Hospinet fallback,
-  //    "Approval SM"/"Approval NSM"). One batched query each, not per-row.
-  const productCodesInLineItems = [...new Set(lineItems.map((li) => li.kodeProduk))];
-  const productRowsForPengajuan = productCodesInLineItems.length > 0
-    ? await prisma.product.findMany({
-        where: { kodeProduk: { in: productCodesInLineItems } },
-        select: { kodeProduk: true, hna: true, nilaiRPersen: true },
-      }) as { kodeProduk: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null }[]
-    : [];
-  const productMapForPengajuan = new Map(productRowsForPengajuan.map((p) => [p.kodeProduk, p]));
+    const round1Nips = [...new Set(mrUsers.map(m => m.nipAtasan).filter(Boolean) as string[])];
+    const round1Users = round1Nips.length > 0
+      ? await prisma.user.findMany({
+          where: { nip: { in: round1Nips } },
+          select: { nip: true, name: true, role: true, nipAtasan: true },
+        }) as HierUser[]
+      : [];
+    round1Users.forEach(u => hierMap.set(u.nip, u));
 
-  const hospinetByDoctor = new Map(
-    hospinetSnapshotsAll.map((s) => [`${s.kodePI}|${s.namaCustomer.trim().toUpperCase()}`, s])
-  );
+    const round2Nips = [...new Set(round1Users.map(u => u.nipAtasan).filter(Boolean) as string[])].filter(n => !hierMap.has(n));
+    const round2Users = round2Nips.length > 0
+      ? await prisma.user.findMany({
+          where: { nip: { in: round2Nips } },
+          select: { nip: true, name: true, role: true, nipAtasan: true },
+        }) as HierUser[]
+      : [];
+    round2Users.forEach(u => hierMap.set(u.nip, u));
+
+    const round3Nips = [...new Set(round2Users.map(u => u.nipAtasan).filter(Boolean) as string[])].filter(n => !hierMap.has(n));
+    const round3Users = round3Nips.length > 0
+      ? await prisma.user.findMany({
+          where: { nip: { in: round3Nips } },
+          select: { nip: true, name: true, role: true, nipAtasan: true },
+        }) as HierUser[]
+      : [];
+    round3Users.forEach(u => hierMap.set(u.nip, u));
+
+    return hierMap;
+  })();
+
+  // ── Branch 3: line items + everything derived from them (PSSP history,
+  //    survey recommendations, diskon, product master) + per-POA audit logs
+  //    — depends on `poaIds` only.
+  const lineItemBranch = (async () => {
+    // No `select:` — full row fetch, the `as` cast below just narrows which
+    // columns TypeScript knows about. Widened 2026-08-05 (itemKode/satuanTerkecil/
+    // hargaSatuanTerkecil/historySales3Bln/rasioEstimasiGrowth/labelCustomer) to
+    // reach full column parity with /api/poa/[id]/export's "Pengisian" sheet —
+    // the data was always there, just not exposed to this file's types before.
+    const lineItems = poaIds.length > 0
+      ? await prisma.poaLineItem.findMany({ where: { poaId: { in: poaIds } } }) as {
+          id: string; poaId: string; kodePI: string | null; namaOutlet: string;
+          namaCust: string; kodeCust: string | null; spesialisasi: string; role: string;
+          isManualCustomer: boolean;
+          kodeProduk: string; namaProduk: string; itemKode: string; satuanTerkecil: string;
+          periodeAwal: string; lamaPeriode: number;
+          statusStandarisasi: string | null; rencanaTotalBiaya: { toString(): string };
+          rencanaVisitMinggu: number; hariKerjaBulan: number | null;
+          jumlahResepHari: number | null; qtyProdukResep: number | null; jumlahPasienHari: number | null;
+          persenPsspDokter: { toString(): string } | null;
+          persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
+          persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
+          pengaliNilaiR: { toString(): string } | null;
+          hargaSatuanTerkecil: { toString(): string } | null;
+          historySales3Bln: { toString(): string } | null;
+          rasioEstimasiGrowth: { toString(): string } | null;
+          labelCustomer: string | null;
+          produkKompetitor: string | null;
+          bentukPssp: string | null;
+          kriteriaProduk: string | null;
+        }[]
+      : [];
+
+    // PSSP history + survey recommendations (for "Historis PSSP" / "Jenis
+    // PSSP" / "Keterangan Produk" columns on "Semua Pengajuan") + "Periode
+    // Diskon" column data + product master (hna/nilaiRPersen) — all batched
+    // (2026-08-18/08-05 fixes, see getPsspHistoryByCustomers/
+    // getSurveyRekomendasiByCustomers/getDiskonByOutlets doc comments for the
+    // per-row-loop incidents these replaced), and all independent of each
+    // other once `lineItems` is known, so they fan out together too.
+    const distinctKodeCust = [...new Set(lineItems.map((li) => li.kodeCust).filter((k): k is string => !!k))];
+    const distinctKodePI = [...new Set(lineItems.map((li) => li.kodePI).filter((k): k is string => !!k))];
+    const productCodesInLineItems = [...new Set(lineItems.map((li) => li.kodeProduk))];
+
+    const [psspHistoryMap, surveyRowsByKey, diskonByOutletMap, diskonHistoryByOutletMap, productRowsForPengajuan] = await Promise.all([
+      getPsspHistoryByCustomers(distinctKodeCust),
+      getSurveyRekomendasiByCustomers(distinctKodeCust),
+      getDiskonByOutlets(distinctKodePI),
+      getDiskonHistoryByOutlets(distinctKodePI),
+      productCodesInLineItems.length > 0
+        ? prisma.product.findMany({
+            where: { kodeProduk: { in: productCodesInLineItems } },
+            select: { kodeProduk: true, hna: true, nilaiRPersen: true },
+          }) as Promise<{ kodeProduk: string; hna: { toString(): string }; nilaiRPersen: { toString(): string } | null }[]>
+        : Promise.resolve([]),
+    ]);
+
+    return { lineItems, psspHistoryMap, surveyRowsByKey, diskonByOutletMap, diskonHistoryByOutletMap, productRowsForPengajuan };
+  })();
 
   // approvalLabel() below only ever looks at action="APPROVE" rows and only
   // reads toStatus/createdAt/actor.name — narrowed from a full-row + full-actor
@@ -261,14 +306,43 @@ export async function GET(req: NextRequest) {
   // was pulling 35k+ audit rows — including every non-APPROVE action ever
   // logged, unbounded by period — for just 406 POAs, timing out as a 502 on
   // the reverse proxy). Filtering action="APPROVE" server-side plus a narrow
-  // `select` cuts both row count and per-row payload.
-  const auditLogsAll = poaIds.length > 0
-    ? await prisma.poaAuditLog.findMany({
+  // `select` cuts both row count and per-row payload. Depends on `poaIds`
+  // only — independent of `lineItemBranch`, so it runs alongside it instead
+  // of after it.
+  const auditLogsPromise = poaIds.length > 0
+    ? prisma.poaAuditLog.findMany({
         where: { poaId: { in: poaIds }, action: "APPROVE" },
         select: { poaId: true, action: true, toStatus: true, createdAt: true, actor: { select: { name: true } } },
         orderBy: { createdAt: "asc" },
-      }) as { poaId: string; action: string; toStatus: string; createdAt: Date; actor: { name: string } }[]
-    : [];
+      }) as Promise<{ poaId: string; action: string; toStatus: string; createdAt: Date; actor: { name: string } }[]>
+    : Promise.resolve([]);
+
+  const [outlet, hierMap, lineItemData, auditLogsAll] = await Promise.all([
+    outletBranch, hierarchyBranch, lineItemBranch, auditLogsPromise,
+  ]);
+  const { assignments, assignedOutlets, activePsspAll, hospinetSnapshotsAll, strukturRows } = outlet;
+  const { lineItems, psspHistoryMap, surveyRowsByKey, diskonByOutletMap, diskonHistoryByOutletMap, productRowsForPengajuan } = lineItemData;
+
+  const outletToMR = new Map<string, string>(assignments.map((a: { kodePI: string; nipMR: string }) => [a.kodePI, a.nipMR]));
+  const mrToOutlets = new Map<string, string[]>();
+  for (const a of assignments as { kodePI: string; nipMR: string }[]) {
+    const list = mrToOutlets.get(a.nipMR) ?? [];
+    list.push(a.kodePI);
+    mrToOutlets.set(a.nipMR, list);
+  }
+  const strukturByOutlet = new Map<string, typeof strukturRows[number]>(strukturRows.map((r) => [r.kodePI, r]));
+
+  const surveyByOutletMap = new Map<string, Set<string>>();
+  for (const [key, rows] of surveyRowsByKey) {
+    surveyByOutletMap.set(key, new Set(rows.map((r) => r.kodeProduk)));
+  }
+
+  const productMapForPengajuan = new Map(productRowsForPengajuan.map((p) => [p.kodeProduk, p]));
+
+  const hospinetByDoctor = new Map(
+    hospinetSnapshotsAll.map((s) => [`${s.kodePI}|${s.namaCustomer.trim().toUpperCase()}`, s])
+  );
+
   const auditLogsByPoa = new Map<string, typeof auditLogsAll>();
   for (const log of auditLogsAll) {
     const list = auditLogsByPoa.get(log.poaId) ?? [];
@@ -279,16 +353,6 @@ export async function GET(req: NextRequest) {
     const log = (auditLogsByPoa.get(poaId) ?? []).find((l) => l.action === "APPROVE" && l.toStatus === toStatus);
     return log ? `${log.actor.name} (${log.createdAt.toLocaleDateString("id-ID")})` : "-";
   }
-
-  // "Periode Diskon" column data — batched across every distinct outlet in
-  // scope (2026-08-18 fix, same class of bug as the PSSP/survey loops above:
-  // this used to be 2 sequential getDiskonByOutlet/getDiskonHistoryByOutlet
-  // calls PER DISTINCT OUTLET, ~800+ extra round trips company-wide).
-  const distinctKodePI = [...new Set(lineItems.map((li) => li.kodePI).filter((k): k is string => !!k))];
-  const [diskonByOutletMap, diskonHistoryByOutletMap] = await Promise.all([
-    getDiskonByOutlets(distinctKodePI),
-    getDiskonHistoryByOutlets(distinctKodePI),
-  ]);
 
   // Mirrors computePelunasanPct/computeOldEstPerMonth in
   // /api/poa/[id]/export/route.ts exactly (same formulas) — duplicated
@@ -329,39 +393,9 @@ export async function GET(req: NextRequest) {
     return months > 0 && latest.estBaris > 0 ? latest.estBaris / months : null;
   }
 
-  // ── Build org hierarchy map ─────────────────────────────────────────────────
-  // Trace 3 levels up from MR: ASM → SM → NSM
-
-  type HierUser = { nip: string; name: string; role: string; nipAtasan: string | null };
-
-  const hierMap = new Map<string, HierUser>();
-
-  const round1Nips = [...new Set(mrUsers.map(m => m.nipAtasan).filter(Boolean) as string[])];
-  const round1Users = round1Nips.length > 0
-    ? await prisma.user.findMany({
-        where: { nip: { in: round1Nips } },
-        select: { nip: true, name: true, role: true, nipAtasan: true },
-      }) as HierUser[]
-    : [];
-  round1Users.forEach(u => hierMap.set(u.nip, u));
-
-  const round2Nips = [...new Set(round1Users.map(u => u.nipAtasan).filter(Boolean) as string[])].filter(n => !hierMap.has(n));
-  const round2Users = round2Nips.length > 0
-    ? await prisma.user.findMany({
-        where: { nip: { in: round2Nips } },
-        select: { nip: true, name: true, role: true, nipAtasan: true },
-      }) as HierUser[]
-    : [];
-  round2Users.forEach(u => hierMap.set(u.nip, u));
-
-  const round3Nips = [...new Set(round2Users.map(u => u.nipAtasan).filter(Boolean) as string[])].filter(n => !hierMap.has(n));
-  const round3Users = round3Nips.length > 0
-    ? await prisma.user.findMany({
-        where: { nip: { in: round3Nips } },
-        select: { nip: true, name: true, role: true, nipAtasan: true },
-      }) as HierUser[]
-    : [];
-  round3Users.forEach(u => hierMap.set(u.nip, u));
+  // ── ASM → SM → NSM hierarchy map ────────────────────────────────────────────
+  // Built above in `hierarchyBranch` (runs in parallel with the outlet/PSSP
+  // and line-item branches) — `hierMap` is already in scope here.
 
   function getAncestors(nipAtasan: string | null, mrNip?: string) {
     const result = { asmNip: "—", asmName: "—", smNip: "—", smName: "—", nsmNip: "—", nsmName: "—" };

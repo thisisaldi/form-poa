@@ -110,6 +110,17 @@ Create vault agent inject config template for .env.staging file
 {{ `{{- end -}}` }}
 {{- end }}
 
+
+{{/*
+Create vault agent inject service account template for staging environment
+*/}}
+{{- define "k8s.vaultAgentInjectServiceAccountTemplate.staging" }}
+{{- printf "{{- with secret \"%s/staging-serviceaccount\" -}}" .Values.vault.secretBasePath }}
+{{ `{{- $data := .Data.data -}}` }}
+{{ `{{- toJSON $data -}}` }}
+{{ `{{- end -}}` }}
+{{- end }}
+
 {{/*
 Create vault agent inject config template for .env.production file
 */}}
@@ -118,6 +129,17 @@ Create vault agent inject config template for .env.production file
 {{ `{{- range $key, $value := .Data.data }}` }}
 {{ `{{ $key }}="{{ $value }}"` }}
 {{ `{{- end -}}` }}
+{{ `{{- end -}}` }}
+{{- end }}
+
+
+{{/*
+Create vault agent inject service account template for staging environment
+*/}}
+{{- define "k8s.vaultAgentInjectServiceAccountTemplate.production" }}
+{{- printf "{{- with secret \"%s/production\" -}}" .Values.vault.secretBasePath }}
+{{ `{{- $data := .Data.data -}}` }}
+{{ `{{- toJSON $data -}}` }}
 {{ `{{- end -}}` }}
 {{- end }}
 
@@ -151,4 +173,12 @@ vault.hashicorp.com/agent-inject-secret-env-production: "{{ .Values.vault.agentI
 vault.hashicorp.com/agent-inject-file-env-production: ".env.production"
 vault.hashicorp.com/agent-inject-template-env-production: |
   {{- include "k8s.vaultAgentInjectConfigTemplate.env.production" . | nindent 4 }}
+vault.hashicorp.com/agent-inject-secret-serviceaccount-staging: "{{ .Values.vault.agentInject.secret }}"
+vault.hashicorp.com/agent-inject-file-serviceaccount-staging: "staging.json"
+vault.hashicorp.com/agent-inject-template-serviceaccount-staging: |
+  {{- include "k8s.vaultAgentInjectServiceAccountTemplate.staging" . | nindent 4 }}
+vault.hashicorp.com/agent-inject-secret-serviceaccount-production: "{{ .Values.vault.agentInject.secret }}"
+vault.hashicorp.com/agent-inject-file-serviceaccount-production: "production.json"
+vault.hashicorp.com/agent-inject-template-serviceaccount-production: |
+  {{- include "k8s.vaultAgentInjectServiceAccountTemplate.production" . | nindent 4 }}
 {{- end }}

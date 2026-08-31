@@ -53,8 +53,10 @@ function toNum(v: unknown): number | null {
  */
 export async function createPoaStandarisasiAction(input: PlanningInput & { kodePI: string }): Promise<void> {
   const session = await requireSession();
-  // Opened to MR (tim sales) 2026-08-28 — was ADMIN-only while under review.
-  // The real eligibility check is canCreatePoa just below (same as POA Estimasi).
+  // Re-disabled for non-ADMIN 2026-08-28 (user request) — was briefly opened
+  // to MR same day, ADMIN-only again while under review. Hard gate here too
+  // (not just the page), since this action can be called directly.
+  if (session.role !== "ADMIN") redirect("/dashboard");
 
   const kodePI = input.kodePI.trim();
   if (!kodePI) throw new Error("Outlet wajib dipilih.");
@@ -211,6 +213,33 @@ export async function getEstimasiDiskonPreviewAction(kodePI: string): Promise<Re
   if (!kodePI) return {};
   const discounts = await getDiscountsForOutlet(kodePI);
   return discounts ? Object.fromEntries(discounts) : {};
+}
+
+/**
+ * Baseline for the "estimasi diskon" margin warning (2026-08-28, replaces a
+ * flat "diskon% > 20%" cap that compared the NEW discount straight to a
+ * constant with no historical basis — user-confirmed correct formula):
+ * warn when the NEW proposed discount cost (this outlet+produk's new
+ * estimated sales × new diskon%) exceeds the historical margin budget (this
+ * outlet+produk's 12-month sales history × 20%, the company's target gross
+ * margin). Only returns an entry — i.e. only shows the warning at all — for
+ * a kodeProduk that currently HAS a live Exodus discount request; existence
+ * is the gate, the live discount's own rate isn't used in the math.
+ */
+export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukList: string[]): Promise<Record<string, number>> {
+  if (!kodePI || kodeProdukList.length === 0) return {};
+  const discounts = await getDiscountsForOutlet(kodePI);
+  if (!discounts) return {};
+  const salesRows = await prisma.outletSalesHistory.findMany({
+    where: { kodePI, itemKode: { in: kodeProdukList } },
+    select: { itemKode: true, totalSales12Bln: true },
+  });
+  const salesByKode = new Map<string, number>(salesRows.map((r: (typeof salesRows)[number]) => [r.itemKode, parseFloat(r.totalSales12Bln.toString())]));
+  const result: Record<string, number> = {};
+  for (const kodeProduk of kodeProdukList) {
+    if (discounts.has(kodeProduk)) result[kodeProduk] = salesByKode.get(kodeProduk) ?? 0;
+  }
+  return result;
 }
 
 export interface StandarisasiProdukOutletRow {
@@ -677,8 +706,13 @@ export async function advanceToFinalisasiAction(id: string): Promise<void> {
     // dokter yang sudah TTD di Phase 3") — was never actually done, leaving
     // Finalisasi's dokter list permanently empty. skipDuplicates makes this
     // safe to re-run if the pengajuan ever revisits this transition.
+    // While upload is disabled (POA_STANDARISASI_UPLOAD_DISABLED), sudahTtd
+    // can never become true (only Bukti TTD upload sets it), so seed from
+    // EVERY dokter added at Planning instead — otherwise Finalisasi looks
+    // like the Phase 1 dokter just vanished, when they're only being held
+    // back by an unrelated flag.
     for (const p of pengajuan.produk) {
-      const ttdCustomerIds = p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
+      const ttdCustomerIds = (POA_STANDARISASI_UPLOAD_DISABLED ? p.dokterApproval : p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd)).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
       if (ttdCustomerIds.length === 0) continue;
       await tx.poaStandarisasiDokterUser.createMany({
         data: ttdCustomerIds.map((customerId: string) => ({ produkId: p.id, customerId })),

@@ -324,7 +324,9 @@ export function Combobox({
                                 />
                               ) : (
                                 <span
-                                  className="shrink-0 text-xs px-1.5 py-0.5 rounded font-medium"
+                                  className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
+                                    option.tag === "BLAST-IN" ? "text-[10px]" : "text-xs"
+                                  }`}
                                   style={{
                                     background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tagColor ?? "blue"].bg,
                                     color: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
@@ -336,7 +338,9 @@ export function Combobox({
                             )}
                             {option.tag2 && (
                               <span
-                                className="shrink-0 text-xs px-1.5 py-0.5 rounded font-medium"
+                                className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
+                                  option.tag2 === "BLAST-IN" ? "text-[10px]" : "text-xs"
+                                }`}
                                 style={{
                                   background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tag2Color ?? "green"].bg,
                                   color: isHighlighted ? "#fff" : TAG_COLORS[option.tag2Color ?? "green"].fg,
@@ -347,7 +351,9 @@ export function Combobox({
                             )}
                             {option.tag3 && (
                               <span
-                                className="shrink-0 text-xs px-1.5 py-0.5 rounded font-bold"
+                                className={`shrink-0 px-1.5 py-0.5 rounded font-bold ${
+                                  option.tag3 === "BLAST-IN" ? "text-[10px]" : "text-xs"
+                                }`}
                                 style={{
                                   background: isHighlighted ? "#fff" : TAG_COLORS[option.tag3Color ?? "orange"].fg,
                                   color: isHighlighted ? TAG_COLORS[option.tag3Color ?? "orange"].fg : "#fff",

@@ -15,8 +15,9 @@ function phaseLabel(phase: string): string {
 export default async function PoaStandarisasiListPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // Opened to MR (tim sales) 2026-08-28 — was ADMIN-only while under review.
-  if (!["MR", "ADMIN"].includes(session.role)) redirect("/dashboard");
+  // Re-disabled for non-ADMIN 2026-08-28 (user request) — was briefly opened
+  // to MR same day, ADMIN-only again while under review.
+  if (session.role !== "ADMIN") redirect("/dashboard");
 
   const pengajuanList = await listMyPoaStandarisasiAction();
 
