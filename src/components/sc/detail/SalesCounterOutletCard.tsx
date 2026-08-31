@@ -25,12 +25,12 @@ import { PosmTable } from "../edit/PosmTable";
 
 function StatTile({ label, value, sub, emphasize = false }: { label: string; value: string; sub?: string; emphasize?: boolean }) {
   return (
-    <div className="rounded-md px-1.5 py-1.5 min-w-0 overflow-hidden" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
+    <div className="rounded-md px-2 py-1.5 min-w-0" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
       <p className="text-[11px] leading-tight truncate" style={{ color: "var(--color-text-faint)" }}>{label}</p>
-      <p className={`leading-tight truncate ${emphasize ? "text-xs sm:text-sm font-bold" : "text-xs sm:text-sm font-semibold"}`} style={{ color: "var(--color-text)" }}>
+      <p className={`leading-tight whitespace-nowrap overflow-visible ${emphasize ? "text-xs sm:text-sm font-bold" : "text-xs sm:text-sm font-semibold"}`} style={{ color: "var(--color-text)" }}>
         {value}
       </p>
-      {sub && <p className="text-[10px] leading-tight mt-0.5 truncate" title={sub} style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
+      {sub && <p className="text-[10px] leading-tight mt-0.5 whitespace-nowrap overflow-visible" style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
     </div>
   );
 }

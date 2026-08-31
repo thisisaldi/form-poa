@@ -24,13 +24,13 @@ export function formatCurrency(
       const valMil = n / 1_000_000_000;
       const formatted = Number.isInteger(valMil)
         ? valMil.toLocaleString("id-ID")
-        : valMil.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
-      return formatted + " M";
+        : valMil.toLocaleString("id-ID", { maximumFractionDigits: 3 });
+      return formatted + " Mil";
     } else if (absN >= 1_000_000) {
       const valJt = n / 1_000_000;
       const formatted = Number.isInteger(valJt)
         ? valJt.toLocaleString("id-ID")
-        : valJt.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+        : valJt.toLocaleString("id-ID", { maximumFractionDigits: 3 });
       return formatted + " Jt";
     } else if (absN >= 1_000) {
       return Math.round(n / 1_000).toLocaleString("id-ID") + " Rb";
