@@ -1,25 +1,23 @@
 import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
 
-export interface HistorySalesItem {
+export interface SalesOnlineItem {
   code: string;
-  history_sales: number;
-  sales_b1: number | null;
-  sales_b2: number | null;
-  sales_b3: number | null;
+  qty_sales: number;
+  value_sales: number | null;
+  zat_aktif: string | null;
 }
 
 export interface HistorySalesResponse {
-  data: HistorySalesItem[];
+  data: SalesOnlineItem[];
   pi_code?: string;
   period?: string[];
-  aggregated?: boolean;
   message?: string | null;
 }
 
 export async function getHistorySales(piCode: string): Promise<HistorySalesResponse | null> {
   if (!piCode) return null;
   try {
-    const url = `${CANVASSER_API_BASE_URL}/api/get-history-sales?pi_code=${encodeURIComponent(piCode)}&agg=True`;
+    const url = `${CANVASSER_API_BASE_URL}/api/get-sales-online?pi_code=${encodeURIComponent(piCode)}`;
     const res = await fetch(url, {
       method: "GET",
       headers: { "Content-Type": "application/json" },

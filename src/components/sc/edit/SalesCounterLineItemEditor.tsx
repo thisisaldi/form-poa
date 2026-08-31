@@ -341,7 +341,7 @@ export function SalesCounterLineItemEditor({
                           sublabelParts.push(`Jumlah Sales Counter: ${jumlahSc}`);
                         }
                         if (createdPeriodStr) {
-                          sublabelParts.push(`Periode: ${createdPeriodStr}`);
+                          sublabelParts.push(`Periode Pendaftaran Insentif SC : ${createdPeriodStr}`);
                         }
                         const sublabel = sublabelParts.length > 0 ? sublabelParts.join(" · ") : undefined;
 
@@ -487,7 +487,7 @@ export function SalesCounterLineItemEditor({
 
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Jumlah Pasien
+                  Jumlah Pasien (Per Hari)
                 </span>
                 <input
                   type="number"
