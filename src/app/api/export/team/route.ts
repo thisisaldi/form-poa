@@ -118,15 +118,20 @@ export async function GET(req: NextRequest) {
   // of this route's live 502s. Explicit ?period=YYYY-QN still works for
   // anyone who wants a different single quarter; there's just no more
   // "everything, forever" default for anyone.
-  const period = req.nextUrl.searchParams.get("period") ?? currentQuarter();
-
-  // ADMIN/GM/SFE/VIEWER get the trimmed 2-sheet report (Semua Pengajuan + PSSP
-  // Aktif) only — their scope is company-wide via getSubordinateOwnerNips
-  // above, and the other 8 sheets' extra queries (esp. the per-outlet Nexus
-  // spesialisasi lookup below Sheet 9, measured ~96s company-wide) were the
-  // cause of this route's reported 502/500s (2026-08-28). ASM/SM/NSM have a
-  // real, modest-sized team and keep the full report.
+  //
+  // `?period=all` (2026-08-31, explicit user action per docs/PERFORMANCE.md
+  // §2 point 3 — "opsi lihat semua harus eksplisit, bukan default") opts back
+  // into unbounded history, for every role including ADMIN/GM/SFE/VIEWER's
+  // company-wide scope (explicit stakeholder request, accepting the risk
+  // flagged in PERFORMANCE.md). The `fullReportScope` trim below (2 sheets
+  // only for company-wide roles, same as the current-quarter default) is the
+  // guard that keeps this from reintroducing the ~96s/502 case #47 already
+  // fixed — if "Semua Periode" turns out too slow for company-wide roles even
+  // trimmed, the next step is the snapshot approach PERFORMANCE.md §2.5
+  // describes, not widening the on-demand query further.
   const fullReportScope = (["ASM", "SM", "NSM"] as string[]).includes(session.role);
+  const periodParam = req.nextUrl.searchParams.get("period");
+  const period = periodParam === "all" ? null : (periodParam ?? currentQuarter());
 
   // ── Query data ──────────────────────────────────────────────────────────────
   //

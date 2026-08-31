@@ -389,6 +389,17 @@ async function DashboardContent({
             <Button variant="secondary" size="sm">↓ Export Excel (Kuartal Ini)</Button>
           </a>
         )}
+        {/* "Semua Periode" (2026-08-31) — explicit opt-in per docs/PERFORMANCE.md
+            §2 point 3 ("opsi lihat semua harus eksplisit, bukan default"),
+            open to every non-MR role including company-wide ADMIN/GM/SFE/
+            VIEWER (explicit stakeholder request, accepting the risk noted in
+            PERFORMANCE.md — the fullReportScope 2-sheet trim in
+            /api/export/team is the mitigation for that scope). */}
+        {!isMR && (
+          <a href="/api/export/team?period=all">
+            <Button variant="secondary" size="sm">↓ Export Excel (Semua Periode)</Button>
+          </a>
+        )}
       </div>
 
       {!isMR && pendingCount > 0 && (
