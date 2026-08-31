@@ -1465,37 +1465,19 @@ export async function GET(req: NextRequest) {
     return elapsed / total;
   }
 
-  // Dedicated quarter-scoped fetch — mrNips-wide (same scope as `poaWhere`
-  // above), NOT filtered to NON_DRAFT_STATUSES like /summary's own Ringkasan
-  // query, so it stays consistent with this file's own established convention
-  // ("this team rekap includes every status", see comment near `poaWhere`
-  // above) rather than silently diverging from the rest of this export.
-  const ringkasanPoas = mrNips.length > 0
-    ? await prisma.poaForm.findMany({
-        where: { ownerId: { in: mrNips }, period: RINGKASAN_QUARTER },
-        select: { id: true, target: true },
-      }) as { id: string; target: { toString(): string } | null }[]
-    : [];
+  // Derived from `poas`/`itemsByPoa` already fetched above (2026-08-31 fix —
+  // this used to be two fresh `findMany` round-trips scoped to `mrNips` +
+  // `RINGKASAN_QUARTER`, which duplicated the main `poas`/`lineItems` fetch
+  // at the top of this route EXACTLY whenever `?period=` is a single quarter
+  // (the common case — `poaWhere.period` and `RINGKASAN_QUARTER` are then the
+  // same value), and was a redundant subset query even for `?period=all`.
+  // Both fetches share the same `ownerId in mrNips` + every-status scope, so
+  // filtering in memory is equivalent, not an approximation.
+  const ringkasanPoas = poas.filter((p) => p.period === RINGKASAN_QUARTER);
   const ringkasanPoaIds = ringkasanPoas.map((p) => p.id);
   const ringkasanTargetTotal = ringkasanPoas.reduce((s, p) => s + toNum(p.target), 0);
 
-  const ringkasanLineItems = ringkasanPoaIds.length > 0
-    ? await prisma.poaLineItem.findMany({
-        where: { poaId: { in: ringkasanPoaIds } },
-        select: {
-          kodeCust: true, namaCust: true, kodeProduk: true, namaProduk: true,
-          rencanaTotalBiaya: true, persenPsspDokter: true, persenDiskon: true,
-          persenDp: true, persenListingFee: true, persenEntertain: true,
-          pengaliNilaiR: true, periodeAwal: true, lamaPeriode: true,
-        },
-      }) as {
-        kodeCust: string | null; namaCust: string; kodeProduk: string; namaProduk: string;
-        rencanaTotalBiaya: { toString(): string }; persenPsspDokter: { toString(): string } | null;
-        persenDiskon: { toString(): string } | null; persenDp: { toString(): string } | null;
-        persenListingFee: { toString(): string } | null; persenEntertain: { toString(): string } | null;
-        pengaliNilaiR: { toString(): string } | null; periodeAwal: string | null; lamaPeriode: number | null;
-      }[]
-    : [];
+  const ringkasanLineItems = ringkasanPoaIds.flatMap((id) => itemsByPoa.get(id) ?? []);
 
   let ringkasanEstimasi = 0, ringkasanPssp = 0, ringkasanDisc = 0, ringkasanEnt = 0;
   for (const li of ringkasanLineItems) {
