@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
 import type { SelectedProductRow } from "./hooks/useSalesCounterEditor";
 import { Button } from "@/components/ui/Button";
@@ -83,9 +83,22 @@ export function ProductSelector({
 }: ProductSelectorProps) {
   const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
   const [internalB3QtyMap, setInternalB3QtyMap] = useState<Map<string, number>>(new Map());
-  const [historySalesMap, setHistorySalesMap] = useState<Map<string, number>>(new Map());
+  const [historySalesMap, setHistorySalesMap] = useState<
+    Map<string, {
+      history_sales: number;
+      sales_b1: number;
+      sales_b2: number;
+      sales_b3: number;
+    }>
+  >(new Map());
+
   const [historyPeriodRange, setHistoryPeriodRange] = useState<string>("");
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
+  const selectedProductCodes = useMemo(
+    () => new Set(rows.map((row) => row.kodeProduk).filter(Boolean)),
+    [rows]
+  );
+
 
   useEffect(() => {
     if (!kodePI) {
@@ -94,15 +107,28 @@ export function ProductSelector({
       return;
     }
     getHistorySalesAction(kodePI).then((res) => {
-      const hMap = new Map<string, number>();
+      const hMap = new Map<string, {
+        history_sales: number;
+        sales_b1: number;
+        sales_b2: number;
+        sales_b3: number;
+      }>();
+
       if (res?.data && Array.isArray(res.data)) {
         for (const item of res.data) {
           if (item.code) {
-            hMap.set(item.code, Number(item.history_sales) || 0);
+            hMap.set(item.code, {
+              history_sales: Number(item.history_sales) || 0,
+              sales_b1: Number(item.sales_b1) || 0,
+              sales_b2: Number(item.sales_b2) || 0,
+              sales_b3: Number(item.sales_b3) || 0,
+            });
           }
         }
       }
+
       setHistorySalesMap(hMap);
+
 
       if (Array.isArray(res?.period) && res.period.length > 0) {
         const periods = [...res.period].filter(Boolean).sort();
@@ -281,7 +307,7 @@ export function ProductSelector({
                   Nilai SC
                 </th>
                 <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
-                  Cashback
+                  Estimasi Cashback
                 </th>
                 {!readOnly && (
                   <th className="py-2 px-1 text-center font-semibold text-[11px] w-[3%]" style={{ color: "var(--color-text-muted)" }}>
@@ -327,7 +353,17 @@ export function ProductSelector({
                       <td className="py-2.5 px-2 space-y-2">
                         <Combobox
                           name={`product-${idx}`}
-                          options={productsOptions}
+                          options={productsOptions.filter((option: any) => {
+                            const optionCode = option.value || option.kodeProduk;
+                            if (optionCode === row.kodeProduk) {
+                              return true;
+                            }
+                            return !rows.some(
+                              (otherRow, otherIdx) =>
+                                otherIdx !== idx &&
+                                otherRow.kodeProduk === optionCode
+                            );
+                          })}
                           value={row.kodeProduk}
                           onChange={(val) => {
                             onUpdateRow(idx, {
@@ -375,14 +411,53 @@ export function ProductSelector({
                           disabled={readOnly}
                         />
                         {(() => {
-                          const targetUb = historySalesMap.get(row.kodeProduk) ?? 0;
-                          const formattedTarget = targetUb > 0 ? (targetUb % 1 === 0 ? targetUb.toString() : (Math.round(targetUb * 10) / 10).toString()) : "0";
-                          const labelPrefix = historyPeriodRange ? `History (${historyPeriodRange}) :` : "History :";
+                          const historyData = historySalesMap.get(row.kodeProduk);
+                          const formatHistoryValue = (value: number) => {
+                            if (!value) return "0";
+                            return value % 1 === 0
+                              ? value.toString()
+                              : (Math.round(value * 10) / 10).toString();
+                          };
+
+                          const labelPrefix = historyPeriodRange
+                            ? `Rata - Rata History (${historyPeriodRange}) :`
+                            : "Rata - Rata History :";
+
                           return (
-                            <div className="text-[10px] leading-tight mt-1" style={{ color: "var(--color-text-faint)" }}>
-                              <div>{labelPrefix} <strong style={{ color: "var(--color-text-muted)" }}>{formattedTarget}</strong></div>
+                            <div
+                              className="text-[10px] leading-tight mt-1 space-y-0.5"
+                              style={{ color: "var(--color-text-faint)" }}
+                            >
+                              <div>
+                                {labelPrefix}{" "}
+                                <strong style={{ color: "var(--color-text-muted)" }}>
+                                  {formatHistoryValue(historyData?.history_sales ?? 0)}
+                                </strong>
+                              </div>
+
+                              <div>
+                                Sales B1:{" "}
+                                <strong style={{ color: "var(--color-text-muted)" }}>
+                                  {formatHistoryValue(historyData?.sales_b1 ?? 0)}
+                                </strong>
+                              </div>
+
+                              <div>
+                                Sales B2:{" "}
+                                <strong style={{ color: "var(--color-text-muted)" }}>
+                                  {formatHistoryValue(historyData?.sales_b2 ?? 0)}
+                                </strong>
+                              </div>
+
+                              <div>
+                                Sales B3:{" "}
+                                <strong style={{ color: "var(--color-text-muted)" }}>
+                                  {formatHistoryValue(historyData?.sales_b3 ?? 0)}
+                                </strong>
+                              </div>
                             </div>
                           );
+
                         })()}
                       </td>
 
