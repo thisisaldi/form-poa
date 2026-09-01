@@ -68,3 +68,39 @@ Open question yang masih belum kejawab dari meeting ini: poin 1 di §6 (endpoint
 Aldi meminta kemampuan revert `usedInExodus` kembali ke `false`, exposed ke Exodus. Ini **membalik langsung** aturan §2 di atas ("tidak pernah revert", dikonfirmasi eksplisit Juni Pharos 2026-08-24). **Belum ada konfirmasi tertulis dari tim Exodus untuk pembalikan ini** — perlu ditindaklanjuti di WA thread yang sama sebelum Exodus benar-benar mengandalkan (atau justru menghindari) kemampuan revert ini, supaya tidak ada asumsi yang salah di salah satu sisi.
 
 **Endpoint shape (2 iterasi di hari yang sama)**: awalnya dibangun sebagai `DELETE /api/poa-doctors/{id}` terpisah dari `PATCH`. Aldi lalu meminta digabung — satu `PATCH` untuk kedua arah, dibedakan lewat body opsional (`{"usedInExodus": false}` untuk revert, default `true` kalau body kosong/tidak ada — backward-compatible dengan kontrak bodyless PATCH sebelumnya). Lihat `03-ui-and-access.md` untuk tabel endpoint final.
+
+## 9. Revisi 2026-09-01 (DRAFT — belum diimplementasikan) — tracking nomor pengajuan + status pengajuan/approved
+
+**Sumber**: chat WhatsApp 2026-09-01, Juni Pharos mengoreksi pemahaman Aldi soal cakupan `usedInExodus`:
+
+> [09:20] Aldi: kalau untuk sekedar update flag usedInExodus, pakai satu endpoint pak jun
+> [09:21] Juni Pharos: sepaham gw bukan cuma untuk tau flag udah di used, tapi mau di track pengajuan di exodus nya itu nomor berapa dan ini masih pengajuan apa sudah approved
+
+Ini **membuka ulang** Open Question #4 di §6 (yang sempat ditandai "Selesai" — dianggap CLOSED setelah meeting 2026-08-27 tidak menyebut kebutuhan 2 checkpoint lagi). Juni Pharos sekarang mengonfirmasi eksplisit yang sebelumnya cuma dugaan (b) di §6 poin 4 lama: Exodus memang butuh **dua hal baru**, bukan sekadar checkpoint status:
+
+1. **Nomor pengajuan Exodus** — nomor referensi transaksi/pengajuan DI SISI EXODUS (bukan `idPoa`/`uidPoa` milik POA), supaya satu baris dokter bisa ditelusuri balik ke pengajuan mana persisnya di sistem Exodus.
+2. **Status pengajuan itu di Exodus** — minimal dua state: "masih pengajuan" vs "sudah approved". Ini PERSIS skenario yang di §6 poin 4 lama disebut "kalau nanti Exodus konfirmasi butuh 2 checkpoint terpisah, field perlu diubah jadi enum" — sekarang terkonfirmasi.
+
+**Belum settled — hanya niat/kebutuhan yang dikonfirmasi, kontrak teknisnya belum dibahas dengan Juni Pharos.** Section ini mencatat asumsi kerja awal untuk didiskusikan, BUKAN keputusan final.
+
+### Asumsi kerja diusulkan (perlu dikonfirmasi Juni Pharos sebelum implementasi)
+
+| Aspek | Asumsi kerja |
+|---|---|
+| Status enum | Dua nilai sesuai kutipan literal Juni Pharos: `PENGAJUAN` (sudah disubmit ke Exodus, belum final) dan `APPROVED` (sudah final approved di Exodus). Tidak ada nilai ketiga (`REJECTED`/dst.) karena tidak disebut di chat — kalau ternyata dibutuhkan, ini bertambah lagi. |
+| Relasi ke `usedInExodus` (boolean, existing) | Diusulkan **TIDAK dihapus** (masih dipakai filter di `GET /api/poa-doctors` list, §4) — jadi derived/tetap `true` begitu `exodusStatus` terisi (`PENGAJUAN` ATAU `APPROVED`), supaya konsumen existing yang cuma baca boolean tidak break. Field baru murni tambahan detail, bukan pengganti. |
+| Nomor pengajuan | Field baru `exodusNomorPengajuan` (string bebas format — Exodus yang generate nomornya, POA cuma menyimpan apa adanya, tidak divalidasi format tertentu). |
+| Siapa yang mengisi | Diasumsikan Exodus sendiri yang PATCH nomor+status (server-to-server, sama seperti PATCH `usedInExodus` sekarang) — bukan POA yang menarik data dari Exodus. |
+| Transisi status | `PENGAJUAN → APPROVED` via PATCH lagi ke baris yang sama, nomor pengajuan yang sama dipakai ulang (tidak berubah antar status) kecuali dinyatakan lain. |
+| Kontrak PATCH baru | **BLOCKING — belum diusulkan bentuknya ke Exodus.** Draf paling sederhana: `PATCH /api/poa-doctors/{id}` body `{"exodusStatus": "PENGAJUAN" | "APPROVED", "exodusNomorPengajuan": "..."}`, MENGGANTIKAN body lama (`{"usedInExodus": true/false}`) untuk arah "mark as used" — tapi ini BREAKING CHANGE ke kontrak yang sudah live sejak 2026-08-26 dan mungkin sudah dipakai Exodus di production. Alternatif: field baru OPSIONAL di body yang sama (`usedInExodus` tetap jadi trigger utama, `exodusStatus`/`exodusNomorPengajuan` ikut kalau dikirim) — lebih aman tapi Exodus harus tau field baru ini ada. |
+| Revert (`{"usedInExodus": false}`) | Belum jelas apakah revert juga harus mengosongkan `exodusStatus`/`exodusNomorPengajuan`, atau nomor pengajuan tetap disimpan sebagai histori terakhir meski status di-revert. |
+
+### Open questions BLOCKING — wajib dikonfirmasi Juni Pharos sebelum kode ditulis
+
+1. Bentuk kontrak PATCH yang pasti — field baru menggantikan `usedInExodus` di body, atau berdampingan?
+2. Apakah PENGAJUAN dan APPROVED dua kali panggilan PATCH terpisah (2 event), atau Exodus kirim status akhir aja begitu tau approved (bisa lompat langsung ke `APPROVED` tanpa lewat `PENGAJUAN` dulu)?
+3. Format/validasi `exodusNomorPengajuan` — bebas string, atau ada pola tertentu (`EXO-xxxx`, numeric, dst.) yang perlu divalidasi POA?
+4. Ada state "REJECTED"/gagal di Exodus yang perlu POA tau juga (di luar PENGAJUAN/APPROVED), mengingat aturan revert di §8 sudah pernah dibahas soal reject?
+5. Perilaku revert (`usedInExodus:false`) terhadap 2 field baru ini — dikosongkan juga atau dipertahankan sebagai histori?
+
+**Status implementasi: belum dimulai** — spec ini ditulis duluan (SDD, `docs/sdd/01-when-and-workflow.md`) karena requirement dari eksternal (chat Exodus) yang ambigu di kontrak teknisnya dan mengubah data model yang sudah live. Menunggu jawaban Juni Pharos untuk poin 1-2 (paling blocking) sebelum lanjut ke `02-data-model.md`/implementasi.

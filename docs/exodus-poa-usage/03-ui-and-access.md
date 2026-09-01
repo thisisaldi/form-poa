@@ -31,6 +31,23 @@ Reuse persis pola `GET /api/poa-doctors` (`src/lib/apiBasicAuth.ts` + `PoaDoctor
 
 Tidak ada role/access matrix baru — endpoint ini murni server-to-server (dipanggil Exodus, bukan user login lewat browser). Gate satu-satunya adalah Basic Auth di atas.
 
+## DRAFT — perubahan diusulkan 2026-09-01 (belum diimplementasikan)
+
+Lihat `01-business-rules.md` §9 untuk konteks lengkap. Kontrak `PATCH /api/poa-doctors/{id}` di atas masih berlaku SEKARANG (belum berubah) — ini catatan proposal, menunggu jawaban Juni Pharos untuk Open Questions blocking sebelum kontrak final ditentukan/diimplementasikan.
+
+Draf kontrak paling sederhana (opsi "field baru berdampingan", bukan menggantikan body lama — lihat tabel asumsi kerja di `01-business-rules.md` §9):
+
+```
+PATCH /api/poa-doctors/{id}
+{
+  "usedInExodus": true,
+  "exodusStatus": "PENGAJUAN" | "APPROVED",
+  "exodusNomorPengajuan": "<nomor dari Exodus>"
+}
+```
+
+**Belum ditentukan**: apakah `exodusStatus`/`exodusNomorPengajuan` WAJIB diisi begitu `usedInExodus: true` dikirim, atau tetap opsional (backward-compatible dengan kontrak bodyless/`{"usedInExodus":true}` yang sudah live sejak 2026-08-26 dan mungkin sudah dipakai Exodus di production).
+
 ## Non-goals v2
 
 - **Tidak ada endpoint approve terpisah** — lihat `01-business-rules.md` §Open questions #4, ditutup ulang di §7 (meeting 2026-08-27 tidak menyebutnya lagi).

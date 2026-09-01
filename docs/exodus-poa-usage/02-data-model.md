@@ -34,6 +34,33 @@ export interface LivePricing {
 }
 ```
 
+## Data baru (DRAFT — belum ada migration, menunggu jawaban Open Questions blocking di `01-business-rules.md` §9)
+
+Diusulkan untuk revisi 2026-09-01 (§9 di `01-business-rules.md`) — Juni Pharos mengonfirmasi kebutuhan tracking nomor pengajuan Exodus + status (`PENGAJUAN`/`APPROVED`), bukan cuma boolean `usedInExodus`.
+
+```prisma
+enum ExodusUsageStatus {
+  PENGAJUAN
+  APPROVED
+}
+
+model PoaDoctorApproval {
+  // ...field existing tidak berubah, termasuk usedInExodus/usedInExodusAt di atas...
+
+  exodusStatus         ExodusUsageStatus? // null = belum pernah di-PATCH status baru ini
+  exodusNomorPengajuan String?
+  exodusStatusAt       DateTime?          // kapan exodusStatus terakhir berubah
+}
+```
+
+### Catatan desain (draft, field baru §9)
+
+- **`usedInExodus` (boolean, existing) TIDAK dihapus** — diusulkan tetap jadi sumber kebenaran untuk filter list (`01-business-rules.md` §4), derived `true` begitu `exodusStatus` terisi apapun nilainya (`PENGAJUAN` atau `APPROVED`). Field baru murni menambah detail, bukan pengganti — supaya tidak breaking terhadap filter yang sudah live.
+- **`exodusStatus` nullable, bukan default `PENGAJUAN`** — null secara eksplisit berarti "belum pernah dikirim status oleh Exodus", beda makna dari `PENGAJUAN` (sudah dikirim, masih proses). Sama pola null-vs-nol dengan field `estimasi*` di `docs/poa-standarisasi/02-data-model.md`.
+- **`exodusNomorPengajuan` string bebas, tidak divalidasi format** — POA cuma menyimpan apa yang dikirim Exodus apa adanya (lihat Open Question #3 di `01-business-rules.md` §9, masih perlu dikonfirmasi apakah ada pola tertentu).
+- **BELUM ditentukan apakah `exodusStatus`/`exodusNomorPengajuan` ikut dikosongkan saat revert** (`usedInExodus: false`) — lihat Open Question #5. Sampai dijawab, skema ini adalah draft, bukan final.
+- **Migration BELUM dibuat** — menunggu convergence check (jawaban blocking Open Questions #1-2 di `01-business-rules.md` §9) sebelum `prisma migrate dev` dijalankan, mengikuti alur SDD (`docs/sdd/01-when-and-workflow.md` langkah 2).
+
 ### Catatan desain
 
 - **Boolean, bukan enum tri-state** — draf awal dokumen ini mengusulkan enum (`NOT_USED`/`SUBMITTED`/`APPROVED`) untuk mendukung 2 checkpoint (submit + approve di Exodus). Ditinjau ulang (`01-business-rules.md` §Open questions #4): kutipan bisnis asli hanya menuntut SATU titik kunci ("sekali diajukan tidak bisa dipakai lagi"), jadi boolean sudah cukup dan lebih sederhana. Meeting lanjutan 2026-08-27 (`01-business-rules.md` §7) juga tidak lagi menyebut 2 checkpoint — dianggap CLOSED.
