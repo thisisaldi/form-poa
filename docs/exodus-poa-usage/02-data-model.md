@@ -55,11 +55,13 @@ model PoaDoctorApproval {
 
 ### Catatan desain (draft, field baru §9)
 
-- **`usedInExodus` (boolean, existing) TIDAK dihapus** — diusulkan tetap jadi sumber kebenaran untuk filter list (`01-business-rules.md` §4), derived `true` begitu `exodusStatus` terisi apapun nilainya (`PENGAJUAN` atau `APPROVED`). Field baru murni menambah detail, bukan pengganti — supaya tidak breaking terhadap filter yang sudah live.
+- **Use case dikonfirmasi 2026-09-01**: BUKAN kebutuhan Exodus, tapi POA sendiri yang mau menampilkan nomor pengajuan + status di halaman detail POA (`/poa/[id]`, per baris dokter — lihat `01-business-rules.md` §9 "Klarifikasi"). Exodus cuma jadi sumber datanya lewat PATCH.
+- **`usedInExodus` (boolean, existing) TIDAK dihapus, TIDAK digantikan** — **settled 2026-09-01**: ketiga field (`usedInExodus`, `exodusStatus`, `exodusNomorPengajuan`) independen, masing-masing di-update lewat PATCH partial (lihat "Keputusan: PATCH bersifat partial" di `01-business-rules.md` §9). `usedInExodus` tetap jadi sumber kebenaran untuk filter list (`01-business-rules.md` §4).
 - **`exodusStatus` nullable, bukan default `PENGAJUAN`** — null secara eksplisit berarti "belum pernah dikirim status oleh Exodus", beda makna dari `PENGAJUAN` (sudah dikirim, masih proses). Sama pola null-vs-nol dengan field `estimasi*` di `docs/poa-standarisasi/02-data-model.md`.
 - **`exodusNomorPengajuan` string bebas, tidak divalidasi format** — POA cuma menyimpan apa yang dikirim Exodus apa adanya (lihat Open Question #3 di `01-business-rules.md` §9, masih perlu dikonfirmasi apakah ada pola tertentu).
-- **BELUM ditentukan apakah `exodusStatus`/`exodusNomorPengajuan` ikut dikosongkan saat revert** (`usedInExodus: false`) — lihat Open Question #5. Sampai dijawab, skema ini adalah draft, bukan final.
-- **Migration BELUM dibuat** — menunggu convergence check (jawaban blocking Open Questions #1-2 di `01-business-rules.md` §9) sebelum `prisma migrate dev` dijalankan, mengikuti alur SDD (`docs/sdd/01-when-and-workflow.md` langkah 2).
+- **PATCH partial per-field** — server-side, tiap field (`usedInExodus`/`exodusStatus`/`exodusNomorPengajuan`) di body yang HADIR di-update; field yang tidak dikirim TIDAK disentuh/di-null-kan. Konsekuensi: `exodusNomorPengajuan` yang dikirim sekali di awal (submit) TETAP tersimpan melewati PATCH-PATCH berikutnya yang cuma mengirim `exodusStatus` untuk transisi.
+- **BELUM ditentukan**: apakah `PENGAJUAN` wajib mendahului `APPROVED` (validasi urutan status — Open Question #2, masih didiskusikan Aldi), apakah `exodusStatus`/`exodusNomorPengajuan` ikut dikosongkan saat revert `usedInExodus: false` (Open Question #5). Sampai dijawab, skema ini adalah draft, bukan final.
+- **Migration BELUM dibuat** — menunggu convergence check (terutama Open Question #2 di `01-business-rules.md` §9) sebelum `prisma migrate dev` dijalankan, mengikuti alur SDD (`docs/sdd/01-when-and-workflow.md` langkah 2).
 
 ### Catatan desain
 

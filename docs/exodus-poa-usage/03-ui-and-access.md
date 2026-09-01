@@ -33,20 +33,28 @@ Tidak ada role/access matrix baru — endpoint ini murni server-to-server (dipan
 
 ## DRAFT — perubahan diusulkan 2026-09-01 (belum diimplementasikan)
 
-Lihat `01-business-rules.md` §9 untuk konteks lengkap. Kontrak `PATCH /api/poa-doctors/{id}` di atas masih berlaku SEKARANG (belum berubah) — ini catatan proposal, menunggu jawaban Juni Pharos untuk Open Questions blocking sebelum kontrak final ditentukan/diimplementasikan.
+Lihat `01-business-rules.md` §9 untuk konteks lengkap. Kontrak `PATCH /api/poa-doctors/{id}` di atas masih berlaku SEKARANG (belum berubah) — bagian ini catatan proposal.
 
-Draf kontrak paling sederhana (opsi "field baru berdampingan", bukan menggantikan body lama — lihat tabel asumsi kerja di `01-business-rules.md` §9):
+**Use case (dikonfirmasi Aldi 2026-09-01)**: nomor pengajuan + status ditampilkan di halaman detail POA (`/poa/[id]`), per baris dokter — bukan kebutuhan Exodus sendiri, Exodus cuma sumber datanya. Lihat rencana UI di bawah.
+
+**Kontrak PATCH — settled 2026-09-01, partial per-field** (bukan lagi open question soal "replace vs alongside" — lihat `01-business-rules.md` §9):
 
 ```
 PATCH /api/poa-doctors/{id}
 {
-  "usedInExodus": true,
-  "exodusStatus": "PENGAJUAN" | "APPROVED",
-  "exodusNomorPengajuan": "<nomor dari Exodus>"
+  "usedInExodus"?: boolean,
+  "exodusStatus"?: "PENGAJUAN" | "APPROVED",
+  "exodusNomorPengajuan"?: string
 }
 ```
 
-**Belum ditentukan**: apakah `exodusStatus`/`exodusNomorPengajuan` WAJIB diisi begitu `usedInExodus: true` dikirim, atau tetap opsional (backward-compatible dengan kontrak bodyless/`{"usedInExodus":true}` yang sudah live sejak 2026-08-26 dan mungkin sudah dipakai Exodus di production).
+Ketiga field OPSIONAL dan independen — Exodus kirim field mana pun yang berubah, tidak wajib mengirim ketiganya sekaligus. Field yang tidak dikirim tidak disentuh di DB. Body kosong/tanpa field tetap default `usedInExodus: true` (kompatibel dengan kontrak lama). Contoh pemakaian bertahap: PATCH pertama saat submit `{"exodusNomorPengajuan": "EXO-123", "exodusStatus": "PENGAJUAN"}`; PATCH kedua saat approved cukup `{"exodusStatus": "APPROVED"}` — nomor pengajuan yang sudah tersimpan tidak perlu dikirim ulang.
+
+**Masih open (Open Question #2 di `01-business-rules.md` §9, Aldi minta didiskusikan dulu)**: apakah `exodusStatus: "APPROVED"` boleh dikirim langsung tanpa `PENGAJUAN` sebelumnya, atau server harus menolak/validasi urutan.
+
+### Rencana UI (draft) — `/poa/[id]`, per baris dokter
+
+Reuse pola `DraftChecklist`'s `DoctorRow` yang sudah join `PoaDoctorApproval` lewat `doctorApprovalByKey` (`src/app/(app)/poa/[id]/page.tsx:102-103`) — badge/chip baru di baris yang sama dengan `StatusBadge`/`Version X` yang sudah ada, muncul HANYA kalau `exodusStatus` terisi (dokter yang belum pernah disentuh Exodus tidak menampilkan apa-apa). Detail styling/copy belum didesain — menunggu Open Question #2 selesai dulu supaya jelas transisi status apa saja yang perlu direpresentasikan di badge.
 
 ## Non-goals v2
 

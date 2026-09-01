@@ -95,12 +95,28 @@ Ini **membuka ulang** Open Question #4 di §6 (yang sempat ditandai "Selesai" �
 | Kontrak PATCH baru | **BLOCKING — belum diusulkan bentuknya ke Exodus.** Draf paling sederhana: `PATCH /api/poa-doctors/{id}` body `{"exodusStatus": "PENGAJUAN" | "APPROVED", "exodusNomorPengajuan": "..."}`, MENGGANTIKAN body lama (`{"usedInExodus": true/false}`) untuk arah "mark as used" — tapi ini BREAKING CHANGE ke kontrak yang sudah live sejak 2026-08-26 dan mungkin sudah dipakai Exodus di production. Alternatif: field baru OPSIONAL di body yang sama (`usedInExodus` tetap jadi trigger utama, `exodusStatus`/`exodusNomorPengajuan` ikut kalau dikirim) — lebih aman tapi Exodus harus tau field baru ini ada. |
 | Revert (`{"usedInExodus": false}`) | Belum jelas apakah revert juga harus mengosongkan `exodusStatus`/`exodusNomorPengajuan`, atau nomor pengajuan tetap disimpan sebagai histori terakhir meski status di-revert. |
 
-### Open questions BLOCKING — wajib dikonfirmasi Juni Pharos sebelum kode ditulis
+### Klarifikasi 2026-09-01 (lanjutan, hari yang sama) — use case-nya milik POA, bukan Exodus
 
-1. Bentuk kontrak PATCH yang pasti — field baru menggantikan `usedInExodus` di body, atau berdampingan?
-2. Apakah PENGAJUAN dan APPROVED dua kali panggilan PATCH terpisah (2 event), atau Exodus kirim status akhir aja begitu tau approved (bisa lompat langsung ke `APPROVED` tanpa lewat `PENGAJUAN` dulu)?
+> [09:29] Aldi: intinya exodus bisa update pake endpoint, untuk update field nomor pengajuan atau update status di sisi exodus nya bukan pak? jujur saya bingung ini use case nya untuk apa
+> [09:31] Juni Pharos: keperluannya bukan di exodus, use casenya keperluan di POA — itu kenapa Exodus perlu infoin ke POA. jadi tergantung di POA mau nunjukin layarnya mau seperti apa. klo gaada keperluan bisa cukup pada saat submit
+
+Ini membalikkan kerangka pertanyaannya: bukan "apa yang Exodus butuh dari POA", tapi **"apa yang POA mau tunjukkan ke user-nya sendiri"** — Exodus cuma jadi sumber data, keputusan desainnya ada di sisi POA.
+
+**Dikonfirmasi Aldi (2026-09-01)**: YA ada rencana ditampilkan di UI POA, lokasinya di **halaman detail POA (`/poa/[id]`)**, per baris dokter — reuse pola `DraftChecklist`'s `DoctorRow` yang sudah join ke `PoaDoctorApproval` lewat `doctorApprovalByKey` (`src/app/(app)/poa/[id]/page.tsx:102-103`), sama seperti `StatusBadge`/`Version X` chip yang sudah ada per baris dokter di situ sekarang. Ini MENGKONFIRMASI kebutuhan status tracking (bukan cuma nomor pengajuan sekali di submit) — kalau POA mau nunjukkan badge "Pengajuan"/"Approved" di layar, field status-nya memang perlu ada dan ke-update seiring waktu, bukan cukup ditulis sekali.
+
+### Keputusan: PATCH bersifat partial — 3 field independen
+
+Dikonfirmasi Aldi (2026-09-01): PATCH **tidak** mewajibkan `usedInExodus`+`exodusStatus`+`exodusNomorPengajuan` dikirim bersamaan. Semantik PATCH standar — Exodus boleh kirim cuma satu field yang berubah (mis. `{"exodusStatus": "APPROVED"}` saja untuk transisi status, tanpa perlu resend nomor pengajuan yang sudah dikirim sebelumnya). Konsekuensinya:
+- `usedInExodus` TETAP ada sebagai field terpisah (bukan digantikan) — ini juga menjawab Open Question lama soal "replace vs alongside": **alongside**, karena kalau salah satu field ini opsional untuk dikirim, otomatis tidak ada yang "menggantikan" yang lain.
+- Server-side: tiap field di body yang hadir di-update, field yang tidak dikirim TIDAK disentuh (tidak di-null-kan/reset). Sama pola dengan `usedInExodus` sekarang yang juga optional-body-defaults-true (lihat kontrak lama di `03-ui-and-access.md`), diperluas ke 2 field baru.
+- `exodusNomorPengajuan` kemungkinan dikirim SEKALI di awal (saat submit/PENGAJUAN), lalu PATCH selanjutnya cuma kirim `exodusStatus` untuk transisi ke `APPROVED` — nomor lama tetap tersimpan karena tidak di-touch.
+
+### Open questions BLOCKING — masih perlu didiskusikan (Aldi minta dibahas lebih lanjut, BUKAN diputuskan sekarang)
+
+1. ~~Bentuk kontrak PATCH — menggantikan atau berdampingan?~~ **Settled 2026-09-01**: berdampingan, partial PATCH (lihat di atas).
+2. **Masih terbuka, Aldi eksplisit minta didiskusikan lebih dulu**: apakah `PENGAJUAN` wajib dikirim dulu sebelum `APPROVED` (validasi urutan di server), atau Exodus boleh langsung kirim `APPROVED` di PATCH pertama tanpa lewat `PENGAJUAN`? Terkait erat dengan pertanyaan Aldi yang lebih besar ("use case-nya untuk apa") — perlu diperjelas dulu skenario nyata di UI `/poa/[id]` sebelum aturan validasinya ditentukan.
 3. Format/validasi `exodusNomorPengajuan` — bebas string, atau ada pola tertentu (`EXO-xxxx`, numeric, dst.) yang perlu divalidasi POA?
 4. Ada state "REJECTED"/gagal di Exodus yang perlu POA tau juga (di luar PENGAJUAN/APPROVED), mengingat aturan revert di §8 sudah pernah dibahas soal reject?
 5. Perilaku revert (`usedInExodus:false`) terhadap 2 field baru ini — dikosongkan juga atau dipertahankan sebagai histori?
 
-**Status implementasi: belum dimulai** — spec ini ditulis duluan (SDD, `docs/sdd/01-when-and-workflow.md`) karena requirement dari eksternal (chat Exodus) yang ambigu di kontrak teknisnya dan mengubah data model yang sudah live. Menunggu jawaban Juni Pharos untuk poin 1-2 (paling blocking) sebelum lanjut ke `02-data-model.md`/implementasi.
+**Status implementasi: belum dimulai** — spec ini ditulis duluan (SDD, `docs/sdd/01-when-and-workflow.md`). Kontrak PATCH (poin 1) sudah settled 2026-09-01; poin 2 masih perlu dibahas Aldi lebih lanjut sebelum lanjut ke migration/implementasi UI di `/poa/[id]`.
