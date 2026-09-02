@@ -279,9 +279,27 @@ export function ProductSelector({
     lamaPeriode,
   });
 
+  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[32%]" : "w-[35%]") : (!readOnly ? "w-[26%]" : "w-[29%]");
+  const colPotensiWidth = isCashbackNotFound ? "w-[9%]" : "w-[8%]";
+  const colSwitchWidth = isCashbackNotFound ? "w-[15%]" : "w-[13%]";
+  const colDiskonWidth = "w-[8%]";
+  const colEstSalesWidth = isCashbackNotFound ? "w-[16%]" : "w-[14%]";
+  const colNilaiScWidth = isCashbackNotFound ? "w-[17%]" : "w-[14%]";
+  const colCashbackWidth = "w-[14%]";
+  const colActionWidth = "w-[3%]";
+
   return (
     <div className="space-y-4">
       {error && <p className="text-xs font-semibold" style={{ color: "var(--color-red)" }}>{error}</p>}
+
+      {isCashbackNotFound && (
+        <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+          <svg className="w-4 h-4 shrink-0" style={{ color: "var(--color-text-muted)" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>Outlet Ini Tidak Berpartisipasi Dalam Promosi Cashback</span>
+        </div>
+      )}
 
       {/* Main Product Table Container */}
       <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
@@ -289,31 +307,31 @@ export function ProductSelector({
           <table className="w-full text-left text-xs border-collapse table-fixed">
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                <th className="py-2 px-1.5 font-semibold text-[11px] text-left w-[28%]" style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-left ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Produk <Req />
                 </th>
-                <th className="py-2 px-1 font-semibold text-[11px] text-center w-[8%]" style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Potensi
                 </th>
-                <th className="py-2 px-1 font-semibold text-[11px] text-center w-[13%]" style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Switch <Req />
                 </th>
-                <th className="py-2 px-1 font-semibold text-[11px] text-center w-[8%]" style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Diskon
                 </th>
-                <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Sales
                 </th>
-                <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Nilai SC
                 </th>
                 {!isCashbackNotFound && (
-                  <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
+                  <th className={`py-2 px-1.5 font-semibold text-[11px] text-right ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
                     Estimasi Cashback
                   </th>
                 )}
                 {!readOnly && (
-                  <th className="py-2 px-1 text-center font-semibold text-[11px] w-[3%]" style={{ color: "var(--color-text-muted)" }}>
+                  <th className={`py-2 px-1 text-center font-semibold text-[11px] ${colActionWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   </th>
                 )}
               </tr>
@@ -321,7 +339,7 @@ export function ProductSelector({
             <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={readOnly ? 7 : 8} className="py-6 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  <td colSpan={isCashbackNotFound ? (readOnly ? 6 : 7) : (readOnly ? 7 : 8)} className="py-6 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
                     Belum ada produk yang ditambahkan. Klik tombol <strong>+ Tambah Produk</strong> di bawah untuk memilih produk.
                   </td>
                 </tr>
@@ -599,9 +617,11 @@ export function ProductSelector({
                   <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-blue, #2563eb)" }}>
                     Rp {formatRp(grandTotalNilaiScBln)}
                   </td>
-                  <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-green, #16a34a)" }}>
-                    {isCashbackNotFound ? "0" : `Rp ${formatRp(cashbackDetails.totalFinalCashbackMonthly)}`}
-                  </td>
+                  {!isCashbackNotFound && (
+                    <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-green, #16a34a)" }}>
+                      Rp {formatRp(cashbackDetails.totalFinalCashbackMonthly)}
+                    </td>
+                  )}
                   {!readOnly && <td></td>}
                 </tr>
               </tfoot>

@@ -348,6 +348,18 @@ export function SalesCounterOutletCard({
     });
   }, [cashbackData, draft]);
 
+  const isCashbackNotFound =
+    !cashbackData ||
+    cashbackData?.message === "Gudang Tidak Ditemukan" ||
+    (typeof cashbackData?.message === "string" &&
+      (cashbackData.message.toLowerCase().includes("tidak ditemukan") ||
+        cashbackData.message.toLowerCase().includes("gudang"))) ||
+    (typeof cashbackData?.data?.message === "string" &&
+      (cashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
+        cashbackData.data.message.toLowerCase().includes("gudang"))) ||
+    cashbackData?.status === false ||
+    cashbackData?.success === false;
+
   // Compute stats per outlet draft
   let outletEstSales = 0;
   let outletNilaiSc = 0;
@@ -729,7 +741,9 @@ export function SalesCounterOutletCard({
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty ST / Bln</th>
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</th>
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Nilai SC</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
+                  {!isCashbackNotFound && (
+                    <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
+                  )}
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                     <div>Growth Sebelumnya</div>
                     {b3RangeLabel && (
@@ -773,7 +787,9 @@ export function SalesCounterOutletCard({
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>{estSalesFull > 0 ? formatRp(estSalesFull) : "-"}</td>
                       <td className="px-2.5 py-2 text-right font-semibold" style={{ color: "var(--color-blue)" }}>{nilaiScFull > 0 ? formatRp(nilaiScFull) : "-"}</td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}</td>
+                      {!isCashbackNotFound && (
+                        <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}</td>
+                      )}
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>
                         {salesHistorical > 0 ? (
                           <span className={growthPct > 0 ? "text-emerald-600 font-semibold" : growthPct < 0 ? "text-rose-600 font-semibold" : ""}>
@@ -810,8 +826,8 @@ export function SalesCounterOutletCard({
           )}
 
           {/* Tabel BLAST-IN & POSM (Autofill data) */}
-          <BlastInTable poaPeriod={draft.period} />
-          <PosmTable />
+          {draft.isBlastIn && <BlastInTable poaPeriod={draft.period} />}
+          {(draft.isPosm || draft.kodePI === "F4002441") && <PosmTable />}
         </div>
       )}
     </div>

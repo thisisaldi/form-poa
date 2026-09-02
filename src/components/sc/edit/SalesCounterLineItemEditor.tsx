@@ -15,11 +15,12 @@ import { getB3PeriodInfo } from "@/lib/b3Utils";
 import { getScOutletB3SalesAction } from "@/app/actions/canvasser";
 import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
+import { PerincianBudgetModal } from "./PerincianBudgetModal";
 
 interface SalesCounterLineItemEditorProps {
   poaId: string;
   poaPeriod: string;
-  outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null; is_sc?: boolean; jumlah_sc?: number | null; isBlastIn?: boolean }[];
+  outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null; is_sc?: boolean; jumlah_sc?: number | null; isBlastIn?: boolean; isPosm?: boolean }[];
   products: Product[];
   savedDrafts?: any[];
 }
@@ -107,6 +108,8 @@ export function SalesCounterLineItemEditor({
     handleSubmit,
     handleCancel,
   } = useSalesCounterEditor({ poaId, poaPeriod, redirectTo: `/sc/${poaId}`, masterProducts: products, outlets, savedDrafts });
+
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
 
   // Period / Quarter setup
   const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
@@ -247,7 +250,19 @@ export function SalesCounterLineItemEditor({
     return sum + (valScBln * lamaPeriode);
   }, 0);
 
-  const totalCashbackVal = cashbackDetails?.totalFinalCashback ?? 0;
+  const isCashbackNotFound =
+    !cashbackData ||
+    (cashbackData as any)?.message === "Gudang Tidak Ditemukan" ||
+    (typeof (cashbackData as any)?.message === "string" &&
+      ((cashbackData as any).message.toLowerCase().includes("tidak ditemukan") ||
+        (cashbackData as any).message.toLowerCase().includes("gudang"))) ||
+    (typeof (cashbackData as any)?.data?.message === "string" &&
+      ((cashbackData as any).data.message.toLowerCase().includes("tidak ditemukan") ||
+        (cashbackData as any).data.message.toLowerCase().includes("gudang"))) ||
+    (cashbackData as any)?.status === false ||
+    (cashbackData as any)?.success === false;
+
+  const totalCashbackVal = isCashbackNotFound ? 0 : (cashbackDetails?.totalFinalCashback ?? 0);
 
   const totalDiskonVal = selectedProducts.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
@@ -324,7 +339,8 @@ export function SalesCounterLineItemEditor({
                       .map((o) => {
                         const isSc = !!(o as any).is_sc;
                         const isBlastIn = !!(o as any).isBlastIn;
-                        const statusCount = (isSc ? 1 : 0) + (isBlastIn ? 1 : 0);
+                        const isPosm = !!(o as any).isPosm;
+                        const statusCount = (isSc ? 1 : 0) + (isBlastIn ? 1 : 0) + (isPosm ? 1 : 0);
                         const jumlahSc = (o as any).jumlah_sc;
                         const rawCreated = (o as any).created ?? (o as any).created_at;
                         let createdPeriodStr = "";
@@ -345,14 +361,21 @@ export function SalesCounterLineItemEditor({
                         }
                         const sublabel = sublabelParts.length > 0 ? sublabelParts.join(" · ") : undefined;
 
+                        const tags: { tag: string; color: any }[] = [];
+                        if (isSc) tags.push({ tag: "INS - SC", color: "indigo" as const });
+                        if (isBlastIn) tags.push({ tag: "BLAST-IN", color: "gray" as const });
+                        if (isPosm) tags.push({ tag: "POSM", color: "purple" as const });
+
                         return {
                           value: o.kodePI,
                           label: `${o.kodePI} · ${o.namaOutlet}${o.groupRS ? ` (${o.groupRS})` : ""}`,
                           sublabel,
-                          tag: isSc ? "INS - SC" : undefined,
-                          tagColor: isSc ? ("indigo" as const) : undefined,
-                          tag2: isBlastIn ? "BLAST-IN" : undefined,
-                          tag2Color: isBlastIn ? ("gray" as const) : undefined,
+                          tag: tags[0]?.tag,
+                          tagColor: tags[0]?.color,
+                          tag2: tags[1]?.tag,
+                          tag2Color: tags[1]?.color,
+                          tag3: tags[2]?.tag,
+                          tag3Color: tags[2]?.color,
                           statusCount,
                         };
                       })
@@ -501,7 +524,7 @@ export function SalesCounterLineItemEditor({
 
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Jumlah Pasien Resep
+                  Jumlah Pasien Resep (Per Hari)
                 </span>
                 <input
                   type="number"
@@ -515,7 +538,7 @@ export function SalesCounterLineItemEditor({
 
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Jumlah Pasien Non Resep
+                  Jumlah Pasien Non Resep (Per Hari)
                 </span>
                 <input
                   type="number"
@@ -594,17 +617,7 @@ export function SalesCounterLineItemEditor({
                 diskonPeriode={diskonPeriode}
                 cashbackPeriode={cashbackPeriode}
                 cashbackData={cashbackData}
-                hideCashback={
-                  (cashbackData as any)?.message === "Gudang Tidak Ditemukan" ||
-                  (typeof (cashbackData as any)?.message === "string" &&
-                    ((cashbackData as any).message.toLowerCase().includes("tidak ditemukan") ||
-                      (cashbackData as any).message.toLowerCase().includes("gudang"))) ||
-                  (typeof (cashbackData as any)?.data?.message === "string" &&
-                    ((cashbackData as any).data.message.toLowerCase().includes("tidak ditemukan") ||
-                      (cashbackData as any).data.message.toLowerCase().includes("gudang"))) ||
-                  (cashbackData as any)?.status === false ||
-                  (cashbackData as any)?.success === false
-                }
+                hideCashback={isCashbackNotFound}
                 error={errors.products}
                 b3SalesMap={b3SalesMap}
                 b3RangeLabel={b3RangeLabel}
@@ -659,8 +672,8 @@ export function SalesCounterLineItemEditor({
             )}
 
             {/* Tabel BLAST-IN & POSM (Autofill data - ditempatkan di bawah Rencana Entertain) */}
-            <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />
-            <PosmTable />
+            {selectedOutlet?.isBlastIn && <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />}
+            {(selectedOutlet?.isPosm || selectedOutlet?.kodePI === "F4002441") && <PosmTable />}
           </div>
 
           {/* 5. TOTAL SEMUA PRODUK */}
@@ -671,6 +684,21 @@ export function SalesCounterLineItemEditor({
                 <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                   Total Semua Produk
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setShowBudgetModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border cursor-pointer hover:bg-blue-100"
+                  style={{
+                    borderColor: "var(--color-blue)",
+                    color: "var(--color-blue)",
+                    background: "var(--color-blue-light, #eff6ff)",
+                  }}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  Perincian Budget
+                </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
                 <div className="shrink-0 min-w-[180px]">
@@ -686,19 +714,33 @@ export function SalesCounterLineItemEditor({
                 </div>
                 <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
                   <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                    TOTAL ESTIMASI BUDGET
+                    TOTAL GROWTH
                   </div>
-                  <div className="text-xl font-bold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
-                    Rp {Math.round(totalEstimasiBudget).toLocaleString("id-ID")}
-                  </div>
-                  <div className="text-[11px] mt-1 space-y-0.5" style={{ color: "var(--color-text-muted)" }}>
-                    <div>INSENTIF SC : <strong>Rp {Math.round(totalNilaiSc).toLocaleString("id-ID")}</strong></div>
-                    <div>DISKON : <strong>Rp {Math.round(totalDiskonVal).toLocaleString("id-ID")}</strong></div>
-                    <div>ENTERTAIN : <strong>Rp {Math.round(totalEntertainVal).toLocaleString("id-ID")}</strong></div>
-                    <div>CASHBACK : <strong>Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}</strong></div>
-                    <div>BLAST-IN : <strong>Rp 0</strong></div>
-                    <div>POSM : <strong>Rp 0</strong></div>
-                  </div>
+                  {totalGrowthPct != null ? (
+                    <>
+                      <div
+                        className="text-xl font-bold whitespace-nowrap mt-1"
+                        style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
+                      >
+                        {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
+                      </div>
+                      <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                        Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                      </div>
+                      <div
+                        className="text-[11px] font-semibold mt-0.5"
+                        style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
+                      >
+                        {totalGrowthPct > 0
+                          ? "✓ Intensifikasi naik"
+                          : "⚠️ Intensifikasi kurang"}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      Belum ada data SC sebelumnya
+                    </div>
+                  )}
                 </div>
                 <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
                   <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
@@ -709,37 +751,6 @@ export function SalesCounterLineItemEditor({
                   </div>
                   <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     Total Budget / Total Sales
-                  </div>
-
-                  <div className="pt-2 mt-2 border-t space-y-0.5" style={{ borderColor: "var(--color-border)" }}>
-                    <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                      TOTAL GROWTH
-                    </div>
-                    {totalGrowthPct != null ? (
-                      <>
-                        <div
-                          className="text-xl font-bold whitespace-nowrap mt-0.5"
-                          style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
-                        >
-                          {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
-                        </div>
-                        <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                          Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
-                        </div>
-                        <div
-                          className="text-[11px] font-semibold mt-0.5"
-                          style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
-                        >
-                          {totalGrowthPct > 0
-                            ? "✓ Intensifikasi naik"
-                            : "⚠️ Intensifikasi kurang"}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                        Belum ada data SC sebelumnya
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -758,7 +769,9 @@ export function SalesCounterLineItemEditor({
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Qty</th>
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Estimasi Sales</th>
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Nilai SC</th>
-                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Value Cashback</th>
+                        {!isCashbackNotFound && (
+                          <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Value Cashback</th>
+                        )}
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">
                           <div>Growth Sebelumnya</div>
                           {b3RangeLabel && (
@@ -816,9 +829,11 @@ export function SalesCounterLineItemEditor({
                             <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap font-semibold align-middle" style={{ color: "var(--color-blue)" }}>
                               {nilaiSc > 0 ? `Rp ${Math.round(nilaiSc).toLocaleString("id-ID")}` : "-"}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
-                              {valCashback > 0 ? `Rp ${Math.round(valCashback).toLocaleString("id-ID")}` : "-"}
-                            </td>
+                            {!isCashbackNotFound && (
+                              <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
+                                {valCashback > 0 ? `Rp ${Math.round(valCashback).toLocaleString("id-ID")}` : "-"}
+                              </td>
+                            )}
                             <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
                               {salesHistorical > 0 ? (
                                 <span className={growthPct > 0 ? "text-emerald-600 font-semibold" : growthPct < 0 ? "text-rose-600 font-semibold" : ""}>
@@ -848,7 +863,7 @@ export function SalesCounterLineItemEditor({
             <div className="rounded-xl border px-4 py-3 space-y-3"
               style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                Estimasi &amp; Nilai SC/Cashback per Bulan
+                {isCashbackNotFound ? "Estimasi & Nilai SC per Bulan" : "Estimasi & Nilai SC/Cashback per Bulan"}
               </p>
               <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
                 <table className="w-full text-xs">
@@ -857,7 +872,9 @@ export function SalesCounterLineItemEditor({
                       <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
                       <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
                       <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
-                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
+                      {!isCashbackNotFound && (
+                        <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -872,9 +889,11 @@ export function SalesCounterLineItemEditor({
                           <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
                             {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
                           </td>
-                          <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                            {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
-                          </td>
+                          {!isCashbackNotFound && (
+                            <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                              {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -886,9 +905,11 @@ export function SalesCounterLineItemEditor({
                       <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
                         Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
                       </td>
-                      <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                        Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
-                      </td>
+                      {!isCashbackNotFound && (
+                        <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                          Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
+                        </td>
+                      )}
                     </tr>
                   </tbody>
                 </table>
@@ -933,6 +954,20 @@ export function SalesCounterLineItemEditor({
           onSelectProduct={selectProductFromSidebar}
         />
       )}
+      <PerincianBudgetModal
+        isOpen={showBudgetModal}
+        onClose={() => setShowBudgetModal(false)}
+        totalEstimasiBudget={totalEstimasiBudget}
+        totalNilaiSc={totalNilaiSc}
+        totalDiskonVal={totalDiskonVal}
+        totalEntertainVal={totalEntertainVal}
+        totalCashbackVal={totalCashbackVal}
+        totalBlastInVal={0}
+        totalPosmVal={0}
+        showCashback={!isCashbackNotFound}
+        showBlastIn={!!selectedOutlet?.isBlastIn}
+        showPosm={!!selectedOutlet?.isPosm}
+      />
     </>
   );
 }

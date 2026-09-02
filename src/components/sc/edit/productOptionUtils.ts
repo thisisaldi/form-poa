@@ -93,7 +93,7 @@ export function buildScProductOptions({
       groupSurvey.push({
         value: code,
         label: p.pro_name || masterP?.namaProduk || surveyInfo.namaProdukRekomendasi || code,
-        sublabel: `${code} · ${brandStr}${zatStr}${surveyInfo.totalPotensiBulan ? ` · Potensi: ${surveyInfo.totalPotensiBulan} UB/bln` : ""}`,
+        sublabel: `${code} · ${brandStr}${zatStr}${surveyInfo.totalPotensiBulan ? ` · Potensi: ${Math.floor(surveyInfo.totalPotensiBulan)} UB/bln` : ""}`,
         group: "PRODUK SURVEY (NEXUS)",
         tag: "Produk Survey",
         tagColor: "purple",
@@ -107,7 +107,7 @@ export function buildScProductOptions({
       groupPernahOrder.push({
         value: code,
         label: p.pro_name || masterP?.namaProduk || code,
-        sublabel: `${code} · ${brandStr}${zatStr} · History: ${salesQty} UB`,
+        sublabel: `${code} · ${brandStr}${zatStr} · History: ${Math.floor(salesQty)} UB`,
         group: "PERNAH ORDER",
         tag: "Pernah Order",
         tagColor: "blue",
@@ -162,7 +162,7 @@ export function buildScProductOptions({
       groupSurvey.push({
         value: code,
         label: s.namaProdukRekomendasi || masterP?.namaProduk || code,
-        sublabel: `${code} · ${masterP?.namaGroupBrand || "Data Survey"}${potensiNum > 0 ? ` · Potensi: ${potensiNum} UB/bln` : ""}`,
+        sublabel: `${code} · ${masterP?.namaGroupBrand || "Data Survey"}${potensiNum > 0 ? ` · Potensi: ${Math.floor(potensiNum)} UB/bln` : ""}`,
         group: "PRODUK SURVEY (NEXUS)",
         tag: "Produk Survey",
         tagColor: "purple",
@@ -191,7 +191,7 @@ export function buildScProductOptions({
       groupPernahOrder.push({
         value: code,
         label: p.name || masterP?.namaProduk || code,
-        sublabel: `${code} · ${masterP?.namaGroupBrand || "Master Produk"} · History: ${salesQty} UB`,
+        sublabel: `${code} · ${masterP?.namaGroupBrand || "Master Produk"} · History: ${Math.floor(salesQty)} UB`,
         group: "PERNAH ORDER",
         tag: "Pernah Order",
         tagColor: "blue",

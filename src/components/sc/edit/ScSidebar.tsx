@@ -53,6 +53,78 @@ const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_BLUE = "var(--color-blue, #0063a0)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
 const SIDEBAR_PURPLE = "#7c3aed";
+const SIDEBAR_RED = "#e11d48";
+
+const DUMMY_SURVEY_DATA = [
+  {
+    kodeProduk: "0000111",
+    namaProdukRekomendasi: "POLYSILANE SYRUP 100ML",
+    totalPotensiBulan: 50,
+  },
+  {
+    kodeProduk: "0000112",
+    namaProdukRekomendasi: "POLYSILANE TAB 40'S",
+    totalPotensiBulan: 75,
+  },
+  {
+    kodeProduk: "0000114",
+    namaProdukRekomendasi: "PRORIS FORTE SYRUP 60ML",
+    totalPotensiBulan: 40,
+  },
+  {
+    kodeProduk: "0000115",
+    namaProdukRekomendasi: "MICROLAX ENEMA 5ML",
+    totalPotensiBulan: 30,
+  },
+];
+
+const DUMMY_KOMPETITOR_DATA = [
+  {
+    kodeProduk: "0201478",
+    namaProduk: "PRORIS SUSP 60 ML RASA JERUK",
+    subtitel: "0201478 · PRORIS · Ibuprofen 100mg/5ml",
+    internalSales: {
+      healthyOneUb: 10,
+      b2bUb: 15,
+      b2bSellInUb: 20,
+    },
+    surveyCompetitor: {
+      namaKompetitor: "Sanmol Syrup 60ml",
+      forecastPenjualanKompetitor: "5 Botol/hari",
+      potensiProrisUb: 30,
+    },
+  },
+  {
+    kodeProduk: "0102553",
+    namaProduk: "POLYSILANE SYRUP 100 ML",
+    subtitel: "0102553 · POLYSILANE · Antasida Doen & Dimethicone",
+    internalSales: {
+      healthyOneUb: 18,
+      b2bUb: 22,
+      b2bSellInUb: 25,
+    },
+    surveyCompetitor: {
+      namaKompetitor: "Mylanta Liquid 150ml",
+      forecastPenjualanKompetitor: "8 Botol/hari",
+      potensiProrisUb: 45,
+    },
+  },
+  {
+    kodeProduk: "0304112",
+    namaProduk: "MICROLAX ENEMA 5 ML 3'S",
+    subtitel: "0304112 · MICROLAX · Na Lauril Sulfoasetat",
+    internalSales: {
+      healthyOneUb: 8,
+      b2bUb: 12,
+      b2bSellInUb: 15,
+    },
+    surveyCompetitor: {
+      namaKompetitor: "Dulcolax Suppositoria",
+      forecastPenjualanKompetitor: "4 Box/hari",
+      potensiProrisUb: 25,
+    },
+  },
+];
 
 function sidebarEdgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -74,7 +146,7 @@ function sidebarEdgeTabStyle(color: string): React.CSSProperties {
   };
 }
 
-type SidebarTab = "survey" | "rekomendasi" | "loss_sales" | "history";
+type SidebarTab = "rekomendasi" | "loss_sales" | "history" | "analisis_kompetitor";
 
 function SidebarTabSwitcher({
   activeTab,
@@ -100,13 +172,6 @@ function SidebarTabSwitcher({
     <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
       <button
         type="button"
-        onClick={() => onChange("survey")}
-        style={pillStyle(SIDEBAR_ORANGE, activeTab === "survey")}
-      >
-        Data Survey
-      </button>
-      <button
-        type="button"
         onClick={() => onChange("rekomendasi")}
         style={pillStyle(SIDEBAR_GREEN, activeTab === "rekomendasi")}
       >
@@ -118,6 +183,13 @@ function SidebarTabSwitcher({
         style={pillStyle(SIDEBAR_BLUE, activeTab === "history")}
       >
         Histori SC
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("analisis_kompetitor")}
+        style={pillStyle(SIDEBAR_RED, activeTab === "analisis_kompetitor")}
+      >
+        Analisis Kompetitor
       </button>
     </div>
   );
@@ -167,6 +239,11 @@ export function ScSidebar({
   onSelectProduct?: (code: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<SidebarTab | null>(null);
+  const [kompetitorFilter, setKompetitorFilter] = useState<string>("b2b");
+
+  const effectiveSurveyData = useMemo(() => {
+    return Array.isArray(surveyData) && surveyData.length > 0 ? surveyData : DUMMY_SURVEY_DATA;
+  }, [surveyData]);
 
   const historyPeriodSubtext = useMemo(() => {
     return formatHistoryPeriodRange(historySalesData?.period);
@@ -350,13 +427,6 @@ export function ScSidebar({
       >
         <button
           type="button"
-          onClick={() => setActiveTab("survey")}
-          style={sidebarEdgeTabStyle(SIDEBAR_ORANGE)}
-        >
-          Data Survey
-        </button>
-        <button
-          type="button"
           onClick={() => setActiveTab("rekomendasi")}
           style={sidebarEdgeTabStyle(SIDEBAR_GREEN)}
         >
@@ -368,6 +438,13 @@ export function ScSidebar({
           style={sidebarEdgeTabStyle(SIDEBAR_BLUE)}
         >
           Histori SC
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("analisis_kompetitor")}
+          style={sidebarEdgeTabStyle(SIDEBAR_RED)}
+        >
+          Analisis Kompetitor
         </button>
       </div>
     );
@@ -426,61 +503,21 @@ export function ScSidebar({
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
-        {activeTab === "survey" ? (
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: "var(--color-text-faint)" }}>
-              Data Survey Nexus ({surveyData.length})
-            </p>
-            {surveyData.length > 0 ? (
-              <div className="space-y-2">
-                {surveyData.map((item: any, i: number) => {
-                  const targetCode = String(item.kodeProduk || "").trim();
-                  const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
-                  return (
-                    <div
-                      key={i}
-                      onClick={() => targetCode && onSelectProduct?.(targetCode)}
-                      className={`p-2.5 rounded-lg border text-xs space-y-1 transition-all ${
-                        onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
-                      }`}
-                      style={{
-                        background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
-                        borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-1.5 font-semibold">
-                        <span style={{ color: "var(--color-text)" }}>{item.namaProdukRekomendasi || item.kodeProduk}</span>
-                        {isSelected && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white font-mono">✓ Terpilih</span>}
-                      </div>
-                      <div className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-                        Kode: {item.kodeProduk}
-                        {item.totalPotensiBulan ? ` · Potensi: ${item.totalPotensiBulan} UB/bln` : ""}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-lg border p-4 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
-                Belum ada data survey untuk outlet ini.
-              </div>
-            )}
-          </div>
-        ) : activeTab === "rekomendasi" ? (
+        {activeTab === "rekomendasi" ? (
           <div className="space-y-4 animate-fade-in">
             {/* 1. PRODUK YANG SUDAH DI SURVEY ( NEXUS ) */}
             <div className="space-y-1.5">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                  PRODUK YANG SUDAH DI SURVEY ({surveyData.length})
+                  PRODUK YANG SUDAH DI SURVEY ({effectiveSurveyData.length})
                 </p>
                 <p className="text-[9px] font-medium" style={{ color: "var(--color-text-faint)", marginTop: 1 }}>
                   ( NEXUS )
                 </p>
               </div>
-              {surveyData.length > 0 ? (
+              {effectiveSurveyData.length > 0 ? (
                 <div className="space-y-1.5">
-                  {surveyData.map((item: any, i: number) => {
+                  {effectiveSurveyData.map((item: any, i: number) => {
                     const targetCode = String(item.kodeProduk || "").trim();
                     const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
                     return (
@@ -516,7 +553,7 @@ export function ScSidebar({
                             className="font-medium px-1.5 py-0.5 rounded"
                             style={{ background: "#f3e8ff", color: "#6b21a8" }}
                           >
-                            Produk Survey{item.totalPotensiBulan ? `: ${item.totalPotensiBulan} UB/bln` : ""}
+                            Produk Survey{item.totalPotensiBulan ? `: ${Math.floor(item.totalPotensiBulan)} UB/bln` : ""}
                           </span>
                         </div>
                       </div>
@@ -584,7 +621,7 @@ export function ScSidebar({
                                 className="font-medium px-1.5 py-0.5 rounded"
                                 style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
                               >
-                                History Sales: {salesVal > 0 ? `Rp ${Math.round(salesVal).toLocaleString("id-ID")} (${Number(entry.salesQty.toFixed(2))} UB)` : `${Number(entry.salesQty.toFixed(2))} UB`}
+                                History Sales: {salesVal > 0 ? `Rp ${Math.round(salesVal).toLocaleString("id-ID")} (${Math.floor(entry.salesQty)} UB)` : `${Math.floor(entry.salesQty)} UB`}
                               </span>
                             </div>
                           );
@@ -798,6 +835,153 @@ export function ScSidebar({
                 Tidak ada data potensi sales untuk outlet ini.
               </div>
             )}
+          </div>
+        ) : activeTab === "analisis_kompetitor" ? (
+          <div className="space-y-3 animate-fade-in">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                Analisis Kompetitor &amp; Survey ({DUMMY_KOMPETITOR_DATA.length} Produk)
+              </p>
+              <p className="text-[9px] text-slate-500 mt-0.5">
+                Sumber Data: Survey, HealthyOne &amp; B2B
+              </p>
+            </div>
+
+            {/* Source Filter Pills — B2B Direct Channel */}
+            <div className="flex gap-1 overflow-x-auto pb-1 text-[10px] font-semibold">
+              {[
+                { id: "semua", label: "Semua" },
+                { id: "survey", label: "Survey" },
+                { id: "healthyone", label: "HealthyOne" },
+                { id: "b2b", label: "B2B" },
+              ].map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setKompetitorFilter(f.id)}
+                  className={`px-2.5 py-0.5 rounded-full border transition-all cursor-pointer whitespace-nowrap text-[9px] ${
+                    kompetitorFilter === f.id
+                      ? "bg-purple-700 text-white border-purple-700 font-bold shadow-xs"
+                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Product Competitor Cards */}
+            <div className="space-y-3">
+              {DUMMY_KOMPETITOR_DATA.map((item, idx) => {
+                const showSurvey = kompetitorFilter === "semua" || kompetitorFilter === "survey";
+                const showHealthyOne = kompetitorFilter === "semua" || kompetitorFilter === "healthyone";
+                const showB2B = kompetitorFilter === "semua" || kompetitorFilter === "b2b";
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => item.kodeProduk && onSelectProduct?.(item.kodeProduk)}
+                    className={`rounded-xl border shadow-xs overflow-hidden text-xs transition-all ${
+                      onSelectProduct ? "cursor-pointer hover:border-slate-400 hover:shadow-sm" : ""
+                    }`}
+                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                  >
+                    {/* Soft Light Header Card */}
+                    <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 space-y-0.5">
+                      <div className="flex items-start justify-between gap-1.5">
+                        <span className="font-bold text-[11px] text-slate-800 leading-tight block">
+                          {item.namaProduk}
+                        </span>
+                        <span className="text-[9px] font-bold shrink-0 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200/80 font-mono">
+                          Potensi: {item.surveyCompetitor.potensiProrisUb} UB
+                        </span>
+                      </div>
+                      <div className="text-[9px] text-slate-500 font-medium truncate">
+                        {item.subtitel}
+                      </div>
+                    </div>
+
+                    {/* Card Body */}
+                    <div className="p-2.5 space-y-3">
+                      {/* 1. SELL OUT (Survey, HealthyOne, B2B) */}
+                      {(showSurvey || showHealthyOne || showB2B) && (
+                        <div className="space-y-1.5">
+                          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                            Sell Out
+                          </div>
+                          <div className="space-y-1 text-[10px]">
+                            {/* Survey (External Competitor Survey) */}
+                            {showSurvey && (
+                              <div className="p-2 rounded-lg bg-rose-50/40 border border-rose-100 space-y-1">
+                                <div className="flex items-center justify-between font-semibold text-slate-800">
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
+                                    <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200/60 font-bold text-[8px] uppercase shrink-0">
+                                      Survey
+                                    </span>
+                                    <span className="truncate">{item.surveyCompetitor.namaKompetitor}</span>
+                                  </div>
+                                  <span className="text-[9px] font-bold text-rose-700 bg-rose-100/80 border border-rose-200/80 px-1.5 py-0.5 rounded font-mono shrink-0">
+                                    Jual: {item.surveyCompetitor.forecastPenjualanKompetitor}
+                                  </span>
+                                </div>
+                                <div className="text-[9px] text-slate-700 font-medium pt-0.5 flex items-center justify-between border-t border-rose-100/70">
+                                  <span>Forecast Potensi Penjualan:</span>
+                                  <span className="font-bold text-rose-800">{item.surveyCompetitor.potensiProrisUb} UB / bln</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* HealthyOne (Internal Sell Out) */}
+                            {showHealthyOne && (
+                              <div className="p-1.5 rounded-lg bg-emerald-50/70 border border-emerald-200/70 flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200/70 font-bold text-[8px] uppercase">
+                                    HealthyOne
+                                  </span>
+                                  <span className="font-medium text-slate-700">HealthyOne Sell Out</span>
+                                </div>
+                                <span className="font-bold text-emerald-950">{item.internalSales.healthyOneUb} UB</span>
+                              </div>
+                            )}
+
+                            {/* B2B (Internal Sell Out) */}
+                            {showB2B && (
+                              <div className="p-1.5 rounded-lg bg-blue-50/70 border border-blue-200/70 flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-200/70 font-bold text-[8px] uppercase">
+                                    B2B
+                                  </span>
+                                  <span className="font-medium text-slate-700">B2B Sell Out</span>
+                                </div>
+                                <span className="font-bold text-blue-950">{item.internalSales.b2bUb} UB</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. SELL IN (B2B Only) */}
+                      {showB2B && (
+                        <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
+                          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
+                            Sell In
+                          </div>
+                          <div className="p-1.5 rounded-lg bg-blue-50/40 border border-blue-200/50 flex items-center justify-between text-[10px]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-200/70 font-bold text-[8px] uppercase">
+                                B2B
+                              </span>
+                              <span className="font-medium text-slate-700">B2B</span>
+                            </div>
+                            <span className="font-bold text-blue-900">{item.internalSales.b2bSellInUb} UB</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : (
           <div className="space-y-3 animate-fade-in">

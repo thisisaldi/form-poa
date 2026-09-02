@@ -9,23 +9,27 @@ interface BlastInTableProps {
 
 export function BlastInTable({ poaPeriod = "2026-Q3", quarter }: BlastInTableProps) {
   let qNum = quarter;
-  let yearNum = 2026;
 
-  const m = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
-  if (m) {
-    yearNum = parseInt(m[1], 10);
-    if (!qNum) qNum = parseInt(m[2], 10);
+  if (!qNum) {
+    const m = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+    if (m) {
+      qNum = parseInt(m[2], 10);
+    }
   }
   if (!qNum) qNum = 3;
 
-  // Sesuai instruksi: Sembunyikan tabel BLAST-IN untuk Q1 & Q2 pada tahun 2026
-  if (yearNum === 2026 && (qNum === 1 || qNum === 2)) {
-    return null;
-  }
+  const actualHeader =
+    qNum === 1
+      ? "ACTUAL SALES"
+      : qNum === 2
+      ? "ACTUAL SALES (Q1)"
+      : qNum === 3
+      ? "ACTUAL SALES (Q1-Q2)"
+      : "ACTUAL SALES (Q1-Q3)";
 
-  const estimasiHeader = qNum === 4 ? "ESTIMASI Q3 + Q4" : "ESTIMASI Q3";
-  const targetHeader = `TARGET BLAST-IN Q${qNum >= 4 ? 4 : 3}`;
-  const hadiahHeader = `HADIAH Q${qNum >= 4 ? 4 : 3}`;
+  const estimasiHeader = qNum === 4 ? "ESTIMASI Q3 + Q4" : `ESTIMASI Q${qNum}`;
+  const targetHeader = `TARGET BLAST-IN Q${qNum}`;
+  const hadiahHeader = `HADIAH Q${qNum}`;
 
   return (
     <div className="space-y-2 mt-4">
@@ -35,7 +39,7 @@ export function BlastInTable({ poaPeriod = "2026-Q3", quarter }: BlastInTablePro
           <thead>
             <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
               <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "25%" }}>
-                ACTUAL SALES (Q1-Q2)
+                {actualHeader}
               </th>
               <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "25%" }}>
                 {estimasiHeader}

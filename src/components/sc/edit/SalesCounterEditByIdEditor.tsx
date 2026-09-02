@@ -15,6 +15,7 @@ import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
+import { PerincianBudgetModal } from "./PerincianBudgetModal";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
   if (rawVal == null) return "0";
@@ -108,6 +109,7 @@ interface SalesCounterEditByIdEditorProps {
   namaOutlet: string | null;
   is_sc?: boolean;
   isBlastIn?: boolean;
+  isPosm?: boolean;
   persons: Person[];
   initialProducts: {
     id: string;
@@ -160,6 +162,7 @@ export function SalesCounterEditByIdEditor({
   namaOutlet,
   is_sc,
   isBlastIn,
+  isPosm,
   persons,
   initialProducts,
   initialEntertainItems,
@@ -176,6 +179,7 @@ export function SalesCounterEditByIdEditor({
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [showBudgetModal, setShowBudgetModal] = useState(false);
 
   // Pre-filled locked values
   const selectedPersonIds = persons.map((p) => parseInt(p.nik_ktp, 10));
@@ -502,18 +506,19 @@ export function SalesCounterEditByIdEditor({
     lamaPeriode,
   });
 
-  const totalCashbackVal = cashbackDetails?.totalFinalCashback ?? 0;
   const isCashbackHidden =
-  !rawCashbackData ||
-  rawCashbackData?.message === "Gudang Tidak Ditemukan" ||
-  (typeof rawCashbackData?.message === "string" &&
-    (rawCashbackData.message.toLowerCase().includes("tidak ditemukan") ||
-     rawCashbackData.message.toLowerCase().includes("gudang"))) ||
-  (typeof rawCashbackData?.data?.message === "string" &&
-    (rawCashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
-     rawCashbackData.data.message.toLowerCase().includes("gudang"))) ||
-  rawCashbackData?.status === false ||
-  rawCashbackData?.success === false;
+    !rawCashbackData ||
+    rawCashbackData?.message === "Gudang Tidak Ditemukan" ||
+    (typeof rawCashbackData?.message === "string" &&
+      (rawCashbackData.message.toLowerCase().includes("tidak ditemukan") ||
+       rawCashbackData.message.toLowerCase().includes("gudang"))) ||
+    (typeof rawCashbackData?.data?.message === "string" &&
+      (rawCashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
+       rawCashbackData.data.message.toLowerCase().includes("gudang"))) ||
+    rawCashbackData?.status === false ||
+    rawCashbackData?.success === false;
+
+  const totalCashbackVal = isCashbackHidden ? 0 : (cashbackDetails?.totalFinalCashback ?? 0);
 
   const totalDiskonVal = products.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
@@ -797,7 +802,7 @@ export function SalesCounterEditByIdEditor({
 
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                Jumlah Pasien Resep
+                Jumlah Pasien Resep (Per Hari)
               </span>
               <input
                 type="number"
@@ -812,7 +817,7 @@ export function SalesCounterEditByIdEditor({
 
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                Jumlah Pasien Non Resep
+                Jumlah Pasien Non Resep (Per Hari)
               </span>
               <input
                 type="number"
@@ -917,8 +922,8 @@ export function SalesCounterEditByIdEditor({
           )}
 
           {/* Tabel BLAST-IN & POSM (Autofill data) */}
-          <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />
-          <PosmTable />
+          {isBlastIn && <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />}
+          {(isPosm || kodePI === "F4002441") && <PosmTable />}
         </div>
 
         {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
@@ -926,7 +931,7 @@ export function SalesCounterEditByIdEditor({
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              Estimasi &amp; Nilai SC/Cashback per Bulan
+              {isCashbackHidden ? "Estimasi & Nilai SC per Bulan" : "Estimasi & Nilai SC/Cashback per Bulan"}
             </p>
             <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
               <table className="w-full text-xs">
@@ -935,7 +940,9 @@ export function SalesCounterEditByIdEditor({
                     <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
                     <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
                     <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
+                    {!isCashbackHidden && (
+                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -950,9 +957,11 @@ export function SalesCounterEditByIdEditor({
                         <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
                           {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
                         </td>
-                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                          {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
-                        </td>
+                        {!isCashbackHidden && (
+                          <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                            {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -964,62 +973,11 @@ export function SalesCounterEditByIdEditor({
                     <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
                       Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
                     </td>
-                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                      Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
-        {monthlyBreakdown.length > 0 && products.some(p => p.kodeProduk) && (
-          <div className="rounded-xl border px-4 py-3 space-y-3"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              Estimasi &amp; Nilai SC/Cashback per Bulan
-            </p>
-            <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                    <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthlyBreakdown.map((m: { month: string; label: string; estimasiSales: number; nilaiSc: number }) => {
-                    const mCashback = totalCashbackVal / (lamaPeriode || 1);
-                    return (
-                      <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                        <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
-                        <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                          {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                          {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                          {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  <tr style={{ fontWeight: 600 }}>
-                    <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text)" }}>Total</td>
-                    <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                      Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
-                    </td>
-                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                      Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
-                    </td>
-                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                      Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
-                    </td>
+                    {!isCashbackHidden && (
+                      <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                        Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
+                      </td>
+                    )}
                   </tr>
                 </tbody>
               </table>
@@ -1030,6 +988,26 @@ export function SalesCounterEditByIdEditor({
         {/* TOTAL */}
         <div className="rounded-xl border px-4 py-3 space-y-4"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+              Total Semua Produk
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowBudgetModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border cursor-pointer hover:bg-blue-100"
+              style={{
+                borderColor: "var(--color-blue)",
+                color: "var(--color-blue)",
+                background: "var(--color-blue-light, #eff6ff)",
+              }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              Perincian Budget
+            </button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
             <div className="shrink-0 min-w-[180px]">
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
@@ -1044,19 +1022,33 @@ export function SalesCounterEditByIdEditor({
             </div>
             <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                TOTAL ESTIMASI BUDGET
+                TOTAL GROWTH
               </div>
-              <div className="text-xl font-bold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
-                Rp {Math.round(totalEstimasiBudget).toLocaleString("id-ID")}
-              </div>
-              <div className="text-[11px] mt-1 space-y-0.5" style={{ color: "var(--color-text-muted)" }}>
-                <div>INSENTIF SC : <strong>Rp {Math.round(totalNilaiSc).toLocaleString("id-ID")}</strong></div>
-                <div>DISKON : <strong>Rp {Math.round(totalDiskonVal).toLocaleString("id-ID")}</strong></div>
-                <div>ENTERTAIN : <strong>Rp {Math.round(totalEntertainVal).toLocaleString("id-ID")}</strong></div>
-                <div>CASHBACK : <strong>Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}</strong></div>
-                <div>BLAST-IN : <strong>Rp 0</strong></div>
-                <div>POSM : <strong>Rp 0</strong></div>
-              </div>
+              {totalGrowthPct != null ? (
+                <>
+                  <div
+                    className="text-xl font-bold whitespace-nowrap mt-1"
+                    style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
+                  >
+                    {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
+                  </div>
+                  <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                    Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                  </div>
+                  <div
+                    className="text-[11px] font-semibold mt-0.5"
+                    style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
+                  >
+                    {totalGrowthPct > 0
+                      ? "✓ Intensifikasi naik"
+                      : "⚠️ Intensifikasi kurang"}
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                  Belum ada data SC sebelumnya
+                </div>
+              )}
             </div>
             <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
@@ -1067,37 +1059,6 @@ export function SalesCounterEditByIdEditor({
               </div>
               <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                 Total Budget / Total Sales
-              </div>
-
-              <div className="pt-2 mt-2 border-t space-y-0.5" style={{ borderColor: "var(--color-border)" }}>
-                <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                  TOTAL GROWTH
-                </div>
-                {totalGrowthPct != null ? (
-                  <>
-                    <div
-                      className="text-xl font-bold whitespace-nowrap mt-0.5"
-                      style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}
-                    >
-                      {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
-                    </div>
-                    <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                      Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
-                    </div>
-                    <div
-                      className="text-[11px] font-semibold mt-0.5"
-                      style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
-                    >
-                      {totalGrowthPct > 0
-                        ? "✓ Intensifikasi naik"
-                        : "⚠️ Intensifikasi kurang"}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    Belum ada data SC sebelumnya
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -1137,6 +1098,20 @@ export function SalesCounterEditByIdEditor({
         onSelectProduct={selectProductFromSidebar}
       />
     )}
+    <PerincianBudgetModal
+      isOpen={showBudgetModal}
+      onClose={() => setShowBudgetModal(false)}
+      totalEstimasiBudget={totalEstimasiBudget}
+      totalNilaiSc={totalNilaiSc}
+      totalDiskonVal={totalDiskonVal}
+      totalEntertainVal={totalEntertainVal}
+      totalCashbackVal={totalCashbackVal}
+      totalBlastInVal={0}
+      totalPosmVal={0}
+      showCashback={!isCashbackHidden}
+      showBlastIn={!!isBlastIn}
+      showPosm={!!isPosm}
+    />
     </>
   );
 }
