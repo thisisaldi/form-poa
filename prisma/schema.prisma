@@ -1668,4 +1668,16 @@ model ProductSwitchMapping {
   @@map("product_switch_mappings")
 }
 
-
+//Temp Model Data POSM Until Endpoint Nexus
+model POSM {
+  id                     String   @id @default(uuid())
+  refID                  String   @unique  
+  pi_code                String
+  Status                 String
+  brand                  String
+  value                  String
+  placementDate          DateTime
+  visibilityPeriod       Int
+  startDate              DateTime
+  endDate                DateTime
+}
