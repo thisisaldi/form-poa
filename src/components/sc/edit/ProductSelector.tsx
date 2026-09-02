@@ -226,6 +226,7 @@ export function ProductSelector({
 
   const isCashbackNotFound =
     hideCashback ||
+    !cashbackData ||
     cashbackData?.message === "Gudang Tidak Ditemukan" ||
     (typeof cashbackData?.message === "string" &&
       (cashbackData.message.toLowerCase().includes("tidak ditemukan") ||
@@ -306,9 +307,11 @@ export function ProductSelector({
                 <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
                   Nilai SC
                 </th>
-                <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
-                  Estimasi Cashback
-                </th>
+                {!isCashbackNotFound && (
+                  <th className="py-2 px-1.5 font-semibold text-[11px] text-right w-[14%]" style={{ color: "var(--color-text-muted)" }}>
+                    Estimasi Cashback
+                  </th>
+                )}
                 {!readOnly && (
                   <th className="py-2 px-1 text-center font-semibold text-[11px] w-[3%]" style={{ color: "var(--color-text-muted)" }}>
                   </th>
@@ -515,32 +518,34 @@ export function ProductSelector({
                       </td>
 
                       {/* Column 7: Nilai Cashback / Bln */}
-                      <td className="py-2 px-1.5 text-right align-top">
-                        {isCashbackNotFound ? (
-                          <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
-                            0
-                          </div>
-                        ) : (
-                          (() => {
-                            const cbMonthly = cashbackDetails.monthlyResultMap.get(row.kodeProduk) ?? 0;
-                            const isEligible = cashbackDetails.itemEligibilityMap?.get(row.kodeProduk) ?? false;
-                            const displayPct = isEligible && cbMonthly > 0 ? (row.persenCashback || 0) : 0;
-                            return (
-                              <>
-                                <div className="font-semibold text-[11px]" style={{ color: "var(--color-green, #16a34a)" }}>
-                                  Rp {formatRp(cbMonthly)}
-                                </div>
-                                <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-green, #16a34a)" }}>
-                                  <div>Cashback: <strong style={{ color: "var(--color-green, #16a34a)" }}>{displayPct}%</strong></div>
-                                  {cbMonthly > 0 && (
-                                    <div>3 Bln: Rp {formatRp(cbMonthly * 3)}</div>
-                                  )}
-                                </div>
-                              </>
-                            );
-                          })()
-                        )}
-                      </td>
+                      {!isCashbackNotFound && (
+                        <td className="py-2 px-1.5 text-right align-top">
+                          {isCashbackNotFound ? (
+                            <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
+                              0
+                            </div>
+                          ) : (
+                            (() => {
+                              const cbMonthly = cashbackDetails.monthlyResultMap.get(row.kodeProduk) ?? 0;
+                              const isEligible = cashbackDetails.itemEligibilityMap?.get(row.kodeProduk) ?? false;
+                              const displayPct = isEligible && cbMonthly > 0 ? (row.persenCashback || 0) : 0;
+                              return (
+                                <>
+                                  <div className="font-semibold text-[11px]" style={{ color: "var(--color-green, #16a34a)" }}>
+                                    Rp {formatRp(cbMonthly)}
+                                  </div>
+                                  <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-green, #16a34a)" }}>
+                                    <div>Cashback: <strong style={{ color: "var(--color-green, #16a34a)" }}>{displayPct}%</strong></div>
+                                    {cbMonthly > 0 && (
+                                      <div>3 Bln: Rp {formatRp(cbMonthly * 3)}</div>
+                                    )}
+                                  </div>
+                                </>
+                              );
+                            })()
+                          )}
+                        </td>
+                      )}
 
                       {/* Column 8: Delete Action */}
                       {!readOnly && (
