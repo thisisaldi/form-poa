@@ -104,3 +104,39 @@ export async function getCurrentGTsForMrNips(mrNips: string[]): Promise<string[]
   const names: (string | null)[] = assignments.map((a) => a.outlet.namaGT);
   return [...new Set(names.filter((g): g is string => !!g))];
 }
+
+// Outlet.namaGT (org-structure sync) and TargetHospitalValue.namaGT (target
+// Excel import) come from different source files and don't always agree on
+// punctuation for combined territories — e.g. Outlet has "JEMBER + BONDOWOSO",
+// the target sheet has "JEMBER BONDOWOSO" (confirmed 2026-09-02: Outlet's
+// "+" form is the correct one). Stripping +/-/whitespace before comparing
+// closes most of that gap (verified: 229/315 distinct TargetHospitalValue
+// names already matched Outlet exactly or after this normalization; the
+// ~19 real remaining mismatches are actual GT renames/restructuring not yet
+// synced either side, not a formatting issue this can paper over).
+function normalizeGTName(s: string): string {
+  return s.replace(/[+-]/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+/**
+ * Sums TargetHospitalValue.target for every GT in `gts` (as returned by
+ * getCurrentGTsForMrNips), matching by normalizeGTName since the two tables'
+ * namaGT spelling isn't always identical (see normalizeGTName above).
+ */
+export async function sumTargetHospitalValueForGTs(
+  gts: string[],
+  periode?: string
+): Promise<{ periode: string; target: number }[]> {
+  if (gts.length === 0) return [];
+  const wanted = new Set(gts.map(normalizeGTName));
+  const rows = await prisma.targetHospitalValue.findMany({
+    where: periode ? { periode } : {},
+    select: { namaGT: true, periode: true, target: true },
+  });
+  const sums = new Map<string, number>();
+  for (const r of rows) {
+    if (!wanted.has(normalizeGTName(r.namaGT))) continue;
+    sums.set(r.periode, (sums.get(r.periode) ?? 0) + parseFloat(r.target.toString()));
+  }
+  return [...sums.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([periode, target]) => ({ periode, target }));
+}

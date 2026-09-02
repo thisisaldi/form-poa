@@ -32,7 +32,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { verifyBasicAuth } from "@/lib/apiBasicAuth";
 import { getSubordinateMRNips } from "@/lib/authz";
-import { getCurrentGTsForMrNips } from "@/lib/targetHospitalValue";
+import { getCurrentGTsForMrNips, sumTargetHospitalValueForGTs } from "@/lib/targetHospitalValue";
 
 const SUPPORTED_ROLES = new Set(["MR", "ASM", "SM", "NSM"]);
 
@@ -65,25 +65,14 @@ export async function GET(req: NextRequest) {
 
     const mrNips = person.role === "MR" ? [person.nip] : await getSubordinateMRNips(person as User);
     const gts = await getCurrentGTsForMrNips(mrNips);
+    const summed = await sumTargetHospitalValueForGTs(gts, periode);
 
-    const where: Record<string, unknown> = { namaGT: { in: gts } };
-    if (periode) where.periode = periode;
-
-    const grouped = gts.length > 0
-      ? await prisma.targetHospitalValue.groupBy({
-          by: ["periode"],
-          where,
-          _sum: { target: true },
-          orderBy: { periode: "asc" },
-        })
-      : [];
-
-    return NextResponse.json(grouped.map((g: (typeof grouped)[number]) => ({
+    return NextResponse.json(summed.map((s) => ({
       nip: person.nip,
       nama: person.name,
       jabatan: person.role,
-      target: parseFloat((g._sum.target ?? 0).toString()),
-      periode: g.periode,
+      target: s.target,
+      periode: s.periode,
     })));
   }
 
