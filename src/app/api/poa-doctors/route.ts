@@ -30,7 +30,7 @@
  * /api/poa-doctors/[id] can still resolve an already-used row).
  *
  * Row-building logic shared with GET/PATCH /api/poa-doctors/[id] (detail
- * by uidCustomer) lives in src/lib/poaDoctorsRows.ts.
+ * by uidPoa) lives in src/lib/poaDoctorsRows.ts.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -41,6 +41,7 @@ import {
   poaDoctorRowsSelect,
   buildDoctorRows,
   getProductMasterByKodeProduk,
+  getCustomerCodeExodusByKodeCust,
   isAuthorizedPoaDoctorsRequest,
   type PoaWithDoctorRows,
 } from "@/lib/poaDoctorsRows";
@@ -76,12 +77,14 @@ export async function GET(req: NextRequest) {
   // ke bulan-bulan kuartal berjalan.
   const allItems = poas.flatMap((poa) => poa.items);
   const outletKodes = Array.from(new Set(allItems.map((it) => it.kodePI).filter((k): k is string => !!k)));
-  const [activePsspRows, productMasterByKodeProduk] = await Promise.all([
+  const kodeCusts = Array.from(new Set(allItems.map((it) => it.kodeCust).filter((k): k is string => !!k)));
+  const [activePsspRows, productMasterByKodeProduk, customerCodeExodusByKodeCust] = await Promise.all([
     outletKodes.length > 0 ? getActivePsspByOutlets(outletKodes) : Promise.resolve([]),
     getProductMasterByKodeProduk(allItems),
+    getCustomerCodeExodusByKodeCust(kodeCusts),
   ]);
 
-  let result = poas.flatMap((poa) => buildDoctorRows(poa, activePsspRows, quarterMonths, productMasterByKodeProduk));
+  let result = poas.flatMap((poa) => buildDoctorRows(poa, activePsspRows, quarterMonths, productMasterByKodeProduk, customerCodeExodusByKodeCust));
 
   // "Belum digunakan di Exodus" (docs/exodus-poa-usage/01-business-rules.md
   // §4, revised 2026-08-27) — only in the list response, not in the shared
@@ -98,5 +101,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  return NextResponse.json(result);
+  // poaFormId is internal-only (PoaForm.id, kept just for PATCH /api/poa-
+  // doctors/[id]'s poaId_kodePI_namaCust lookup) — never part of the public
+  // contract (uidPoa is the per-row PoaLineItem id, see poaDoctorsRows.ts).
+  const publicResult = result.map(({ poaFormId: _poaFormId, ...r }) => r);
+  return NextResponse.json(publicResult);
 }

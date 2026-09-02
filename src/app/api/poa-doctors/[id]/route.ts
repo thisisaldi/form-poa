@@ -2,10 +2,10 @@
  * GET /api/poa-doctors/[id]
  *
  * Detail for a single doctor row — same shape as one entry of
- * GET /api/poa-doctors, looked up directly by `uidCustomer` (the anchor
+ * GET /api/poa-doctors, looked up directly by `uidPoa` (the anchor
  * PoaLineItem.id from that list's response) instead of listing by NIP.
  * `id` alone is enough to resolve the row: PoaLineItem.id is globally
- * unique, so there's no need for the caller to also pass uidPoa.
+ * unique, so there's no need for the caller to also pass a draft/PoaForm id.
  *
  * Same CURRENT-quarter scoping as the list endpoint (PoaForm.period vs
  * currentQuarter()) — a stale id from a past quarter 404s, same as it
@@ -52,7 +52,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const row = await findDoctorRowById(id);
   if (!row) return NextResponse.json({ error: "Baris tidak ditemukan." }, { status: 404 });
 
-  return NextResponse.json(row);
+  const { poaFormId: _poaFormId, ...publicRow } = row;
+  return NextResponse.json(publicRow);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -71,11 +72,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (row.usedInExodus !== targetUsed) {
     await prisma.poaDoctorApproval.update({
       where: {
-        poaId_kodePI_namaCust: { poaId: row.uidPoa, kodePI: row.dokter.kodePI ?? "", namaCust: row.dokter.namaCust },
+        poaId_kodePI_namaCust: { poaId: row.poaFormId, kodePI: row.dokter.kodePI ?? "", namaCust: row.dokter.namaCust },
       },
       data: { usedInExodus: targetUsed, usedInExodusAt: targetUsed ? new Date() : null },
     });
   }
 
-  return NextResponse.json({ ...row, usedInExodus: targetUsed });
+  const { poaFormId: _poaFormId, ...publicRow } = row;
+  return NextResponse.json({ ...publicRow, usedInExodus: targetUsed });
 }

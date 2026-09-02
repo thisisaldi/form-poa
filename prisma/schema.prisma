@@ -257,6 +257,12 @@ model Customer {
   namaCustomer String
   spesialisasi String
   syncedAt     DateTime?
+  // Exodus's own customer code (core/v1/customers/users/{nip}'s
+  // `CustomerCodeExodus`, e.g. "C14") matched to this row by kodeCustomer ==
+  // CustomerCode — backfilled by scripts/syncCustomerCodeExodus.ts (batch,
+  // NOT live per-request — see that script's doc comment for why), for
+  // /api/poa-doctors `customer_code_exodus` field (2026-09-02, tim Exodus).
+  customerCodeExodus String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -590,6 +596,14 @@ model Product {
   bentukSediaan           String?
   packing                 String?
   indikasi                String?  @db.Text
+  // Principal/category — from Exodus core products API (api.pharos.id/exodus/core/v1/products),
+  // written through opportunistically whenever getLiveProductPricing() sees this kodeProduk live
+  // (see exodusApi.ts/poaDoctorsRows.ts) — no dedicated import script, unlike the fields above.
+  exodusProductId  Int?
+  principalId      Int?
+  principalName    String?
+  principalCode    String?
+  categoryProduct  String?
   // Which medical specialties this product is recommended for — from
   // "internal/Rekomendasi Paket Produk Per Spesialisasi.xlsx", sheet
   // "Recommendation" (columns BEDAH..UROLOGY, "Y" marks a match), uppercased

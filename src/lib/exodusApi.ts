@@ -98,6 +98,7 @@ export interface ExodusCustomer {
   name: string;
   position: string | null;
   specialist: string | null;
+  customerCodeExodus: string | null; // == API's CustomerCodeExodus (e.g. "C14")
 }
 
 // Per-nip cache, same idea as cachedPricing below — /customers/users/{nip}
@@ -149,6 +150,7 @@ export async function getExodusCustomersForMr(nip: string): Promise<ExodusCustom
         name: str(c.Name) ?? str(c.name) ?? "",
         position: str(c.Position) ?? str(c.position),
         specialist: str(c.Specialist) ?? str(c.specialist),
+        customerCodeExodus: str(c.CustomerCodeExodus) ?? str(c.customer_code_exodus),
       }))
       .filter((c) => c.name);
 
@@ -163,6 +165,11 @@ export interface LivePricing {
   hna: number;             // == API's sell_price
   nilaiRPersen: number | null; // r_value / sell_price, same formula scripts/importProductR.ts used against the old Excel source
   rValue: number | null;   // == API's r_value (Rupiah), raw — not persisted on Product, only nilaiRPersen (the ratio) is
+  exodusProductId: number | null; // == API's `id` (distinct from product_code/kodeProduk)
+  principalId: number | null;     // == API's product_principal.id
+  principalName: string | null;   // == API's product_principal.name
+  principalCode: string | null;   // == API's product_principal.code
+  categoryProduct: string | null; // == API's product_category.name
 }
 
 // Short in-memory cache, same idea as cachedToken above — this is called on
@@ -179,7 +186,10 @@ const PRICING_TTL_MS = 5 * 60 * 1000;
  * importHnaProducts.ts (hna, from Excel) + importProductR.ts (nilaiRPersen,
  * from Excel) pipeline for these two fields specifically (2026-08-26
  * decision: "hna itu basically sell_price, dan nilai R persen itu tinggal
- * jadiin nilai r jadi persentase based on sell_price nya"). Every other
+ * jadiin nilai r jadi persentase based on sell_price nya"). Also carries
+ * `id`/product_principal/product_category (2026-09-02, /api/poa-doctors
+ * principal fields request) — poaDoctorsRows.ts writes those through to
+ * Product's principal/category columns opportunistically. Every other
  * Product field (satuan, konversiPembagi, dosis, etc.) has no equivalent
  * here and is left to the caller's own local data — this only ever
  * overrides those two fields, and returns null (never throws) on any
@@ -200,7 +210,14 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
     });
     if (!res.ok) return null;
     const body = (await res.json()) as {
-      data?: { product_code: string; sell_price: number | null; r_value: number | null }[];
+      data?: {
+        id: number | null;
+        product_code: string;
+        sell_price: number | null;
+        r_value: number | null;
+        product_principal: { id: number; name: string; code: string } | null;
+        product_category: { id: number; name: string; code: string } | null;
+      }[];
       error?: { status: boolean };
     };
     if (body.error?.status || !Array.isArray(body.data)) return null;
@@ -212,6 +229,11 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
         hna: p.sell_price,
         nilaiRPersen: p.r_value != null ? p.r_value / p.sell_price : null,
         rValue: p.r_value,
+        exodusProductId: p.id ?? null,
+        principalId: p.product_principal?.id ?? null,
+        principalName: p.product_principal?.name ?? null,
+        principalCode: p.product_principal?.code ?? null,
+        categoryProduct: p.product_category?.name ?? null,
       });
     }
     cachedPricing = { map, expiresAt: Date.now() + PRICING_TTL_MS };

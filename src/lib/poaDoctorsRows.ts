@@ -1,6 +1,6 @@
 /**
  * Shared row-building logic for /api/poa-doctors (list) and
- * /api/poa-doctors/[id] (detail by uidCustomer) — both return the exact same
+ * /api/poa-doctors/[id] (detail by uidPoa) — both return the exact same
  * per-doctor shape, this module is the single source of truth for it so the
  * two routes can't drift. See docs/api-poa-doctors.md for the response
  * contract.
@@ -34,6 +34,7 @@ export const poaDoctorRowsSelect = {
   seq: true,
   period: true,
   status: true,
+  ownerId: true,
   items: {
     select: {
       id: true,
@@ -135,6 +136,11 @@ export interface ProductMaster {
   hna: number;
   /** Raw Rupiah "Nilai R" (Exodus API's r_value) — an amount, not a ratio. */
   nilaiR: number | null;
+  exodusProductId: number | null;
+  principalId: number | null;
+  principalName: string | null;
+  principalCode: string | null;
+  categoryProduct: string | null;
 }
 
 /**
@@ -165,24 +171,84 @@ export async function getProductMasterByKodeProduk(items: { kodeProduk: string }
   const [products, live] = await Promise.all([
     prisma.product.findMany({
       where: { kodeProduk: { in: kodeProduks } },
-      select: { kodeProduk: true, hna: true, nilaiRPersen: true },
+      select: {
+        kodeProduk: true, hna: true, nilaiRPersen: true,
+        exodusProductId: true, principalId: true, principalName: true, principalCode: true, categoryProduct: true,
+      },
     }),
     getLiveProductPricing(),
   ]);
 
+  // Write-through: persist principal/category onto Product whenever this
+  // request's live fetch resolved them, so the DB stays populated for
+  // callers that only read the DB row (no dedicated import script exists
+  // for these fields — see schema.prisma comment on Product).
+  type ProductRow = (typeof products)[number];
+
+  if (live) {
+    await Promise.all(
+      products.map((p: ProductRow) => {
+        const l = live.get(p.kodeProduk);
+        if (!l || l.principalId == null) return null;
+        return prisma.product.update({
+          where: { kodeProduk: p.kodeProduk },
+          data: {
+            exodusProductId: l.exodusProductId,
+            principalId: l.principalId,
+            principalName: l.principalName,
+            principalCode: l.principalCode,
+            categoryProduct: l.categoryProduct,
+          },
+        }).catch(() => null);
+      })
+    );
+  }
+
   return new Map(
-    products.map((p: { kodeProduk: string; hna: unknown; nilaiRPersen: unknown }) => {
+    products.map((p: ProductRow) => {
       const livePricing = live?.get(p.kodeProduk) ?? null;
       const hna = livePricing?.hna ?? toNum(p.hna);
       const nilaiRPersenDb = p.nilaiRPersen != null ? toNum(p.nilaiRPersen) : null;
       const nilaiR = livePricing?.rValue ?? (nilaiRPersenDb != null ? nilaiRPersenDb * hna : null);
-      return [p.kodeProduk, { hna, nilaiR }];
+      return [p.kodeProduk, {
+        hna,
+        nilaiR,
+        exodusProductId: livePricing?.exodusProductId ?? p.exodusProductId,
+        principalId: livePricing?.principalId ?? p.principalId,
+        principalName: livePricing?.principalName ?? p.principalName,
+        principalCode: livePricing?.principalCode ?? p.principalCode,
+        categoryProduct: livePricing?.categoryProduct ?? p.categoryProduct,
+      }];
     })
   );
 }
 
 /**
- * Resolves one doctor row by `uidCustomer` (PoaLineItem.id) — shared by
+ * Customer.customerCodeExodus for a batch of kodeCust — DB-only read, no live
+ * Exodus call here. The source call (core/v1/customers/users/{nip}) is
+ * PER-NIP, so resolving it live per doctor row would mean one external call
+ * per distinct PoaForm owner on the company-wide (no `?nip=`) path —
+ * docs/PERFORMANCE.md §2.4 forbids that query/call-in-loop pattern. Backfilled
+ * instead by scripts/syncCustomerCodeExodus.ts (batch, per-active-MR loop).
+ */
+export async function getCustomerCodeExodusByKodeCust(kodeCusts: string[]): Promise<Map<string, string | null>> {
+  const codes = Array.from(new Set(kodeCusts));
+  if (codes.length === 0) return new Map();
+  const customers = await prisma.customer.findMany({
+    where: { kodeCustomer: { in: codes } },
+    select: { kodeCustomer: true, customerCodeExodus: true },
+  });
+  type CustomerRow = (typeof customers)[number];
+  return new Map(
+    customers
+      .filter((c: CustomerRow) => !!c.kodeCustomer)
+      .map((c: CustomerRow) => [c.kodeCustomer as string, c.customerCodeExodus])
+  );
+}
+
+/**
+ * Resolves one doctor row by `uidPoa` (PoaLineItem.id, the per-row anchor
+ * item) — shared by
  * GET /api/poa-doctors/[id] and PATCH /api/poa-doctors/[id] so both apply
  * the exact same "current quarter + fully (NSM) approved" visibility rule
  * (a row invisible to GET must also be unreachable via PATCH). Deliberately
@@ -201,12 +267,14 @@ export async function findDoctorRowById(id: string): Promise<PoaDoctorRow | null
   if (!poa) return null;
 
   const outletKodes = Array.from(new Set(poa.items.map((it) => it.kodePI).filter((k): k is string => !!k)));
-  const [activePsspRows, productMasterByKodeProduk] = await Promise.all([
+  const kodeCusts = Array.from(new Set(poa.items.map((it) => it.kodeCust).filter((k): k is string => !!k)));
+  const [activePsspRows, productMasterByKodeProduk, customerCodeExodusByKodeCust] = await Promise.all([
     outletKodes.length > 0 ? getActivePsspByOutlets(outletKodes) : Promise.resolve([]),
     getProductMasterByKodeProduk(poa.items),
+    getCustomerCodeExodusByKodeCust(kodeCusts),
   ]);
 
-  return buildDoctorRows(poa, activePsspRows, quarterToMonths(quarter), productMasterByKodeProduk).find((r) => r.uidCustomer === id) ?? null;
+  return buildDoctorRows(poa, activePsspRows, quarterToMonths(quarter), productMasterByKodeProduk, customerCodeExodusByKodeCust).find((r) => r.uidPoa === id) ?? null;
 }
 
 /** All doctor rows for one PoaForm — same grouping/filtering the list endpoint uses. */
@@ -214,7 +282,8 @@ export function buildDoctorRows(
   poa: PoaWithDoctorRows,
   activePsspRows: ActivePsspRow[],
   quarterMonths: string[],
-  productMasterByKodeProduk: Map<string, ProductMaster>
+  productMasterByKodeProduk: Map<string, ProductMaster>,
+  customerCodeExodusByKodeCust: Map<string, string | null> = new Map()
 ) {
   type Produk = {
     kodeProduk: string;
@@ -225,6 +294,11 @@ export function buildDoctorRows(
     nilaiR: number | null;
     hna: number | null;
     qtyPerBulan: Map<string, number>;
+    productId: number | null;
+    principalId: number | null;
+    principalName: string | null;
+    principalCode: string | null;
+    categoryProduct: string | null;
   };
   type Doctor = {
     // First line item id encountered for this doctor — same "anchor item"
@@ -281,7 +355,14 @@ export function buildDoctorRows(
         existingProduk.qtyPerBulan.set(m, (existingProduk.qtyPerBulan.get(m) ?? 0) + qty);
       }
     } else {
-      entry.produk.push({ kodeProduk: item.kodeProduk, namaProduk: item.namaProduk, estimasi, nilaiPssp, pengaliNilaiR, nilaiR, hna, qtyPerBulan });
+      entry.produk.push({
+        kodeProduk: item.kodeProduk, namaProduk: item.namaProduk, estimasi, nilaiPssp, pengaliNilaiR, nilaiR, hna, qtyPerBulan,
+        productId: productMaster?.exodusProductId ?? null,
+        principalId: productMaster?.principalId ?? null,
+        principalName: productMaster?.principalName ?? null,
+        principalCode: productMaster?.principalCode ?? null,
+        categoryProduct: productMaster?.categoryProduct ?? null,
+      });
     }
   }
 
@@ -310,9 +391,14 @@ export function buildDoctorRows(
       : null;
 
     return [{
-      uidPoa: poa.id,
+      // Per-row identifier (PoaLineItem anchor id) — was `uidCustomer`,
+      // renamed to `uidPoa` 2026-09-02 (tim Exodus only needs a per-row id,
+      // not the old per-draft PoaForm.id). PoaForm.id is kept internal-only
+      // as `poaFormId` (stripped before the response — see route.ts) so
+      // PATCH /api/poa-doctors/[id] can still resolve poaId_kodePI_namaCust.
+      uidPoa: dokter.anchorItemId,
+      poaFormId: poa.id,
       idPoa: formatPoaId(poa.seq),
-      uidCustomer: dokter.anchorItemId,
       path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
       periode: { startDate, endDate },
       approveUntil: until,
@@ -323,6 +409,14 @@ export function buildDoctorRows(
         spesialisasi: dokter.spesialisasi,
         kodePI: dokter.kodePI,
         namaOutlet: dokter.namaOutlet,
+        // outlet_id/customer_id (2026-09-02, tim Exodus request): just our
+        // own kodePI/kodeCust under the names Exodus asked for — those ARE
+        // the identifiers Exodus's own systems already key outlets/customers
+        // by (outletSync.ts upserts Outlet.kodePI directly from Exodus's own
+        // OutletCode), no separate Exodus id lookup needed.
+        outletId: dokter.kodePI,
+        customerId: dokter.kodeCust,
+        customerCodeExodus: dokter.kodeCust ? customerCodeExodusByKodeCust.get(dokter.kodeCust) ?? null : null,
       },
       estimasi: dokter.estimasiTotal,
       nilaiPssp: dokter.nilaiPsspTotal,
@@ -338,6 +432,11 @@ export function buildDoctorRows(
         hna: p.hna,
         qtyPerBulan: quarterMonths.map((bulan) => ({ bulan, qty: p.qtyPerBulan.get(bulan) ?? 0 })),
         qtyTotal: [...p.qtyPerBulan.values()].reduce((s, v) => s + v, 0),
+        productId: p.productId,
+        principalId: p.principalId,
+        principalName: p.principalName,
+        principalCode: p.principalCode,
+        categoryProduct: p.categoryProduct,
       })),
     }];
   });
