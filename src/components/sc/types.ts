@@ -60,6 +60,7 @@ export interface ScDraftFormItem {
   currentHolderId?: string | null;
   is_sc?: boolean;
   isBlastIn?: boolean;
+  isPosm?: boolean;
   products: ScProductItemData[];
   persons: ScPersonItemData[];
   entertainItems: ScEntertainItemData[];
