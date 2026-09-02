@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import type { SessionData } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit, canAddNewDoctor } from "@/lib/authz";
+import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit, canAddNewDoctor, getMrIdsUnder, getEditLockLevelsForPoas } from "@/lib/authz";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -27,7 +27,7 @@ function buildPageHref(page: number, size: string, q?: string) {
 }
 
 type PoaWithMeta = PoaFormType & {
-  owner: UserType;
+  owner: Pick<UserType, "nip" | "name" | "role">;
   _count: { items: number };
   _totalEst: number;
   _dokterCount: number;
@@ -144,7 +144,7 @@ async function DashboardContent({
     prisma.poaForm.findMany({
       where,
       include: {
-        owner: true,
+        owner: { select: { nip: true, name: true, role: true } },
         items: {
           select: {
             rencanaTotalBiaya: true,
@@ -218,8 +218,14 @@ async function DashboardContent({
     };
   });
 
+  // Batched (2026-08-31 perf fix, docs/PERFORMANCE.md §2 point 4's flagged
+  // gap): getEditLockLevel's poaAuditLog lookup has a unique poaId per call,
+  // so cache() can't dedupe it across this per-row canEdit loop the way it
+  // does for the subtree helpers — one findMany for every recentPoas row here
+  // instead of one per row.
+  const lockLevelByPoaId = await getEditLockLevelsForPoas(recentPoas.map((poa) => ({ id: poa.id, ownerId: poa.ownerId })));
   const editablePoaIds = new Set(
-    (await Promise.all(recentPoas.map(async (poa) => ((await canEdit(actor, poa)) ? poa.id : null))))
+    (await Promise.all(recentPoas.map(async (poa) => ((await canEdit(actor, poa, lockLevelByPoaId.get(poa.id))) ? poa.id : null))))
       .filter((id): id is string => id !== null)
   );
   // Separate from editablePoaIds/canEdit — the "Tambah" link goes to
@@ -255,30 +261,19 @@ async function DashboardContent({
     }) as { nip: string; name: string; role: string }[];
 
     // For each direct sub, get MR nips under them (or themselves if they're MRs)
-    const groupsRaw: { nip: string; name: string; role: string; mrNips: string[] }[] = [];
-    for (const sub of directSubs) {
-      if (sub.role === "MR") {
-        groupsRaw.push({ ...sub, mrNips: [sub.nip] });
-      } else {
-        // Get MRs 1 level deeper (ASM→MRs or SM→ASM→MRs would need 2 levels)
-        const depth = sub.role === "ASM" ? 1 : sub.role === "SM" ? 2 : 1;
-        async function getMrsUnder(managerNip: string, d: number): Promise<string[]> {
-          if (d === 0) return [];
-          const reports = await prisma.user.findMany({
-            where: { nipAtasan: managerNip, isActive: true },
-            select: { nip: true, role: true },
-          }) as { nip: string; role: string }[];
-          const nips: string[] = [];
-          for (const r of reports) {
-            if (r.role === "MR") nips.push(r.nip);
-            else nips.push(...await getMrsUnder(r.nip, d - 1));
-          }
-          return nips;
-        }
-        const mrNips = await getMrsUnder(sub.nip, depth);
-        groupsRaw.push({ ...sub, mrNips });
-      }
-    }
+    // — getMrIdsUnder (src/lib/authz.ts) is the same cache()'d, level-by-level
+    // BFS helper canView/canEdit already use, replacing a local per-node
+    // recursive `findMany` (one query per manager node down the subtree)
+    // with ≤depth batched round-trips per direct sub, run in parallel
+    // (2026-08-31 perf fix — docs/PERFORMANCE.md §2 point 2's exact
+    // anti-pattern, reimplemented locally here instead of reusing the fix).
+    const groupsRaw = await Promise.all(directSubs.map(async (sub) => {
+      if (sub.role === "MR") return { ...sub, mrNips: [sub.nip] };
+      // MRs 1 level deeper (ASM→MRs or SM→ASM→MRs would need 2 levels)
+      const depth = sub.role === "ASM" ? 1 : sub.role === "SM" ? 2 : 1;
+      const mrNips = await getMrIdsUnder(sub.nip, depth);
+      return { ...sub, mrNips };
+    }));
 
     // Pick the period the team is actually working in — the one with the
     // most real (non-draft) submissions — rather than just the newest

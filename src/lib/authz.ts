@@ -48,7 +48,7 @@ export const NON_DRAFT_STATUSES: PoaStatus[] = [
  * depth) args. cache() dedupes repeat calls within one request/render —
  * same result, ≤3 DB round-trips per request instead of ≤3 × N rows.
  */
-const getMrIdsUnder = cache(async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]> {
+export const getMrIdsUnder = cache(async function getMrIdsUnder(managerId: string, depth: number): Promise<string[]> {
   const mrIds: string[] = [];
   let currentLevelManagerIds = [managerId];
   for (let level = 0; level < depth && currentLevelManagerIds.length > 0; level++) {
@@ -322,7 +322,13 @@ async function getEditLockLevel(poaId: string, ownerId: string): Promise<number>
     orderBy: { createdAt: "desc" },
     select: { action: true, actorId: true, toStatus: true, actor: { select: { role: true } } },
   });
+  return computeLockLevel(logs, ownerId);
+}
 
+function computeLockLevel(
+  logs: { action: AuditAction; actorId: string; toStatus: PoaStatus; actor: { role: Role } }[],
+  ownerId: string
+): number {
   let lockLevel = -1;
   for (const log of logs) {
     if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break; // cycle reset point
@@ -332,6 +338,38 @@ async function getEditLockLevel(poaId: string, ownerId: string): Promise<number>
     }
   }
   return lockLevel;
+}
+
+/**
+ * Batched twin of getEditLockLevel — one `poaAuditLog.findMany` for every POA
+ * in the list instead of one per POA (2026-08-31 perf fix, docs/PERFORMANCE.md
+ * §2 point 4's own flagged-but-unfixed gap: dashboard's per-row `canEdit` over
+ * up to `pageSize` — unbounded with `?size=all` — POAs each independently
+ * re-queried this table; `cache()` can't dedupe it since `poaId` is a unique
+ * arg per call). Callers doing a bulk `canEdit` pass over a list should call
+ * this once, then pass each POA's precomputed level into `canEdit`'s optional
+ * third argument instead of letting it re-derive per row.
+ */
+export async function getEditLockLevelsForPoas(poas: { id: string; ownerId: string }[]): Promise<Map<string, number>> {
+  if (poas.length === 0) return new Map();
+  const logs = await prisma.poaAuditLog.findMany({
+    where: { poaId: { in: poas.map((p) => p.id) } },
+    orderBy: { createdAt: "desc" },
+    select: { poaId: true, action: true, actorId: true, toStatus: true, actor: { select: { role: true } } },
+  });
+  // Global orderBy above keeps each poaId's own logs in the same relative
+  // (createdAt desc) order they'd have had if queried individually.
+  const logsByPoa = new Map<string, typeof logs>();
+  for (const log of logs) {
+    const list = logsByPoa.get(log.poaId) ?? [];
+    list.push(log);
+    logsByPoa.set(log.poaId, list);
+  }
+  const result = new Map<string, number>();
+  for (const poa of poas) {
+    result.set(poa.id, computeLockLevel(logsByPoa.get(poa.id) ?? [], poa.ownerId));
+  }
+  return result;
 }
 
 /**
@@ -360,13 +398,16 @@ async function getEditLockLevel(poaId: string, ownerId: string): Promise<number>
  * user — owner included — is locked out until it cycles back to REVISI.
  * See getEditLockLevel above.
  */
-export async function canEdit(user: User, poa: PoaForm): Promise<boolean> {
+export async function canEdit(user: User, poa: PoaForm, precomputedLockLevel?: number): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
   // GM is deliberately excluded here — read-only oversight only (see canView).
 
   const userLevel = ROLE_LEVEL[user.role] ?? -1;
   if (userLevel >= 0) {
-    const lockLevel = await getEditLockLevel(poa.id, poa.ownerId);
+    // Callers looping canEdit over a list (e.g. dashboard) should batch-fetch
+    // via getEditLockLevelsForPoas and pass the result here instead of
+    // letting every call re-query poaAuditLog for its own single poaId.
+    const lockLevel = precomputedLockLevel ?? await getEditLockLevel(poa.id, poa.ownerId);
     if (userLevel < lockLevel) return false;
   }
 
