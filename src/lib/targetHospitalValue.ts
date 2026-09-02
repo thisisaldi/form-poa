@@ -78,3 +78,29 @@ export async function resolveTargetHospitalValueFallback(
   }
   return result;
 }
+
+/**
+ * Distinct GT names currently held by any nip in `mrNips`, from LIVE outlet
+ * assignment (MrOutletAssignment + Outlet.namaGT, latest synced periode —
+ * same pattern as getOutletsForMrSubtree in masterData.ts) — deliberately
+ * NOT TargetHospitalValue's own nipMR/nipASM/nipSM/nipNSM columns, which are
+ * a snapshot from whenever the target Excel was last imported and go stale
+ * the moment a GT changes hands before the next import (2026-09-02, used by
+ * /api/target-value's ?nip= rollup so a reassigned/newly-filled GT's target
+ * follows the person immediately, no re-import needed).
+ */
+export async function getCurrentGTsForMrNips(mrNips: string[]): Promise<string[]> {
+  if (mrNips.length === 0) return [];
+  const latestAssignment = await prisma.mrOutletAssignment.findFirst({
+    where: { nipMR: { in: mrNips } },
+    orderBy: { periode: "desc" },
+    select: { periode: true },
+  });
+  if (!latestAssignment) return [];
+  const assignments = (await prisma.mrOutletAssignment.findMany({
+    where: { nipMR: { in: mrNips }, periode: latestAssignment.periode },
+    select: { outlet: { select: { namaGT: true } } },
+  })) as { outlet: { namaGT: string | null } }[];
+  const names: (string | null)[] = assignments.map((a) => a.outlet.namaGT);
+  return [...new Set(names.filter((g): g is string => !!g))];
+}

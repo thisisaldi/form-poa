@@ -184,10 +184,20 @@ async function main() {
 
   const nipToName = new Map(users.map((u) => [u.nip, u.name]));
 
+  // Source spelling variants confirmed 2026-09-02 (business owner) that don't
+  // normalize to the User table's canonical name via plain trim/uppercase —
+  // "DONNY  SIHOMBING" drops the middle name entirely, "MUH GUSTI BAGUS A.B"
+  // drops the periods. Keyed by trim+uppercase of the RAW source text.
+  const SOURCE_NAME_ALIASES: Record<string, string> = {
+    "DONNY  SIHOMBING": "DONNY C. SIHOMBING",
+    "MUH GUSTI BAGUS A.B": "MUH. GUSTI BAGUS A.B.",
+  };
+
   let collisions = 0;
   function resolveNip(index: Map<string, string[]>, name: string): string | null {
     if (!name) return null;
-    const candidates = index.get(name.toUpperCase());
+    const key = SOURCE_NAME_ALIASES[name.trim().toUpperCase()] ?? name;
+    const candidates = index.get(key.toUpperCase());
     if (!candidates || candidates.length === 0) return null;
     if (candidates.length > 1) collisions++;
     return [...candidates].sort()[0];

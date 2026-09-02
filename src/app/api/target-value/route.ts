@@ -1,22 +1,20 @@
 /**
  * GET /api/target-value
  *
- * Per-person monthly Rupiah sales target, rolled up from TargetHospitalValue
- * (target Rupiah bulanan per GT). `target` for an ASM/SM/NSM is the SUM of
- * every GT-level target beneath that nip (2026-08-24, replacing an earlier
- * version that returned raw per-GT rows — a GT is an implementation detail
- * this endpoint's consumers don't need, and an NSM/SM/ASM can own many GTs,
- * so raw rows meant one entry per GT repeating the same person's identity
- * over and over instead of one summed total per periode).
+ * Monthly Rupiah sales target from TargetHospitalValue.
  *
- * `?nip=` (optional) determines whose rollup to return — that nip's OWN
- * `User.role` decides which TargetHospitalValue column to sum against
- * (MR -> nipMR, ASM -> nipASM, SM -> nipSM, NSM -> nipNSM); role must be one
- * of those four. Omitted = "get target all": the finest-grained MR-level
- * breakdown for everyone (one row per (nipMR, periode), jabatan always
- * "MR") — rows whose nipMR never resolved to a real User (see the import
- * scripts' name-resolution notes) are excluded, since this shape has no
- * place to keep an un-resolved raw name.
+ * `?nip=` (optional) determines whose rollup to return — role must be one of
+ * MR/ASM/SM/NSM. `target` is the SUM of TargetHospitalValue over every GT
+ * that nip's subtree of MRs CURRENTLY holds, resolved LIVE from
+ * MrOutletAssignment/Outlet.namaGT (see getCurrentGTsForMrNips), not from
+ * TargetHospitalValue's own nipMR/nipASM/nipSM/nipNSM columns — those are a
+ * snapshot from whenever the target Excel was last imported, so a GT that
+ * changed hands since then would still count for the old owner there.
+ * Omitted = "get target all": one row PER GT per periode (`namaGT` is
+ * the unit of assignment — stable across MR reassignment/vacancy, unlike
+ * nip), carrying whoever currently holds that GT (`nipMR`/`namaMR`; `nipMR`
+ * is null and `namaMR` a raw placeholder like "VACANT MR ..." when
+ * unresolved — see the import scripts' name-resolution notes).
  *
  * Two credential paths, same pattern as /api/poa-doctors (2026-08-19): the
  * app's own browser calls carry a session cookie; an external app
@@ -29,13 +27,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import type { User } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { verifyBasicAuth } from "@/lib/apiBasicAuth";
+import { getSubordinateMRNips } from "@/lib/authz";
+import { getCurrentGTsForMrNips } from "@/lib/targetHospitalValue";
 
-const LEVEL_COLUMN: Record<string, "nipMR" | "nipASM" | "nipSM" | "nipNSM"> = {
-  MR: "nipMR", ASM: "nipASM", SM: "nipSM", NSM: "nipNSM",
-};
+const SUPPORTED_ROLES = new Set(["MR", "ASM", "SM", "NSM"]);
 
 export async function GET(req: NextRequest) {
   const session = await getCurrentUser();
@@ -62,18 +61,22 @@ export async function GET(req: NextRequest) {
   if (nip) {
     const person = await prisma.user.findUnique({ where: { nip }, select: { nip: true, name: true, role: true } });
     if (!person) return NextResponse.json({ error: "NIP tidak ditemukan." }, { status: 404 });
-    const column = LEVEL_COLUMN[person.role];
-    if (!column) return NextResponse.json({ error: `Role ${person.role} tidak didukung untuk target value.` }, { status: 400 });
+    if (!SUPPORTED_ROLES.has(person.role)) return NextResponse.json({ error: `Role ${person.role} tidak didukung untuk target value.` }, { status: 400 });
 
-    const where: Record<string, unknown> = { [column]: nip };
+    const mrNips = person.role === "MR" ? [person.nip] : await getSubordinateMRNips(person as User);
+    const gts = await getCurrentGTsForMrNips(mrNips);
+
+    const where: Record<string, unknown> = { namaGT: { in: gts } };
     if (periode) where.periode = periode;
 
-    const grouped = await prisma.targetHospitalValue.groupBy({
-      by: ["periode"],
-      where,
-      _sum: { target: true },
-      orderBy: { periode: "asc" },
-    });
+    const grouped = gts.length > 0
+      ? await prisma.targetHospitalValue.groupBy({
+          by: ["periode"],
+          where,
+          _sum: { target: true },
+          orderBy: { periode: "asc" },
+        })
+      : [];
 
     return NextResponse.json(grouped.map((g: (typeof grouped)[number]) => ({
       nip: person.nip,
@@ -84,30 +87,24 @@ export async function GET(req: NextRequest) {
     })));
   }
 
-  // No nip: finest-grained MR-level breakdown across everyone in scope.
-  const where: Record<string, unknown> = { nipMR: { not: null } };
+  // No nip: one row per GT per periode — namaGT+periode is already unique
+  // (schema.prisma), so no aggregation needed.
+  const where: Record<string, unknown> = {};
   if (periode) where.periode = periode;
 
-  const grouped = await prisma.targetHospitalValue.groupBy({
-    by: ["nipMR", "periode"],
+  const rows = await prisma.targetHospitalValue.findMany({
     where,
-    _sum: { target: true },
-    orderBy: [{ periode: "asc" }, { nipMR: "asc" }],
+    select: { namaGT: true, nipMR: true, namaMR: true, target: true, periode: true },
+    orderBy: [{ periode: "asc" }, { namaGT: "asc" }],
   });
 
-  const nips = [...new Set(grouped.map((g: (typeof grouped)[number]) => g.nipMR).filter((n: string | null): n is string => n != null))];
-  const users = await prisma.user.findMany({ where: { nip: { in: nips } }, select: { nip: true, name: true } });
-  const nameByNip = new Map(users.map((u: (typeof users)[number]) => [u.nip, u.name]));
-
   return NextResponse.json(
-    grouped
-      .filter((g: (typeof grouped)[number]) => g.nipMR != null)
-      .map((g: (typeof grouped)[number]) => ({
-        nip: g.nipMR,
-        nama: nameByNip.get(g.nipMR!) ?? "",
-        jabatan: "MR",
-        target: parseFloat((g._sum.target ?? 0).toString()),
-        periode: g.periode,
-      }))
+    rows.map((r: (typeof rows)[number]) => ({
+      namaGT: r.namaGT,
+      nipMR: r.nipMR,
+      namaMR: r.namaMR,
+      target: parseFloat(r.target.toString()),
+      periode: r.periode,
+    }))
   );
 }
