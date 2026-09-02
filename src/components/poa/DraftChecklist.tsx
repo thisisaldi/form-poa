@@ -21,11 +21,11 @@ import { displayRole } from "@/lib/role";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Both re-export the same shared formatter (docs/label-currency-format-updates/
-// 01-business-rules.md §1) — the old "Jt/M" vs "Rb" scaling distinction between
-// these two names no longer applies now that neither has a suffix.
-export const formatRp = formatCurrency;
-export const formatRpPssp = formatCurrency;
+// Hospital draft (this file, feeds /poa/[id]) drops the "Jt/M/Rb" suffix and
+// always shows plain ÷1.000.000 — SC/non-hospital (SalesCounterStatsPanel)
+// keeps the suffixed formatCurrency default (2026-09-02 request).
+export const formatRp = (val: Parameters<typeof formatCurrency>[0]) => formatCurrency(val, false);
+export const formatRpPssp = (val: Parameters<typeof formatCurrency>[0]) => formatCurrency(val, false);
 
 // Masks a doctor's name for the draft view: keeps every other character, replaces the rest with X.
 function censorName(name: string): string {
@@ -698,11 +698,11 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
     <div className="rounded-md px-2 py-1.5 min-w-0"
       style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
       <p className="text-[11px] leading-tight truncate" style={{ color: "var(--color-text-faint)" }}>{label}</p>
-      <p className={`leading-tight whitespace-nowrap overflow-visible ${emphasize ? "text-xs sm:text-sm font-bold" : "text-xs sm:text-sm font-semibold"}`}
+      <p className={`leading-tight truncate ${emphasize ? "text-xs sm:text-sm font-bold" : "text-xs sm:text-sm font-semibold"}`}
         style={{ color: "var(--color-text)" }}>
         {value}
       </p>
-      {sub && <p className="text-[10px] leading-tight mt-0.5 whitespace-nowrap overflow-visible" style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
+      {sub && <p className="text-[10px] leading-tight mt-0.5 truncate" style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
     </div>
   );
 }
