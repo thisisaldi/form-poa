@@ -20,11 +20,18 @@ export function useSalesCounterDetail({
     getScCashbackPoaAction().then((res) => setCashbackData(res));
   }, []);
 
-  const submittableIds = useMemo(
-    () => safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id),
-    [safeScDrafts]
-  );
+  const submittableIds = useMemo(() => {
+    if (showSubmit) {
+      return safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id);
+    }
+    return safeScDrafts.map((d) => d.id);
+  }, [safeScDrafts, showSubmit]);
+
   const [checked, setChecked] = useState<Set<string>>(() => new Set(submittableIds));
+
+  useEffect(() => {
+    setChecked(new Set(submittableIds));
+  }, [submittableIds]);
 
   function toggle(id: string) {
     setChecked((prev) => {

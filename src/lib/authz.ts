@@ -531,7 +531,7 @@ export async function getVisiblePoaScFilter(user: User): Promise<Prisma.PoaScFor
   return {
     OR: [
       { ownerId: user.nip },
-      { ownerId: { in: subIds } },
+      { ownerId: { in: subIds }, status: { not: PoaStatus.DRAFT } },
     ],
   };
 }
@@ -564,12 +564,20 @@ export function canUserEditScForm(
   const userLevel = roleLevel[userRole] ?? -1;
   const lockLevel = getScEditLockLevel(status);
 
-  // MR (Owner): Can ONLY edit directly if DRAFT or REVISI
+  // MR (Owner): Can edit directly if DRAFT, REVISI, or SUBMITTED_TO_ASM
   if (sessionUserId === ownerId) {
     if (userRole === "MR") {
-      return status === PoaStatus.DRAFT || status === PoaStatus.REVISI;
+      return (
+        status === PoaStatus.DRAFT ||
+        status === PoaStatus.REVISI ||
+        status === PoaStatus.SUBMITTED_TO_ASM
+      );
     }
-    if (status === PoaStatus.DRAFT || status === PoaStatus.REVISI) return true;
+    if (
+      status === PoaStatus.DRAFT ||
+      status === PoaStatus.REVISI ||
+      status === PoaStatus.SUBMITTED_TO_ASM
+    ) return true;
   }
 
   // Managers (ASM, SM, NSM):
@@ -600,14 +608,33 @@ export function canUserEditScForm(
  * being approved/edited by a superior does not lock Doctor B in the same
  * draft (docs/poa-per-doctor-approval/01-business-rules.md §5).
  */
-async function getEditLockLevelForDoctor(doctorApprovalId: string, ownerId: string): Promise<number> {
+const STATUS_MIN_LOCK_LEVEL: Partial<Record<PoaStatus, number>> = {
+  [PoaStatus.SUBMITTED_TO_SM]: 1,  // Has reached SM, so ASM has approved (or skipped); min lock level 1 (ASM)
+  [PoaStatus.SUBMITTED_TO_NSM]: 2, // Has reached NSM, so SM has approved; min lock level 2 (SM)
+  [PoaStatus.APPROVED_BY_NSM]: 3,  // Approved by NSM; lock level 3 (NSM)
+};
+
+/**
+ * Same rule as getEditLockLevel above, scoped to ONE doctor's own audit trail
+ * (doctorApprovalId = this doctor) instead of the whole draft — so Doctor A
+ * being approved/edited by a superior does not lock Doctor B in the same
+ * draft (docs/poa-per-doctor-approval/01-business-rules.md §5).
+ */
+async function getEditLockLevelForDoctor(
+  doctorApprovalId: string,
+  ownerId: string,
+  doctorStatus?: PoaStatus
+): Promise<number> {
+  let lockLevel = doctorStatus && STATUS_MIN_LOCK_LEVEL[doctorStatus] !== undefined
+    ? STATUS_MIN_LOCK_LEVEL[doctorStatus]!
+    : -1;
+
   const logs = await prisma.poaAuditLog.findMany({
     where: { doctorApprovalId },
     orderBy: { createdAt: "desc" },
     select: { action: true, actorId: true, toStatus: true, actor: { select: { role: true } } },
   });
 
-  let lockLevel = -1;
   for (const log of logs) {
     if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
     if ((log.action === AuditAction.APPROVE || log.action === AuditAction.UPDATE) && log.actorId !== ownerId) {
@@ -629,11 +656,43 @@ export async function getLastApproverForDoctor(doctorApprovalId: string): Promis
     if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) break;
     if (log.action === AuditAction.APPROVE) return { actorId: log.actorId, role: log.actor.role };
   }
+
+  // Fallback: If no APPROVE audit log exists (e.g. seed data or workflow leap),
+  // infer the last approver from the hierarchy based on doctor.status
+  const doctor = await prisma.poaDoctorApproval.findUnique({
+    where: { id: doctorApprovalId },
+    include: { poa: { include: { owner: true } } },
+  });
+  if (doctor?.poa?.owner) {
+    if (doctor.status === PoaStatus.SUBMITTED_TO_SM && doctor.poa.owner.nipAtasan) {
+      const asm = await prisma.user.findUnique({
+        where: { nip: doctor.poa.owner.nipAtasan },
+        select: { nip: true, role: true },
+      });
+      if (asm) return { actorId: asm.nip, role: asm.role };
+    } else if (doctor.status === PoaStatus.SUBMITTED_TO_NSM && doctor.poa.owner.nipAtasan) {
+      const asm = await prisma.user.findUnique({
+        where: { nip: doctor.poa.owner.nipAtasan },
+        select: { nipAtasan: true },
+      });
+      if (asm?.nipAtasan) {
+        const sm = await prisma.user.findUnique({
+          where: { nip: asm.nipAtasan },
+          select: { nip: true, role: true },
+        });
+        if (sm) return { actorId: sm.nip, role: sm.role };
+      }
+    }
+  }
+
   return null;
 }
 
 /** Doctor-scoped twin of hasApprovalThisCycle. */
-export async function hasApprovalThisCycleForDoctor(doctorApprovalId: string): Promise<boolean> {
+export async function hasApprovalThisCycleForDoctor(doctorApprovalId: string, status?: PoaStatus): Promise<boolean> {
+  if (status && (status === PoaStatus.SUBMITTED_TO_SM || status === PoaStatus.SUBMITTED_TO_NSM || status === PoaStatus.APPROVED_BY_NSM)) {
+    return true;
+  }
   return (await getLastApproverForDoctor(doctorApprovalId)) !== null;
 }
 
@@ -673,7 +732,7 @@ export async function canEditDoctor(user: User, poa: PoaForm, doctor: PoaDoctorA
 
   const userLevel = ROLE_LEVEL[user.role] ?? -1;
   if (userLevel >= 0 && doctor) {
-    const lockLevel = await getEditLockLevelForDoctor(doctor.id, poa.ownerId);
+    const lockLevel = await getEditLockLevelForDoctor(doctor.id, poa.ownerId, doctor.status);
     if (userLevel < lockLevel) return false;
   }
 
@@ -689,7 +748,7 @@ export async function canEditDoctor(user: User, poa: PoaForm, doctor: PoaDoctorA
 /** Doctor-scoped twin of getEditLockRoleLabel. Null when this doctor isn't locked (or not yet split). */
 export async function getEditLockRoleLabelForDoctor(poa: PoaForm, doctor: PoaDoctorApproval | null): Promise<string | null> {
   if (!doctor) return null;
-  const lockLevel = await getEditLockLevelForDoctor(doctor.id, poa.ownerId);
+  const lockLevel = await getEditLockLevelForDoctor(doctor.id, poa.ownerId, doctor.status);
   const label = Object.entries(ROLE_LEVEL).find(([, level]) => level === lockLevel)?.[0];
   return label ?? null;
 }
@@ -739,7 +798,7 @@ export async function canRequestEditDoctor(user: User, poa: PoaForm, doctor: Poa
   if (poa.ownerId !== user.nip) return false;
   if (!doctor) return false;
   if (await canEditDoctor(user, poa, doctor)) return false;
-  return hasApprovalThisCycleForDoctor(doctor.id);
+  return hasApprovalThisCycleForDoctor(doctor.id, doctor.status);
 }
 
 /** Doctor-scoped twin of canRespondEditRequest. */

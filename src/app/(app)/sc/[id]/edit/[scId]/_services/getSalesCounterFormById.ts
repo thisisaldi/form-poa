@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { PoaStatus } from "@prisma/client";
 import { getScProducts, getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { isOutletBlastIn } from "@/lib/outletBlastIn";
 import { getSalesCountersByOutlet } from "../../../_services/getSalesCounters";
@@ -20,9 +21,17 @@ export async function getSalesCounterFormById(
   });
 
   if (!form) return null;
-  const hasAccess =
-    form.ownerId === sessionUserId ||
-    (sessionRole != null && ["ASM", "SM", "NSM", "ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole));
+  const isOwner = form.ownerId === sessionUserId;
+  const isSpecialRole = sessionRole != null && ["ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole);
+  const isSuperior = sessionRole != null && ["ASM", "SM", "NSM"].includes(sessionRole);
+
+  let hasAccess = false;
+  if (isOwner || isSpecialRole) {
+    hasAccess = true;
+  } else if (isSuperior) {
+    hasAccess = form.status !== PoaStatus.DRAFT;
+  }
+
   if (!hasAccess) return null;
 
   const [products, isBlastIn, rawOutlets, canvasserPersonsData] = await Promise.all([

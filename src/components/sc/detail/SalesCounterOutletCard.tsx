@@ -122,8 +122,18 @@ export function SalesCounterOutletCard({
     else if (draft.status === "APPROVED_BY_NSM") lockLevel = 3;
 
     if (isOwner) {
-      if (userRole === "MR") return draft.status === "DRAFT" || draft.status === "REVISI";
-      if (draft.status === "DRAFT" || draft.status === "REVISI") return true;
+      if (userRole === "MR") {
+        return (
+          draft.status === "DRAFT" ||
+          draft.status === "REVISI" ||
+          draft.status === "SUBMITTED_TO_ASM"
+        );
+      }
+      if (
+        draft.status === "DRAFT" ||
+        draft.status === "REVISI" ||
+        draft.status === "SUBMITTED_TO_ASM"
+      ) return true;
     }
 
     if (userLevel >= 0 && lockLevel >= 0) {
@@ -400,7 +410,10 @@ export function SalesCounterOutletCard({
   }
 
   return (
-    <div className="py-3 px-2.5 rounded-lg" style={{ opacity: checked ? 1 : 0.5, border: "1px solid var(--color-border)" }}>
+    <div
+      className="py-3 px-2.5 rounded-lg"
+      style={{ opacity: selectable && !checked ? 0.5 : 1, border: "1px solid var(--color-border)" }}
+    >
       <div className="flex items-start gap-3">
         {selectable && (
           <input
@@ -467,7 +480,7 @@ export function SalesCounterOutletCard({
               </button>
             )}
 
-            {!canEditThisDraft && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
+            {isOwner && !canEditThisDraft && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
               <button
                 type="button"
                 onClick={() => setRequestEditBoxOpen((v) => !v)}

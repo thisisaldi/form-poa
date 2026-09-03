@@ -31,8 +31,15 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
     owner: actor,
   };
 
+  const isSelf = targetOwnerId === sessionUserId;
+  const isSpecialRole = sessionRole != null && ["ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole);
+  const draftsWhere: any = { ownerId: targetOwnerId, period: targetPeriod };
+  if (!isSelf && !isSpecialRole) {
+    draftsWhere.status = { not: "DRAFT" as PoaStatus };
+  }
+
   const savedDrafts = await prisma.poaScForm.findMany({
-    where: { ownerId: targetOwnerId, period: targetPeriod },
+    where: draftsWhere,
     include: {
       products: true,
       persons: true,
