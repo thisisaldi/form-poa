@@ -101,27 +101,39 @@ export interface ExodusCustomer {
   customerCodeExodus: string | null; // == API's CustomerCodeExodus (e.g. "C14")
 }
 
+// API casing is inconsistent between endpoints in practice (PascalCase on
+// /customers/users/{nip} and /outlets/{id}/customers, snake_case on
+// /customers per the sample docs reference) — read both defensively rather
+// than assuming one. Shared by getExodusCustomersForMr and
+// getExodusCustomersByOutletCode below — same customer object shape either way.
+function parseExodusCustomerList(data: unknown[]): ExodusCustomer[] {
+  const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return (data as Record<string, unknown>[])
+    .map((c) => ({
+      customerCode: str(c.CustomerCode) ?? str(c.customer_code),
+      name: str(c.Name) ?? str(c.name) ?? "",
+      position: str(c.Position) ?? str(c.position),
+      specialist: str(c.Specialist) ?? str(c.specialist),
+      customerCodeExodus: str(c.CustomerCodeExodus) ?? str(c.customer_code_exodus),
+    }))
+    .filter((c) => c.name);
+}
+
 // Per-nip cache, same idea as cachedPricing below — /customers/users/{nip}
 // returns one MR's whole customer roster in one call, reused across
-// multiple outlets that MR covers (see resolveMrNipForOutlet in
-// customer.ts) rather than re-fetching per outlet.
+// multiple outlets that MR covers rather than re-fetching per outlet.
+// Kept as a fallback (used by scripts/syncCustomerCodeExodus.ts) even though
+// customer.ts's outlet picker moved to the per-outlet endpoint below
+// (2026-09-02 — /customers/users/{nip} has no outlet field at all).
 const customersCacheByNip = new Map<string, { list: ExodusCustomer[]; expiresAt: number }>();
 const CUSTOMERS_TTL_MS = 5 * 60 * 1000;
 
 /**
  * A given MR's full customer (doctor) roster from the Exodus core customers
- * API (2026-08-27 decision: replaces Nexus as the customer/dokter source for
- * POA Estimasi + POA Standarisasi — see customer.ts's fetchCustomersForOutlet).
- * Scoped by MR nip, NOT by outlet — Exodus customer records carry no outlet
- * field at all, confirmed against the real API (both /customers and
- * /customers/users/{nip} return the same shape). Outlet-exact filtering was
- * considered (intersecting against local CustomerOutlet) and explicitly
- * rejected: only ~37% of outlets have any local CustomerOutlet rows (that
- * table is populated by ad-hoc materialization + a one-off 2026-07 Excel
- * import, not a live sync), so gating by it would leave most outlets with an
- * empty dokter picker. User-confirmed tradeoff: show the MR's whole roster,
- * unfiltered by outlet, same "never gate the set, only enrich" philosophy
- * the old Nexus flow already established.
+ * API. Scoped by MR nip, NOT by outlet — this endpoint carries no outlet
+ * field at all, confirmed against the real API. Superseded as customer.ts's
+ * outlet-picker source by getExodusCustomersByOutletCode below (2026-09-02) —
+ * kept only for scripts/syncCustomerCodeExodus.ts's per-active-MR batch scan.
  */
 export async function getExodusCustomersForMr(nip: string): Promise<ExodusCustomer[] | null> {
   if (!isConfigured || !nip) return null;
@@ -140,21 +152,86 @@ export async function getExodusCustomersForMr(nip: string): Promise<ExodusCustom
     const body = (await res.json()) as { data?: Record<string, unknown>[]; error?: { status: boolean } };
     if (body.error?.status || !Array.isArray(body.data)) return null;
 
-    // API casing is inconsistent between endpoints in practice (PascalCase on
-    // /customers/users/{nip}, snake_case on /customers per the sample docs
-    // reference) — read both defensively rather than assuming one.
-    const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
-    const list: ExodusCustomer[] = body.data
-      .map((c) => ({
-        customerCode: str(c.CustomerCode) ?? str(c.customer_code),
-        name: str(c.Name) ?? str(c.name) ?? "",
-        position: str(c.Position) ?? str(c.position),
-        specialist: str(c.Specialist) ?? str(c.specialist),
-        customerCodeExodus: str(c.CustomerCodeExodus) ?? str(c.customer_code_exodus),
-      }))
-      .filter((c) => c.name);
-
+    const list = parseExodusCustomerList(body.data);
     customersCacheByNip.set(nip, { list, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
+    return list;
+  } catch {
+    return null;
+  }
+}
+
+// outlet_code → Exodus's own numeric outlet id essentially never changes
+// once assigned, so this is cached far longer than the other exodusApi.ts
+// caches (30 min) — it's a pure lookup, not something that goes stale like
+// pricing/customer rosters do.
+const outletIdCacheByCode = new Map<string, { id: number | null; expiresAt: number }>();
+const OUTLET_ID_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * Translates our outlet_code (== Outlet.kodePI) to Exodus's own numeric
+ * outlet id (`core/v1/outlets?outlet_code=...`) — needed because
+ * core/v1/outlets/{id}/customers below is keyed by that numeric id, not the
+ * code. Returns null (not throw) on any failure/no-match, same "degrade to
+ * no data" contract as the rest of this file.
+ */
+export async function getExodusOutletIdByCode(outletCode: string): Promise<number | null> {
+  if (!isConfigured || !outletCode) return null;
+  const cached = outletIdCacheByCode.get(outletCode);
+  if (cached && cached.expiresAt > Date.now()) return cached.id;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/core/v1/outlets`);
+    url.searchParams.set("outlet_code", outletCode);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { id: number; outlet_code: string }[]; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data)) return null;
+
+    const match = body.data.find((o) => o.outlet_code === outletCode) ?? body.data[0];
+    const id = match?.id ?? null;
+    outletIdCacheByCode.set(outletCode, { id, expiresAt: Date.now() + OUTLET_ID_TTL_MS });
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+// Per-outlet-code cache, same TTL/idea as customersCacheByNip above.
+const customersCacheByOutletCode = new Map<string, { list: ExodusCustomer[]; expiresAt: number }>();
+
+/**
+ * Customers actually confirmed AT this outlet, straight from Exodus
+ * (`core/v1/outlets/{id}/customers`) — replaces the old MR-roster-via-nip
+ * approach (getExodusCustomersForMr) as customer.ts's outlet picker source
+ * (2026-09-02, user request): that endpoint has no outlet field at all, so
+ * it could only ever return an MR's WHOLE roster unfiltered by outlet. This
+ * one is genuinely outlet-scoped at the source, no local DB gating needed.
+ */
+export async function getExodusCustomersByOutletCode(outletCode: string): Promise<ExodusCustomer[] | null> {
+  if (!isConfigured || !outletCode) return null;
+  const cached = customersCacheByOutletCode.get(outletCode);
+  if (cached && cached.expiresAt > Date.now()) return cached.list;
+
+  const outletId = await getExodusOutletIdByCode(outletCode);
+  if (outletId == null) return null;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${env.EXODUS_API_BASE_URL}/core/v1/outlets/${outletId}/customers`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { customer?: Record<string, unknown>[] }; error?: { status: boolean } };
+    if (body.error?.status) return null;
+
+    const list = parseExodusCustomerList(body.data?.customer ?? []);
+    customersCacheByOutletCode.set(outletCode, { list, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
     return list;
   } catch {
     return null;

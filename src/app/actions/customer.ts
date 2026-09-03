@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersForMr, getExodusDplContracts, getExodusDiskonHistory } from "@/lib/exodusApi";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusDplContracts, getExodusDiskonHistory } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -602,37 +602,17 @@ function computeJabatan(position: string | null, specialist: string): string {
 }
 
 /**
- * Latest MR assigned to this outlet (MrOutletAssignment, most recent synced
- * periode — same "latest periode only" pattern as getOutletsByUser), falling
- * back to Outlet.coveredByNip for outlets an ASM/SM/NSM covers via a vacant
- * MR chain (those never get their own MrOutletAssignment rows).
- */
-async function resolveMrNipForOutlet(kodePI: string): Promise<string | null> {
-  const assignment = await prisma.mrOutletAssignment.findFirst({
-    where: { kodePI },
-    orderBy: { periode: "desc" },
-    select: { nipMR: true },
-  });
-  if (assignment) return assignment.nipMR;
-  const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { coveredByNip: true } });
-  return outlet?.coveredByNip ?? null;
-}
-
-/**
  * Customer/dokter source for POA Estimasi + POA Standarisasi — switched
- * 2026-08-27 (user request) from the Nexus per-outlet endpoint to the Exodus
- * core customers API (`getExodusCustomersForMr`, src/lib/exodusApi.ts).
- * Exodus has no per-outlet endpoint/field at all — only per-MR (confirmed
- * against the real API) — so this resolves the outlet's assigned MR first,
- * then returns that MR's WHOLE roster unfiltered by outlet (explicit
- * user-confirmed tradeoff after checking local CustomerOutlet coverage is
- * only ~37% of outlets — see getCustomersByOutlet's doc comment). Best-effort
- * only, same "no data" degradation as the rest of exodusApi.ts.
+ * 2026-09-02 (user request) to Exodus's genuinely outlet-scoped endpoint
+ * (`getExodusCustomersByOutletCode`, src/lib/exodusApi.ts:
+ * core/v1/outlets?outlet_code=... → core/v1/outlets/{id}/customers), replacing
+ * the 2026-08-27 MR-roster-via-nip approach (`getExodusCustomersForMr`) that
+ * existed only because the per-nip endpoint carries no outlet mapping at
+ * all. Best-effort only, same "no data" degradation as the rest of
+ * exodusApi.ts.
  */
 async function fetchCustomersForOutlet(kodePI: string): Promise<SourcedCustomer[]> {
-  const nip = await resolveMrNipForOutlet(kodePI);
-  if (!nip) return [];
-  const customers = await getExodusCustomersForMr(nip);
+  const customers = await getExodusCustomersByOutletCode(kodePI);
   if (!customers) return [];
 
   return customers.map((c) => ({
@@ -644,13 +624,12 @@ async function fetchCustomersForOutlet(kodePI: string): Promise<SourcedCustomer[
 }
 
 /**
- * Bulk kodeCustomer → spesialisasi lookup, now built from the Exodus-backed
- * fetchCustomersForOutlet across every given outlet (was Nexus
- * get_customer_by_outlet — see fetchCustomersForOutlet's doc comment for the
- * 2026-08-27 switch). Still fans out per outlet with limited concurrency;
- * outlets sharing the same MR transparently reuse getExodusCustomersForMr's
- * per-nip cache instead of re-fetching. Best-effort per outlet — an outlet
- * this fails to resolve for just contributes no spesialisasi entries, never throws.
+ * Bulk kodeCustomer → spesialisasi lookup, built from the Exodus-backed
+ * fetchCustomersForOutlet across every given outlet. Still fans out per
+ * outlet with limited concurrency; outlets whose id was already resolved
+ * transparently reuse getExodusCustomersByOutletCode's own caches instead of
+ * re-fetching. Best-effort per outlet — an outlet this fails to resolve for
+ * just contributes no spesialisasi entries, never throws.
  */
 export async function getNexusSpesialisasiByOutlets(outletKodes: string[]): Promise<Map<string, string>> {
   const spesByKode = new Map<string, string>();
@@ -668,23 +647,68 @@ export async function getNexusSpesialisasiByOutlets(outletKodes: string[]): Prom
   return spesByKode;
 }
 
+type LocalCustomerOutletRow = { customer: { id: string; kodeCustomer: string | null; namaCustomer: string }; isFokus: boolean };
+
+/**
+ * Materializes a local Customer + CustomerOutlet row for an Exodus-confirmed
+ * doctor at this outlet that has no local match yet — same find-or-create
+ * shape as createCustomerAction's manual "Daftar User Baru" flow, just
+ * triggered by an Exodus-confirmed read instead of MR input. isFokus always
+ * false (never settable except by scripts/syncCustomers.ts Pass 2, same rule
+ * as createCustomerAction). Falls back to re-reading on a unique-constraint
+ * race (kodeCustomer) instead of throwing — best-effort, same degrade
+ * contract as the rest of this file's Exodus-backed reads.
+ */
+async function materializeLocalCustomerOutlet(kodePI: string, nc: SourcedCustomer): Promise<LocalCustomerOutletRow | null> {
+  try {
+    if (nc.vbCode) {
+      const existing = await prisma.customer.findUnique({
+        where: { kodeCustomer: nc.vbCode },
+        include: { outlets: { where: { kodePI } } },
+      });
+      if (existing) {
+        if (existing.outlets.length === 0) {
+          await prisma.customerOutlet.create({ data: { customerId: existing.id, kodePI, isFokus: false } });
+        }
+        return { customer: existing, isFokus: existing.outlets[0]?.isFokus ?? false };
+      }
+    }
+    const created = await prisma.customer.create({
+      data: {
+        namaCustomer: nc.namaCustomer,
+        spesialisasi: nc.spesialisasi && nc.spesialisasi.trim() ? nc.spesialisasi.trim() : "-",
+        kodeCustomer: nc.vbCode,
+        outlets: { create: { kodePI, isFokus: false } },
+      },
+    });
+    return { customer: created, isFokus: false };
+  } catch {
+    // Unique constraint (kodeCustomer) race with a concurrent request — the
+    // row exists now, re-read it instead of failing this one entry.
+    if (nc.vbCode) {
+      const existing = await prisma.customer.findUnique({
+        where: { kodeCustomer: nc.vbCode },
+        include: { outlets: { where: { kodePI } } },
+      });
+      if (existing) return { customer: existing, isFokus: existing.outlets[0]?.isFokus ?? false };
+    }
+    return null;
+  }
+}
+
 /**
  * Customers actually AT this outlet — lets an MR search by the doctor's own
  * NAME first when they don't know/remember the spesialisasi, instead of
  * being forced to guess through the spesialisasi dropdown before the
  * customer list can even load (2026-07-23).
  *
- * Exodus (`fetchCustomersForOutlet`) still supplies the whole MR roster (no
- * per-outlet endpoint exists), but as of 2026-08-28 (user request) that
- * roster is FILTERED down to only the entries with a local `CustomerOutlet`
- * row for this exact `kodePI` — local DB now GATES the set, not just
- * enriches it (reverses the 2026-08-27 "never gates the set" decision).
- * Known tradeoff: outlets with no local `CustomerOutlet` coverage (~37% of
- * outlets have any, per the prior decision's own measurement) return an
- * empty list here even though the MR's Exodus roster isn't empty — accepted
- * explicitly by the user over the old "show everything, might be wrong
- * outlet" behavior. No more synthetic "nexus:<id>" entries either: since
- * every returned row now has a confirmed local match, `id` is always a real
+ * `fetchCustomersForOutlet` is genuinely outlet-scoped at the source
+ * (2026-09-02, core/v1/outlets/{id}/customers) — the old local-DB gate
+ * (2026-08-28, from back when the source was an unfiltered MR roster) is
+ * dropped: every doctor Exodus confirms at this outlet is now trusted
+ * directly, with a local Customer/CustomerOutlet row materialized on the fly
+ * (`materializeLocalCustomerOutlet`) for whichever entries don't have one yet
+ * — same shape as the manual "Daftar User Baru" flow. `id` is always a real
  * `Customer.id`.
  */
 export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOption[]> {
@@ -696,9 +720,8 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
     fetchCustomersForOutlet(kodePI),
   ]);
 
-  type LocalRow = (typeof localRows)[number];
-  const localByKode = new Map<string, LocalRow>();
-  const localByName = new Map<string, LocalRow>();
+  const localByKode = new Map<string, LocalCustomerOutletRow>();
+  const localByName = new Map<string, LocalCustomerOutletRow>();
   for (const r of localRows) {
     if (r.customer.kodeCustomer) localByKode.set(r.customer.kodeCustomer.toUpperCase(), r);
     else localByName.set(r.customer.namaCustomer.trim().toUpperCase(), r);
@@ -711,11 +734,13 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
     // manually-entered Customer row (kodeCustomer null) never lands in
     // localByKode, so without this fallback it's never found once the source
     // starts returning a code for that same doctor (2026-08-26 bug report).
-    const localMatch = (key ? localByKode.get(key) : undefined)
+    let localMatch = (key ? localByKode.get(key) : undefined)
       ?? localByName.get(nc.namaCustomer.trim().toUpperCase());
-    // No local CustomerOutlet row for THIS outlet → not confirmed to be here,
-    // drop it (2026-08-28) rather than showing the MR's whole roster.
-    if (!localMatch) continue;
+    if (!localMatch) {
+      const materialized = await materializeLocalCustomerOutlet(kodePI, nc);
+      if (!materialized) continue; // DB write failed — skip this entry rather than surface a fake id
+      localMatch = materialized;
+    }
     result.push({
       id: localMatch.customer.id,
       kodeCustomer: nc.vbCode,

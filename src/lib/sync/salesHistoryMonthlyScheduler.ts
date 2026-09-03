@@ -23,7 +23,10 @@ const LOCK_KEY = "sales-history-monthly";
 // chunks) but short enough to self-heal same-day if a replica dies mid-run.
 const LOCK_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
-function msUntilNextWibMidnight(): number {
+// Exported for reuse by other in-process daily-at-00:00-WIB schedulers
+// (see orgAndOutletScheduler.ts) — same "one instant, shared by all
+// schedulers" clock math, no reason to duplicate it per scheduler.
+export function msUntilNextWibMidnight(): number {
   const now = new Date();
   const wibNow = new Date(now.getTime() + WIB_OFFSET_MS);
   const nextMidnightWibClock = Date.UTC(
