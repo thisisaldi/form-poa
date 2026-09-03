@@ -1,6 +1,6 @@
 /**
  * Shared row-building logic for /api/poa-doctors (list) and
- * /api/poa-doctors/[id] (detail by uidPoa) — both return the exact same
+ * /api/poa-doctors/[id] (detail by uidCustomer) — both return the exact same
  * per-doctor shape, this module is the single source of truth for it so the
  * two routes can't drift. See docs/api-poa-doctors.md for the response
  * contract.
@@ -247,7 +247,7 @@ export async function getCustomerCodeExodusByKodeCust(kodeCusts: string[]): Prom
 }
 
 /**
- * Resolves one doctor row by `uidPoa` (PoaLineItem.id, the per-row anchor
+ * Resolves one doctor row by `uidCustomer` (PoaLineItem.id, the per-row anchor
  * item) — shared by
  * GET /api/poa-doctors/[id] and PATCH /api/poa-doctors/[id] so both apply
  * the exact same "current quarter + fully (NSM) approved" visibility rule
@@ -274,7 +274,7 @@ export async function findDoctorRowById(id: string): Promise<PoaDoctorRow | null
     getCustomerCodeExodusByKodeCust(kodeCusts),
   ]);
 
-  return buildDoctorRows(poa, activePsspRows, quarterToMonths(quarter), productMasterByKodeProduk, customerCodeExodusByKodeCust).find((r) => r.uidPoa === id) ?? null;
+  return buildDoctorRows(poa, activePsspRows, quarterToMonths(quarter), productMasterByKodeProduk, customerCodeExodusByKodeCust).find((r) => r.uidCustomer === id) ?? null;
 }
 
 /** All doctor rows for one PoaForm — same grouping/filtering the list endpoint uses. */
@@ -391,13 +391,12 @@ export function buildDoctorRows(
       : null;
 
     return [{
-      // Per-row identifier (PoaLineItem anchor id) — was `uidCustomer`,
-      // renamed to `uidPoa` 2026-09-02 (tim Exodus only needs a per-row id,
-      // not the old per-draft PoaForm.id). PoaForm.id is kept internal-only
-      // as `poaFormId` (stripped before the response — see route.ts) so
-      // PATCH /api/poa-doctors/[id] can still resolve poaId_kodePI_namaCust.
-      uidPoa: dokter.anchorItemId,
-      poaFormId: poa.id,
+      // uidPoa = PoaForm.id (uuid of the draft), uidCustomer = anchor
+      // PoaLineItem.id (uuid of the per-row/per-doctor line) — restored
+      // 2026-09-03 after Exodus asked for both back (was briefly collapsed
+      // into a single `uidPoa` = PoaLineItem.id on 2026-09-02).
+      uidPoa: poa.id,
+      uidCustomer: dokter.anchorItemId,
       idPoa: formatPoaId(poa.seq),
       path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
       periode: { startDate, endDate },
@@ -409,13 +408,6 @@ export function buildDoctorRows(
         spesialisasi: dokter.spesialisasi,
         kodePI: dokter.kodePI,
         namaOutlet: dokter.namaOutlet,
-        // outlet_id/customer_id (2026-09-02, tim Exodus request): just our
-        // own kodePI/kodeCust under the names Exodus asked for — those ARE
-        // the identifiers Exodus's own systems already key outlets/customers
-        // by (outletSync.ts upserts Outlet.kodePI directly from Exodus's own
-        // OutletCode), no separate Exodus id lookup needed.
-        outletId: dokter.kodePI,
-        customerId: dokter.kodeCust,
         customerCodeExodus: dokter.kodeCust ? customerCodeExodusByKodeCust.get(dokter.kodeCust) ?? null : null,
       },
       estimasi: dokter.estimasiTotal,

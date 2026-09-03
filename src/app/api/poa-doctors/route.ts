@@ -30,7 +30,7 @@
  * /api/poa-doctors/[id] can still resolve an already-used row).
  *
  * Row-building logic shared with GET/PATCH /api/poa-doctors/[id] (detail
- * by uidPoa) lives in src/lib/poaDoctorsRows.ts.
+ * by uidCustomer) lives in src/lib/poaDoctorsRows.ts.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -101,9 +101,5 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // poaFormId is internal-only (PoaForm.id, kept just for PATCH /api/poa-
-  // doctors/[id]'s poaId_kodePI_namaCust lookup) — never part of the public
-  // contract (uidPoa is the per-row PoaLineItem id, see poaDoctorsRows.ts).
-  const publicResult = result.map(({ poaFormId: _poaFormId, ...r }) => r);
-  return NextResponse.json(publicResult);
+  return NextResponse.json(result);
 }

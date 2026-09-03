@@ -63,7 +63,7 @@ Array of:
 
 ```jsonc
 {
-  "uidPoa": "string",        // PoaForm.id (uuid) — dipakai untuk konstruksi path, BUKAN untuk ditampilkan ke user
+  "uidPoa": "string",        // PoaForm.id (uuid draft POA) — dipakai untuk konstruksi path, BUKAN untuk ditampilkan ke user
   "idPoa": "POA0001",        // id human-readable — nomor urut GLOBAL, tidak pernah reset per periode
   "uidCustomer": "string",   // id salah satu PoaLineItem milik dokter ini ("anchor item")
   "path": "/poa/{uidPoa}/doctor/{uidCustomer}/edit", // path halaman detail per-dokter di app
@@ -75,7 +75,8 @@ Array of:
     "namaCust": "string",
     "spesialisasi": "string",
     "kodePI": "string | null",
-    "namaOutlet": "string"
+    "namaOutlet": "string",
+    "customerCodeExodus": "string | null"  // Customer.customerCodeExodus, DB-only (bukan live), null kalau belum di-backfill
   },
   "estimasi": 0,        // rencanaTotalBiaya, dijumlah per dokter (rupiah mentah, belum dibagi 1.000.000)
   "nilaiPssp": 0,        // rencanaTotalBiaya × persenPsspDokter × pengaliNilaiR (default 1 kalau null)
