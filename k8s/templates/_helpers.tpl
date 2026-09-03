@@ -137,7 +137,7 @@ Create vault agent inject config template for .env.production file
 Create vault agent inject service account template for staging environment
 */}}
 {{- define "k8s.vaultAgentInjectServiceAccountTemplate.production" }}
-{{- printf "{{- with secret \"%s/production\" -}}" .Values.vault.secretBasePath }}
+{{- printf "{{- with secret \"%s/production-serviceaccount\" -}}" .Values.vault.secretBasePath }}
 {{ `{{- $data := .Data.data -}}` }}
 {{ `{{- toJSON $data -}}` }}
 {{ `{{- end -}}` }}
