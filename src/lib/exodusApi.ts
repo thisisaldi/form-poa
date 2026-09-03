@@ -499,6 +499,128 @@ export async function getExodusDiskonHistory(outletCode: string): Promise<Exodus
   return [...maxByCode.entries()].map(([kodeProduk, maxDiskonPct]) => ({ kodeProduk, maxDiskonPct }));
 }
 
+export interface ExodusOutletMaster {
+  code: string;
+  name: string;
+  sector: string | null;
+  city: string | null;
+  territoryName: string | null;
+}
+
+/**
+ * One NIP's own outlets from Exodus (core/v1/outlets/users?nip=..., DIRECTLY
+ * per-nip-scoped) — replaces Nexus get_outlet_by_nip as outletSync.ts's
+ * outlet source (2026-09-02: "gapake nexus lagi" decision; corrected same
+ * day after confirming against the real API that this endpoint DOES take a
+ * `nip` param — the earlier no-param call 500'd with "GetOutletByUserNIP:
+ * user projects not found", which in hindsight was exactly this: the
+ * handler needs the param it's named after). No pagination needed — one
+ * NIP's outlet count is small. Still carries no territory CODE, only this
+ * human-readable TerritoryName (see getExodusNipZoneHierarchy below for the
+ * code side, from a separate endpoint).
+ */
+export async function getExodusOutletsByNip(nip: string): Promise<ExodusOutletMaster[] | null> {
+  if (!isConfigured || !nip) return null;
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/core/v1/outlets/users`);
+    url.searchParams.set("nip", nip);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      data?: {
+        OutletCode: string;
+        Name: string;
+        OutletSectorName: string | null;
+        City: string | null;
+        TerritoryName: string | null;
+      }[];
+      error?: { status: boolean };
+    };
+    if (body.error?.status || !Array.isArray(body.data)) return null;
+
+    return body.data
+      .filter((o) => o.OutletCode)
+      .map((o) => ({
+        code: o.OutletCode,
+        name: o.Name?.trim() || o.OutletCode,
+        sector: o.OutletSectorName?.trim() || null,
+        city: o.City?.trim() || null,
+        territoryName: o.TerritoryName?.trim() || null,
+      }));
+  } catch {
+    return null;
+  }
+}
+
+export interface NipZoneHierarchy {
+  territory: { code: string; name: string } | null;
+  subarea: { code: string; name: string } | null;
+  area: { code: string; name: string } | null;
+  region: { code: string; name: string } | null;
+}
+
+export interface ExodusZoneNode {
+  zone_code: string | null;
+  zone_name: string | null;
+  zone_type: string | null;
+  parent: ExodusZoneNode[] | null;
+}
+
+/**
+ * Walks a users/parent response's own-zone + ancestor chain into the four
+ * zone_types this app cares about, keyed by zone_type rather than chain
+ * position — the sample response's top-most ancestor is zone_type
+ * "district" (NSM-level), which has no matching Outlet column and is simply
+ * never assigned here. Exported separately from the fetch so it's testable
+ * without a live API call (see scripts/testExodusZoneHierarchy.ts).
+ */
+export function walkZoneHierarchy(root: ExodusZoneNode): NipZoneHierarchy {
+  const result: NipZoneHierarchy = { territory: null, subarea: null, area: null, region: null };
+  let node: ExodusZoneNode | null = root;
+  while (node) {
+    const code = node.zone_code?.trim();
+    const name = node.zone_name?.trim();
+    if (code && name) {
+      if (node.zone_type === "territory" && !result.territory) result.territory = { code, name };
+      else if (node.zone_type === "subarea" && !result.subarea) result.subarea = { code, name };
+      else if (node.zone_type === "area" && !result.area) result.area = { code, name };
+      else if (node.zone_type === "region" && !result.region) result.region = { code, name };
+    }
+    node = node.parent?.[0] ?? null;
+  }
+  return result;
+}
+
+/**
+ * One NIP's own zone + ancestor zone chain, from Exodus core/v1/users/parent.
+ * Own zone_type "territory" means this NIP (a Field Force) holds one
+ * territory directly — the case outletSync.ts can join to outlets by name.
+ * Own zone_type "subarea" means a Supervisor acting as MR (no Field Force
+ * under them, User.role's existing MR-collapse) — they own no single
+ * territory name, so callers get `territory: null` and must skip them from
+ * outlet matching rather than guessing.
+ */
+export async function getExodusNipZoneHierarchy(nip: string): Promise<NipZoneHierarchy | null> {
+  if (!isConfigured || !nip) return null;
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/core/v1/users/parent`);
+    url.searchParams.set("nip", nip);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: ExodusZoneNode[]; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data) || body.data.length === 0) return null;
+    return walkZoneHierarchy(body.data[0]);
+  } catch {
+    return null;
+  }
+}
+
 /** Every "YYYYMM" month from n-1 months ago through the current month, inclusive (n total months). */
 export function lastNMonthsRange(n: number, from: Date = new Date()): { periodeAwal: string; periodeAkhir: string } {
   const periodeAkhir = `${from.getFullYear()}${String(from.getMonth() + 1).padStart(2, "0")}`;

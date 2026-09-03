@@ -25,7 +25,8 @@ async function main() {
   console.log("\n[2/2] Syncing outlets + MR assignments from Nexus...");
   const outletResult = await runOutletSync();
   console.log(
-    `  ✓ NIPs iterated: ${outletResult.nipsIterated} (${outletResult.nipsFailed} failed), ` +
+    `  ✓ NIPs iterated: ${outletResult.nipsIterated} (${outletResult.nipsFailed} failed, ` +
+      `${outletResult.nipsSkippedNoTerritory} skipped/no-territory), ` +
       `outlets upserted: ${outletResult.outletsUpserted}, assignments: ${outletResult.assignmentsReplaced}`
   );
   if (outletResult.errors.length > 0) {

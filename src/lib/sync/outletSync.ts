@@ -1,76 +1,46 @@
 /**
- * Nexus API → PostgreSQL outlet + MR-outlet assignment sync.
+ * Exodus API → PostgreSQL outlet + MR-outlet assignment sync.
  *
- * Source: https://api-nexus.pharos.id/api/r/poa/get_outlet_by_nip?nip=..., called once per
- * active MR-role NIP already in Postgres `User` (synced separately by orgStructureSync.ts,
- * which is NOT migrated here — see docs/outlet-nexus-migration/README.md). SPV/FF collapse
- * into role "MR" in `User` already (see User.jabatan comment, schema.prisma), so a single
- * `role: "MR"` filter covers both.
+ * Cutover 2026-09-02: source moved from Nexus (get_outlet_by_nip) to Exodus,
+ * per user decision ("gapake nexus lagi"). Originally implemented as a
+ * full-outlet-list + territory-NAME-join hack (core/v1/outlets/users with no
+ * params was assumed to have no per-nip filter — its 500 error
+ * "GetOutletByUserNIP: user projects not found" seemed to confirm that).
+ * Corrected same day: that endpoint DOES take a `nip` query param and
+ * returns exactly that NIP's own outlets directly — the earlier 500 was
+ * simply the param being missing (see exodusApi.ts's getExodusOutletsByNip).
+ * No join/matching needed anymore, one call per NIP.
  *
- * - Upserts distinct outlets returned across all NIP calls into the Outlet table. Fields
- *   not present in the Nexus response (statusOutlet, kategori, namaChannel, groupRS,
- *   outCode, coveredByNip/coveredByRole) are intentionally left out of the upsert clauses —
- *   they stay whatever scripts/importStrukturVerifiedKAM.ts last set them to
- *   (docs/outlet-nexus-migration/01-business-rules.md §3, OQ-3).
- * - Rebuilds MrOutletAssignment rows for the current periode, but with a SELECTIVE delete
- *   scoped to only the NIPs that were fetched successfully this run — NIPs that failed
- *   (network/timeout/unknown to Nexus) are left completely untouched, so a partial-failure
- *   run can never look like data loss for the NIPs it didn't reach.
- *   See docs/outlet-nexus-migration/01-business-rules.md §5 (resolution of OQ-1).
+ * Two calls per NIP (both in src/lib/exodusApi.ts):
+ *   - getExodusOutletsByNip(nip) — that NIP's own outlets, code/name/sector/
+ *     city + a human-readable TerritoryName. No territory CODE.
+ *   - getExodusNipZoneHierarchy(nip) — that NIP's own zone + ancestor chain
+ *     (territory/subarea/area/region), gives the real zone codes. Only
+ *     Field Force NIPs resolve a territory (a Supervisor acting as MR has
+ *     own zone = subarea, no territory of their own) — when it doesn't
+ *     resolve, kodeGT/namaGT/kodeSub.../kodeReg... are just left null on
+ *     that NIP's outlets rather than skipping the NIP entirely (unlike the
+ *     original hack, outlet<->NIP here no longer DEPENDS on resolving a
+ *     territory — it's already given directly by getExodusOutletsByNip).
+ *
+ * Fields with no Exodus equivalent at all (province, outCode, statusOutlet,
+ * namaChannel, groupRS, kategori, coveredByNip/coveredByRole) are left out
+ * of the upsert `update` clause — same as the Nexus version, they stay
+ * whatever scripts/importStrukturVerifiedKAM.ts last set them to.
  */
 
 import { prisma } from "@/lib/prisma";
-import { nexusAuthHeaders } from "@/lib/nexusAuth";
+import { getExodusOutletsByNip, getExodusNipZoneHierarchy, type ExodusOutletMaster, type NipZoneHierarchy } from "@/lib/exodusApi";
 
-const NEXUS_BASE = "https://api-nexus.pharos.id/api/r/poa";
 const CONCURRENCY = 10;
-const FETCH_TIMEOUT_MS = 5000;
-
-interface NexusOutlet {
-  code: string;
-  name: string;
-  sector: string | null;
-  city: string | null;
-  province: string | null;
-  area_code: string | null;
-  area_name: string | null;
-  region_code: string | null;
-  region_name: string | null;
-  subarea_code: string | null;
-  subarea_name: string | null;
-  territory_code: string | null;
-  territory_name: string | null;
-}
 
 export interface OutletSyncResult {
   nipsIterated: number;
-  nipsFailed: number;
+  nipsFailed: number; // outlet list fetch failed for this NIP — excluded from upsert AND assignment delete/replace
+  nipsSkippedNoTerritory: number; // outlets fetched fine, but zone hierarchy didn't resolve a territory — outlets/assignments still synced, just missing kodeGT/namaGT/kodeSub.../kodeReg...
   outletsUpserted: number;
   assignmentsReplaced: number;
   errors: string[];
-}
-
-async function fetchOutletsForNip(nip: string, attempt = 0): Promise<NexusOutlet[] | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(`${NEXUS_BASE}/get_outlet_by_nip?nip=${encodeURIComponent(nip)}`, {
-      signal: controller.signal,
-      headers: nexusAuthHeaders(),
-    });
-    clearTimeout(timeout);
-    if (!res.ok) {
-      // Retry once for transient server errors; 4xx is a permanent failure for this NIP.
-      if (res.status >= 500 && attempt < 1) return fetchOutletsForNip(nip, attempt + 1);
-      return null;
-    }
-    const json = await res.json();
-    const outlets = json?.data?.outlets;
-    return Array.isArray(outlets) ? outlets : [];
-  } catch {
-    if (attempt < 1) return fetchOutletsForNip(nip, attempt + 1);
-    return null;
-  }
 }
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -98,80 +68,79 @@ export async function runOutletSync(): Promise<OutletSyncResult> {
   const nips = activeMrs.map((u: { nip: string }) => u.nip);
 
   const fetched = await mapWithConcurrency(nips, CONCURRENCY, async (nip: string) => {
-    const outlets = await fetchOutletsForNip(nip);
-    if (outlets === null) errors.push(`NIP ${nip}: fetch failed after retry`);
-    return { nip, outlets };
+    const [outlets, hierarchy] = await Promise.all([
+      getExodusOutletsByNip(nip),
+      getExodusNipZoneHierarchy(nip),
+    ]);
+    if (outlets === null) errors.push(`NIP ${nip}: outlet fetch failed`);
+    return { nip, outlets, hierarchy };
   });
 
-  const succeeded = fetched.filter(
-    (f): f is { nip: string; outlets: NexusOutlet[] } => f.outlets !== null
+  const resolved = fetched.filter(
+    (f): f is { nip: string; outlets: ExodusOutletMaster[]; hierarchy: NipZoneHierarchy | null } => f.outlets !== null
   );
 
-  // ── Distinct outlets across all successful NIP responses ───────────────────
-  const outletMap = new Map<string, NexusOutlet>();
-  for (const { outlets } of succeeded) {
-    for (const o of outlets) {
-      if (!o.code) continue;
-      if (!outletMap.has(o.code)) outletMap.set(o.code, o);
-    }
-  }
-
   let outletsUpserted = 0;
-  for (const outlet of outletMap.values()) {
-    const fields = {
-      namaOutlet: outlet.name?.trim() || outlet.code,
-      sector: outlet.sector?.trim() || null,
-      kota: outlet.city?.trim() || null,
-      propinsi: outlet.province?.trim() || null,
-      kodeArea: outlet.area_code?.trim() || null,
-      namaArea: outlet.area_name?.trim() || null,
-      kodeReg: outlet.region_code?.trim() || null,
-      namaReg: outlet.region_name?.trim() || null,
-      kodeSub: outlet.subarea_code?.trim() || null,
-      namaSub: outlet.subarea_name?.trim() || null,
-      kodeGT: outlet.territory_code?.trim() || null,
-      namaGT: outlet.territory_name?.trim() || null,
-      syncedAt: now,
-    };
-    try {
-      await prisma.outlet.upsert({
-        where: { kodePI: outlet.code },
-        create: { kodePI: outlet.code, ...fields },
-        update: fields,
-      });
-      outletsUpserted++;
-    } catch (err) {
-      errors.push(`Outlet ${outlet.code}: ${String(err)}`);
+  const touchedOutletCodes = new Set<string>();
+  for (const { outlets, hierarchy } of resolved) {
+    for (const outlet of outlets) {
+      if (touchedOutletCodes.has(outlet.code)) continue;
+      touchedOutletCodes.add(outlet.code);
+      const fields = {
+        namaOutlet: outlet.name,
+        sector: outlet.sector,
+        kota: outlet.city,
+        kodeSub: hierarchy?.subarea?.code ?? null,
+        namaSub: hierarchy?.subarea?.name ?? null,
+        kodeArea: hierarchy?.area?.code ?? null,
+        namaArea: hierarchy?.area?.name ?? null,
+        kodeReg: hierarchy?.region?.code ?? null,
+        namaReg: hierarchy?.region?.name ?? null,
+        kodeGT: hierarchy?.territory?.code ?? null,
+        namaGT: hierarchy?.territory?.name ?? outlet.territoryName,
+        syncedAt: now,
+      };
+      try {
+        await prisma.outlet.upsert({
+          where: { kodePI: outlet.code },
+          create: { kodePI: outlet.code, ...fields },
+          update: fields,
+        });
+        outletsUpserted++;
+      } catch (err) {
+        errors.push(`Outlet ${outlet.code}: ${String(err)}`);
+      }
     }
   }
 
-  // ── Rebuild MrOutletAssignment — selective delete, only for NIPs fetched successfully.
-  // NIPs that failed this run are left untouched (docs/outlet-nexus-migration/01-business-rules.md §5).
-  const coveredNips = succeeded.map((s) => s.nip);
+  const coveredNips = resolved.map((r) => r.nip);
   let assignmentsReplaced = 0;
   if (coveredNips.length > 0) {
     await prisma.mrOutletAssignment.deleteMany({
       where: { periode, nipMR: { in: coveredNips } },
     });
 
-    for (const { nip, outlets } of succeeded) {
-      const kodePIs = new Set(outlets.map((o) => o.code).filter(Boolean));
-      for (const kodePI of kodePIs) {
+    for (const { nip, outlets } of resolved) {
+      for (const outlet of outlets) {
         try {
           await prisma.mrOutletAssignment.create({
-            data: { nipMR: nip, kodePI, periode, syncedAt: now },
+            data: { nipMR: nip, kodePI: outlet.code, periode, syncedAt: now },
           });
           assignmentsReplaced++;
         } catch (err) {
-          errors.push(`Assignment ${nip}→${kodePI}: ${String(err)}`);
+          errors.push(`Assignment ${nip}→${outlet.code}: ${String(err)}`);
         }
       }
     }
   }
 
+  const nipsFailed = fetched.length - resolved.length;
+  const nipsSkippedNoTerritory = resolved.filter((r) => !r.hierarchy?.territory).length;
+
   return {
     nipsIterated: nips.length,
-    nipsFailed: nips.length - succeeded.length,
+    nipsFailed,
+    nipsSkippedNoTerritory,
     outletsUpserted,
     assignmentsReplaced,
     errors,
