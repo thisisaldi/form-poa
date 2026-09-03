@@ -618,7 +618,9 @@ async function fetchCustomersForOutlet(kodePI: string): Promise<SourcedCustomer[
   return customers.map((c) => ({
     vbCode: c.customerCode,
     namaCustomer: c.name,
-    spesialisasi: c.specialist && c.specialist.trim() ? c.specialist.trim() : "-",
+    // Fall back to position when Exodus gives no specialist (2026-09-03,
+    // user request) — position is still better than the bare "-" placeholder.
+    spesialisasi: c.specialist && c.specialist.trim() ? c.specialist.trim() : (c.position && c.position.trim() ? c.position.trim() : "-"),
     position: c.position,
   }));
 }
