@@ -694,10 +694,10 @@ export function SalesCounterLineItemEditor({
                     background: "var(--color-blue-light, #eff6ff)",
                   }}
                 >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
                   </svg>
-                  Perincian Budget
+                  <span>Perincian Budget</span>
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
@@ -714,7 +714,7 @@ export function SalesCounterLineItemEditor({
                 </div>
                 <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
                   <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                    TOTAL GROWTH
+                    TOTAL ESTIMASI GROWTH
                   </div>
                   {totalGrowthPct != null ? (
                     <>

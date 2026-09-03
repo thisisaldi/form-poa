@@ -17,23 +17,12 @@ import {
 import { formatRp } from "./SalesCounterStatsPanel";
 import type { ScDraftFormItem } from "../types";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
-import { getScOutletB3SalesAction, getScCashbackPoaAction } from "@/app/actions/canvasser";
+import { getScOutletB3SalesAction, getScCashbackPoaAction, getSalesCounterProductsAction } from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
 import { useScToast } from "../ui/ScToast";
 import { BlastInTable } from "../edit/BlastInTable";
 import { PosmTable } from "../edit/PosmTable";
 
-function StatTile({ label, value, sub, emphasize = false }: { label: string; value: string; sub?: string; emphasize?: boolean }) {
-  return (
-    <div className="rounded-md px-2 py-1.5 min-w-0" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>
-      <p className="text-[11px] leading-tight truncate" style={{ color: "var(--color-text-faint)" }}>{label}</p>
-      <p className={`leading-tight whitespace-nowrap overflow-visible ${emphasize ? "text-xs sm:text-sm font-bold" : "text-xs sm:text-sm font-semibold"}`} style={{ color: "var(--color-text)" }}>
-        {value}
-      </p>
-      {sub && <p className="text-[10px] leading-tight mt-0.5 whitespace-nowrap overflow-visible" style={{ color: "var(--color-text-faint)" }}>{sub}</p>}
-    </div>
-  );
-}
 
 function formatMonthLabel(m: string) {
   if (m.length !== 6) return m;
@@ -310,12 +299,31 @@ export function SalesCounterOutletCard({
 
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [cashbackData, setCashbackData] = useState<any>(null);
+  const [clientScData, setClientScData] = useState<{ codes: Set<string>; total: number } | null>(null);
 
   useEffect(() => {
     if (draft.kodePI) {
       getScCashbackPoaAction(draft.kodePI).then((res) => setCashbackData(res));
     }
   }, [draft.kodePI]);
+
+  useEffect(() => {
+    if (draft.totalScProducts != null) return;
+    if (!draft.kodePI) return;
+    getSalesCounterProductsAction(draft.kodePI).then((res) => {
+      if (res?.data && Array.isArray(res.data)) {
+        const scCodes = new Set(res.data.map((cp) => cp.pro_code));
+        setClientScData({ codes: scCodes, total: res.data.length });
+      }
+    });
+  }, [draft.totalScProducts, draft.kodePI]);
+
+  const totalScCount = draft.totalScProducts ?? clientScData?.total ?? 0;
+  const validScCount = draft.validScProductsCount ?? (
+    clientScData
+      ? draft.products.filter((p) => clientScData.codes.has(p.kodeProduk)).length
+      : draft.products.filter((p) => p.isScProduct).length || draft.products.length
+  );
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
 
   const isExpanded = detailOpen;
@@ -411,105 +419,167 @@ export function SalesCounterOutletCard({
 
   return (
     <div
-      className="py-3 px-2.5 rounded-lg"
-      style={{ opacity: selectable && !checked ? 0.5 : 1, border: "1px solid var(--color-border)" }}
+      className="py-3 px-3.5 rounded-lg space-y-2.5"
+      style={{ opacity: checked ? 1 : 0.5, border: "1px solid var(--color-border)" }}
     >
-      <div className="flex items-start gap-3">
-        {selectable && (
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={onToggle}
-            className="h-4 w-4 shrink-0 rounded mt-0.5"
-            style={{ accentColor: "var(--color-blue)" }}
-          />
-        )}
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-              {draft.kodePI ? `${draft.kodePI} · ` : ""}{draft.namaOutlet}
-            </span>
-          </div>
-
-          <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-            SC: {canvasserNames || "Tidak ada SC"}
-          </p>
-          <p className="text-[11px] truncate flex items-center gap-2 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
-            <span>Karyawan: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahKaryawan ?? 0}</strong></span>
-            <span>· Pasien: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasien ?? 0}</strong></span>
-            <span>· Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienResep ?? 0}</strong></span>
-            <span>· Non-Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienNonResep ?? (draft.jumlahPasien != null && draft.jumlahPasienResep != null ? Math.max(0, draft.jumlahPasien - draft.jumlahPasienResep) : 0)}</strong></span>
-          </p>
-
-          {/* Stat grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-2.5">
-            <StatTile label="Estimasi Sales" value={outletEstSales > 0 ? formatRp(outletEstSales) : "-"} emphasize />
-            <StatTile
-              label="Nilai SC (Insentif)"
-              value={outletNilaiSc > 0 ? formatRp(outletNilaiSc) : "-"}
-              sub={draft.persons.length > 0 && outletNilaiSc > 0 ? `${formatRp(outletNilaiSc / draft.persons.length)} / orang` : undefined}
-              emphasize
+      {/* Top Section: Checkbox + Outlet Name & Status */}
+      <div className="flex items-start gap-3 justify-between">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          {selectable && (
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={onToggle}
+              className="h-4 w-4 shrink-0 rounded mt-0.5"
+              style={{ accentColor: "var(--color-blue)" }}
             />
-            <StatTile label="Variasi Produk" value={`${draft.products.length} produk`} />
-            <StatTile label="Entertain SC" value={totalEntertain > 0 ? formatRp(totalEntertain) : "-"} />
+          )}
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
+                {draft.kodePI ? `${draft.kodePI} · ` : ""}{draft.namaOutlet}
+              </span>
+            </div>
+
+            <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+              SC: {canvasserNames || "Tidak ada SC"}
+            </p>
+            <p className="text-[11px] truncate flex items-center gap-2 flex-wrap mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+              <span>Karyawan: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahKaryawan ?? 0}</strong></span>
+              <span>· Pasien: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasien ?? 0}</strong></span>
+              <span>· Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienResep ?? 0}</strong></span>
+              <span>· Non-Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienNonResep ?? (draft.jumlahPasien != null && draft.jumlahPasienResep != null ? Math.max(0, draft.jumlahPasien - draft.jumlahPasienResep) : 0)}</strong></span>
+            </p>
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-1 shrink-0">
+        <div className="shrink-0">
           <StatusBadge status={draft.status} version={draft.version} />
-          <p className="text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-            {draft.products.length} produk
+        </div>
+      </div>
+
+      {/* Metrics: minimal, modern 4-column summary */}
+      <div
+        className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-2 text-xs"
+        style={{ borderTop: "1px solid var(--color-border)", borderBottom: "1px solid var(--color-border)" }}
+      >
+        <div>
+          <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</p>
+          <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-blue)" }}>
+            {outletEstSales > 0 ? formatRp(outletEstSales) : "-"}
           </p>
+        </div>
 
-          <div className="flex items-center gap-2 mt-1">
-            <Link
-              href={`/sc/${poaId}/edit/${draft.id}`}
-              className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
-              style={canEditThisDraft ? { background: "var(--color-blue)", color: "#fff" } : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-              {canEditThisDraft ? "Edit" : "Lihat"}
-            </Link>
+        <div>
+          <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Nilai SC (Insentif)</p>
+          <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-blue)" }}>
+            {outletNilaiSc > 0 ? formatRp(outletNilaiSc) : "-"}
+          </p>
+          {draft.persons.length > 0 && outletNilaiSc > 0 && (
+            <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+              ({formatRp(outletNilaiSc / draft.persons.length)} / org)
+            </p>
+          )}
+        </div>
 
-            {userCanEdit && (draft.status === "DRAFT" || draft.status === "REVISI") && (
-              <button
-                type="button"
-                onClick={() => setSubmitBoxOpen((v) => !v)}
-                className="text-xs font-semibold px-3 py-1.5 rounded-md whitespace-nowrap text-white transition-opacity hover:opacity-90"
-                style={{ background: "var(--color-primary-orange, #ea580c)" }}>
-                Ajukan outlet ini
-              </button>
+        <div>
+          <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Variasi Produk</p>
+          <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-text)" }}>
+            {totalScCount > 0 ? (
+              <span className="whitespace-nowrap">
+                <strong style={{ color: "var(--color-text)" }}>{validScCount} / {totalScCount}</strong> produk SC
+              </span>
+            ) : (
+              `${draft.products.length} produk`
             )}
+          </p>
+          {totalScCount > 0 && validScCount < draft.products.length ? (
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+              Total {draft.products.length} produk{" "}
+              <span style={{ color: "var(--color-red, #dc2626)" }}>
+                ({draft.products.length - validScCount} non-SC)
+              </span>
+            </p>
+          ) : (
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+              Total {draft.products.length} produk (semua SC)
+            </p>
+          )}
+        </div>
 
-            {isOwner && !canEditThisDraft && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
-              <button
-                type="button"
-                onClick={() => setRequestEditBoxOpen((v) => !v)}
-                className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90 cursor-pointer"
-                style={{ background: "var(--color-blue)", color: "#ffffff" }}>
-                Ajukan Edit
-              </button>
-            )}
+        <div>
+          <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Entertain SC</p>
+          <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-text)" }}>
+            {totalEntertain > 0 ? formatRp(totalEntertain) : "-"}
+          </p>
+        </div>
+      </div>
 
-            {(canApproveOutlet || canFastTrackOutlet) && (
-              <button
-                type="button"
-                onClick={() => setAtasanPanelOpen((v) => !v)}
-                className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90"
-                style={{ background: "var(--color-warning, #C99A3D)", color: "#fff" }}>
-                Approval
-              </button>
-            )}
+      {/* Footer Action Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+        <button
+          type="button"
+          onClick={() => setDetailOpen((v) => !v)}
+          className="text-xs hover:underline cursor-pointer"
+          style={{ color: "var(--color-text-faint)" }}
+        >
+          Detail Produk {detailOpen ? "▲" : "▼"}
+        </button>
 
-            {userCanEdit && (
-              <button type="button" disabled={isDeleting} onClick={handleDelete} className="text-xs" style={{ color: "var(--color-red)" }}>
-                Hapus
-              </button>
-            )}
-          </div>
+        <div className="flex items-center gap-2 flex-wrap ml-auto">
+          <Link
+            href={`/sc/${poaId}/edit/${draft.id}`}
+            className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
+            style={canEditThisDraft ? { background: "var(--color-blue)", color: "#fff" } : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}
+          >
+            {canEditThisDraft ? "Edit" : "Lihat"}
+          </Link>
 
-          <button type="button" onClick={() => setDetailOpen((v) => !v)} className="text-xs whitespace-nowrap mt-1" style={{ color: "var(--color-text-faint)" }}>
-            Detail {detailOpen ? "▲" : "▼"}
-          </button>
+          {userCanEdit && (draft.status === "DRAFT" || draft.status === "REVISI") && (
+            <button
+              type="button"
+              onClick={() => setSubmitBoxOpen((v) => !v)}
+              className="text-xs font-semibold px-3 py-1.5 rounded-md whitespace-nowrap text-white transition-opacity hover:opacity-90 cursor-pointer"
+              style={{ background: "var(--color-primary-orange, #ea580c)" }}
+            >
+              Ajukan outlet ini
+            </button>
+          )}
+
+          {isOwner && !canEditThisDraft && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
+            <button
+              type="button"
+              onClick={() => setRequestEditBoxOpen((v) => !v)}
+              className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90 cursor-pointer"
+              style={{ background: "var(--color-blue)", color: "#ffffff" }}
+            >
+              Ajukan Edit
+            </button>
+          )}
+
+          {(canApproveOutlet || canFastTrackOutlet) && (
+            <button
+              type="button"
+              onClick={() => setAtasanPanelOpen((v) => !v)}
+              className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90 cursor-pointer"
+              style={{ background: "var(--color-warning, #C99A3D)", color: "#fff" }}
+            >
+              Approval
+            </button>
+          )}
+
+          {userCanEdit && (
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={handleDelete}
+              className="text-xs hover:underline cursor-pointer"
+              style={{ color: "var(--color-red)" }}
+            >
+              Hapus
+            </button>
+          )}
         </div>
       </div>
 
@@ -796,7 +866,17 @@ export function SalesCounterOutletCard({
 
                   return (
                     <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                      <td className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text)" }}>{p.namaProduk}</td>
+                      <td className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text)" }}>
+                        {p.namaProduk}
+                        {totalScCount > 0 && (p.isScProduct === false || (clientScData && !clientScData.codes.has(p.kodeProduk))) && (
+                          <span
+                            className="text-[10px] font-normal ml-1.5 px-1.5 py-0.5 rounded"
+                            style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" }}
+                          >
+                            Non-SC
+                          </span>
+                        )}
+                      </td>
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
                       <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>{estSalesFull > 0 ? formatRp(estSalesFull) : "-"}</td>
                       <td className="px-2.5 py-2 text-right font-semibold" style={{ color: "var(--color-blue)" }}>{nilaiScFull > 0 ? formatRp(nilaiScFull) : "-"}</td>

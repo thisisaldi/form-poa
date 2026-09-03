@@ -1002,10 +1002,10 @@ export function SalesCounterEditByIdEditor({
                 background: "var(--color-blue-light, #eff6ff)",
               }}
             >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
               </svg>
-              Perincian Budget
+              <span>Perincian Budget</span>
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
@@ -1022,7 +1022,7 @@ export function SalesCounterEditByIdEditor({
             </div>
             <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                TOTAL GROWTH
+                TOTAL ESTIMASI GROWTH
               </div>
               {totalGrowthPct != null ? (
                 <>
@@ -1062,6 +1062,107 @@ export function SalesCounterEditByIdEditor({
               </div>
             </div>
           </div>
+
+          {products.some(p => p.kodeProduk) && (
+            <div className="space-y-3 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Estimasi &amp; Nilai SC Per Produk
+              </p>
+              <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}>
+                <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                      <th className="px-3 py-2 font-medium whitespace-nowrap">Produk</th>
+                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Qty</th>
+                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Estimasi Sales</th>
+                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Nilai SC</th>
+                      {!isCashbackHidden && (
+                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Value Cashback</th>
+                      )}
+                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">
+                        <div>Growth Sebelumnya</div>
+                        {b3RangeLabel && (
+                          <div className="text-[10px] font-normal normal-case opacity-75">
+                            ({b3RangeLabel})
+                          </div>
+                        )}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {products.map((row, idx) => {
+                      if (!row.kodeProduk) return null;
+                      const masterProduct = masterProducts.find((pr) => pr.kodeProduk === row.kodeProduk);
+                      if (!masterProduct) return null;
+
+                      const hnaSJ = parseFloat(masterProduct.hna) || 0;
+                      const qty = parseFloat(row.qtyPerBulan) || 0;
+
+                      const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
+                      const qtyTotal = qty * lamaPeriode;
+                      const estimasiSales = qty * hnaSJ * lamaPeriode;
+                      const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
+
+                      const scVal = canvasserProd?.sales_counter_value;
+                      const scMin = canvasserProd?.sales_counter_minimum || 0;
+
+                      let nilaiScBln = 0;
+                      if (scVal != null && scVal > 0) {
+                        nilaiScBln = qty >= scMin ? qty * scVal : 0;
+                      } else {
+                        nilaiScBln = (qty * hnaSJ) * (pctMatriks / 100);
+                      }
+                      const nilaiSc = nilaiScBln * lamaPeriode;
+                      const valCashback = cashbackDetails?.resultMap?.get(row.kodeProduk) ?? 0;
+
+                      const avgSales = b3SalesMap.get(row.kodeProduk) ?? 0;
+                      const salesHistorical = avgSales * lamaPeriode;
+                      let growthPct = 0;
+                      if (salesHistorical > 0 && estimasiSales > 0) {
+                        growthPct = ((estimasiSales - salesHistorical) / salesHistorical) * 100;
+                      }
+
+                      return (
+                        <tr key={idx} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                          <td className="px-3 py-2 font-medium align-middle" style={{ color: "var(--color-text)" }}>
+                            {masterProduct.namaProduk}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
+                            {qtyTotal > 0 ? `${Math.round(qtyTotal).toLocaleString("id-ID")} ${satuanLabel(masterProduct)}` : "-"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
+                            {estimasiSales > 0 ? `Rp ${Math.round(estimasiSales).toLocaleString("id-ID")}` : "-"}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap font-semibold align-middle" style={{ color: "var(--color-blue)" }}>
+                            {nilaiSc > 0 ? `Rp ${Math.round(nilaiSc).toLocaleString("id-ID")}` : "-"}
+                          </td>
+                          {!isCashbackHidden && (
+                            <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
+                              {valCashback > 0 ? `Rp ${Math.round(valCashback).toLocaleString("id-ID")}` : "-"}
+                            </td>
+                          )}
+                          <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
+                            {salesHistorical > 0 ? (
+                              <span className={growthPct > 0 ? "text-emerald-600 font-semibold" : growthPct < 0 ? "text-rose-600 font-semibold" : ""}>
+                                {growthPct > 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+                              </span>
+                            ) : (
+                              "0%"
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {b3RangeLabel && (
+                  <p className="text-[11px] px-3 py-1.5 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
+                    * Growth Sebelumnya dihitung dari histori rata-rata penjualan B3 ({b3RangeLabel})
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

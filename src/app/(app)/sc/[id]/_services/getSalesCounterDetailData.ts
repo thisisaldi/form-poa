@@ -156,6 +156,8 @@ export async function getSalesCounterDetailData(
 
   const outletCodes = Array.from(new Set(drafts.map((d: any) => d.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
+  const outletScProductCodesMap = new Map<string, Set<string>>();
+  const outletScTotalCountMap = new Map<string, number>();
 
   const [blastInSet, rawOutlets] = await Promise.all([
     getBlastInOutletSet(),
@@ -165,12 +167,16 @@ export async function getSalesCounterDetailData(
         try {
           const res = await getSalesCounterProduct(kodePI);
           if (res?.data) {
+            const scCodes = new Set<string>();
             for (const cp of res.data) {
               canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
                 sales_counter_value: cp.sales_counter_value || 0,
                 sales_counter_minimum: cp.sales_counter_minimum || 0,
               });
+              if (cp.pro_code) scCodes.add(cp.pro_code);
             }
+            outletScProductCodesMap.set(kodePI, scCodes);
+            outletScTotalCountMap.set(kodePI, res.data.length);
           }
         } catch (err) {
           console.error(`Error fetching SC products for ${kodePI}:`, err);
@@ -182,56 +188,66 @@ export async function getSalesCounterDetailData(
   const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));
 
   // Build clean SC Draft Form items
-  const scDrafts: ScDraftFormItem[] = drafts.map((d: any) => ({
-    id: d.id,
-    period: d.period,
-    periodeAwal: d.periodeAwal,
-    lamaPeriode: d.lamaPeriode,
-    status: d.status,
-    version: d.version,
-    kodePI: d.kodePI,
-    namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
-    persenResepDokter: d.persenResepDokter,
-    jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
-    jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien ?? d.jumlahPasien ?? null),
-    jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
-    jumlahPasienNonResep: (d.jumlahPasienNonResep && d.jumlahPasienNonResep > 0) ? d.jumlahPasienNonResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_non_resep ?? d.jumlahPasienNonResep ?? null),
-    ownerId: d.ownerId,
-    is_sc: outletScMap.get(d.kodePI) ?? false,
-    isBlastIn: blastInSet.has(d.kodePI),
-    persons: d.persons.map((p: any) => ({
-      id: p.id,
-      nik_ktp: p.nik_ktp,
-      personName: p.personName,
-      positionName: p.positionName,
-    })),
-    products: d.products.map((p: any) => {
-      const mp = masterProductMap.get(p.kodeProduk);
-      const cp = canvasserProductMap.get(`${d.kodePI}_${p.kodeProduk}`);
-      return {
+  const scDrafts: ScDraftFormItem[] = drafts.map((d: any) => {
+    const scCodes = outletScProductCodesMap.get(d.kodePI) || new Set<string>();
+    const totalScProducts = outletScTotalCountMap.get(d.kodePI) ?? 0;
+    const validScProductsCount = d.products.filter((p: any) => scCodes.has(p.kodeProduk)).length;
+
+    return {
+      id: d.id,
+      period: d.period,
+      periodeAwal: d.periodeAwal,
+      lamaPeriode: d.lamaPeriode,
+      status: d.status,
+      version: d.version,
+      kodePI: d.kodePI,
+      namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
+      persenResepDokter: d.persenResepDokter,
+      jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
+      jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien ?? d.jumlahPasien ?? null),
+      jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
+      jumlahPasienNonResep: (d.jumlahPasienNonResep && d.jumlahPasienNonResep > 0) ? d.jumlahPasienNonResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_non_resep ?? d.jumlahPasienNonResep ?? null),
+      ownerId: d.ownerId,
+      is_sc: outletScMap.get(d.kodePI) ?? false,
+      isBlastIn: blastInSet.has(d.kodePI),
+      totalScProducts,
+      validScProductsCount,
+      persons: d.persons.map((p: any) => ({
         id: p.id,
-        kodeProduk: p.kodeProduk,
-        namaProduk: p.namaProduk,
-        produkKompetitor: p.produkKompetitor || null,
-        qtyPerBulan: p.qtyPerBulan,
-        persenMatriksSc: Number(p.persenMatriksSc.toString()),
-        persenDiskon: Number(p.persenDiskon.toString()),
-        persenCashback: Number(p.persenCashback.toString()),
-        rencanaTotalBiaya: Number(p.rencanaTotalBiaya.toString()),
-        hnaSJ: mp ? Number(mp.hna.toString()) : 0,
-        konversiPembagi: mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1,
-        satuanTerkecil: mp?.satuanTerkecil || "ST",
-        satuanSJ: mp?.satuan || "SJ",
-        salesCounterValue: cp?.sales_counter_value || 0,
-        salesCounterMinimum: cp?.sales_counter_minimum || 0,
-      };
-    }),
-    entertainItems: d.entertainItems.map((e: any) => ({
-      id: e.id,
-      periodeMonth: e.periodeMonth,
-      biayaEntertain: Number(e.biayaEntertain.toString()),
-    })),
-  }));
+        nik_ktp: p.nik_ktp,
+        personName: p.personName,
+        positionName: p.positionName,
+      })),
+      products: d.products.map((p: any) => {
+        const mp = masterProductMap.get(p.kodeProduk);
+        const cp = canvasserProductMap.get(`${d.kodePI}_${p.kodeProduk}`);
+        const isScProduct = scCodes.has(p.kodeProduk);
+        return {
+          id: p.id,
+          kodeProduk: p.kodeProduk,
+          namaProduk: p.namaProduk,
+          produkKompetitor: p.produkKompetitor || null,
+          qtyPerBulan: p.qtyPerBulan,
+          persenMatriksSc: Number(p.persenMatriksSc.toString()),
+          persenDiskon: Number(p.persenDiskon.toString()),
+          persenCashback: Number(p.persenCashback.toString()),
+          rencanaTotalBiaya: Number(p.rencanaTotalBiaya.toString()),
+          hnaSJ: mp ? Number(mp.hna.toString()) : 0,
+          konversiPembagi: mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1,
+          satuanTerkecil: mp?.satuanTerkecil || "ST",
+          satuanSJ: mp?.satuan || "SJ",
+          salesCounterValue: cp?.sales_counter_value || 0,
+          salesCounterMinimum: cp?.sales_counter_minimum || 0,
+          isScProduct,
+        };
+      }),
+      entertainItems: d.entertainItems.map((e: any) => ({
+        id: e.id,
+        periodeMonth: e.periodeMonth,
+        biayaEntertain: Number(e.biayaEntertain.toString()),
+      })),
+    };
+  });
 
   const salesSummary = poa.owner.isDummy
     ? { historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0 }
