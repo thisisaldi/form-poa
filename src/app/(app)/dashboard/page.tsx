@@ -13,8 +13,15 @@ import { DeletePoaButton } from "@/components/poa/DeletePoaButton";
 import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart";
 import type { PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
 import { displayRole } from "@/lib/role";
-import { formatCurrency as formatRp } from "@/lib/format";
+import { formatCurrency } from "@/lib/format";
 import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
+
+// Hospital dashboard (this page lists PoaForm — hospital POA) drops the
+// "Jt/M/Rb" suffix, same as the hospital draft (DraftChecklist.tsx) —
+// plain ÷1.000.000 (2026-09-03 request).
+function formatRp(val: Parameters<typeof formatCurrency>[0]) {
+  return formatCurrency(val, false);
+}
 
 export const metadata = { title: "Dashboard · Form POA" };
 
