@@ -16,6 +16,10 @@
  * is null and `namaMR` a raw placeholder like "VACANT MR ..." when
  * unresolved — see the import scripts' name-resolution notes).
  *
+ * `?breakdown` (any value, only meaningful with `?nip=`): returns the same
+ * per-GT row shape as "get target all" above, instead of one summed total
+ * per periode — scoped to just this nip's subtree of GTs.
+ *
  * Two credential paths, same pattern as /api/poa-doctors (2026-08-19): the
  * app's own browser calls carry a session cookie; an external app
  * authenticates with HTTP Basic Auth instead, checked against the SAME
@@ -32,7 +36,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { verifyBasicAuth } from "@/lib/apiBasicAuth";
 import { getSubordinateMRNips } from "@/lib/authz";
-import { getCurrentGTsForMrNips, sumTargetHospitalValueForGTs } from "@/lib/targetHospitalValue";
+import { getCurrentGTsForMrNips, sumTargetHospitalValueForGTs, getTargetHospitalValueRowsForGTs } from "@/lib/targetHospitalValue";
 
 const SUPPORTED_ROLES = new Set(["MR", "ASM", "SM", "NSM"]);
 
@@ -57,6 +61,7 @@ export async function GET(req: NextRequest) {
 
   const periode = req.nextUrl.searchParams.get("periode")?.trim();
   const nip = forcedNip ?? req.nextUrl.searchParams.get("nip")?.trim();
+  const breakdown = req.nextUrl.searchParams.has("breakdown");
 
   if (nip) {
     const person = await prisma.user.findUnique({ where: { nip }, select: { nip: true, name: true, role: true } });
@@ -65,8 +70,17 @@ export async function GET(req: NextRequest) {
 
     const mrNips = person.role === "MR" ? [person.nip] : await getSubordinateMRNips(person as User);
     const gts = await getCurrentGTsForMrNips(mrNips);
-    const summed = await sumTargetHospitalValueForGTs(gts, periode);
 
+    // ?breakdown=1 (or any value): per-GT rows under this nip's subtree
+    // instead of one summed total per periode (2026-09-03) — same
+    // {namaGT,nipMR,namaMR,target,periode} shape as "get target all" below,
+    // just scoped to `gts`.
+    if (breakdown) {
+      const rows = await getTargetHospitalValueRowsForGTs(gts, periode);
+      return NextResponse.json(rows);
+    }
+
+    const summed = await sumTargetHospitalValueForGTs(gts, periode);
     return NextResponse.json(summed.map((s) => ({
       nip: person.nip,
       nama: person.name,
