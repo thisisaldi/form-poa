@@ -76,7 +76,8 @@ Array of:
     "spesialisasi": "string",
     "kodePI": "string | null",
     "namaOutlet": "string",
-    "customerCodeExodus": "string | null"  // Customer.customerCodeExodus, DB-only (bukan live), null kalau belum di-backfill
+    "outletId": 123,          // id numerik Exodus sendiri (core/v1/outlets, live, di-fetch tanpa filter/unfiltered lalu di-cache 30 menit), BEDA dari kodePI di atas. null kalau kodePI kosong atau tidak match outlet Exodus manapun
+    "customerId": "C14"       // kode customer Exodus sendiri (Customer.customerCodeExodus, DB-only backfill, BUKAN live), BEDA dari kodeCust di atas. null kalau kodeCust kosong atau belum di-backfill
   },
   "estimasi": 0,        // rencanaTotalBiaya, dijumlah per dokter (rupiah mentah, belum dibagi 1.000.000)
   "nilaiPssp": 0,        // rencanaTotalBiaya × persenPsspDokter × pengaliNilaiR (default 1 kalau null)

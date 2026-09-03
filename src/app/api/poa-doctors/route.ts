@@ -42,6 +42,7 @@ import {
   buildDoctorRows,
   getProductMasterByKodeProduk,
   getCustomerCodeExodusByKodeCust,
+  getOutletIdsByKodePI,
   isAuthorizedPoaDoctorsRequest,
   type PoaWithDoctorRows,
 } from "@/lib/poaDoctorsRows";
@@ -78,13 +79,14 @@ export async function GET(req: NextRequest) {
   const allItems = poas.flatMap((poa) => poa.items);
   const outletKodes = Array.from(new Set(allItems.map((it) => it.kodePI).filter((k): k is string => !!k)));
   const kodeCusts = Array.from(new Set(allItems.map((it) => it.kodeCust).filter((k): k is string => !!k)));
-  const [activePsspRows, productMasterByKodeProduk, customerCodeExodusByKodeCust] = await Promise.all([
+  const [activePsspRows, productMasterByKodeProduk, customerCodeExodusByKodeCust, outletIdByKodePI] = await Promise.all([
     outletKodes.length > 0 ? getActivePsspByOutlets(outletKodes) : Promise.resolve([]),
     getProductMasterByKodeProduk(allItems),
     getCustomerCodeExodusByKodeCust(kodeCusts),
+    getOutletIdsByKodePI(),
   ]);
 
-  let result = poas.flatMap((poa) => buildDoctorRows(poa, activePsspRows, quarterMonths, productMasterByKodeProduk, customerCodeExodusByKodeCust));
+  let result = poas.flatMap((poa) => buildDoctorRows(poa, activePsspRows, quarterMonths, productMasterByKodeProduk, customerCodeExodusByKodeCust, outletIdByKodePI));
 
   // "Belum digunakan di Exodus" (docs/exodus-poa-usage/01-business-rules.md
   // §4, revised 2026-08-27) — only in the list response, not in the shared

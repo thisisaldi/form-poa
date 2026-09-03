@@ -15,7 +15,7 @@ import { computeActivePsspStats } from "@/lib/activePssp";
 import { currentQuarter, quarterToMonths, quarterDateRange } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
-import { getLiveProductPricing } from "@/lib/exodusApi";
+import { getLiveProductPricing, getLiveOutletIds } from "@/lib/exodusApi";
 
 /**
  * Shared auth gate for every /api/poa-doctors* route: session cookie (app's
@@ -246,6 +246,11 @@ export async function getCustomerCodeExodusByKodeCust(kodeCusts: string[]): Prom
   );
 }
 
+/** Exodus's own numeric outlet id, keyed by our kodePI (== Exodus outlet_code). Live-only, no DB fallback (Outlet has no such column). */
+export async function getOutletIdsByKodePI(): Promise<Map<string, number>> {
+  return (await getLiveOutletIds()) ?? new Map();
+}
+
 /**
  * Resolves one doctor row by `uidCustomer` (PoaLineItem.id, the per-row anchor
  * item) — shared by
@@ -268,13 +273,14 @@ export async function findDoctorRowById(id: string): Promise<PoaDoctorRow | null
 
   const outletKodes = Array.from(new Set(poa.items.map((it) => it.kodePI).filter((k): k is string => !!k)));
   const kodeCusts = Array.from(new Set(poa.items.map((it) => it.kodeCust).filter((k): k is string => !!k)));
-  const [activePsspRows, productMasterByKodeProduk, customerCodeExodusByKodeCust] = await Promise.all([
+  const [activePsspRows, productMasterByKodeProduk, customerCodeExodusByKodeCust, outletIdByKodePI] = await Promise.all([
     outletKodes.length > 0 ? getActivePsspByOutlets(outletKodes) : Promise.resolve([]),
     getProductMasterByKodeProduk(poa.items),
     getCustomerCodeExodusByKodeCust(kodeCusts),
+    getOutletIdsByKodePI(),
   ]);
 
-  return buildDoctorRows(poa, activePsspRows, quarterToMonths(quarter), productMasterByKodeProduk, customerCodeExodusByKodeCust).find((r) => r.uidCustomer === id) ?? null;
+  return buildDoctorRows(poa, activePsspRows, quarterToMonths(quarter), productMasterByKodeProduk, customerCodeExodusByKodeCust, outletIdByKodePI).find((r) => r.uidCustomer === id) ?? null;
 }
 
 /** All doctor rows for one PoaForm — same grouping/filtering the list endpoint uses. */
@@ -283,7 +289,8 @@ export function buildDoctorRows(
   activePsspRows: ActivePsspRow[],
   quarterMonths: string[],
   productMasterByKodeProduk: Map<string, ProductMaster>,
-  customerCodeExodusByKodeCust: Map<string, string | null> = new Map()
+  customerCodeExodusByKodeCust: Map<string, string | null> = new Map(),
+  outletIdByKodePI: Map<string, number> = new Map()
 ) {
   type Produk = {
     kodeProduk: string;
@@ -408,7 +415,14 @@ export function buildDoctorRows(
         spesialisasi: dokter.spesialisasi,
         kodePI: dokter.kodePI,
         namaOutlet: dokter.namaOutlet,
-        customerCodeExodus: dokter.kodeCust ? customerCodeExodusByKodeCust.get(dokter.kodeCust) ?? null : null,
+        // Exodus's own numeric ids (2026-09-03, tim Exodus re-request) —
+        // NOT kodePI/kodeCust, those stay above as-is. outletId from
+        // core/v1/outlets (unfiltered batch fetch, see getLiveOutletIds),
+        // customerId from core/v1/customers/users/{nip}'s CustomerCodeExodus
+        // (DB-backed, see getCustomerCodeExodusByKodeCust) — a string code
+        // ("C14"), not numeric, but it IS the id Exodus's own systems use.
+        outletId: dokter.kodePI ? outletIdByKodePI.get(dokter.kodePI) ?? null : null,
+        customerId: dokter.kodeCust ? customerCodeExodusByKodeCust.get(dokter.kodeCust) ?? null : null,
       },
       estimasi: dokter.estimasiTotal,
       nilaiPssp: dokter.nilaiPsspTotal,

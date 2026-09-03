@@ -199,6 +199,41 @@ export async function getExodusOutletIdByCode(outletCode: string): Promise<numbe
   }
 }
 
+// Full outlet_code → Exodus's own numeric outlet id, fetched UNFILTERED in
+// one call (like getLiveProductPricing) instead of per-code (like
+// getExodusOutletIdByCode above) — needed for /api/poa-doctors' outlet_id
+// field, which can touch every outlet company-wide; looping the per-code
+// call there would violate docs/PERFORMANCE.md's call-in-loop rule.
+let cachedOutletIds: { map: Map<string, number>; expiresAt: number } | null = null;
+const OUTLET_IDS_TTL_MS = 30 * 60 * 1000;
+
+export async function getLiveOutletIds(): Promise<Map<string, number> | null> {
+  if (!isConfigured) return null;
+  if (cachedOutletIds && cachedOutletIds.expiresAt > Date.now()) return cachedOutletIds.map;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${env.EXODUS_API_BASE_URL}/core/v1/outlets`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { id: number; outlet_code: string }[]; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data)) return null;
+
+    const map = new Map<string, number>();
+    for (const o of body.data) {
+      if (o.outlet_code) map.set(o.outlet_code, o.id);
+    }
+    cachedOutletIds = { map, expiresAt: Date.now() + OUTLET_IDS_TTL_MS };
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 // Per-outlet-code cache, same TTL/idea as customersCacheByNip above.
 const customersCacheByOutletCode = new Map<string, { list: ExodusCustomer[]; expiresAt: number }>();
 
