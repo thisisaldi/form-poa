@@ -80,25 +80,46 @@ export async function resolveTargetHospitalValueFallback(
 }
 
 /**
- * Distinct GT names currently held by any nip in `mrNips`, from LIVE outlet
- * assignment (MrOutletAssignment + Outlet.namaGT, latest synced periode —
- * same pattern as getOutletsForMrSubtree in masterData.ts) — deliberately
- * NOT TargetHospitalValue's own nipMR/nipASM/nipSM/nipNSM columns, which are
- * a snapshot from whenever the target Excel was last imported and go stale
- * the moment a GT changes hands before the next import (2026-09-02, used by
+ * Distinct GT names held by any nip in `mrNips`, from outlet assignment
+ * (MrOutletAssignment + Outlet.namaGT) — deliberately NOT
+ * TargetHospitalValue's own nipMR/nipASM/nipSM/nipNSM columns, which are a
+ * snapshot from whenever the target Excel was last imported and go stale the
+ * moment a GT changes hands before the next import (2026-09-02, used by
  * /api/target-value's ?nip= rollup so a reassigned/newly-filled GT's target
  * follows the person immediately, no re-import needed).
+ *
+ * `periode` (YYYYMM string, e.g. "202608") picks WHICH month's org structure
+ * to resolve against — MrOutletAssignment is itself synced per calendar
+ * month, so asking for an old periode's target should use that SAME month's
+ * GT assignment, not today's (2026-09-03: org structure moves between
+ * periods, so latest-only silently mixed the wrong month's GT ownership into
+ * an old periode's target). Falls back to the latest synced periode when
+ * `periode` is omitted (no single month to anchor to — same pattern as
+ * getOutletsForMrSubtree in masterData.ts) OR when `periode` itself was
+ * never synced for any of `mrNips` (e.g. it's in the future / sync hasn't
+ * run yet) — better a possibly-current answer than none.
  */
-export async function getCurrentGTsForMrNips(mrNips: string[]): Promise<string[]> {
+export async function getCurrentGTsForMrNips(mrNips: string[], periode?: string): Promise<string[]> {
   if (mrNips.length === 0) return [];
-  const latestAssignment = await prisma.mrOutletAssignment.findFirst({
-    where: { nipMR: { in: mrNips } },
-    orderBy: { periode: "desc" },
+  const requestedPeriode = periode ? parseInt(periode, 10) : NaN;
+  const hasRequestedPeriode = !isNaN(requestedPeriode) && await prisma.mrOutletAssignment.findFirst({
+    where: { nipMR: { in: mrNips }, periode: requestedPeriode },
     select: { periode: true },
   });
-  if (!latestAssignment) return [];
+  let resolvedPeriode: number;
+  if (hasRequestedPeriode) {
+    resolvedPeriode = requestedPeriode;
+  } else {
+    const latestAssignment = await prisma.mrOutletAssignment.findFirst({
+      where: { nipMR: { in: mrNips } },
+      orderBy: { periode: "desc" },
+      select: { periode: true },
+    });
+    if (!latestAssignment) return [];
+    resolvedPeriode = latestAssignment.periode;
+  }
   const assignments = (await prisma.mrOutletAssignment.findMany({
-    where: { nipMR: { in: mrNips }, periode: latestAssignment.periode },
+    where: { nipMR: { in: mrNips }, periode: resolvedPeriode },
     select: { outlet: { select: { namaGT: true } } },
   })) as { outlet: { namaGT: string | null } }[];
   const names: (string | null)[] = assignments.map((a) => a.outlet.namaGT);

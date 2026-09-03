@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
     if (!SUPPORTED_ROLES.has(person.role)) return NextResponse.json({ error: `Role ${person.role} tidak didukung untuk target value.` }, { status: 400 });
 
     const mrNips = person.role === "MR" ? [person.nip] : await getSubordinateMRNips(person as User);
-    const gts = await getCurrentGTsForMrNips(mrNips);
+    const gts = await getCurrentGTsForMrNips(mrNips, periode);
 
     // ?breakdown=1 (or any value): per-GT rows under this nip's subtree
     // instead of one summed total per periode (2026-09-03) — same
