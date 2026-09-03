@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
+import { PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import { getSalesCounterProduct } from "../../../../(app)/sc/[id]/_services/getSalesCounterProduct";
@@ -58,7 +59,17 @@ export async function GET(
   const owner = first.owner;
 
   // Authorization check
-  const hasAccess = owner.nip === session.userId || (["ASM", "SM", "NSM", "ADMIN", "GM", "SFE", "VIEWER"] as string[]).includes(session.role);
+  const isOwner = owner.nip === session.userId;
+  const isSpecialRole = (["ADMIN", "GM", "SFE", "VIEWER"] as string[]).includes(session.role);
+  const isSuperior = (["ASM", "SM", "NSM"] as string[]).includes(session.role);
+
+  let hasAccess = false;
+  if (isOwner || isSpecialRole) {
+    hasAccess = true;
+  } else if (isSuperior) {
+    hasAccess = first.status !== PoaStatus.DRAFT;
+  }
+
   if (!hasAccess) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

@@ -1,4 +1,4 @@
-import type { PoaStatus } from "@prisma/client";
+import { PoaStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSubordinateMRNips, getScSubordinateIdsUnder } from "@/lib/authz";
 import { getMrSalesSummary } from "@/lib/salesSummary";
@@ -40,24 +40,31 @@ export async function getSalesCounterDetailData(
 
   // Fast-path access check
   let hasAccess = false;
-  if (
-    targetOwnerId === sessionUserId ||
-    formById?.currentHolderId === sessionUserId ||
-    ["ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole)
-  ) {
+  const isSelf = targetOwnerId === sessionUserId;
+  const isSpecialRole = ["ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole);
+
+  if (isSelf || isSpecialRole) {
     hasAccess = true;
   } else {
     const depthByRole: Record<string, number> = { ASM: 1, SM: 2, NSM: 3 };
     const depth = depthByRole[sessionRole] ?? 1;
     const subIds = await getScSubordinateIdsUnder(sessionUserId, depth);
     if (subIds.includes(targetOwnerId)) {
-      hasAccess = true;
+      const submittedCount = await prisma.poaScForm.count({
+        where: {
+          ownerId: targetOwnerId,
+          period: targetPeriod,
+          status: { not: PoaStatus.DRAFT },
+        },
+      });
+      hasAccess = submittedCount > 0;
     } else {
       const holderCount = await prisma.poaScForm.count({
         where: {
           ownerId: targetOwnerId,
           period: targetPeriod,
           currentHolderId: sessionUserId,
+          status: { not: PoaStatus.DRAFT },
         },
       });
       hasAccess = holderCount > 0;
@@ -66,8 +73,13 @@ export async function getSalesCounterDetailData(
 
   if (!hasAccess) return { hasAccess: false };
 
+  const draftsWhere: any = { ownerId: targetOwnerId, period: targetPeriod };
+  if (!isSelf && !isSpecialRole) {
+    draftsWhere.status = { not: PoaStatus.DRAFT };
+  }
+
   const drafts = await prisma.poaScForm.findMany({
-    where: { ownerId: targetOwnerId, period: targetPeriod },
+    where: draftsWhere,
     include: {
       owner: true,
       currentHolder: true,
