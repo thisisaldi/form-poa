@@ -85,13 +85,12 @@ const DUMMY_KOMPETITOR_DATA = [
     subtitel: "0201478 · PRORIS · Ibuprofen 100mg/5ml",
     internalSales: {
       healthyOneUb: 10,
-      b2bUb: 15,
       b2bSellInUb: 20,
     },
     surveyCompetitor: {
       namaKompetitor: "Sanmol Syrup 60ml",
-      forecastPenjualanKompetitor: "5 Botol/hari",
-      potensiProrisUb: 30,
+      forecastPenjualanKompetitor: "5 Botol",
+      potensiProrisUb: 35,
     },
   },
   {
@@ -100,13 +99,12 @@ const DUMMY_KOMPETITOR_DATA = [
     subtitel: "0102553 · POLYSILANE · Antasida Doen & Dimethicone",
     internalSales: {
       healthyOneUb: 18,
-      b2bUb: 22,
       b2bSellInUb: 25,
     },
     surveyCompetitor: {
       namaKompetitor: "Mylanta Liquid 150ml",
-      forecastPenjualanKompetitor: "8 Botol/hari",
-      potensiProrisUb: 45,
+      forecastPenjualanKompetitor: "8 Botol",
+      potensiProrisUb: 51,
     },
   },
   {
@@ -115,13 +113,12 @@ const DUMMY_KOMPETITOR_DATA = [
     subtitel: "0304112 · MICROLAX · Na Lauril Sulfoasetat",
     internalSales: {
       healthyOneUb: 8,
-      b2bUb: 12,
       b2bSellInUb: 15,
     },
     surveyCompetitor: {
       namaKompetitor: "Dulcolax Suppositoria",
-      forecastPenjualanKompetitor: "4 Box/hari",
-      potensiProrisUb: 25,
+      forecastPenjualanKompetitor: "4 Box",
+      potensiProrisUb: 27,
     },
   },
 ];
@@ -553,7 +550,7 @@ export function ScSidebar({
                             className="font-medium px-1.5 py-0.5 rounded"
                             style={{ background: "#f3e8ff", color: "#6b21a8" }}
                           >
-                            Produk Survey{item.totalPotensiBulan ? `: ${Math.floor(item.totalPotensiBulan)} UB/bln` : ""}
+                            Produk Survey{item.totalPotensiBulan ? `: ${Math.floor(item.totalPotensiBulan)} UB` : ""}
                           </span>
                         </div>
                       </div>
@@ -904,7 +901,7 @@ export function ScSidebar({
                     {/* Card Body */}
                     <div className="p-2.5 space-y-3">
                       {/* 1. SELL OUT (Survey, HealthyOne, B2B) */}
-                      {(showSurvey || showHealthyOne || showB2B) && (
+                      {(showSurvey || showHealthyOne) && (
                         <div className="space-y-1.5">
                           <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
                             Sell Out
@@ -920,13 +917,7 @@ export function ScSidebar({
                                     </span>
                                     <span className="truncate">{item.surveyCompetitor.namaKompetitor}</span>
                                   </div>
-                                  <span className="text-[9px] font-bold text-rose-700 bg-rose-100/80 border border-rose-200/80 px-1.5 py-0.5 rounded font-mono shrink-0">
-                                    Jual: {item.surveyCompetitor.forecastPenjualanKompetitor}
-                                  </span>
-                                </div>
-                                <div className="text-[9px] text-slate-700 font-medium pt-0.5 flex items-center justify-between border-t border-rose-100/70">
-                                  <span>Forecast Potensi Penjualan:</span>
-                                  <span className="font-bold text-rose-800">{item.surveyCompetitor.potensiProrisUb} UB / bln</span>
+                                  <span className="font-bold text-rose-700">{item.surveyCompetitor.forecastPenjualanKompetitor}</span>
                                 </div>
                               </div>
                             )}
@@ -941,19 +932,6 @@ export function ScSidebar({
                                   <span className="font-medium text-slate-700">HealthyOne Sell Out</span>
                                 </div>
                                 <span className="font-bold text-emerald-950">{item.internalSales.healthyOneUb} UB</span>
-                              </div>
-                            )}
-
-                            {/* B2B (Internal Sell Out) */}
-                            {showB2B && (
-                              <div className="p-1.5 rounded-lg bg-blue-50/70 border border-blue-200/70 flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-200/70 font-bold text-[8px] uppercase">
-                                    B2B
-                                  </span>
-                                  <span className="font-medium text-slate-700">B2B Sell Out</span>
-                                </div>
-                                <span className="font-bold text-blue-950">{item.internalSales.b2bUb} UB</span>
                               </div>
                             )}
                           </div>
