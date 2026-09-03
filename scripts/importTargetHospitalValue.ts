@@ -108,16 +108,44 @@ async function main() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
+  // GT names confirmed 2026-09-03 by the business target team as the SAME
+  // territory as its live Outlet.namaGT counterpart, despite spelling far
+  // enough apart that normalizeGTName (targetHospitalValue.ts) can't safely
+  // bridge them automatically (composition differs, e.g. "CIKOKOL +SUKAJADI"
+  // vs live "CIKOKOL + BANJAR", or a letter/suffix differs outright, e.g.
+  // "KALIDERAS" vs live "KALIDERES") — rewritten to the live spelling here so
+  // every future import lands under the name /api/target-value's live-GT
+  // lookup actually resolves against, instead of needing this reconciled by
+  // hand again next cycle. Keyed by the RAW source text (Rekap FFMedrep col
+  // A), trim+uppercase.
+  const GT_NAME_ALIASES: Record<string, string> = {
+    "BANDUNG BARAT1": "BANDUNG BARAT",
+    "BANJAR+MAJENANG": "BANJAR",
+    "CIKARANG KOTA + SUKATANI": "CIKARANG KOTA + SUKANI",
+    "CIKOKOL +SUKAJADI": "CIKOKOL + BANJAR",
+    "DASANA": "DASANA + TELUKNAGA",
+    "KAB. BOGOR A": "KAB. BOGOR",
+    "KALIDERAS": "KALIDERES",
+    "MALANG C": "MALANG KOTA",
+    "MALANG A": "MALANG SELATAN",
+    "MALANG B": "MALANG UTARA",
+    "PAMULANG +PD BENDA": "PAMULANG + PD CABE",
+    "PANGANDARAN+SIDEREJA": "PANGANDARAN",
+    "PASURUAN A": "PASURUAN",
+    "KOTA SERANG": "SERANG + PANDEGLANG",
+  };
+
   // ── Identity lookup: (Nama Area, MR/SPV name) -> Nama GT, from Rekap FFMedrep ──
   const rekap = wb.getWorksheet("Rekap FFMedrep");
   if (!rekap) { console.error('Sheet "Rekap FFMedrep" not found'); process.exit(1); }
   const gtByAreaAndMr = new Map<string, string>();
   for (let r = 2; r <= rekap.rowCount; r++) {
     const row = rekap.getRow(r);
-    const namaGT = String(row.getCell(1).value ?? "").trim();
+    const rawNamaGT = String(row.getCell(1).value ?? "").trim();
     const namaArea = String(row.getCell(3).value ?? "").trim();
     const mrspv = String(row.getCell(6).value ?? "").trim();
-    if (!namaGT) continue;
+    if (!rawNamaGT) continue;
+    const namaGT = GT_NAME_ALIASES[rawNamaGT.toUpperCase()] ?? rawNamaGT;
     gtByAreaAndMr.set(`${namaArea.toUpperCase()}|${mrspv.toUpperCase()}`, namaGT);
   }
 

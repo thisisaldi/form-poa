@@ -107,15 +107,33 @@ export async function getCurrentGTsForMrNips(mrNips: string[]): Promise<string[]
 
 // Outlet.namaGT (org-structure sync) and TargetHospitalValue.namaGT (target
 // Excel import) come from different source files and don't always agree on
-// punctuation for combined territories — e.g. Outlet has "JEMBER + BONDOWOSO",
-// the target sheet has "JEMBER BONDOWOSO" (confirmed 2026-09-02: Outlet's
-// "+" form is the correct one). Stripping +/-/whitespace before comparing
-// closes most of that gap (verified: 229/315 distinct TargetHospitalValue
-// names already matched Outlet exactly or after this normalization; the
-// ~19 real remaining mismatches are actual GT renames/restructuring not yet
-// synced either side, not a formatting issue this can paper over).
+// spelling for the same GT. Two known patterns (2026-09-03 audit against 32
+// real employees the external "get target" consumer reported as
+// NOT_FOUND for 202608, all with a live GT but zero normalized match):
+//  1. Punctuation/spacing noise — "+"/"-"/"." used inconsistently, and
+//     sometimes a space is just missing/extra inside a word ("BANDUNG
+//     A.YANI" vs "BANDUNG A YANI", "GALUHMAS" vs "GALUH MAS"). Stripping
+//     every non-alphanumeric character (not just collapsing it to a space)
+//     closes these.
+//  2. A leading "DUMMY " (optionally "DUMMY SPV "/"DUMMY MR ") in the target
+//     sheet's GT name — leftover from when that GT was vacant/placeholder at
+//     Excel-authoring time. Confirmed these rows carry REAL submitted target
+//     values (e.g. "DUMMY MEDAN PETISAH" = Rp406jt for 202608), not zeros —
+//     the GT has since been filled (matches Outlet's un-prefixed live name)
+//     but the target sheet's Rekap FFMedrep "Nama GT" cell was never
+//     renamed. Stripping the prefix before comparing is safe here because
+//     matching only ever runs against `gts` from a REAL nip's live
+//     MrOutletAssignment (see getCurrentGTsForMrNips) — there's no live GT
+//     to accidentally over-match a genuinely-still-vacant "DUMMY ..." row
+//     against.
+// A handful of GTs (e.g. "MALANG A/B/C" in the target sheet vs "MALANG
+// UTARA/SELATAN/KOTA" in Outlet, or "CIKOKOL + BANJAR" vs "CIKOKOL +
+// SUKAJADI" — different territory composition, not just spelling) don't
+// close under either rule — those need manual reconciliation on the source
+// side, not more normalization.
 function normalizeGTName(s: string): string {
-  return s.replace(/[+-]/g, " ").replace(/\s+/g, " ").trim().toUpperCase();
+  const noDummyPrefix = s.replace(/^\s*DUMMY\s+(SPV|MR)?\s*/i, "");
+  return noDummyPrefix.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
 
 /**
