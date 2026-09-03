@@ -27,7 +27,8 @@ export function BlastInTable({ poaPeriod = "2026-Q3", quarter }: BlastInTablePro
       ? "ACTUAL SALES (Q1-Q2)"
       : "ACTUAL SALES (Q1-Q3)";
 
-  const estimasiHeader = qNum === 4 ? "ESTIMASI Q3 + Q4" : `ESTIMASI Q${qNum}`;
+  const estimasiHeader = `ESTIMASI Q${qNum}`;
+  const sumHeader = `ACTUAL + ESTIMASI Q${qNum}`;
   const targetHeader = `TARGET BLAST-IN Q${qNum}`;
   const hadiahHeader = `HADIAH Q${qNum}`;
 
@@ -38,26 +39,30 @@ export function BlastInTable({ poaPeriod = "2026-Q3", quarter }: BlastInTablePro
         <table className="w-full text-xs text-center border-collapse">
           <thead>
             <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "25%" }}>
+              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {actualHeader}
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "25%" }}>
+              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {estimasiHeader}
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "25%" }}>
+              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+                {sumHeader}
+              </th>
+              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {targetHeader}
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "25%" }}>
+              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {hadiahHeader}
               </th>
             </tr>
           </thead>
           <tbody>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 0</td>
-              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 0</td>
-              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 0</td>
-              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 0</td>
+              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 100.000</td>
+              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 50.000</td>
+              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 150.000</td>
+              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 50.000</td>
+              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 5.000</td>
             </tr>
           </tbody>
         </table>

@@ -23,8 +23,8 @@ export function PosmTable() {
           </thead>
           <tbody>
             <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Polysilane</td>
-              <td className="px-4 py-3 text-center" style={{ color: "var(--color-text)" }}>202608</td>
+              <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>(Polysilane) Spanduk, Poster</td>
+              <td className="px-4 py-3 text-center" style={{ color: "var(--color-text)" }}>202608 - 202610</td>
               <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>Rp 100.000</td>
             </tr>
           </tbody>
