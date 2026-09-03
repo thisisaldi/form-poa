@@ -27,6 +27,7 @@ export interface ScProductItemData {
   satuanSJ?: string;
   salesCounterValue?: number;
   salesCounterMinimum?: number;
+  isScProduct?: boolean;
 }
 
 export interface ScPersonItemData {
@@ -61,6 +62,8 @@ export interface ScDraftFormItem {
   is_sc?: boolean;
   isBlastIn?: boolean;
   isPosm?: boolean;
+  totalScProducts?: number;
+  validScProductsCount?: number;
   products: ScProductItemData[];
   persons: ScPersonItemData[];
   entertainItems: ScEntertainItemData[];
