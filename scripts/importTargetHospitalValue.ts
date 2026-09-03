@@ -81,17 +81,6 @@ function sqlNullableStr(s: string | null): string {
   return s == null ? "NULL" : `'${esc(s)}'`;
 }
 
-// "SALES ACTUAL S1 2026" (col D, used only to detect data rows) is a live
-// SUMIFS formula in this workbook, not a plain value — ExcelJS returns
-// { formula, result } for it, not a bare number.
-function formulaResultNum(v: unknown): number | null {
-  if (typeof v === "number") return v;
-  if (v && typeof v === "object" && "result" in v && typeof (v as { result: unknown }).result === "number") {
-    return (v as { result: number }).result;
-  }
-  return null;
-}
-
 interface SourceRow {
   namaGT: string;
   namaMR: string;
@@ -163,14 +152,18 @@ async function main() {
       const a = row.getCell(1).value;
       const b = row.getCell(2).value;
       const c = row.getCell(3).value;
-      const d = row.getCell(4).value;
 
       if (a != null && a !== "" && (b == null || b === "") && (c == null || c === "")) {
         curArea = String(a).trim().toUpperCase();
         continue;
       }
       if (a == null || a === "" || a === "MR / SPV" || a === "TOTAL") continue;
-      if (formulaResultNum(d) === null) continue; // not a data row
+      // (2026-09-03: dropped the old "col D SUMIFS result must be cached"
+      // check here — ExcelJS doesn't always carry a cached `result` for that
+      // formula (silently skipped 2 real rows with real Pengajuan values,
+      // e.g. Fachriyanto/ARDHY SATRIA PRATAMA/GARUT). Redundant anyway: col A
+      // already excludes header/TOTAL rows, and "at least one Pengajuan
+      // value" below already excludes trailing blank/summary rows.)
 
       const namaMR = String(a).trim();
       const namaASM = String(b ?? "").trim();
