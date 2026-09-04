@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { verifyBasicAuth } from "@/lib/apiBasicAuth";
 import { computeActivePsspStats } from "@/lib/activePssp";
-import { currentQuarter, quarterToMonths, quarterDateRange } from "@/lib/quarterUtils";
+import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { getLiveProductPricing, getLiveOutletIds } from "@/lib/exodusApi";
@@ -385,8 +385,6 @@ export function buildDoctorRows(
     (poa.doctorApprovals as DoctorApproval[]).map((a) => [doctorKey(a), a])
   );
 
-  const { startDate, endDate } = quarterDateRange(poa.period);
-
   return [...doctorMap.entries()].flatMap(([key, dokter]) => {
     const approval = approvalByKey.get(key);
     // docs/exodus-poa-usage/ (2026-08-27 revision): Exodus only wants FULLY
@@ -411,12 +409,6 @@ export function buildDoctorRows(
       uidCustomer: dokter.anchorItemId,
       idPoa: formatPoaId(poa.seq),
       path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
-      // Start/end of the PoaForm's QUARTER, same for every doctor/produk in
-      // this POA — NOT this product's own periodeAwal (that's
-      // produk[].periodeAwal/lamaPeriode below). Renamed from `periode` on
-      // 2026-09-04 (breaking, coordinated with Exodus/Budi) after this
-      // ambiguity got mistaken for a per-product date more than once.
-      periodeKuartal: { startDate, endDate },
       approveUntil: until,
       usedInExodus: approval?.usedInExodus ?? false,
       dokter: {
