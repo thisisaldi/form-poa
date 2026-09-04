@@ -17,10 +17,11 @@ import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
 
 // Halaman input (Tambah Rencana POA, Tambah Produk, Edit Dokter, estimasi
-// real-time saat mengisi form) tampilkan nominal dalam format "X,XX Jt"
-// (2 desimal, lebih presisi dari formatCurrency di @/lib/format yang cuma
-// 1 desimal) — dikonfirmasi pengguna 2026-09-04, MEMBALIK keputusan
-// 2026-08-10 (yang tadinya minta angka asli tanpa skala di halaman ini).
+// real-time saat mengisi form) tampilkan nominal dalam skala Jt tanpa
+// suffix, format "X,XX" (2 desimal, lebih presisi dari formatCurrency di
+// @/lib/format yang cuma 1 desimal) — dikonfirmasi pengguna 2026-09-04,
+// MEMBALIK keputusan 2026-08-10 (yang minta angka asli tanpa skala di sini);
+// suffix " Jt" dihapus lagi 2026-09-04 (angka aja).
 // Cuma tampilan (client-side) — nilai asli yang dikirim ke backend
 // (fd.set("rencanaTotalBiaya", ...) dkk) TIDAK berubah, tetap angka utuh.
 function formatRp(val: string | number | { toString(): string } | null | undefined) {
@@ -28,7 +29,7 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
   const n = typeof val === "number" ? val : parseFloat(val.toString());
   if (isNaN(n)) return "-";
   const valJt = n / 1_000_000;
-  return valJt.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " Jt";
+  return valJt.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
