@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { verifyBasicAuth } from "@/lib/apiBasicAuth";
 import { computeActivePsspStats } from "@/lib/activePssp";
-import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
+import { currentQuarter, quarterToMonths, monthsDateRange } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getActivePsspByOutlets, type ActivePsspRow } from "@/app/actions/customer";
 import { getLiveProductPricing, getLiveOutletIds } from "@/lib/exodusApi";
@@ -298,13 +298,6 @@ export function buildDoctorRows(
     nilaiR: number | null;
     hna: number | null;
     qtyPerBulan: Map<string, number>;
-    // Raw PoaLineItem.periodeAwal ("YYYYMM")/lamaPeriode (1/3/6/12) of the
-    // FIRST item seen for this product — same "keep first, don't sum"
-    // treatment as pengaliNilaiR/nilaiR/hna above when a duplicate kodeProduk
-    // row exists (2026-09-04: exposed so callers stop reading the ambiguous
-    // PoaForm-level `periodeKuartal` as if it were this product's own start).
-    periodeAwal: string | null;
-    lamaPeriode: number | null;
     productId: number | null;
     principalId: number | null;
     principalName: string | null;
@@ -321,6 +314,15 @@ export function buildDoctorRows(
     spesialisasi: string;
     kodePI: string | null;
     namaOutlet: string;
+    // Raw PoaLineItem.periodeAwal ("YYYYMM")/lamaPeriode (1/3/6/12) — a
+    // DOCTOR-level input (LineItemEditor.tsx's DokterFieldsSection, one
+    // control per submission), duplicated onto every PoaLineItem row of this
+    // doctor — same pattern as jenisPsSp/bentukPssp per schema.prisma's
+    // comments. Taken from the anchor item, not per-produk (2026-09-04: was
+    // wrongly nested under produk[] at first — this is per-doctor, not
+    // per-product).
+    periodeAwal: string;
+    lamaPeriode: number;
     produk: Produk[];
     estimasiTotal: number;
     nilaiPsspTotal: number;
@@ -338,6 +340,8 @@ export function buildDoctorRows(
         spesialisasi: item.spesialisasi,
         kodePI: item.kodePI,
         namaOutlet: item.namaOutlet,
+        periodeAwal: item.periodeAwal,
+        lamaPeriode: item.lamaPeriode,
         produk: [],
         estimasiTotal: 0,
         nilaiPsspTotal: 0,
@@ -368,7 +372,6 @@ export function buildDoctorRows(
     } else {
       entry.produk.push({
         kodeProduk: item.kodeProduk, namaProduk: item.namaProduk, estimasi, nilaiPssp, pengaliNilaiR, nilaiR, hna, qtyPerBulan,
-        periodeAwal: item.periodeAwal, lamaPeriode: item.lamaPeriode,
         productId: productMaster?.exodusProductId ?? null,
         principalId: productMaster?.principalId ?? null,
         principalName: productMaster?.principalName ?? null,
@@ -409,6 +412,12 @@ export function buildDoctorRows(
       uidCustomer: dokter.anchorItemId,
       idPoa: formatPoaId(poa.seq),
       path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
+      // This DOCTOR's own start/end calendar dates (not the PoaForm's
+      // quarter — that field was removed 2026-09-04 for being redundant with
+      // the query params). Derived from periodeAwal/lamaPeriode, the
+      // doctor-level input duplicated onto every PoaLineItem row (see Doctor
+      // type above).
+      periode: monthsDateRange(expandPeriodeMonths(dokter.periodeAwal, dokter.lamaPeriode)),
       approveUntil: until,
       usedInExodus: approval?.usedInExodus ?? false,
       dokter: {
@@ -438,8 +447,6 @@ export function buildDoctorRows(
         pengaliNilaiR: p.pengaliNilaiR,
         nilaiR: p.nilaiR, // Rupiah amount (Exodus r_value), not a ratio — see ProductMaster above
         hna: p.hna,
-        periodeAwal: p.periodeAwal,
-        lamaPeriode: p.lamaPeriode,
         // Full periodeAwal..periodeAwal+lamaPeriode-1 range, sorted — no
         // longer clipped to the queried quarter (see computeQtyPerBulan).
         qtyPerBulan: [...p.qtyPerBulan.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([bulan, qty]) => ({ bulan, qty })),
