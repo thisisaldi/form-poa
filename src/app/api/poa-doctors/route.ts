@@ -72,10 +72,18 @@ export async function GET(req: NextRequest) {
   }
   const quarterMonths = quarterToMonths(quarter);
 
-  const poas: PoaWithDoctorRows[] = await prisma.poaForm.findMany({
+  let poas: PoaWithDoctorRows[] = await prisma.poaForm.findMany({
     where: { period: quarter, ...(nip ? { ownerId: nip } : {}) },
     select: poaDoctorRowsSelect,
   });
+
+  // startDate also narrows to line items that actually START that month —
+  // picking the right quarter alone still returns every doctor in it,
+  // regardless of each item's own periodeAwal (2026-09-04, Budi/Exodus report).
+  if (startDate) {
+    const targetMonth = startDate.slice(0, 4) + startDate.slice(5, 7);
+    poas = poas.map((poa) => ({ ...poa, items: poa.items.filter((it) => it.periodeAwal === targetMonth) }));
+  }
 
   // Estimasi Aktif per dokter (PSSP contract yang masih berjalan, terpisah
   // dari estimasi rencana di atas yang bersumber dari PoaLineItem) — sama
