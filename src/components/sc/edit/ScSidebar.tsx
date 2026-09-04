@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { HeaderInfo } from "@/components/ui/HeaderInfo";
+import { getPreviousQuarterInfo } from "@/lib/quarterUtils";
 
 function formatRp(val: number) {
   return "Rp " + Math.round(val).toLocaleString("id-ID");
@@ -55,69 +56,91 @@ const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
 const SIDEBAR_PURPLE = "#7c3aed";
 const SIDEBAR_RED = "#e11d48";
 
-const DUMMY_SURVEY_DATA = [
-  {
-    kodeProduk: "0000111",
-    namaProdukRekomendasi: "POLYSILANE SYRUP 100ML",
-    totalPotensiBulan: 50,
-  },
-  {
-    kodeProduk: "0000112",
-    namaProdukRekomendasi: "POLYSILANE TAB 40'S",
-    totalPotensiBulan: 75,
-  },
-  {
-    kodeProduk: "0000114",
-    namaProdukRekomendasi: "PRORIS FORTE SYRUP 60ML",
-    totalPotensiBulan: 40,
-  },
-  {
-    kodeProduk: "0000115",
-    namaProdukRekomendasi: "MICROLAX ENEMA 5ML",
-    totalPotensiBulan: 30,
-  },
-];
+function formatQtySales(qty: number): string {
+  if (qty == null || isNaN(qty)) return "0";
+  if (Number.isInteger(qty)) return String(qty);
+  return qty.toFixed(2);
+}
+
+function resolveProductName(code: string, masterProducts: any[]): string {
+  if (!code) return "";
+  const clean = String(code).trim();
+  const stripped = clean.replace(/^0+/, "");
+  const found = masterProducts.find((p: any) => {
+    const pCode = String(p.kodeProduk || p.pro_code || p.product_code || "").trim();
+    return pCode === clean || pCode.replace(/^0+/, "") === stripped;
+  });
+  if (found?.namaProduk) return found.namaProduk;
+
+  const fallbackMap: Record<string, string> = {
+    "0110492": "PRORIS FORTE 200MG SUSP 50ML",
+    "0201478": "PRORIS SUSP 60 ML RASA JERUK",
+    "0202672": "PRORIS IBUPROFEN 10 KAPLET",
+    "0201784": "POLYSILANE SUSPENSI 100 ML",
+    "0200850": "POLYSILANE SUSPENSI 180 ML",
+    "0200851": "POLYSILANE MAX TABLET",
+    "0202144": "MICROLAX 3 X 5 ML",
+    "0203638": "MICROLAXTAB BISACODYL 5MG",
+  };
+  return fallbackMap[clean] || fallbackMap[stripped] || `Produk ${clean}`;
+}
+
+function isSameZatAktif(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  const cleanA = a.toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "");
+  const cleanB = b.toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "");
+  if (!cleanA || !cleanB) return false;
+  if (cleanA === cleanB) return true;
+  if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
+
+  const wordsA = a.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length > 3);
+  const wordsB = b.toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w.length > 3);
+  return wordsA.some((wa) => wordsB.includes(wa));
+}
 
 const DUMMY_KOMPETITOR_DATA = [
   {
     kodeProduk: "0201478",
     namaProduk: "PRORIS SUSP 60 ML RASA JERUK",
     subtitel: "0201478 · PRORIS · Ibuprofen 100mg/5ml",
+    zatAktif: "IBUPROFEN",
     internalSales: {
       healthyOneUb: 10,
-      b2bSellInUb: 20,
+      b2bSellInUb: 16.67,
     },
     surveyCompetitor: {
       namaKompetitor: "Sanmol Syrup 60ml",
-      forecastPenjualanKompetitor: "5 Botol",
+      forecastPenjualanKompetitor: "5 UB",
       potensiProrisUb: 35,
     },
   },
   {
-    kodeProduk: "0102553",
-    namaProduk: "POLYSILANE SYRUP 100 ML",
-    subtitel: "0102553 · POLYSILANE · Antasida Doen & Dimethicone",
+    kodeProduk: "0201784",
+    namaProduk: "POLYSILANE SUSPENSI 100 ML",
+    subtitel: "0201784 · POLYSILANE · Antasida Doen & Dimethicone",
+    zatAktif: "AL(OH)3, MG(OH)2, DIMETHICONE",
     internalSales: {
       healthyOneUb: 18,
-      b2bSellInUb: 25,
+      b2bSellInUb: 7.33,
     },
     surveyCompetitor: {
       namaKompetitor: "Mylanta Liquid 150ml",
-      forecastPenjualanKompetitor: "8 Botol",
+      forecastPenjualanKompetitor: "8 UB",
       potensiProrisUb: 51,
     },
   },
   {
-    kodeProduk: "0304112",
-    namaProduk: "MICROLAX ENEMA 5 ML 3'S",
-    subtitel: "0304112 · MICROLAX · Na Lauril Sulfoasetat",
+    kodeProduk: "0202144",
+    namaProduk: "MICROLAX 3 X 5 ML",
+    subtitel: "0202144 · MICROLAX · Na Lauril Sulfoasetat",
+    zatAktif: "NA LAURYL SULFATE, PEG, SORBITOL, NA CITRATE, SORBIC ACID",
     internalSales: {
       healthyOneUb: 8,
-      b2bSellInUb: 15,
+      b2bSellInUb: 3.33,
     },
     surveyCompetitor: {
       namaKompetitor: "Dulcolax Suppositoria",
-      forecastPenjualanKompetitor: "4 Box",
+      forecastPenjualanKompetitor: "4 UB",
       potensiProrisUb: 27,
     },
   },
@@ -211,11 +234,13 @@ function getHnaForProduct(code: string, masterProducts: any[]): number {
 }
 
 export function ScSidebar({
+  poaPeriod,
   doctorName,
   productsMenang = [],
   productsInsentif = [],
   insentifHistory,
   historySalesData,
+  salesOnlineData,
   surveyData = [],
   rekomendasiProduk = [],
   masterProducts = [],
@@ -223,11 +248,13 @@ export function ScSidebar({
   selectedProductCodes = new Set<string>(),
   onSelectProduct,
 }: {
+  poaPeriod?: string | null;
   doctorName?: string;
   productsMenang?: any[];
   productsInsentif?: any[];
   insentifHistory?: any;
   historySalesData?: any;
+  salesOnlineData?: any;
   surveyData?: any[];
   rekomendasiProduk?: any[];
   masterProducts?: any[];
@@ -236,15 +263,219 @@ export function ScSidebar({
   onSelectProduct?: (code: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<SidebarTab | null>(null);
-  const [kompetitorFilter, setKompetitorFilter] = useState<string>("b2b");
+  const [kompetitorFilter, setKompetitorFilter] = useState<string>("semua");
+  const [kompetitorSearch, setKompetitorSearch] = useState<string>("");
+  const [kompetitorPage, setKompetitorPage] = useState<number>(1);
+
+  const prevQuarterInfo = useMemo(() => {
+    return getPreviousQuarterInfo(poaPeriod);
+  }, [poaPeriod]);
 
   const effectiveSurveyData = useMemo(() => {
-    return Array.isArray(surveyData) && surveyData.length > 0 ? surveyData : DUMMY_SURVEY_DATA;
+    return Array.isArray(surveyData) ? surveyData : [];
   }, [surveyData]);
 
   const historyPeriodSubtext = useMemo(() => {
     return formatHistoryPeriodRange(historySalesData?.period);
   }, [historySalesData]);
+
+  const effectiveSalesOnlineItems = useMemo(() => {
+    if (Array.isArray(salesOnlineData?.data)) {
+      return salesOnlineData.data;
+    }
+    if (Array.isArray(salesOnlineData)) {
+      return salesOnlineData;
+    }
+    return [];
+  }, [salesOnlineData]);
+
+  // Map of product codes to sales online (B2B Sell In)
+  const salesOnlineMap = useMemo(() => {
+    const map = new Map<string, { qty_sales: number; value_sales: number | null; zat_aktif: string | null }>();
+    for (const it of effectiveSalesOnlineItems) {
+      const code = String(it.code || "").trim();
+      if (code) {
+        map.set(code, it);
+        map.set(code.replace(/^0+/, ""), it);
+      }
+    }
+    return map;
+  }, [effectiveSalesOnlineItems]);
+
+  // Competitor Cards derived from Sales Counter Products (canvasserProducts)
+  const scCards = useMemo(() => {
+    const rawList: any[] = (Array.isArray(canvasserProducts) && canvasserProducts.length > 0)
+      ? canvasserProducts
+      : DUMMY_KOMPETITOR_DATA.map((d) => ({
+          pro_code: d.kodeProduk,
+          kode_item: d.kodeProduk,
+          pro_name: d.namaProduk,
+        }));
+
+    const dummyMap = new Map<string, typeof DUMMY_KOMPETITOR_DATA[0]>();
+    for (const d of DUMMY_KOMPETITOR_DATA) {
+      const c = d.kodeProduk.trim();
+      dummyMap.set(c, d);
+      dummyMap.set(c.replace(/^0+/, ""), d);
+    }
+
+    return rawList.map((cp: any) => {
+      const code = String(cp.pro_code || cp.kode_item || cp.kodeProduk || "").trim();
+      const strippedCode = code.replace(/^0+/, "");
+      const altCode = String(cp.kode_item || cp.pro_code || "").trim();
+      const strippedAlt = altCode.replace(/^0+/, "");
+      const name = cp.pro_name || cp.namaProduk || resolveProductName(code, masterProducts) || `Produk ${code}`;
+
+      const mProd = masterProducts.find((p: any) => {
+        const pCode = String(p.kodeProduk || p.pro_code || p.product_code || "").trim();
+        const pStripped = pCode.replace(/^0+/, "");
+        return (
+          pCode === code ||
+          pStripped === strippedCode ||
+          (altCode && (pCode === altCode || pStripped === strippedAlt))
+        );
+      });
+
+      const onlineItem =
+        salesOnlineMap.get(code) ||
+        salesOnlineMap.get(strippedCode) ||
+        (altCode ? salesOnlineMap.get(altCode) || salesOnlineMap.get(strippedAlt) : undefined);
+
+      let zatAktif = (onlineItem?.zat_aktif || mProd?.zatAktif || "").trim().toUpperCase();
+      if (!zatAktif) {
+        const upper = name.toUpperCase();
+        if (upper.includes("PRORIS")) {
+          zatAktif = "IBUPROFEN";
+        } else if (upper.includes("POLYSILANE")) {
+          zatAktif = "AL(OH)3, MG(OH)2, DIMETHICONE";
+        } else if (upper.includes("MICROLAX")) {
+          zatAktif = "NA LAURYL SULFATE, PEG, SORBITOL, NA CITRATE, SORBIC ACID";
+        }
+      }
+
+      const realSurvey = (Array.isArray(surveyData) ? surveyData : []).find((s: any) => {
+        const sCode = String(s.kodeProduk || "").trim();
+        return (
+          sCode === code ||
+          sCode.replace(/^0+/, "") === strippedCode ||
+          (altCode && (sCode === altCode || sCode.replace(/^0+/, "") === strippedAlt))
+        );
+      });
+
+      const dummyRef = dummyMap.get(code) || dummyMap.get(strippedCode) || (altCode ? dummyMap.get(altCode) || dummyMap.get(strippedAlt) : undefined);
+
+      let defaultKompetitorName = `Kompetitor ${name.split(" ")[0]}`;
+      const upperName = name.toUpperCase();
+      if (upperName.includes("PRORIS")) defaultKompetitorName = "Sanmol Syrup 60ml";
+      else if (upperName.includes("POLYSILANE")) defaultKompetitorName = "Mylanta Liquid 150ml";
+      else if (upperName.includes("MICROLAX")) defaultKompetitorName = "Dulcolax Suppositoria";
+      else if (upperName.includes("SALBUVEN")) defaultKompetitorName = "Ventolin 2mg";
+      else if (upperName.includes("VASTROL") || upperName.includes("STAVINOR")) defaultKompetitorName = "Lipitor 20mg";
+      else if (upperName.includes("ARCOLASE")) defaultKompetitorName = "Nexium 20mg";
+      else if (upperName.includes("BECANTEX")) defaultKompetitorName = "Mucosta 100mg";
+      else if (upperName.includes("ROZGRA")) defaultKompetitorName = "Viagra 50mg";
+
+      const surveyCompetitor = realSurvey
+        ? {
+            namaKompetitor: realSurvey.kompetitorTop3?.[0]?.namaProduk || defaultKompetitorName,
+            forecastPenjualanKompetitor: `${realSurvey.totalPotensiBulan || 5} UB`,
+            potensiProrisUb: realSurvey.totalPotensiBulan || 5,
+          }
+        : dummyRef?.surveyCompetitor || {
+            namaKompetitor: defaultKompetitorName,
+            forecastPenjualanKompetitor: "5 UB",
+            potensiProrisUb: 30,
+          };
+
+      const healthyOneUb = dummyRef?.internalSales?.healthyOneUb ?? 10;
+
+      // Sell In: find matching products from effectiveSalesOnlineItems with SAME zat_aktif, EXCLUDING this product itself
+      const matchingOnlineItems = effectiveSalesOnlineItems.filter((it: any) => {
+        const itCode = String(it.code || "").trim();
+        const itStripped = itCode.replace(/^0+/, "");
+        const isSelf =
+          itCode === code ||
+          itStripped === strippedCode ||
+          (altCode && (itCode === altCode || itStripped === strippedAlt));
+        if (isSelf) return false; // EXCLUDE self!
+        if (!zatAktif) return false;
+        const itZat = String(it.zat_aktif || "").trim();
+        if (!itZat) return false;
+        return isSameZatAktif(zatAktif, itZat);
+      });
+
+      const b2bProducts = matchingOnlineItems.map((it: any) => {
+        const itCode = String(it.code || "").trim();
+        const itName = resolveProductName(itCode, masterProducts);
+        const qty = Number(it.qty_sales) || 0;
+        const isSelected = selectedProductCodes.has(itCode) || selectedProductCodes.has(itCode.replace(/^0+/, ""));
+        return {
+          code: itCode,
+          namaProduk: itName,
+          qty_sales: qty,
+          zat_aktif: it.zat_aktif,
+          isSelected,
+        };
+      });
+
+      const totalB2bQty = b2bProducts.reduce((sum: number, p: any) => sum + p.qty_sales, 0);
+      const rawSurveyForecast = String(surveyCompetitor?.forecastPenjualanKompetitor || "0").trim();
+      const surveyForecast = rawSurveyForecast.replace(/Botol|Box/gi, "UB");
+      const surveyDisplay = surveyForecast.toUpperCase().includes("UB") ? surveyForecast : `${surveyForecast} UB`;
+      const surveyQty = surveyCompetitor ? parseFloat(surveyForecast.replace(/[^0-9.]/g, "")) || 0 : 0;
+      const totalPotensi = Math.ceil(surveyQty + healthyOneUb + totalB2bQty);
+      const isSelected =
+        selectedProductCodes.has(code) ||
+        selectedProductCodes.has(strippedCode) ||
+        (altCode ? selectedProductCodes.has(altCode) || selectedProductCodes.has(strippedAlt) : false);
+
+      return {
+        kodeProduk: code,
+        namaProduk: name,
+        subtitel: `${code} · ${zatAktif || name}`,
+        zatAktif,
+        surveyCompetitor,
+        surveyDisplay,
+        healthyOneUb,
+        b2bProducts,
+        totalPotensi,
+        isSelected,
+        hasSurvey: Boolean(surveyCompetitor),
+        hasHealthyOne: healthyOneUb > 0,
+        hasB2b: b2bProducts.length > 0,
+      };
+    });
+  }, [canvasserProducts, masterProducts, salesOnlineMap, effectiveSalesOnlineItems, selectedProductCodes]);
+
+  const filteredCards = useMemo(() => {
+    let list = scCards;
+    if (kompetitorFilter === "survey") {
+      list = list.filter((c) => c.hasSurvey);
+    } else if (kompetitorFilter === "healthyone") {
+      list = list.filter((c) => c.hasHealthyOne);
+    } else if (kompetitorFilter === "b2b") {
+      list = list.filter((c) => c.hasB2b);
+    }
+
+    if (kompetitorSearch.trim()) {
+      const q = kompetitorSearch.toLowerCase().trim();
+      list = list.filter((c) =>
+        c.namaProduk.toLowerCase().includes(q) ||
+        c.kodeProduk.toLowerCase().includes(q) ||
+        c.zatAktif.toLowerCase().includes(q) ||
+        (c.surveyCompetitor?.namaKompetitor || "").toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [scCards, kompetitorFilter, kompetitorSearch]);
+
+  const KOMPETITOR_PER_PAGE = 3;
+  const totalKompetitorPages = Math.max(1, Math.ceil(filteredCards.length / KOMPETITOR_PER_PAGE));
+  const paginatedCards = useMemo(() => {
+    const start = (kompetitorPage - 1) * KOMPETITOR_PER_PAGE;
+    return filteredCards.slice(start, start + KOMPETITOR_PER_PAGE);
+  }, [filteredCards, kompetitorPage]);
 
   // Map of product codes to history sales quantities (> 0)
   const historySalesMap = useMemo(() => {
@@ -836,130 +1067,335 @@ export function ScSidebar({
         ) : activeTab === "analisis_kompetitor" ? (
           <div className="space-y-3 animate-fade-in">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-700">
-                Analisis Kompetitor &amp; Survey ({DUMMY_KOMPETITOR_DATA.length} Produk)
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                Analisis Kompetitor &amp; Survey ({filteredCards.length} Produk)
               </p>
-              <p className="text-[9px] text-slate-500 mt-0.5">
-                Sumber Data: Survey, HealthyOne &amp; B2B
+              <p className="text-[9px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                Sumber: Survey, HealthyOne &amp; B2B · Periode: {prevQuarterInfo.label}
               </p>
             </div>
 
-            {/* Source Filter Pills — B2B Direct Channel */}
-            <div className="flex gap-1 overflow-x-auto pb-1 text-[10px] font-semibold">
-              {[
-                { id: "semua", label: "Semua" },
-                { id: "survey", label: "Survey" },
-                { id: "healthyone", label: "HealthyOne" },
-                { id: "b2b", label: "B2B" },
-              ].map((f) => (
+            {/* Search Input */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Cari produk SC / zat aktif..."
+                value={kompetitorSearch}
+                onChange={(e) => {
+                  setKompetitorSearch(e.target.value);
+                  setKompetitorPage(1);
+                }}
+                className="w-full px-2.5 py-1.5 rounded-lg border outline-none transition-colors"
+                style={{
+                  background: "var(--color-surface)",
+                  borderColor: "var(--color-border)",
+                  color: "var(--color-text)",
+                  fontSize: "11px",
+                  fontFamily: "inherit",
+                }}
+              />
+              {kompetitorSearch && (
                 <button
-                  key={f.id}
                   type="button"
-                  onClick={() => setKompetitorFilter(f.id)}
-                  className={`px-2.5 py-0.5 rounded-full border transition-all cursor-pointer whitespace-nowrap text-[9px] ${
-                    kompetitorFilter === f.id
-                      ? "bg-purple-700 text-white border-purple-700 font-bold shadow-xs"
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                  }`}
+                  onClick={() => {
+                    setKompetitorSearch("");
+                    setKompetitorPage(1);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
                 >
-                  {f.label}
+                  ✕
                 </button>
-              ))}
+              )}
             </div>
 
-            {/* Product Competitor Cards */}
-            <div className="space-y-3">
-              {DUMMY_KOMPETITOR_DATA.map((item, idx) => {
-                const showSurvey = kompetitorFilter === "semua" || kompetitorFilter === "survey";
-                const showHealthyOne = kompetitorFilter === "semua" || kompetitorFilter === "healthyone";
-                const showB2B = kompetitorFilter === "semua" || kompetitorFilter === "b2b";
-
+            {/* Source Filter Pills */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 text-[10px]">
+              {[
+                {
+                  id: "semua",
+                  label: "Semua",
+                  activeBg: "#7c3aed", // Ungu sedang (tidak terlalu gelap/bold)
+                  activeText: "#ffffff",
+                  activeBorder: "#7c3aed",
+                  inactiveText: "#7c3aed",
+                  inactiveBorder: "#ddd6fe",
+                },
+                {
+                  id: "survey",
+                  label: "Survey",
+                  activeBg: "#dc2626", // Merah
+                  activeText: "#ffffff",
+                  activeBorder: "#dc2626",
+                  inactiveText: "#dc2626",
+                  inactiveBorder: "#fca5a5",
+                },
+                {
+                  id: "healthyone",
+                  label: "HealthyOne",
+                  activeBg: "#026D77", // Warna gambar 3
+                  activeText: "#ffffff",
+                  activeBorder: "#026D77",
+                  inactiveText: "#026D77",
+                  inactiveBorder: "#80ced4",
+                },
+                {
+                  id: "b2b",
+                  label: "B2B",
+                  activeBg: "#028CD5", // HospiNet
+                  activeText: "#ffffff",
+                  activeBorder: "#028CD5",
+                  inactiveText: "#028CD5",
+                  inactiveBorder: "#7dd3fc",
+                },
+              ].map((f) => {
+                const isActive = kompetitorFilter === f.id;
                 return (
-                  <div
-                    key={idx}
-                    onClick={() => item.kodeProduk && onSelectProduct?.(item.kodeProduk)}
-                    className={`rounded-xl border shadow-xs overflow-hidden text-xs transition-all ${
-                      onSelectProduct ? "cursor-pointer hover:border-slate-400 hover:shadow-sm" : ""
-                    }`}
-                    style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      setKompetitorFilter(f.id);
+                      setKompetitorPage(1);
+                    }}
+                    className="px-2.5 py-0.5 rounded-full border transition-all cursor-pointer whitespace-nowrap text-[9px]"
+                    style={{
+                      background: isActive ? f.activeBg : "var(--color-surface)",
+                      color: isActive ? f.activeText : f.inactiveText,
+                      borderColor: isActive ? f.activeBorder : f.inactiveBorder,
+                      fontWeight: isActive ? 700 : 500,
+                    }}
                   >
-                    {/* Soft Light Header Card */}
-                    <div className="p-2.5 bg-slate-50 border-b border-slate-200/80 space-y-0.5">
-                      <div className="flex items-start justify-between gap-1.5">
-                        <span className="font-bold text-[11px] text-slate-800 leading-tight block">
-                          {item.namaProduk}
-                        </span>
-                        <span className="text-[9px] font-bold shrink-0 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200/80 font-mono">
-                          Potensi: {item.surveyCompetitor.potensiProrisUb} UB
-                        </span>
-                      </div>
-                      <div className="text-[9px] text-slate-500 font-medium truncate">
-                        {item.subtitel}
-                      </div>
-                    </div>
-
-                    {/* Card Body */}
-                    <div className="p-2.5 space-y-3">
-                      {/* 1. SELL OUT (Survey, HealthyOne, B2B) */}
-                      {(showSurvey || showHealthyOne) && (
-                        <div className="space-y-1.5">
-                          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-                            Sell Out
-                          </div>
-                          <div className="space-y-1 text-[10px]">
-                            {/* Survey (External Competitor Survey) */}
-                            {showSurvey && (
-                              <div className="p-2 rounded-lg bg-rose-50/40 border border-rose-100 space-y-1">
-                                <div className="flex items-center justify-between font-semibold text-slate-800">
-                                  <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
-                                    <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 border border-rose-200/60 font-bold text-[8px] uppercase shrink-0">
-                                      Survey
-                                    </span>
-                                    <span className="truncate">{item.surveyCompetitor.namaKompetitor}</span>
-                                  </div>
-                                  <span className="font-bold text-rose-700">{item.surveyCompetitor.forecastPenjualanKompetitor}</span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* HealthyOne (Internal Sell Out) */}
-                            {showHealthyOne && (
-                              <div className="p-1.5 rounded-lg bg-emerald-50/70 border border-emerald-200/70 flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200/70 font-bold text-[8px] uppercase">
-                                    HealthyOne
-                                  </span>
-                                  <span className="font-medium text-slate-700">HealthyOne Sell Out</span>
-                                </div>
-                                <span className="font-bold text-emerald-950">{item.internalSales.healthyOneUb} UB</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 2. SELL IN (B2B Only) */}
-                      {showB2B && (
-                        <div className="space-y-1.5 pt-1.5 border-t border-slate-100">
-                          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">
-                            Sell In
-                          </div>
-                          <div className="p-1.5 rounded-lg bg-blue-50/40 border border-blue-200/50 flex items-center justify-between text-[10px]">
-                            <div className="flex items-center gap-1.5">
-                              <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-200/70 font-bold text-[8px] uppercase">
-                                B2B
-                              </span>
-                              <span className="font-medium text-slate-700">B2B</span>
-                            </div>
-                            <span className="font-bold text-blue-900">{item.internalSales.b2bSellInUb} UB</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                    {f.label}
+                  </button>
                 );
               })}
             </div>
+
+            {/* Product Competitor Cards */}
+            <div className="space-y-2.5">
+              {paginatedCards.length === 0 ? (
+                <div
+                  className="rounded-lg border p-4 text-center text-xs"
+                  style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}
+                >
+                  Tidak ada produk yang cocok dengan pencarian atau filter ini.
+                </div>
+              ) : (
+                paginatedCards.map((item, idx) => {
+                  const showSurvey = kompetitorFilter === "semua" || kompetitorFilter === "survey";
+                  const showHealthyOne = kompetitorFilter === "semua" || kompetitorFilter === "healthyone";
+                  const showB2B = kompetitorFilter === "semua" || kompetitorFilter === "b2b";
+
+                  return (
+                    <div
+                      key={item.kodeProduk || idx}
+                      onClick={() => item.kodeProduk && onSelectProduct?.(item.kodeProduk)}
+                      className={`rounded-lg border overflow-hidden text-xs transition-all ${
+                        onSelectProduct ? "cursor-pointer hover:border-[var(--color-border-strong)]" : ""
+                      }`}
+                      style={{
+                        borderColor: item.isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                        background: "var(--color-surface)",
+                        boxShadow: item.isSelected ? "0 0 0 1px rgba(22, 163, 74, 0.2)" : undefined,
+                      }}
+                    >
+                      {/* Header Card */}
+                      <div
+                        className="p-2.5 border-b flex items-start justify-between gap-1.5 transition-colors"
+                        style={{
+                          background: item.isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                          borderColor: item.isSelected ? "rgba(22, 163, 74, 0.3)" : "var(--color-border)",
+                        }}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-[11px] leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                            {item.namaProduk}
+                          </span>
+                          <span className="text-[9px] block truncate" style={{ color: "var(--color-text-muted)" }}>
+                            {item.subtitel}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {item.isSelected && (
+                            <span
+                              className="shrink-0 px-1.5 py-0.5 rounded font-semibold text-[8px] uppercase border"
+                              style={{
+                                background: "#16a34a",
+                                color: "#ffffff",
+                                borderColor: "#16a34a",
+                              }}
+                            >
+                              ✓ Terpilih
+                            </span>
+                          )}
+                          <span
+                            className="text-[9px] font-bold shrink-0 px-2 py-0.5 rounded border"
+                            style={{
+                              background: item.isSelected ? "#ffffff" : "var(--color-surface)",
+                              color: item.isSelected ? "#15803d" : "var(--color-text)",
+                              borderColor: item.isSelected ? "#86efac" : "var(--color-border-strong)",
+                            }}
+                          >
+                            Potensi: {item.totalPotensi} UB
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Card Body */}
+                      <div className="p-2 space-y-2.5">
+                        {/* 1. SELL OUT (Survey, HealthyOne) */}
+                        {((showSurvey && item.surveyCompetitor) || (showHealthyOne && item.healthyOneUb > 0)) && (
+                          <div className="space-y-1">
+                            <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                              Sell Out
+                            </div>
+                            <div className="space-y-1 text-[10px]">
+                              {/* Survey (External Competitor Survey) */}
+                              {showSurvey && item.surveyCompetitor && (
+                                <div
+                                  className="p-1.5 rounded border flex items-center justify-between"
+                                  style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 flex-1 mr-1">
+                                    <span
+                                      className="shrink-0 px-1.5 py-0.5 rounded font-semibold text-[8px] uppercase border"
+                                      style={{
+                                        background: "#fef2f2",
+                                        color: "#dc2626",
+                                        borderColor: "#fecaca",
+                                      }}
+                                    >
+                                      Survey
+                                    </span>
+                                    <span className="truncate font-medium" style={{ color: "var(--color-text)" }}>
+                                      {item.surveyCompetitor.namaKompetitor}
+                                    </span>
+                                  </div>
+                                  <span className="font-bold shrink-0" style={{ color: "var(--color-text)" }}>
+                                    {item.surveyDisplay}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* HealthyOne (Internal Sell Out) */}
+                              {showHealthyOne && item.healthyOneUb > 0 && (
+                                <div
+                                  className="p-1.5 rounded border flex items-center justify-between"
+                                  style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 flex-1 mr-1">
+                                    <span
+                                      className="shrink-0 px-1.5 py-0.5 rounded font-semibold text-[8px] uppercase border"
+                                      style={{
+                                        background: "#e6f4f5",
+                                        color: "#026D77",
+                                        borderColor: "#a0d7db",
+                                      }}
+                                    >
+                                      HealthyOne
+                                    </span>
+                                    <span className="truncate font-medium" style={{ color: "var(--color-text)" }}>
+                                      HealthyOne Sell Out
+                                    </span>
+                                  </div>
+                                  <span className="font-bold shrink-0" style={{ color: "var(--color-text)" }}>
+                                    {item.healthyOneUb} UB
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 2. SELL IN (All matching B2B products by zat_aktif, excluding this product) */}
+                        {showB2B && (
+                          <div className="space-y-1 pt-1.5 border-t" style={{ borderColor: "var(--color-border)" }}>
+                            <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                              Sell In
+                            </div>
+
+                            {item.b2bProducts.length === 0 ? (
+                              <div className="p-1.5 rounded border text-[10px] text-center" style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)", background: "var(--color-bg)" }}>
+                                Tidak ada produk lain dengan zat aktif serupa.
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                {item.b2bProducts.map((bp: any) => {
+                                  const formattedQty = formatQtySales(bp.qty_sales);
+                                  return (
+                                    <div
+                                      key={bp.code}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSelectProduct?.(bp.code);
+                                      }}
+                                      className="p-1.5 rounded border flex items-center justify-between text-[10px] transition-all cursor-pointer"
+                                      style={{
+                                        borderColor: bp.isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                                        background: bp.isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg)",
+                                      }}
+                                      title={bp.isSelected ? "Sudah dipilih di rencana produk" : "Klik untuk menambahkan produk ini"}
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+                                        <span
+                                          className="shrink-0 px-1.5 py-0.5 rounded font-semibold text-[8px] uppercase border"
+                                          style={{
+                                            background: bp.isSelected ? "#16a34a" : "#e0f2fe",
+                                            color: bp.isSelected ? "#ffffff" : "#028CD5",
+                                            borderColor: bp.isSelected ? "#16a34a" : "#bae6fd",
+                                          }}
+                                        >
+                                          {bp.isSelected ? "✓ Terpilih" : "B2B"}
+                                        </span>
+                                        <span className="font-medium truncate" style={{ color: "var(--color-text)" }}>
+                                          {bp.namaProduk}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <span className="font-bold" style={{ color: "var(--color-text)" }}>
+                                          {formattedQty} UB
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Pagination Controls */}
+            {totalKompetitorPages > 1 && (
+              <div className="flex items-center justify-between pt-2 border-t text-[10px]" style={{ borderColor: "var(--color-border)" }}>
+                <button
+                  type="button"
+                  disabled={kompetitorPage <= 1}
+                  onClick={() => setKompetitorPage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 rounded border disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors"
+                  style={{ background: "var(--color-surface)", borderColor: "var(--color-border)", color: "var(--color-text)" }}
+                >
+                  &larr; Prev
+                </button>
+                <span style={{ color: "var(--color-text-muted)" }}>
+                  Halaman {kompetitorPage} dari {totalKompetitorPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={kompetitorPage >= totalKompetitorPages}
+                  onClick={() => setKompetitorPage((p) => Math.min(totalKompetitorPages, p + 1))}
+                  className="px-2.5 py-1 rounded border disabled:opacity-40 disabled:cursor-not-allowed font-medium transition-colors"
+                  style={{ background: "var(--color-surface)", borderColor: "var(--color-border)", color: "var(--color-text)" }}
+                >
+                  Next &rarr;
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-3 animate-fade-in">

@@ -39,7 +39,10 @@ export async function saveSalesCounterFormAction(
   jumlahKaryawan?: number | null,
   jumlahPasien?: number | null,
   jumlahPasienResep?: number | null,
-  jumlahPasienNonResep?: number | null
+  jumlahPasienNonResep?: number | null,
+  periodeAwalParam?: string,
+  lamaPeriodeParam?: number,
+  scIdParam?: string
 ): Promise<{ ok: boolean; error?: string; poaScId?: string }> {
   const session = await requireSession();
 
@@ -68,27 +71,56 @@ export async function saveSalesCounterFormAction(
     };
   });
 
-  // Calculate periodeAwal (format YYYYMM)
+  // Calculate default periodeAwal (format YYYYMM) and duration
   const m = period.match(/^(\d{4})-Q([1-4])$/);
   if (!m) return { ok: false, error: "Format periode tidak valid." };
   const year = m[1];
   const quarter = parseInt(m[2], 10);
-  const startMonthNum = (quarter - 1) * 3 + 1;
-  const startMonthStr = String(startMonthNum).padStart(2, "0");
-  const periodeAwal = `${year}${startMonthStr}`;
-  const lamaPeriode = 3;
+  const defaultStartMonthNum = (quarter - 1) * 3 + 1;
+  const defaultStartMonthStr = String(defaultStartMonthNum).padStart(2, "0");
+  const defaultPeriodeAwal = `${year}${defaultStartMonthStr}`;
+  const defaultLamaPeriode = 3;
+
+  const periodeAwal =
+    periodeAwalParam && /^\d{6}$/.test(periodeAwalParam)
+      ? periodeAwalParam
+      : defaultPeriodeAwal;
+
+  let lamaPeriode = defaultLamaPeriode;
+  if (typeof lamaPeriodeParam === "number" && lamaPeriodeParam > 0) {
+    lamaPeriode = lamaPeriodeParam;
+  } else {
+    const startYear = parseInt(periodeAwal.slice(0, 4), 10);
+    const startMonth = parseInt(periodeAwal.slice(4, 6), 10);
+    const endMonth = quarter * 3;
+    const calcDuration = (parseInt(year, 10) - startYear) * 12 + (endMonth - startMonth + 1);
+    lamaPeriode = calcDuration > 0 ? calcDuration : defaultLamaPeriode;
+  }
 
   try {
     const result = await prisma.$transaction(async (tx: any) => {
       // 3. Query existing form with its relations
-      const existing = await tx.poaScForm.findFirst({
-        where: { ownerId: session.userId, periodeAwal, kodePI: outletId },
-        include: {
-          products: true,
-          persons: true,
-          entertainItems: true,
-        },
-      });
+      let existing: any = null;
+      if (scIdParam) {
+        existing = await tx.poaScForm.findFirst({
+          where: { id: scIdParam, ownerId: session.userId },
+          include: {
+            products: true,
+            persons: true,
+            entertainItems: true,
+          },
+        });
+      }
+      if (!existing) {
+        existing = await tx.poaScForm.findFirst({
+          where: { ownerId: session.userId, period, kodePI: outletId },
+          include: {
+            products: true,
+            persons: true,
+            entertainItems: true,
+          },
+        });
+      }
 
       const isNew = !existing;
 
@@ -96,6 +128,8 @@ export async function saveSalesCounterFormAction(
       let hasChanges = isNew;
       if (existing) {
         if (
+          existing.periodeAwal !== periodeAwal ||
+          existing.lamaPeriode !== lamaPeriode ||
           existing.persenResepDokter !== persenResepDokter ||
           existing.jumlahKaryawan !== jumlahKaryawan ||
           existing.jumlahPasien !== jumlahPasien ||
@@ -201,6 +235,8 @@ export async function saveSalesCounterFormAction(
         poaSc = await tx.poaScForm.update({
           where: { id: existing.id },
           data: {
+            periodeAwal,
+            lamaPeriode,
             status: PoaStatus.DRAFT,
             version: existing.version + 1,
             namaOutlet: namaOutlet || existing.namaOutlet,

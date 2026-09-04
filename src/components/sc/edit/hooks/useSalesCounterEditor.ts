@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { SalesCounterPersonModel } from "@/app/(app)/sc/[id]/_models/SalesCounterPersonModel";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
@@ -14,12 +14,14 @@ import {
   getScCashbackPoaAction,
   getRekomendasiProdukAction,
   getHistorySalesAction,
+  getSalesOnlineAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { calculateCashbackDetails, type CashbackData } from "./useSalesCounterCashback";
+import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
   if (rawVal == null) return "0";
@@ -130,6 +132,7 @@ export function useSalesCounterEditor({
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
   const [historySalesData, setHistorySalesData] = useState<any>(null);
+  const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
@@ -212,6 +215,7 @@ export function useSalesCounterEditor({
       setProductsInsentif([]);
       setRekomendasiProduk([]);
       setSurveyData([]);
+      setSalesOnlineData(null);
       setCashbackData(null);
       setCashbackMatrix([]);
       return;
@@ -246,8 +250,8 @@ export function useSalesCounterEditor({
 
     getScProductMenangAction(outletId).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(outletId).then((res) => setProductsInsentif(res?.data || []));
-    getScInsentifHistoryAction(outletId).then((res) => setInsentifHistory(res?.data || null));
     getHistorySalesAction(outletId).then((res) => setHistorySalesData(res || null));
+    getSalesOnlineAction(outletId).then((res) => setSalesOnlineData(res || null));
     getSurveyRekomendasiByOutletAggregate(outletId).then((res) => setSurveyData(res || []));
     getScCashbackPoaAction(outletId).then((res) => {
       setCashbackData(res || null);
@@ -280,6 +284,20 @@ export function useSalesCounterEditor({
       setRekomendasiProduk(prods);
     });
   }, [outletId]);
+
+  // Period-aware SC insentif history
+  const targetPeriod = useMemo(
+    () => resolvePeriodForQuarter(poaPeriod, periodeAwal),
+    [poaPeriod, periodeAwal]
+  );
+
+  useEffect(() => {
+    if (!outletId) {
+      setInsentifHistory(null);
+      return;
+    }
+    getScInsentifHistoryAction(outletId, targetPeriod).then((res) => setInsentifHistory(res?.data || null));
+  }, [outletId, targetPeriod]);
 
   // Find if there is an existing database draft for the selected outlet and prefill states
   useEffect(() => {
@@ -617,7 +635,9 @@ export function useSalesCounterEditor({
         parseInt(jumlahKaryawan, 10) || 0,
         numPasien,
         numPasienResep,
-        jumlahPasienNonResep
+        jumlahPasienNonResep,
+        periodeAwal,
+        lamaPeriode
       );
       if (res.ok) {
         router.push(redirectTo);
@@ -678,6 +698,7 @@ export function useSalesCounterEditor({
     productsInsentif,
     insentifHistory,
     historySalesData,
+    salesOnlineData,
     surveyData,
     rekomendasiProduk,
     cashbackData,

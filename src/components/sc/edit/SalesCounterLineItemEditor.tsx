@@ -11,11 +11,13 @@ import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
 import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { quarterToMonths } from "@/lib/quarterUtils";
+import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
 import { getScOutletB3SalesAction } from "@/app/actions/canvasser";
 import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
+import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
 
 interface SalesCounterLineItemEditorProps {
   poaId: string;
@@ -97,6 +99,7 @@ export function SalesCounterLineItemEditor({
     productsInsentif,
     insentifHistory,
     historySalesData,
+    salesOnlineData,
     surveyData,
     rekomendasiProduk,
     cashbackData,
@@ -115,7 +118,14 @@ export function SalesCounterLineItemEditor({
   const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
   const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
   const rowQuarterPeriod = `${poaYear}-Q${rowQuarter}`;
-  const months = quarterToMonths(validPeriodMatch ? rowQuarterPeriod : `${new Date().getFullYear()}-Q1`);
+  const quarterMonths = quarterToMonths(validPeriodMatch ? rowQuarterPeriod : `${new Date().getFullYear()}-Q1`);
+
+  const activeMonths = useMemo(() => {
+    if (periodeAwal && /^\d{6}$/.test(periodeAwal) && lamaPeriode > 0) {
+      return expandPeriodeMonths(periodeAwal, lamaPeriode);
+    }
+    return quarterMonths;
+  }, [periodeAwal, lamaPeriode, quarterMonths]);
 
   const quartersOptions = useMemo(
     () => [
@@ -181,7 +191,7 @@ export function SalesCounterLineItemEditor({
   const totalEstimasi = selectedProducts.reduce((sum, p) => sum + p.rencanaTotalBiaya, 0);
   const totalEntertain = entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
 
-  const monthlyBreakdown = months.map((m) => {
+  const monthlyBreakdown = activeMonths.map((m) => {
     let monthlyEstimasiSales = 0;
     let monthlyNilaiSc = 0;
 
@@ -413,6 +423,14 @@ export function SalesCounterLineItemEditor({
             </div>
 
             {outletId && (
+              <OnlineApotekSalesWidget
+                poaPeriod={poaPeriod}
+                outletCode={outletId}
+                outletName={selectedOutlet?.namaOutlet}
+              />
+            )}
+
+            {outletId && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium" style={{ color: errors.personId ? "var(--color-red)" : "var(--color-text-muted)" }}>
@@ -576,7 +594,7 @@ export function SalesCounterLineItemEditor({
                   }}
                   required>
                   <option value="">YYYYMM</option>
-                  {months.map((m) => {
+                  {quarterMonths.map((m) => {
                     const year = m.slice(0, 4);
                     const monthIndex = parseInt(m.slice(4)) - 1;
                     const label = new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "long", year: "numeric" });
@@ -676,6 +694,65 @@ export function SalesCounterLineItemEditor({
             {(selectedOutlet?.isPosm || selectedOutlet?.kodePI === "F4002441") && <PosmTable />}
           </div>
 
+          {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
+          {monthlyBreakdown.length > 0 && selectedProducts.some(p => p.kodeProduk) && (
+            <div className="rounded-xl border px-4 py-3 space-y-3"
+              style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                {isCashbackNotFound ? "Estimasi & Nilai SC per Bulan" : "Estimasi & Nilai SC/Cashback per Bulan"}
+              </p>
+              <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                      <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
+                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
+                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
+                      {!isCashbackNotFound && (
+                        <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlyBreakdown.map((m) => {
+                      const mCashback = totalCashbackVal / (lamaPeriode || 1);
+                      return (
+                        <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                          <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
+                          <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
+                            {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
+                          </td>
+                          <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
+                            {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
+                          </td>
+                          {!isCashbackNotFound && (
+                            <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                              {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                    <tr style={{ fontWeight: 600 }}>
+                      <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text)" }}>Total</td>
+                      <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
+                        Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
+                      </td>
+                      <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
+                        Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
+                      </td>
+                      {!isCashbackNotFound && (
+                        <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
+                          Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
+                        </td>
+                      )}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* 5. TOTAL SEMUA PRODUK */}
           <div className="rounded-xl border px-4 py-3 space-y-4"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2 }}>
@@ -703,7 +780,7 @@ export function SalesCounterLineItemEditor({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
                 <div className="shrink-0 min-w-[180px]">
                   <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                    TOTAL ESTIMASI SALES
+                    ESTIMASI SALES
                   </div>
                   <div className="text-xl font-bold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
                     Rp {Math.round(totalEstimasiSales).toLocaleString("id-ID")}
@@ -712,9 +789,9 @@ export function SalesCounterLineItemEditor({
                     Rp {Math.round(totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1)).toLocaleString("id-ID")} / Bln
                   </div>
                 </div>
-                <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+                <div className="shrink-0 min-w-[220px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
                   <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                    TOTAL ESTIMASI GROWTH
+                    ESTIMASI GROWTH SALES
                   </div>
                   {totalGrowthPct != null ? (
                     <>
@@ -724,9 +801,14 @@ export function SalesCounterLineItemEditor({
                       >
                         {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
                       </div>
-                      <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                        Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                      <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                        History Sales Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")} / Bln
                       </div>
+                      {b3RangeLabel && (
+                        <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                          ({b3RangeLabel})
+                        </div>
+                      )}
                       <div
                         className="text-[11px] font-semibold mt-0.5"
                         style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
@@ -738,7 +820,7 @@ export function SalesCounterLineItemEditor({
                     </>
                   ) : (
                     <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                      Belum ada data SC sebelumnya
+                      Belum ada data history sales
                     </div>
                   )}
                 </div>
@@ -772,14 +854,7 @@ export function SalesCounterLineItemEditor({
                         {!isCashbackNotFound && (
                           <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Value Cashback</th>
                         )}
-                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">
-                          <div>Growth Sebelumnya</div>
-                          {b3RangeLabel && (
-                            <div className="text-[10px] font-normal normal-case opacity-75">
-                              ({b3RangeLabel})
-                            </div>
-                          )}
-                        </th>
+                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Growth</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -850,72 +925,13 @@ export function SalesCounterLineItemEditor({
                   </table>
                   {b3RangeLabel && (
                     <p className="text-[11px] px-3 py-1.5 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                      * Growth Sebelumnya dihitung dari histori rata-rata penjualan B3 ({b3RangeLabel})
+                      * Growth Dihitung dari Histori Rata-Rata Penjualan Quarter ({b3RangeLabel})
                     </p>
                   )}
                 </div>
               </div>
             )}
           </div>
-
-          {/* 7. ESTIMASI & NILAI SC PER BULAN */}
-          {monthlyBreakdown.length > 0 && selectedProducts.some(p => p.kodeProduk) && (
-            <div className="rounded-xl border px-4 py-3 space-y-3"
-              style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                {isCashbackNotFound ? "Estimasi & Nilai SC per Bulan" : "Estimasi & Nilai SC/Cashback per Bulan"}
-              </p>
-              <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                      <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
-                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
-                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
-                      {!isCashbackNotFound && (
-                        <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlyBreakdown.map((m) => {
-                      const mCashback = totalCashbackVal / (lamaPeriode || 1);
-                      return (
-                        <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                          <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
-                          <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                            {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                          <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                            {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                          {!isCashbackNotFound && (
-                            <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                              {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                    <tr style={{ fontWeight: 600 }}>
-                      <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text)" }}>Total</td>
-                      <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                        Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
-                      </td>
-                      <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                        Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
-                      </td>
-                      {!isCashbackNotFound && (
-                        <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                          Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
-                        </td>
-                      )}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Validation Error Summary Banner */}
@@ -942,10 +958,13 @@ export function SalesCounterLineItemEditor({
       </form>
       {outletId && (
         <ScSidebar
+          poaPeriod={poaPeriod}
+          doctorName={selectedOutlet?.namaOutlet || undefined}
           productsMenang={productsMenang}
           productsInsentif={productsInsentif}
           insentifHistory={insentifHistory}
           historySalesData={historySalesData}
+          salesOnlineData={salesOnlineData}
           surveyData={surveyData}
           rekomendasiProduk={rekomendasiProduk}
           masterProducts={products}

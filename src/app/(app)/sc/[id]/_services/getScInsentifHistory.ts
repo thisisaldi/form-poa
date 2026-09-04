@@ -1,8 +1,10 @@
 import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
 
-export async function getScInsentifHistory(piCode: string): Promise<any | null> {
+export async function getScInsentifHistory(piCode: string, period?: string): Promise<any | null> {
   try {
-    const res = await fetch(`${CANVASSER_API_BASE_URL}/api/get-sc-insentif-history?pi_code=${piCode}`, {
+    const activePeriod = period || resolvePeriodForQuarter();
+    const res = await fetch(`${CANVASSER_API_BASE_URL}/api/get-sc-insentif-history?pi_code=${piCode}&period=${activePeriod}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",

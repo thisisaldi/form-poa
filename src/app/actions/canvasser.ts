@@ -10,6 +10,8 @@ import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa
 import { getScOutletB3Sales } from "@/app/(app)/sc/[id]/_services/getScOutletB3Sales";
 import { getRekomendasiProduk } from "@/app/(app)/sc/[id]/_services/getRekomendasiProduk";
 import { getHistorySales } from "@/app/(app)/sc/[id]/_services/getHistorySales";
+import { getSalesOnline } from "@/app/(app)/sc/[id]/_services/getSalesOnline";
+import { getSalesApotekOnline } from "@/app/(app)/sc/[id]/_services/getSalesApotekOnline";
 import { prisma } from "@/lib/prisma";
 
 export async function getSalesCountersAction(piCode: string) {
@@ -34,9 +36,9 @@ export async function getScProductWithInsentifAction(piCode: string) {
   return res || { data: [] };
 }
 
-export async function getScInsentifHistoryAction(piCode: string) {
+export async function getScInsentifHistoryAction(piCode: string, period?: string) {
   if (!piCode) return { data: {} };
-  const res = await getScInsentifHistory(piCode);
+  const res = await getScInsentifHistory(piCode, period);
   return res || { data: {} };
 }
 
@@ -56,10 +58,22 @@ export async function getScOutletB3SalesAction(period: number, piCode: string, p
   return { data };
 }
 
-export async function getHistorySalesAction(piCode: string) {
+export async function getHistorySalesAction(piCode: string, agg: boolean = true) {
   if (!piCode) return { data: [] };
-  const res = await getHistorySales(piCode);
+  const res = await getHistorySales(piCode, agg);
   return res || { data: [] };
+}
+
+export async function getSalesOnlineAction(piCode: string) {
+  if (!piCode) return { data: [] };
+  const res = await getSalesOnline(piCode);
+  return res || { data: [] };
+}
+
+export async function getSalesApotekOnlineAction(period: string | number, piCode: string) {
+  if (!piCode) return null;
+  const res = await getSalesApotekOnline(period, piCode);
+  return res;
 }
 
 export async function getRekomendasiProdukAction(piCode: string) {

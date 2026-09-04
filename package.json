@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint",
     "sync:org": "tsx scripts/syncOrg.ts",
+    "sync:omega": "tsx scripts/syncOmegaUsers.ts",
     "sync:products": "tsx scripts/syncProducts.ts",
     "sync:customers": "tsx scripts/syncCustomers.ts",
     "mock:generate": "tsx scripts/generateMockData.ts excel/\"STRUKTUR JULI.csv\" excel/Customer_Database_20260710.xlsx excel/\"RS GROUP - PHAROS INDONESIA.xlsx\" excel/\"LIST PRODUK PI update 15 Juni 2026.xlsx\"",
