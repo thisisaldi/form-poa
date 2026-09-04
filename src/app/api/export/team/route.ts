@@ -567,11 +567,25 @@ export async function GET(req: NextRequest) {
   const WHITE = "FFFFFFFF";
   const GRAY  = "FFF2F2F2";
 
+  // Shared style objects, reused by reference across every cell they're
+  // applied to (2026-09-04 fix — shadeAlt previously allocated a brand-new
+  // `{ type, pattern, fgColor: {...} }` object PER CELL, e.g. ~450k
+  // allocations for Sheet3 alone at company-wide row/column counts, which is
+  // real CPU/GC cost under the prod pod's 500m CPU / 512Mi memory limit
+  // (k8s/values.yaml) — root cause of `/api/export/team` timing out for
+  // ADMIN/GM/SFE/VIEWER's company-wide scope while MR/ASM/SM/NSM's small-team
+  // scope stayed fine. ExcelJS only ever reads this object at serialize time,
+  // never mutates it, so every cell/row can safely share one instance.
+  const HEADER_FONT = { bold: true, color: { argb: WHITE } };
+  const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+  const HEADER_ALIGN: Partial<ExcelJS.Alignment> = { vertical: "middle", wrapText: false };
+  const ALT_ROW_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRAY } };
+
   function styleHeader(ws: ExcelJS.Worksheet) {
     ws.getRow(1).eachCell(cell => {
-      cell.font = { bold: true, color: { argb: WHITE } };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-      cell.alignment = { vertical: "middle", wrapText: false };
+      cell.font = HEADER_FONT;
+      cell.fill = HEADER_FILL;
+      cell.alignment = HEADER_ALIGN;
     });
     ws.getRow(1).height = 20;
   }
@@ -581,7 +595,7 @@ export async function GET(req: NextRequest) {
       if (rn <= fromRow) return;
       if (rn % 2 === 0) {
         row.eachCell(cell => {
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRAY } };
+          cell.fill = ALT_ROW_FILL;
         });
       }
     });

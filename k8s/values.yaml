@@ -67,11 +67,19 @@ httpScaledObject:
 
 resources:
   limits:
-    cpu: 500m
-    memory: 512Mi
+    # Bumped 2026-09-04: /api/export/team's company-wide Excel export
+    # (ADMIN/GM/SFE/VIEWER scope) is CPU-bound in ExcelJS's writeBuffer
+    # (zip/XML serialization for ~14.5k rows x 50 cols) — measured 7-25s
+    # unloaded, up to 100s+ under CPU contention at the old 500m limit,
+    # causing the export to time out for those roles (DB query time is
+    # ~3s and not the bottleneck, see route.ts comments). Memory raised in
+    # tandem with scripts/start.sh's --max-old-space-size, which must stay
+    # below this limit with headroom for non-heap overhead.
+    cpu: 2000m
+    memory: 1Gi
   requests:
-    cpu: 200m
-    memory: 128Mi
+    cpu: 500m
+    memory: 256Mi
 
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 probes:

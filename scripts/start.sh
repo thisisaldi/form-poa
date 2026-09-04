@@ -12,4 +12,7 @@ set -a
 source $WORKDIR/.env.$NAMESPACE
 set +a
 
-node --max-old-space-size=512 $WORKDIR/$NAMESPACE-server.js
+# 896 leaves ~128Mi headroom below k8s/values.yaml's 1Gi pod memory limit
+# for non-heap overhead (Node itself, native buffers, etc.) — bumped in
+# tandem with that limit, see its comment for why.
+node --max-old-space-size=896 $WORKDIR/$NAMESPACE-server.js
