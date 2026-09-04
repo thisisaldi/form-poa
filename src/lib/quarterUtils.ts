@@ -16,6 +16,16 @@ export function currentQuarter(): string {
   return `${now.getFullYear()}-Q${q}`;
 }
 
+/** The calendar quarter containing a "YYYY-MM-DD" date, e.g. "2026-08-01" -> "2026-Q3". */
+export function quarterFromDate(dateStr: string): string {
+  const m = dateStr.match(/^(\d{4})-(\d{2})-\d{2}$/);
+  if (!m) throw new Error(`Invalid date format: ${dateStr}`);
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  const q = Math.floor((month - 1) / 3) + 1;
+  return `${year}-Q${q}`;
+}
+
 /** "2026-Q3" -> ["202607", "202608", "202609"] */
 export function quarterToMonths(quarter: string): string[] {
   const m = quarter.match(/^(\d{4})-Q([1-4])$/);

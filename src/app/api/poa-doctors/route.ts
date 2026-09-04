@@ -35,7 +35,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
+import { currentQuarter, quarterFromDate, quarterToMonths } from "@/lib/quarterUtils";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import {
   poaDoctorRowsSelect,
@@ -57,13 +57,19 @@ export async function GET(req: NextRequest) {
 
   const nip = req.nextUrl.searchParams.get("nip")?.trim() || null;
   const keyword = req.nextUrl.searchParams.get("keyword")?.trim().toLowerCase() || null;
+  const startDate = req.nextUrl.searchParams.get("startDate")?.trim() || null;
 
   if (nip) {
     const user = await prisma.user.findUnique({ where: { nip }, select: { nip: true } });
     if (!user) return NextResponse.json({ error: "User tidak ditemukan." }, { status: 404 });
   }
 
-  const quarter = currentQuarter();
+  let quarter: string;
+  try {
+    quarter = startDate ? quarterFromDate(startDate) : currentQuarter();
+  } catch {
+    return NextResponse.json({ error: "startDate harus format YYYY-MM-DD." }, { status: 400 });
+  }
   const quarterMonths = quarterToMonths(quarter);
 
   const poas: PoaWithDoctorRows[] = await prisma.poaForm.findMany({
