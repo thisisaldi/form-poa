@@ -105,29 +105,26 @@ function computeEstimasiNilaiPssp(item: { rencanaTotalBiaya: unknown; persenPssp
   return { estimasi, nilaiPssp };
 }
 
-// Qty per calendar month in `quarterMonths`, for one line item — value
-// (rencanaTotalBiaya) spread evenly across the item's own periodeAwal..
-// periodeAwal+lamaPeriode-1 months (same "rata rata" apportionment as
+// Qty per calendar month across the item's OWN full periodeAwal..
+// periodeAwal+lamaPeriode-1 range (not clipped to the queried quarter —
+// 2026-09-04 change, Exodus/Budi kept seeing a misleading "0" for quarter
+// months before an item's own start) — value (rencanaTotalBiaya) spread
+// evenly across those months (same "rata rata" apportionment as
 // computeMonthlyBreakdown in poaUtils.ts), then divided by that product's
-// HNA (confirmed formula, 2026-08-27: qty = estimasi ÷ HNA). Months outside
-// the item's own period, or where HNA is unknown/zero, get 0.
+// HNA (confirmed formula, 2026-08-27: qty = estimasi ÷ HNA). Empty when HNA
+// is unknown/zero or periodeAwal/lamaPeriode is missing.
 function computeQtyPerBulan(
   rencanaTotalBiaya: unknown,
   periodeAwal: string | null,
   lamaPeriode: number | null,
-  hna: number | null,
-  quarterMonths: string[]
+  hna: number | null
 ): Map<string, number> {
-  const result = new Map<string, number>(quarterMonths.map((m) => [m, 0]));
-  if (!periodeAwal || !lamaPeriode || lamaPeriode <= 0 || !hna) return result;
+  if (!periodeAwal || !lamaPeriode || lamaPeriode <= 0 || !hna) return new Map();
 
   const itemMonths = expandPeriodeMonths(periodeAwal, lamaPeriode);
   const estimasiPerBulan = toNum(rencanaTotalBiaya) / itemMonths.length;
   const qtyPerBulan = estimasiPerBulan / hna;
-  for (const m of quarterMonths) {
-    if (itemMonths.includes(m)) result.set(m, qtyPerBulan);
-  }
-  return result;
+  return new Map(itemMonths.map((m) => [m, qtyPerBulan]));
 }
 
 export type PoaDoctorRow = ReturnType<typeof buildDoctorRows>[number];
@@ -301,6 +298,13 @@ export function buildDoctorRows(
     nilaiR: number | null;
     hna: number | null;
     qtyPerBulan: Map<string, number>;
+    // Raw PoaLineItem.periodeAwal ("YYYYMM")/lamaPeriode (1/3/6/12) of the
+    // FIRST item seen for this product — same "keep first, don't sum"
+    // treatment as pengaliNilaiR/nilaiR/hna above when a duplicate kodeProduk
+    // row exists (2026-09-04: exposed so callers stop reading the ambiguous
+    // PoaForm-level `periodeKuartal` as if it were this product's own start).
+    periodeAwal: string | null;
+    lamaPeriode: number | null;
     productId: number | null;
     principalId: number | null;
     principalName: string | null;
@@ -345,7 +349,7 @@ export function buildDoctorRows(
     const productMaster = productMasterByKodeProduk.get(item.kodeProduk);
     const nilaiR = productMaster?.nilaiR ?? null;
     const hna = productMaster?.hna ?? null;
-    const qtyPerBulan = computeQtyPerBulan(item.rencanaTotalBiaya, item.periodeAwal, item.lamaPeriode, hna, quarterMonths);
+    const qtyPerBulan = computeQtyPerBulan(item.rencanaTotalBiaya, item.periodeAwal, item.lamaPeriode, hna);
     entry.estimasiTotal += estimasi;
     entry.nilaiPsspTotal += nilaiPssp;
     // One row per (doctor, produk) in practice, but guard against a
@@ -364,6 +368,7 @@ export function buildDoctorRows(
     } else {
       entry.produk.push({
         kodeProduk: item.kodeProduk, namaProduk: item.namaProduk, estimasi, nilaiPssp, pengaliNilaiR, nilaiR, hna, qtyPerBulan,
+        periodeAwal: item.periodeAwal, lamaPeriode: item.lamaPeriode,
         productId: productMaster?.exodusProductId ?? null,
         principalId: productMaster?.principalId ?? null,
         principalName: productMaster?.principalName ?? null,
@@ -406,7 +411,12 @@ export function buildDoctorRows(
       uidCustomer: dokter.anchorItemId,
       idPoa: formatPoaId(poa.seq),
       path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
-      periode: { startDate, endDate },
+      // Start/end of the PoaForm's QUARTER, same for every doctor/produk in
+      // this POA — NOT this product's own periodeAwal (that's
+      // produk[].periodeAwal/lamaPeriode below). Renamed from `periode` on
+      // 2026-09-04 (breaking, coordinated with Exodus/Budi) after this
+      // ambiguity got mistaken for a per-product date more than once.
+      periodeKuartal: { startDate, endDate },
       approveUntil: until,
       usedInExodus: approval?.usedInExodus ?? false,
       dokter: {
@@ -436,7 +446,11 @@ export function buildDoctorRows(
         pengaliNilaiR: p.pengaliNilaiR,
         nilaiR: p.nilaiR, // Rupiah amount (Exodus r_value), not a ratio — see ProductMaster above
         hna: p.hna,
-        qtyPerBulan: quarterMonths.map((bulan) => ({ bulan, qty: p.qtyPerBulan.get(bulan) ?? 0 })),
+        periodeAwal: p.periodeAwal,
+        lamaPeriode: p.lamaPeriode,
+        // Full periodeAwal..periodeAwal+lamaPeriode-1 range, sorted — no
+        // longer clipped to the queried quarter (see computeQtyPerBulan).
+        qtyPerBulan: [...p.qtyPerBulan.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([bulan, qty]) => ({ bulan, qty })),
         qtyTotal: [...p.qtyPerBulan.values()].reduce((s, v) => s + v, 0),
         productId: p.productId,
         principalId: p.principalId,
