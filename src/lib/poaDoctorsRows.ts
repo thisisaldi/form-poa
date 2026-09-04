@@ -411,6 +411,9 @@ export function buildDoctorRows(
       uidPoa: poa.id,
       uidCustomer: dokter.anchorItemId,
       idPoa: formatPoaId(poa.seq),
+      // NIP MR/pemilik PoaForm ini (PoaForm.ownerId) — siapa yang bikin POA
+      // ini, bukan si dokter (2026-09-04, request tim Exodus).
+      nip: poa.ownerId,
       path: `/poa/${poa.id}/doctor/${dokter.anchorItemId}/edit`,
       // This DOCTOR's own start/end calendar dates (not the PoaForm's
       // quarter — that field was removed 2026-09-04 for being redundant with
