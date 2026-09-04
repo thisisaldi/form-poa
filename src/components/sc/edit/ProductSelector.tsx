@@ -675,10 +675,10 @@ export function ProductSelector({
                 <div className="font-semibold text-[11px]" style={{ color: "var(--color-text-muted)" }}>Growth Estimasi Sales</div>
                 {avgSalesBln > 0 ? (
                   <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                    SC Sebelumnya: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}/bln</strong> {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                    Sales Sebelumnya: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}/bln</strong> {b3RangeLabel ? `(${b3RangeLabel})` : ""}
                   </div>
                 ) : (
-                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada data SC sebelumnya</div>
+                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada data sales sebelumnya</div>
                 )}
                 {growthPct != null && (
                   <div className="text-xs font-semibold" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>

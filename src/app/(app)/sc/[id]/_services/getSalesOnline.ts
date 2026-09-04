@@ -7,14 +7,14 @@ export interface SalesOnlineItem {
   zat_aktif: string | null;
 }
 
-export interface HistorySalesResponse {
+export interface SalesOnlineResponse {
   data: SalesOnlineItem[];
   pi_code?: string;
   period?: string[];
   message?: string | null;
 }
 
-export async function getHistorySales(piCode: string): Promise<HistorySalesResponse | null> {
+export async function getSalesOnline(piCode: string): Promise<SalesOnlineResponse | null> {
   if (!piCode) return null;
   try {
     const url = `${CANVASSER_API_BASE_URL}/api/get-sales-online?pi_code=${encodeURIComponent(piCode)}`;
@@ -25,14 +25,14 @@ export async function getHistorySales(piCode: string): Promise<HistorySalesRespo
     });
 
     if (!res.ok) {
-      console.error(`Failed to fetch history sales from ${url}: status ${res.status}`);
+      console.error(`Failed to fetch sales online from ${url}: status ${res.status}`);
       return null;
     }
 
     const data = await res.json();
-    return data as HistorySalesResponse;
+    return data as SalesOnlineResponse;
   } catch (error) {
-    console.error("Error fetching history sales from Canvasser API:", error);
+    console.error("Error fetching sales online from Canvasser API:", error);
     return null;
   }
 }

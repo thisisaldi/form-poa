@@ -10,12 +10,13 @@ import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { ScSidebar } from "./ScSidebar";
 import { UnitInput } from "./UnitInput";
 import { Button } from "@/components/ui/Button";
-import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
-import { quarterToMonths } from "@/lib/quarterUtils";
+import { expandPeriodeMonths } from "@/lib/poaUtils";
+import { quarterToMonths, resolvePeriodForQuarter } from "@/lib/quarterUtils";
 import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
+import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
   if (rawVal == null) return "0";
@@ -52,6 +53,7 @@ import {
   getScOutletB3SalesAction,
   getRekomendasiProdukAction,
   getHistorySalesAction,
+  getSalesOnlineAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
@@ -248,6 +250,7 @@ export function SalesCounterEditByIdEditor({
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
   const [historySalesData, setHistorySalesData] = useState<any>(null);
+  const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
@@ -317,8 +320,8 @@ export function SalesCounterEditByIdEditor({
     });
     getScProductMenangAction(kodePI).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(kodePI).then((res) => setProductsInsentif(res?.data || []));
-    getScInsentifHistoryAction(kodePI).then((res) => setInsentifHistory(res?.data || null));
     getHistorySalesAction(kodePI).then((res) => setHistorySalesData(res || null));
+    getSalesOnlineAction(kodePI).then((res) => setSalesOnlineData(res || null));
     getSurveyRekomendasiByOutletAggregate(kodePI).then((res) => setSurveyData(res || []));
     getRekomendasiProdukAction(kodePI).then((res) => {
       if (!res?.data) {
@@ -351,6 +354,17 @@ export function SalesCounterEditByIdEditor({
       setCashbackMatrix(array);
     });
   }, [kodePI]);
+
+  // Period-aware SC insentif history
+  const targetPeriod = useMemo(
+    () => resolvePeriodForQuarter(poaPeriod, periodeAwal),
+    [poaPeriod, periodeAwal]
+  );
+
+  useEffect(() => {
+    if (!kodePI) return;
+    getScInsentifHistoryAction(kodePI, targetPeriod).then((res) => setInsentifHistory(res?.data || null));
+  }, [kodePI, targetPeriod]);
 
   useEffect(() => {
     if (cashbackMatrix.length === 0) return;
@@ -551,12 +565,15 @@ export function SalesCounterEditByIdEditor({
     : null;
 
   const monthlyMonths = useMemo(() => {
+    if (periodeAwal && /^\d{6}$/.test(periodeAwal) && lamaPeriode > 0) {
+      return expandPeriodeMonths(periodeAwal, lamaPeriode);
+    }
     const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
     const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
     const q = validPeriodMatch ? parseInt(validPeriodMatch[2], 10) : 1;
     const qPeriod = `${poaYear}-Q${q}`;
     return quarterToMonths(qPeriod);
-  }, [poaPeriod]);
+  }, [poaPeriod, periodeAwal, lamaPeriode]);
 
   const monthlyBreakdown = useMemo(() => {
     return monthlyMonths.map((m: string) => {
@@ -693,7 +710,10 @@ export function SalesCounterEditByIdEditor({
         parseInt(jumlahKaryawan, 10) || 0,
         parseInt(jumlahPasien, 10) || 0,
         parseInt(jumlahPasienResep, 10) || 0,
-        parseInt(jumlahPasienNonResep, 10) || 0
+        parseInt(jumlahPasienNonResep, 10) || 0,
+        periodeAwal,
+        lamaPeriode,
+        scId
       );
       if (res.ok) {
         router.push(`/sc/${scId}`);
@@ -736,6 +756,12 @@ export function SalesCounterEditByIdEditor({
               Terkunci
             </span>
           </div>
+
+          <OnlineApotekSalesWidget
+            poaPeriod={poaPeriod}
+            outletCode={kodePI}
+            outletName={namaOutlet}
+          />
 
           {/* PERSONS — LOCKED */}
           {persons.length > 0 && (
@@ -1011,7 +1037,7 @@ export function SalesCounterEditByIdEditor({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
             <div className="shrink-0 min-w-[180px]">
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                TOTAL ESTIMASI SALES
+                ESTIMASI SALES
               </div>
               <div className="text-xl font-bold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
                 Rp {Math.round(totalEstimasiSales).toLocaleString("id-ID")}
@@ -1020,9 +1046,9 @@ export function SalesCounterEditByIdEditor({
                 Rp {Math.round(totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1)).toLocaleString("id-ID")} / Bln
               </div>
             </div>
-            <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+            <div className="shrink-0 min-w-[220px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                TOTAL ESTIMASI GROWTH
+                ESTIMASI GROWTH SALES
               </div>
               {totalGrowthPct != null ? (
                 <>
@@ -1032,9 +1058,14 @@ export function SalesCounterEditByIdEditor({
                   >
                     {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
                   </div>
-                  <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    Histori SC Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")}/bln {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                  <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                    History Sales Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")} / Bln
                   </div>
+                  {b3RangeLabel && (
+                    <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      ({b3RangeLabel})
+                    </div>
+                  )}
                   <div
                     className="text-[11px] font-semibold mt-0.5"
                     style={{ color: totalGrowthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}
@@ -1046,7 +1077,7 @@ export function SalesCounterEditByIdEditor({
                 </>
               ) : (
                 <div className="text-xs mt-1 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                  Belum ada data SC sebelumnya
+                  Belum ada data history sales
                 </div>
               )}
             </div>
@@ -1079,14 +1110,7 @@ export function SalesCounterEditByIdEditor({
                       {!isCashbackHidden && (
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Value Cashback</th>
                       )}
-                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">
-                        <div>Growth Sebelumnya</div>
-                        {b3RangeLabel && (
-                          <div className="text-[10px] font-normal normal-case opacity-75">
-                            ({b3RangeLabel})
-                          </div>
-                        )}
-                      </th>
+                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Growth</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1157,7 +1181,7 @@ export function SalesCounterEditByIdEditor({
                 </table>
                 {b3RangeLabel && (
                   <p className="text-[11px] px-3 py-1.5 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                    * Growth Sebelumnya dihitung dari histori rata-rata penjualan B3 ({b3RangeLabel})
+                    * Growth Dihitung dari Histori Rata-Rata Penjualan Quarter ({b3RangeLabel})
                   </p>
                 )}
               </div>
@@ -1186,11 +1210,13 @@ export function SalesCounterEditByIdEditor({
     </form>
     {kodePI && (
       <ScSidebar
+        poaPeriod={poaPeriod}
         doctorName={namaOutlet || undefined}
         productsMenang={productsMenang}
         productsInsentif={productsInsentif}
         insentifHistory={insentifHistory}
         historySalesData={historySalesData}
+        salesOnlineData={salesOnlineData}
         surveyData={surveyData}
         rekomendasiProduk={rekomendasiProduk}
         masterProducts={masterProducts}

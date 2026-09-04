@@ -16,12 +16,21 @@ import {
 } from "@/app/actions/scApprovalActions";
 import { formatRp } from "./SalesCounterStatsPanel";
 import type { ScDraftFormItem } from "../types";
-import { getB3PeriodInfo } from "@/lib/b3Utils";
-import { getScOutletB3SalesAction, getScCashbackPoaAction, getSalesCounterProductsAction } from "@/app/actions/canvasser";
+import { getB3PeriodInfo, getB3ByQuarter } from "@/lib/b3Utils";
+import {
+  getScOutletB3SalesAction,
+  getScCashbackPoaAction,
+  getSalesCounterProductsAction,
+  getScInsentifHistoryAction,
+  getHistorySalesAction,
+  getSalesOnlineAction,
+} from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
 import { useScToast } from "../ui/ScToast";
 import { BlastInTable } from "../edit/BlastInTable";
 import { PosmTable } from "../edit/PosmTable";
+import { ProdukKompetitorSidebar } from "./ProdukKompetitorSidebar";
+
 
 
 function formatMonthLabel(m: string) {
@@ -29,6 +38,17 @@ function formatMonthLabel(m: string) {
   const year = m.slice(0, 4);
   const monthIndex = parseInt(m.slice(4, 6), 10) - 1;
   return new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "short", year: "numeric" });
+}
+
+function formatMonthKey(key: string) {
+  if (!key || key.length !== 6) return key;
+  const year = key.slice(0, 4);
+  const month = parseInt(key.slice(4, 6), 10);
+  const MONTH_NAMES = [
+    "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+    "Jul", "Agu", "Sep", "Okt", "Nov", "Des"
+  ];
+  return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
 export function SalesCounterOutletCard({
@@ -42,6 +62,9 @@ export function SalesCounterOutletCard({
   canApprove: parentCanApprove,
   canFastTrack: parentCanFastTrack,
   userRole,
+  isKompetitorOpen = false,
+  onToggleKompetitor,
+  onCloseKompetitor,
 }: {
   draft: ScDraftFormItem;
   checked: boolean;
@@ -53,6 +76,9 @@ export function SalesCounterOutletCard({
   canApprove?: boolean;
   canFastTrack?: boolean;
   userRole?: string;
+  isKompetitorOpen?: boolean;
+  onToggleKompetitor?: () => void;
+  onCloseKompetitor?: () => void;
 }) {
   const router = useRouter();
   const { showToast } = useScToast();
@@ -307,16 +333,18 @@ export function SalesCounterOutletCard({
     }
   }, [draft.kodePI]);
 
+  const [allScProducts, setAllScProducts] = useState<any[]>([]);
+
   useEffect(() => {
-    if (draft.totalScProducts != null) return;
     if (!draft.kodePI) return;
     getSalesCounterProductsAction(draft.kodePI).then((res) => {
       if (res?.data && Array.isArray(res.data)) {
+        setAllScProducts(res.data);
         const scCodes = new Set(res.data.map((cp) => cp.pro_code));
         setClientScData({ codes: scCodes, total: res.data.length });
       }
     });
-  }, [draft.totalScProducts, draft.kodePI]);
+  }, [draft.kodePI]);
 
   const totalScCount = draft.totalScProducts ?? clientScData?.total ?? 0;
   const validScCount = draft.validScProductsCount ?? (
@@ -324,17 +352,64 @@ export function SalesCounterOutletCard({
       ? draft.products.filter((p) => clientScData.codes.has(p.kodeProduk)).length
       : draft.products.filter((p) => p.isScProduct).length || draft.products.length
   );
-  const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
+  const b3Info = useMemo(() => {
+    return getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
+  }, [draft.period, draft.periodeAwal, poaId]);
+  const b3RangeLabel = b3Info.rangeLabel;
+
+  const [b3TotalCount, setB3TotalCount] = useState<number | null>(null);
+  const [b3TotalOutletSalesPerMonth, setB3TotalOutletSalesPerMonth] = useState<number>(0);
+
+  useEffect(() => {
+    if (!draft.kodePI) return;
+    getHistorySalesAction(draft.kodePI, false).then((res) => {
+      if (res?.data && Array.isArray(res.data)) {
+        const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
+        const uniqueCodes = new Set<string>();
+        const productSalesSum = new Map<string, number>();
+
+        for (const it of res.data) {
+          const itemPeriod = Number(it.period);
+          const historyQty = Number(it.history_sales) || 0;
+          const salesVal = Number(it.sales_value) || 0;
+
+          // Cek apakah data penjualan berada pada kuartal periode B-3
+          if (targetPeriodsSet.has(itemPeriod) && (historyQty > 0 || salesVal > 0)) {
+            if (it.code) {
+              uniqueCodes.add(it.code);
+              const cur = productSalesSum.get(it.code) || 0;
+              productSalesSum.set(it.code, cur + salesVal);
+            }
+          }
+        }
+
+        setB3TotalCount(uniqueCodes.size);
+
+        // Rata-rata sales per bulan (total kuartal B-3 dibagi 3)
+        let totalValSum = 0;
+        const avgMap = new Map<string, number>();
+        for (const [code, sumVal] of productSalesSum.entries()) {
+          avgMap.set(code, sumVal / 3);
+          totalValSum += sumVal;
+        }
+
+        if (totalValSum > 0) {
+          setB3SalesMap(avgMap);
+          setB3TotalOutletSalesPerMonth(totalValSum / 3);
+        }
+      }
+    });
+  }, [draft.kodePI, b3Info.period, b3Info.targetPeriods]);
 
   const isExpanded = detailOpen;
 
   useEffect(() => {
     if (!isExpanded || !draft.kodePI) return;
+    // Jika b3SalesMap sudah terisi dari get-history-sales, tidak perlu fallback
+    if (b3SalesMap.size > 0) return;
+
     const proCodes = draft.products.map((p) => p.kodeProduk).filter(Boolean);
     if (proCodes.length === 0) return;
-
-    const b3Info = getB3PeriodInfo(draft.periodeAwal || draft.period || poaId);
-    setB3RangeLabel(b3Info.rangeLabel);
 
     getScOutletB3SalesAction(b3Info.period, draft.kodePI, proCodes).then((res) => {
       const map = new Map<string, number>();
@@ -343,9 +418,34 @@ export function SalesCounterOutletCard({
           if (item.pro_code) map.set(item.pro_code, item.average_sales || 0);
         }
       }
-      setB3SalesMap(map);
+      if (map.size > 0) {
+        setB3SalesMap(map);
+      }
     });
-  }, [isExpanded, draft.kodePI, draft.products, poaId]);
+  }, [isExpanded, draft.kodePI, draft.products, b3Info.period, b3SalesMap.size]);
+
+  const [insentifHistoryData, setInsentifHistoryData] = useState<any>(null);
+  const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
+
+  useEffect(() => {
+    if ((!isExpanded && !isKompetitorOpen) || !draft.kodePI) return;
+    getScInsentifHistoryAction(draft.kodePI).then((res) => {
+      setInsentifHistoryData(res?.data || null);
+    });
+    getSalesOnlineAction(draft.kodePI).then((res) => {
+      setSalesOnlineData(res || null);
+    });
+  }, [isExpanded, isKompetitorOpen, draft.kodePI]);
+
+  const salesOnlineItems = useMemo(() => {
+    if (Array.isArray(salesOnlineData?.data)) return salesOnlineData.data;
+    if (Array.isArray(salesOnlineData)) return salesOnlineData;
+    return [];
+  }, [salesOnlineData]);
+
+  const selectedProductCodes = useMemo(() => {
+    return new Set(draft.products.map((p) => p.kodeProduk).filter(Boolean));
+  }, [draft.products]);
 
   const lama = draft.lamaPeriode || 3;
 
@@ -389,7 +489,7 @@ export function SalesCounterOutletCard({
 
     const estMonth = qty * hnaSJ;
     const estFull = estMonth * lama;
-    
+
     const scVal = p.salesCounterValue;
     const scMin = p.salesCounterMinimum || 0;
 
@@ -409,6 +509,163 @@ export function SalesCounterOutletCard({
   const avgMatriks = outletEstSales > 0 ? totalWeightedMatriks / outletEstSales : 0;
   const totalEntertain = draft.entertainItems.reduce((s, e) => s + (e.biayaEntertain || 0), 0);
   const canvasserNames = draft.persons.map((p) => `${p.personName} (${p.positionName})`).join(", ");
+
+  const historyInsentifInfo = useMemo(() => {
+    if (!insentifHistoryData || typeof insentifHistoryData !== "object") return null;
+    const allKeys = Object.keys(insentifHistoryData).sort();
+    if (allKeys.length === 0) return null;
+
+    // Get B3 period info (quarter sebelumnya)
+    const b3Info = getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
+    const yr = Math.floor(b3Info.period / 100);
+    const mo = b3Info.period % 100;
+
+    // Target 3 months for B-3 (closed months before POA period)
+    const targetB3Keys: string[] = [];
+    for (let i = 2; i >= 0; i--) {
+      const d = new Date(yr, mo - 1 - i, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      targetB3Keys.push(`${y}${m}`);
+    }
+
+    const matchedKeys = targetB3Keys.filter((k) => Boolean(insentifHistoryData[k]));
+    const usedKeys = matchedKeys.length > 0 ? matchedKeys : allKeys.slice(-3);
+
+    let sumB3Insentif = 0;
+    for (const k of usedKeys) {
+      const items = Array.isArray(insentifHistoryData[k]) ? insentifHistoryData[k] : [];
+      sumB3Insentif += items.reduce(
+        (sum: number, it: any) => sum + (parseFloat(it.total_insentif ?? it.insentif ?? 0) || 0),
+        0
+      );
+    }
+
+    const avgB3Insentif = usedKeys.length > 0 ? sumB3Insentif / usedKeys.length : 0;
+
+    let rangeLabel = "";
+    if (matchedKeys.length > 0 && b3Info.rangeLabel) {
+      rangeLabel = b3Info.rangeLabel;
+    } else if (usedKeys.length === 1) {
+      rangeLabel = formatMonthKey(usedKeys[0]);
+    } else if (usedKeys.length > 1) {
+      rangeLabel = `${formatMonthKey(usedKeys[0])} - ${formatMonthKey(usedKeys[usedKeys.length - 1])}`;
+    }
+
+    return {
+      usedKeys,
+      avgB3Insentif,
+      sumB3Insentif,
+      rangeLabel,
+      totalMonths: usedKeys.length,
+    };
+  }, [insentifHistoryData, draft.periodeAwal, draft.period, poaId]);
+
+  const productDetailRows = useMemo(() => {
+    let sumEstSales = 0;
+    let sumEstSalesPerMonth = 0;
+    let sumNilaiSc = 0;
+    let sumNilaiScPerMonth = 0;
+    let sumCashback = 0;
+    let sumSalesHistorical = 0;
+    let sumSalesHistoricalPerMonth = 0;
+    let sumQtyPerBulan = 0;
+    let repeatCount = 0;
+    let newCount = 0;
+
+    const rows = draft.products.map((p) => {
+      const hnaSJ = p.hnaSJ || 0;
+      const qty = p.qtyPerBulan || 0;
+      sumQtyPerBulan += qty;
+
+      const estSalesMonth = qty * hnaSJ;
+      sumEstSalesPerMonth += estSalesMonth;
+
+      const estSalesFull = estSalesMonth * lama;
+      sumEstSales += estSalesFull;
+
+      const scVal = p.salesCounterValue;
+      const scMin = p.salesCounterMinimum || 0;
+      let nilaiScPerMonth = 0;
+      if (scVal != null && scVal > 0) {
+        nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
+      } else {
+        nilaiScPerMonth = (qty * hnaSJ) * ((p.persenMatriksSc || 0) / 100);
+      }
+      sumNilaiScPerMonth += nilaiScPerMonth;
+
+      const nilaiScFull = nilaiScPerMonth * lama;
+      sumNilaiSc += nilaiScFull;
+
+      const valCashbackFull = cashbackData
+        ? (cbDetails.resultMap.get(p.kodeProduk) ?? 0)
+        : estSalesFull * ((p.persenCashback || 0) / 100);
+      sumCashback += valCashbackFull;
+
+      const avgSales = b3SalesMap.get(p.kodeProduk) ?? 0;
+      sumSalesHistoricalPerMonth += avgSales;
+      const salesHistorical = avgSales * lama;
+      sumSalesHistorical += salesHistorical;
+
+      if (salesHistorical > 0) {
+        repeatCount++;
+      } else {
+        newCount++;
+      }
+
+      let growthPct = 0;
+      if (salesHistorical > 0 && estSalesFull > 0) {
+        growthPct = ((estSalesFull - salesHistorical) / salesHistorical) * 100;
+      }
+
+      return {
+        product: p,
+        qty,
+        estSalesMonth,
+        estSalesFull,
+        nilaiScPerMonth,
+        nilaiScFull,
+        valCashbackFull,
+        salesHistorical,
+        growthPct,
+      };
+    });
+
+    const effectiveOutletSalesPerMonth =
+      b3TotalOutletSalesPerMonth > 0 ? b3TotalOutletSalesPerMonth : sumSalesHistoricalPerMonth;
+    const effectiveOutletSalesFull = effectiveOutletSalesPerMonth * lama;
+
+    const overallGrowthPct =
+      effectiveOutletSalesFull > 0 && sumEstSales > 0
+        ? ((sumEstSales - effectiveOutletSalesFull) / effectiveOutletSalesFull) * 100
+        : 0;
+
+    return {
+      rows,
+      sumQtyPerBulan,
+      sumEstSales,
+      sumEstSalesPerMonth,
+      sumNilaiSc,
+      sumNilaiScPerMonth,
+      sumCashback,
+      sumSalesHistorical,
+      sumSalesHistoricalPerMonth,
+      effectiveOutletSalesPerMonth,
+      effectiveOutletSalesFull,
+      overallGrowthPct,
+      repeatCount,
+      newCount,
+    };
+  }, [draft.products, lama, cashbackData, cbDetails, b3SalesMap, b3TotalOutletSalesPerMonth]);
+
+  const insentifGrowthPct = useMemo(() => {
+    if (!historyInsentifInfo || historyInsentifInfo.avgB3Insentif <= 0) return null;
+    return (
+      ((productDetailRows.sumNilaiScPerMonth - historyInsentifInfo.avgB3Insentif) /
+        historyInsentifInfo.avgB3Insentif) *
+      100
+    );
+  }, [productDetailRows.sumNilaiScPerMonth, historyInsentifInfo]);
 
   function handleDelete() {
     if (!confirm(`Hapus rencana POA SC untuk ${draft.namaOutlet}?`)) return;
@@ -520,7 +777,12 @@ export function SalesCounterOutletCard({
       <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
         <button
           type="button"
-          onClick={() => setDetailOpen((v) => !v)}
+          onClick={() => {
+            if (detailOpen && isKompetitorOpen) {
+              onCloseKompetitor?.();
+            }
+            setDetailOpen((v) => !v);
+          }}
           className="text-xs hover:underline cursor-pointer"
           style={{ color: "var(--color-text-faint)" }}
         >
@@ -815,6 +1077,199 @@ export function SalesCounterOutletCard({
       {/* Expanded detail */}
       {detailOpen && (
         <div className="mt-3 space-y-3 pt-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+          {/* Summary / Comparison Metrics: History vs Estimation Nilai Insentif SC, Growth, Variasi Produk */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 rounded-lg border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
+            {/* Tile 1: Nilai Insentif SC */}
+            <div className="p-2.5 rounded-md border space-y-1" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
+                  Nilai Insentif SC
+                </span>
+                {insentifGrowthPct != null ? (
+                  <span
+                    className="text-[9px] font-bold px-1.5 py-0.2 rounded"
+                    style={{
+                      background: insentifGrowthPct >= 0 ? "var(--color-success-bg, #dcfce7)" : "#fee2e2",
+                      color: insentifGrowthPct >= 0 ? "var(--color-success, #16a34a)" : "#dc2626",
+                    }}
+                  >
+                    {insentifGrowthPct >= 0 ? `+${insentifGrowthPct.toFixed(1)}%` : `${insentifGrowthPct.toFixed(1)}%`}
+                  </span>
+                ) : null}
+              </div>
+              <div className="text-sm font-bold" style={{ color: "var(--color-blue)" }}>
+                {productDetailRows.sumNilaiScPerMonth > 0 ? (
+                  <>
+                    {formatRp(productDetailRows.sumNilaiScPerMonth)}
+                    <span className="text-xs font-semibold ml-1" style={{ color: "var(--color-blue)" }}>
+                      / bln
+                    </span>
+                    <span className="text-[10px] font-normal ml-1" style={{ color: "var(--color-text-faint)" }}>
+                      (Estimasi)
+                    </span>
+                  </>
+                ) : (
+                  "-"
+                )}
+              </div>
+              <div className="pt-1.5 border-t text-[11px] space-y-0.5" style={{ borderColor: "var(--color-border)" }}>
+                <div style={{ color: "var(--color-text-muted)" }}>
+                  Histori Insentif (B-3):
+                </div>
+                <div className="font-semibold text-xs" style={{ color: "var(--color-text)" }}>
+                  {historyInsentifInfo && historyInsentifInfo.avgB3Insentif > 0 ? (
+                    <>
+                      {formatRp(historyInsentifInfo.avgB3Insentif)}
+                      <span className="font-normal text-[11px] ml-1" style={{ color: "var(--color-text-muted)" }}>
+                        / bln
+                      </span>
+                      {b3RangeLabel && (
+                        <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                          ({b3RangeLabel})
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Belum ada data
+                      {b3RangeLabel && (
+                        <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                          ({b3RangeLabel})
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Tile 2: Total Sales & Growth */}
+            <div className="p-2.5 rounded-md border space-y-1" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
+                  Sales &amp; Growth Total
+                </span>
+                <span
+                  className="text-[9px] font-bold px-1.5 py-0.2 rounded"
+                  style={{
+                    background:
+                      productDetailRows.effectiveOutletSalesFull > 0
+                        ? productDetailRows.overallGrowthPct >= 0
+                          ? "var(--color-success-bg, #dcfce7)"
+                          : "#fee2e2"
+                        : "var(--color-bg-subtle)",
+                    color:
+                      productDetailRows.effectiveOutletSalesFull > 0
+                        ? productDetailRows.overallGrowthPct >= 0
+                          ? "var(--color-success, #16a34a)"
+                          : "#dc2626"
+                        : "var(--color-text-faint)",
+                  }}
+                >
+                  {productDetailRows.effectiveOutletSalesFull > 0
+                    ? `${productDetailRows.overallGrowthPct >= 0 ? "+" : ""}${productDetailRows.overallGrowthPct.toFixed(1)}% Growth`
+                    : "Produk Baru"}
+                </span>
+              </div>
+              <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>
+                {productDetailRows.sumEstSalesPerMonth > 0 ? (
+                  <>
+                    {formatRp(productDetailRows.sumEstSalesPerMonth)}
+                    <span className="text-xs font-semibold ml-1" style={{ color: "var(--color-text)" }}>
+                      / bln
+                    </span>
+                    <span className="text-[10px] font-normal ml-1" style={{ color: "var(--color-text-faint)" }}>
+                      (Estimasi)
+                    </span>
+                  </>
+                ) : (
+                  "-"
+                )}
+              </div>
+              <div className="pt-1.5 border-t text-[11px] space-y-0.5" style={{ borderColor: "var(--color-border)" }}>
+                <div style={{ color: "var(--color-text-muted)" }}>
+                  Histori Sales (B-3):
+                </div>
+                <div className="font-semibold text-xs" style={{ color: "var(--color-text)" }}>
+                  {productDetailRows.effectiveOutletSalesPerMonth > 0 ? (
+                    <>
+                      {formatRp(productDetailRows.effectiveOutletSalesPerMonth)}
+                      <span className="font-normal text-[11px] ml-1" style={{ color: "var(--color-text-muted)" }}>
+                        / bln
+                      </span>
+                      {b3RangeLabel && (
+                        <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                          ({b3RangeLabel})
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      -
+                      {b3RangeLabel && (
+                        <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                          ({b3RangeLabel})
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Tile 3: Variasi Produk */}
+            <div className="p-2.5 rounded-md border space-y-1" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
+                  Variasi Produk
+                </span>
+              </div>
+              <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>
+                {draft.products.length} <span className="text-xs font-normal" style={{ color: "var(--color-text-muted)" }}>Produk Diajukan</span>
+              </div>
+              <div className="pt-1.5 border-t text-[11px] space-y-1" style={{ borderColor: "var(--color-border)" }}>
+                <div className="flex items-center justify-between">
+                  <span style={{ color: "var(--color-text-muted)" }}>Komposisi:</span>
+                  <span className="font-semibold" style={{ color: "var(--color-text)" }}>
+                    {productDetailRows.repeatCount} Repeat · {productDetailRows.newCount} Baru
+                  </span>
+                </div>
+                <div className="space-y-0.5">
+                  <div style={{ color: "var(--color-text-muted)" }}>
+                    Total Variasi B-3 Outlet:
+                  </div>
+                  <div className="font-semibold text-xs" style={{ color: "var(--color-text)" }}>
+                    {b3TotalCount != null ? `${b3TotalCount} Produk` : "-"}
+                    {b3RangeLabel && (
+                      <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                        ({b3RangeLabel})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Header Bar Produk SC & Tombol Analisis Produk Kompetitor */}
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
+              Daftar Produk SC ({draft.products.length})
+            </span>
+            <button
+              type="button"
+              onClick={() => onToggleKompetitor?.()}
+              className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border transition-all hover:opacity-80 cursor-pointer shadow-xs"
+              style={{
+                background: isKompetitorOpen ? "var(--color-blue, #0063a0)" : "var(--color-surface)",
+                borderColor: isKompetitorOpen ? "var(--color-blue, #0063a0)" : "var(--color-border)",
+                color: isKompetitorOpen ? "#ffffff" : "var(--color-text)",
+              }}
+            >
+              Analisis Produk Kompetitor
+            </button>
+          </div>
+
           {/* Products table */}
           <div className="rounded-lg border overflow-hidden overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
             <table className="w-full text-xs">
@@ -828,7 +1283,7 @@ export function SalesCounterOutletCard({
                     <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
                   )}
                   <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    <div>Growth Sebelumnya</div>
+                    <div>Growth Sebelumnya (B-3)</div>
                     {b3RangeLabel && (
                       <div className="text-[10px] font-normal normal-case opacity-75">
                         ({b3RangeLabel})
@@ -838,71 +1293,131 @@ export function SalesCounterOutletCard({
                 </tr>
               </thead>
               <tbody>
-                {draft.products.map((p) => {
-                  const hnaSJ = p.hnaSJ || 0;
-                  const qty = p.qtyPerBulan || 0;
-
-                  const estSalesFull = qty * hnaSJ * lama;
-                  const scVal = p.salesCounterValue;
-                  const scMin = p.salesCounterMinimum || 0;
-
-                  let nilaiScPerMonth = 0;
-                  if (scVal != null && scVal > 0) {
-                    nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
-                  } else {
-                    nilaiScPerMonth = (qty * hnaSJ) * ((p.persenMatriksSc || 0) / 100);
-                  }
-                  const nilaiScFull = nilaiScPerMonth * lama;
-                  const valCashbackFull = cashbackData
-                    ? (cbDetails.resultMap.get(p.kodeProduk) ?? 0)
-                    : estSalesFull * ((p.persenCashback || 0) / 100);
-
-                  const avgSales = b3SalesMap.get(p.kodeProduk) ?? 0;
-                  const salesHistorical = avgSales * lama;
-                  let growthPct = 0;
-                  if (salesHistorical > 0 && estSalesFull > 0) {
-                    growthPct = ((estSalesFull - salesHistorical) / salesHistorical) * 100;
-                  }
-
-                  return (
-                    <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                      <td className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text)" }}>
-                        {p.namaProduk}
-                        {totalScCount > 0 && (p.isScProduct === false || (clientScData && !clientScData.codes.has(p.kodeProduk))) && (
-                          <span
-                            className="text-[10px] font-normal ml-1.5 px-1.5 py-0.5 rounded"
-                            style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" }}
-                          >
-                            Non-SC
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>{estSalesFull > 0 ? formatRp(estSalesFull) : "-"}</td>
-                      <td className="px-2.5 py-2 text-right font-semibold" style={{ color: "var(--color-blue)" }}>{nilaiScFull > 0 ? formatRp(nilaiScFull) : "-"}</td>
-                      {!isCashbackNotFound && (
-                        <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}</td>
+                {productDetailRows.rows.map(({ product: p, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, valCashbackFull, salesHistorical, growthPct }) => (
+                  <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <td className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text)" }}>
+                      {p.namaProduk}
+                      {totalScCount > 0 && (p.isScProduct === false || (clientScData && !clientScData.codes.has(p.kodeProduk))) && (
+                        <span
+                          className="text-[10px] font-normal ml-1.5 px-1.5 py-0.5 rounded"
+                          style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" }}
+                        >
+                          Non-SC
+                        </span>
                       )}
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>
-                        {salesHistorical > 0 ? (
-                          <span className={growthPct > 0 ? "text-emerald-600 font-semibold" : growthPct < 0 ? "text-rose-600 font-semibold" : ""}>
-                            {growthPct > 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
-                          </span>
-                        ) : (
-                          "0%"
-                        )}
+                    </td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
+                      {estSalesFull > 0 ? (
+                        <div>
+                          <span>{formatRp(estSalesFull)}</span>
+                          {lama > 1 && (
+                            <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                              ({formatRp(estSalesMonth)}/bln)
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td className="px-2.5 py-2 text-right font-semibold" style={{ color: "var(--color-blue)" }}>
+                      {nilaiScFull > 0 ? (
+                        <div>
+                          <span>{formatRp(nilaiScFull)}</span>
+                          {lama > 1 && (
+                            <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                              ({formatRp(nilaiScPerMonth)}/bln)
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    {!isCashbackNotFound && (
+                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
+                        {valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}
                       </td>
-                    </tr>
-                  );
-                })}
+                    )}
+                    <td className="px-2.5 py-2 text-right">
+                      {salesHistorical > 0 ? (
+                        <span className={growthPct >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>
+                          {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--color-text-faint)" }}>-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
+              <tfoot>
+                <tr className="font-semibold border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
+                  <td className="px-2.5 py-2" style={{ color: "var(--color-text)" }}>Total</td>
+                  <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>{productDetailRows.sumQtyPerBulan}</td>
+                  <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
+                    {productDetailRows.sumEstSales > 0 ? (
+                      <div>
+                        <span>{formatRp(productDetailRows.sumEstSales)}</span>
+                        {lama > 1 && (
+                          <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                            ({formatRp(productDetailRows.sumEstSalesPerMonth)}/bln)
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-blue)" }}>
+                    {productDetailRows.sumNilaiSc > 0 ? (
+                      <div>
+                        <span>{formatRp(productDetailRows.sumNilaiSc)}</span>
+                        {lama > 1 && (
+                          <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                            ({formatRp(productDetailRows.sumNilaiScPerMonth)}/bln)
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  {!isCashbackNotFound && (
+                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
+                      {productDetailRows.sumCashback > 0 ? formatRp(productDetailRows.sumCashback) : "-"}
+                    </td>
+                  )}
+                  <td className="px-2.5 py-2 text-right">
+                    {productDetailRows.sumSalesHistorical > 0 ? (
+                      <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
+                        {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--color-text-faint)" }}>0%</span>
+                    )}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
             {b3RangeLabel && (
               <p className="text-[11px] px-3 py-1.5 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                * Growth Sebelumnya dihitung dari histori rata-rata penjualan B3 ({b3RangeLabel})
+                * Growth Dihitung dari Histori Rata-Rata Penjualan Quarter ({b3RangeLabel})
               </p>
             )}
           </div>
+
+          {/* Helper Sidebar: Analisis Produk Kompetitor */}
+          <ProdukKompetitorSidebar
+            isOpen={isKompetitorOpen}
+            onClose={() => onCloseKompetitor?.()}
+            outletName={draft.namaOutlet}
+            products={allScProducts.length > 0 ? allScProducts : draft.products}
+            selectedCodes={selectedProductCodes}
+            salesOnlineData={salesOnlineData}
+            periodLabel={b3RangeLabel}
+          />
 
           {/* Entertain items breakdown if present */}
           {draft.entertainItems.length > 0 && (

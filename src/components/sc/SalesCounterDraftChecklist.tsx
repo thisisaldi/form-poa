@@ -40,6 +40,7 @@ export function SalesCounterDraftChecklist({
 }) {
   const router = useRouter();
   const [isSubmittingState, setIsSubmittingState] = useState(false);
+  const [activeKompetitorDraftId, setActiveKompetitorDraftId] = useState<string | null>(null);
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
 
   const {
@@ -127,6 +128,11 @@ export function SalesCounterDraftChecklist({
                 canApprove={canApprove ?? false}
                 canFastTrack={canFastTrack}
                 userRole={userRole}
+                isKompetitorOpen={activeKompetitorDraftId === draft.id}
+                onToggleKompetitor={() =>
+                  setActiveKompetitorDraftId((prev) => (prev === draft.id ? null : draft.id))
+                }
+                onCloseKompetitor={() => setActiveKompetitorDraftId(null)}
               />
             ))}
           </div>

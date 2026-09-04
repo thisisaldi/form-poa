@@ -3,9 +3,11 @@ import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
 export interface HistorySalesItem {
   code: string;
   history_sales: number;
-  sales_b1: number | null;
-  sales_b2: number | null;
-  sales_b3: number | null;
+  sales_value?: number | null;
+  period?: number | string | null;
+  sales_b1?: number | null;
+  sales_b2?: number | null;
+  sales_b3?: number | null;
 }
 
 export interface HistorySalesResponse {
@@ -16,10 +18,11 @@ export interface HistorySalesResponse {
   message?: string | null;
 }
 
-export async function getHistorySales(piCode: string): Promise<HistorySalesResponse | null> {
+export async function getHistorySales(piCode: string, agg: boolean = true): Promise<HistorySalesResponse | null> {
   if (!piCode) return null;
   try {
-    const url = `${CANVASSER_API_BASE_URL}/api/get-history-sales?pi_code=${encodeURIComponent(piCode)}&agg=True`;
+    const aggParam = agg ? "&agg=True" : "";
+    const url = `${CANVASSER_API_BASE_URL}/api/get-history-sales?pi_code=${encodeURIComponent(piCode)}${aggParam}`;
     const res = await fetch(url, {
       method: "GET",
       headers: { "Content-Type": "application/json" },

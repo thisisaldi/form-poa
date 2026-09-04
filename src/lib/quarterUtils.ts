@@ -53,3 +53,95 @@ export function quarterLabelFromMonths(months: string[]): string {
   if (isNaN(month) || month < 1 || month > 12) return "Ini";
   return `Q${Math.ceil(month / 3)}`;
 }
+
+/**
+ * Resolves a 6-digit period string (YYYYMM) for a given quarter (e.g. "2026-Q3")
+ * and optional selected start month (e.g. "202609").
+ *
+ * Rules:
+ * 1. If explicit valid YYYYMM period is provided, return it.
+ * 2. If quarter is provided (e.g. "2026-Q3"):
+ *    - If the current calendar month is within that quarter, return current month (e.g. September -> "202609").
+ *    - If current month is before that quarter (planning for future Q), return the first month of that quarter.
+ *    - If current month is after that quarter (reviewing past Q), return the last month of that quarter.
+ * 3. Fallback to current calendar year & month YYYYMM.
+ */
+export function resolvePeriodForQuarter(quarter?: string | null, preferredMonth?: string | null): string {
+  if (preferredMonth && /^\d{6}$/.test(preferredMonth)) {
+    return preferredMonth;
+  }
+
+  const now = new Date();
+  const currentYYYYMM = toYYYYMM(now.getFullYear(), now.getMonth() + 1);
+
+  if (quarter) {
+    const match = quarter.match(/^(\d{4})-Q([1-4])$/);
+    if (match) {
+      const months = quarterToMonths(quarter);
+      if (months.includes(currentYYYYMM)) {
+        return currentYYYYMM;
+      }
+      if (currentYYYYMM < months[0]) {
+        return months[0];
+      }
+      return months[months.length - 1];
+    }
+  }
+
+  return currentYYYYMM;
+}
+
+/**
+ * Returns the previous quarter and its month range label in Indonesian.
+ * e.g. "2026-Q3" -> { quarter: "Q2", year: 2026, label: "Q2 (April - Juni 2026)", shortLabel: "Q2 (Apr - Jun 2026)" }
+ */
+export function getPreviousQuarterInfo(poaPeriod?: string | null): {
+  quarter: string;
+  year: number;
+  label: string;
+  shortLabel: string;
+} {
+  const now = new Date();
+  let year = now.getFullYear();
+  let q = Math.floor(now.getMonth() / 3) + 1;
+
+  if (poaPeriod) {
+    const match = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+    if (match) {
+      year = parseInt(match[1], 10);
+      q = parseInt(match[2], 10);
+    }
+  }
+
+  let prevQ = q - 1;
+  let prevYear = year;
+  if (prevQ < 1) {
+    prevQ = 4;
+    prevYear -= 1;
+  }
+
+  const quarterMonthsNames = [
+    ["Januari", "Maret"],
+    ["April", "Juni"],
+    ["Juli", "September"],
+    ["Oktober", "Desember"],
+  ];
+
+  const quarterMonthsShort = [
+    ["Jan", "Mar"],
+    ["Apr", "Jun"],
+    ["Jul", "Sep"],
+    ["Okt", "Des"],
+  ];
+
+  const [startName, endName] = quarterMonthsNames[prevQ - 1];
+  const [startShort, endShort] = quarterMonthsShort[prevQ - 1];
+
+  return {
+    quarter: `Q${prevQ}`,
+    year: prevYear,
+    label: `Q${prevQ} (${startName} - ${endName} ${prevYear})`,
+    shortLabel: `Q${prevQ} (${startShort} - ${endShort} ${prevYear})`,
+  };
+}
+
