@@ -418,6 +418,10 @@ export function buildDoctorRows(
       // doctor-level input duplicated onto every PoaLineItem row (see Doctor
       // type above).
       periode: monthsDateRange(expandPeriodeMonths(dokter.periodeAwal, dokter.lamaPeriode)),
+      // PoaForm.period ("2026-Q3") as-is — cheap enough to keep even though
+      // it repeats across every row of one response, unlike the removed
+      // full periodeKuartal start/end dates.
+      kuartal: poa.period,
       approveUntil: until,
       usedInExodus: approval?.usedInExodus ?? false,
       dokter: {
