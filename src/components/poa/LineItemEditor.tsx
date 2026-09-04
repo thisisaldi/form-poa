@@ -17,16 +17,18 @@ import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
 
 // Halaman input (Tambah Rencana POA, Tambah Produk, Edit Dokter, estimasi
-// real-time saat mengisi form) TETAP pakai angka asli, BUKAN skala
-// ÷1.000.000 yang dipakai tampilan Ringkasan/Summary/Draft (formatCurrency
-// di @/lib/format) — dikonfirmasi pengguna 2026-08-10: "di tambah rencana,
-// tetap pakai angka uang yang asli jangan dibagi 1 jt". Beda dari file lain
-// yang IKUT pakai skala baru (DraftChecklist.tsx, summary/page.tsx, dll).
+// real-time saat mengisi form) tampilkan nominal dalam format "X,XX Jt"
+// (2 desimal, lebih presisi dari formatCurrency di @/lib/format yang cuma
+// 1 desimal) — dikonfirmasi pengguna 2026-09-04, MEMBALIK keputusan
+// 2026-08-10 (yang tadinya minta angka asli tanpa skala di halaman ini).
+// Cuma tampilan (client-side) — nilai asli yang dikirim ke backend
+// (fd.set("rencanaTotalBiaya", ...) dkk) TIDAK berubah, tetap angka utuh.
 function formatRp(val: string | number | { toString(): string } | null | undefined) {
   if (val == null) return "-";
   const n = typeof val === "number" ? val : parseFloat(val.toString());
   if (isNaN(n)) return "-";
-  return Math.round(n).toLocaleString("id-ID");
+  const valJt = n / 1_000_000;
+  return valJt.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " Jt";
 }
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
