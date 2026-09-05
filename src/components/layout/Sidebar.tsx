@@ -152,31 +152,33 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
+  const isOmega = userProject?.toUpperCase() === "OMEGA";
+
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (item.roles && !item.roles.includes(userRole)) {
       return false;
     }
-    if (item.href === "/poa/new" && userProject === "OMEGA") {
-      return false;
+    if (isOmega) {
+      // Khusus project OMEGA:
+      // Hanya tampilkan Dashboard (/dashboard -> /sc/dashboard), New POA Sales Counter (/sc/new),
+      // Approvals (/sc/approvals), dan FAQ (/faq).
+      // Menu lain seperti Input Data Survey, Summary, dsb dihilangkan.
+      const allowedOmegaHrefs = ["/dashboard", "/sc/new", "/sc/approvals", "/faq"];
+      return allowedOmegaHrefs.includes(item.href);
     }
-    if (item.href === "/sc/new" && userProject !== "OMEGA") {
-      return false;
-    }
-    if (item.href === "/approvals" && userProject === "OMEGA") {
-      return false;
-    }
-    if (item.href === "/sc/approvals" && userProject !== "OMEGA") {
+    // Untuk project non-OMEGA:
+    if (item.href === "/sc/new" || item.href === "/sc/approvals") {
       return false;
     }
     return true;
   }).map((item) => {
-    if (item.href === "/dashboard" && userProject === "OMEGA") {
+    if (item.href === "/dashboard" && isOmega) {
       return { ...item, href: "/sc/dashboard" };
     }
-    if (item.href === "/sc/approvals" && userProject === "OMEGA") {
+    if (item.href === "/sc/approvals" && isOmega) {
       return { ...item, label: "Approvals" };
     }
-    if (item.href === "/approvals" && userProject !== "OMEGA") {
+    if (item.href === "/approvals" && !isOmega) {
       return { ...item, label: "Approvals" };
     }
     return item;

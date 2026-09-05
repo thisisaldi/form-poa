@@ -25,6 +25,8 @@ export function SalesCounterDraftChecklist({
   selectable = true,
   salesSummary,
   targetArea,
+  totalCoverageScOutlets,
+  historyQuarterLabel,
 }: {
   scDrafts?: ScDraftFormItem[];
   poaId?: string;
@@ -37,6 +39,8 @@ export function SalesCounterDraftChecklist({
   selectable?: boolean;
   salesSummary?: SalesFigures;
   targetArea?: number;
+  totalCoverageScOutlets?: number;
+  historyQuarterLabel?: string;
 }) {
   const router = useRouter();
   const [isSubmittingState, setIsSubmittingState] = useState(false);
@@ -161,6 +165,8 @@ export function SalesCounterDraftChecklist({
           salesFigures={salesFigures}
           salesIsReal={!!salesSummary}
           quarterMonths={quarterMonths}
+          totalCoverageScOutlets={totalCoverageScOutlets}
+          historyQuarterLabel={historyQuarterLabel}
         />
       </div>
     </div>

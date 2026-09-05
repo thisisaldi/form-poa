@@ -70,6 +70,7 @@ export async function createSession(user: User): Promise<void> {
   session.name = user.name;
   session.role = user.role;
   session.jabatan = user.jabatan;
+  session.project = user.project;
   session.isLoggedIn = true;
   await session.save();
 }

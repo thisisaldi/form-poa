@@ -74,6 +74,7 @@ export function SalesCounterApprovalsChecklist({
             targetArea={0}
             salesFigures={salesFigures}
             quarterMonths={quarterMonths}
+            historyQuarterLabel={metrics.historyQuarterLabel}
           />
         </div>
 
@@ -144,6 +145,7 @@ export function SalesCounterApprovalsChecklist({
           targetArea={0}
           salesFigures={salesFigures}
           quarterMonths={quarterMonths}
+          historyQuarterLabel={metrics.historyQuarterLabel}
         />
       </div>
     </div>

@@ -5,8 +5,10 @@ import { getMrSalesSummary } from "@/lib/salesSummary";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { getSalesCounterProduct } from "./getSalesCounterProduct";
+import { getHistorySales } from "./getHistorySales";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
+import { getB3ByQuarter } from "@/lib/b3Utils";
 
 interface MasterProductItem {
   kodeProduk: string;
@@ -158,6 +160,10 @@ export async function getSalesCounterDetailData(
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
   const outletScProductCodesMap = new Map<string, Set<string>>();
   const outletScTotalCountMap = new Map<string, number>();
+  const outletHistorySalesQuarterMap = new Map<string, number>();
+
+  const b3Info = getB3ByQuarter(targetPeriod);
+  const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
 
   const [blastInSet, rawOutlets] = await Promise.all([
     getBlastInOutletSet(),
@@ -165,10 +171,13 @@ export async function getSalesCounterDetailData(
     Promise.all(
       outletCodes.map(async (kodePI: string) => {
         try {
-          const res = await getSalesCounterProduct(kodePI);
-          if (res?.data) {
+          const [scProductRes, historyRes] = await Promise.all([
+            getSalesCounterProduct(kodePI).catch(() => null),
+            getHistorySales(kodePI, false).catch(() => null),
+          ]);
+          if (scProductRes?.data) {
             const scCodes = new Set<string>();
-            for (const cp of res.data) {
+            for (const cp of scProductRes.data) {
               canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
                 sales_counter_value: cp.sales_counter_value || 0,
                 sales_counter_minimum: cp.sales_counter_minimum || 0,
@@ -176,16 +185,28 @@ export async function getSalesCounterDetailData(
               if (cp.pro_code) scCodes.add(cp.pro_code);
             }
             outletScProductCodesMap.set(kodePI, scCodes);
-            outletScTotalCountMap.set(kodePI, res.data.length);
+            outletScTotalCountMap.set(kodePI, scProductRes.data.length);
+          }
+          if (historyRes?.data && Array.isArray(historyRes.data)) {
+            let totalValSum = 0;
+            for (const it of historyRes.data) {
+              const itemPeriod = Number(it.period);
+              const salesVal = Number(it.sales_value) || 0;
+              if (targetPeriodsSet.has(itemPeriod) && salesVal > 0) {
+                totalValSum += salesVal;
+              }
+            }
+            outletHistorySalesQuarterMap.set(kodePI, totalValSum);
           }
         } catch (err) {
-          console.error(`Error fetching SC products for ${kodePI}:`, err);
+          console.error(`Error fetching SC data for ${kodePI}:`, err);
         }
       })
     ),
   ]);
 
   const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));
+  const totalCoverageScOutlets = rawOutlets.filter((o) => !!o.is_sc).length;
 
   // Build clean SC Draft Form items
   const scDrafts: ScDraftFormItem[] = drafts.map((d: any) => {
@@ -212,6 +233,7 @@ export async function getSalesCounterDetailData(
       isBlastIn: blastInSet.has(d.kodePI),
       totalScProducts,
       validScProductsCount,
+      historySalesQuarter: outletHistorySalesQuarterMap.get(d.kodePI) ?? 0,
       persons: d.persons.map((p: any) => ({
         id: p.id,
         nik_ktp: p.nik_ktp,
@@ -277,5 +299,7 @@ export async function getSalesCounterDetailData(
     scDrafts,
     salesSummary,
     targetValueFromGT,
+    totalCoverageScOutlets,
+    historyQuarterLabel: b3Info.rangeLabel,
   };
 }

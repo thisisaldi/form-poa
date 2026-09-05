@@ -8,14 +8,6 @@ import type { SalesFigures } from "../types";
 
 export const formatRp = formatCurrency;
 
-function Bar({ pct, color }: { pct: number; color: string }) {
-  return (
-    <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--color-border)" }}>
-      <div className="h-full rounded-full transition-all duration-300" style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
-    </div>
-  );
-}
-
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-xs font-semibold uppercase tracking-widest mb-3 pt-1" style={{ color: "var(--color-text-faint)", borderTop: "1px solid var(--color-border)" }}>
@@ -35,16 +27,20 @@ export function SalesCounterStatsPanel({
   selectedOutletCount,
   totalOutletCount,
   metrics,
-  targetArea,
+  targetArea = 0,
   targetAreaIsReal = false,
   salesFigures,
   salesIsReal = false,
   quarterMonths,
+  totalCoverageScOutlets,
+  historyQuarterLabel,
 }: {
   selectedOutletCount: number;
   totalOutletCount: number;
   metrics: {
     totalEstimasiSales: number;
+    totalHistorySalesQuarter?: number;
+    historyQuarterLabel?: string;
     totalNilaiSc: number;
     totalDiskon: number;
     totalCashback: number;
@@ -57,20 +53,17 @@ export function SalesCounterStatsPanel({
     personCount: number;
     totalProductEntries: number;
   };
-  targetArea: number;
+  targetArea?: number;
   targetAreaIsReal?: boolean;
-  salesFigures: SalesFigures;
+  salesFigures?: SalesFigures;
   salesIsReal?: boolean;
-  quarterMonths: string[];
+  quarterMonths?: string[];
+  totalCoverageScOutlets?: number;
+  historyQuarterLabel?: string;
 }) {
-  const [salesOpen, setSalesOpen] = useState(false);
-  const qLabel = quarterLabelFromMonths(quarterMonths);
+  const historySalesTotal = metrics.totalHistorySalesQuarter ?? 0;
+  const qHistoryLabel = historyQuarterLabel || metrics.historyQuarterLabel || "Kuartal Sebelumnya";
 
-  const ratioEst = metrics.totalEstimasiSales > 0 ? (metrics.totalBudgetSc / metrics.totalEstimasiSales) * 100 : 0;
-  const salesPlusEst = salesFigures.salesYtd + metrics.totalEstimasiSales;
-  const achievePct = targetArea > 0 ? (salesPlusEst / targetArea) * 100 : 0;
-
-  const DANGER = "var(--color-danger, #dc2626)";
   const MUTED = "var(--color-text-muted)";
   const FAINT = "var(--color-text-faint)";
   const TEXT = "var(--color-text)";
@@ -91,6 +84,25 @@ export function SalesCounterStatsPanel({
         </span>
       </div>
 
+      {/* 2 Kotak Paling Atas: Estimasi Sales Total & History Sales Total */}
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+          <p className="text-xs" style={{ color: MUTED }}>Estimasi Sales Total</p>
+          <p className="text-xl font-bold leading-tight" style={{ color: TEXT }}>
+            {metrics.totalEstimasiSales > 0 ? formatRp(metrics.totalEstimasiSales) : "-"}
+          </p>
+          <p className="text-[11px]" style={{ color: FAINT }}>Total Estimasi POA</p>
+        </div>
+        <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+          <p className="text-xs" style={{ color: MUTED }}>History Sales Total</p>
+          <p className="text-xl font-bold leading-tight" style={{ color: TEXT }}>
+            {historySalesTotal > 0 ? formatRp(historySalesTotal) : "-"}
+          </p>
+          <p className="text-[11px]" style={{ color: FAINT }}>
+            {qHistoryLabel ? `Kuartal Lalu (${qHistoryLabel})` : "Kuartal Lalu"}
+          </p>
+        </div>
+      </div>
 
       {monthlySorted.length > 0 && (
         <div className="mb-5">
@@ -121,91 +133,31 @@ export function SalesCounterStatsPanel({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        {[
-          { label: "Estimasi Sales", value: metrics.totalEstimasiSales > 0 ? formatRp(metrics.totalEstimasiSales) : "-", span: false },
-          { label: targetAreaIsReal ? "Target" : "Target ★", value: formatRp(targetArea), span: false },
-          { label: "Rasio Estimasi", value: ratioEst > 0 ? `${ratioEst.toFixed(2)}%` : "-", span: true },
-        ].map(({ label, value, span }) => (
-          <div key={label} className={`rounded-lg p-3 space-y-0.5${span ? " col-span-2" : ""}`} style={{ background: BG, border: `1px solid ${BORDER}` }}>
-            <p className="text-xs" style={{ color: MUTED }}>{label}</p>
-            <p className={`font-bold leading-tight ${span ? "text-lg" : "text-base"}`} style={{ color: TEXT }}>{value}</p>
-          </div>
-        ))}
-      </div>
-
-      <SectionTitle>Anggaran SC</SectionTitle>
-      <div className="space-y-2.5 mb-5">
-        {[
-          { label: "Insentif SC (Matriks)", value: metrics.totalNilaiSc },
-          { label: "Diskon SC", value: metrics.totalDiskon },
-          { label: "Entertain SC", value: metrics.totalEntertain },
-          { label: "Cashback SC", value: metrics.totalCashback },
-          { label: "Blast-In SC", value: 0 },
-          { label: "POSM SC", value: 0 },
-        ].map(({ label, value }) => {
-          const pct = metrics.totalEstimasiSales > 0 ? (value / metrics.totalEstimasiSales) * 100 : 0;
-          return (
-            <div key={label}>
-              <div className="flex justify-between text-xs mb-1">
-                <span style={{ color: MUTED }}>{label}</span>
-                <span style={{ color: TEXT }}>
-                  {value > 0 ? formatRp(value) : "-"}
-                  {pct > 0 && <span style={{ color: FAINT }}> · {pct.toFixed(1)}%</span>}
-                </span>
-              </div>
-              <Bar pct={pct} color={PRIMARY} />
-            </div>
-          );
-        })}
-        <div className="flex justify-between pt-2 text-sm font-semibold" style={{ borderTop: `1px solid ${BORDER}`, color: TEXT }}>
-          <span>Total Rencana Biaya SC</span>
-          <span style={{ color: PRIMARY }}>{formatRp(metrics.totalBudgetSc)}</span>
-        </div>
-      </div>
-
       <SectionTitle>Cakupan Sales Counter</SectionTitle>
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-          <p className="text-xs mb-0.5" style={{ color: MUTED }}>Outlet SC</p>
-          <p className="text-xl font-bold" style={{ color: TEXT }}>{selectedOutletCount}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+          <p className="text-xs" style={{ color: MUTED }}>Outlet SC</p>
+          <p className="text-xl font-bold" style={{ color: TEXT }}>
+            {selectedOutletCount}
+            <span className="text-xs font-normal ml-1" style={{ color: FAINT }}>Outlet</span>
+          </p>
+          <p className="text-[11px]" style={{ color: FAINT }}>
+            {totalOutletCount > 0 && selectedOutletCount !== totalOutletCount
+              ? `${selectedOutletCount} dari ${totalOutletCount} dipilih`
+              : "Dari POA diajukan"}
+          </p>
         </div>
-        <div className="rounded-lg p-3" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-          <p className="text-xs mb-0.5" style={{ color: MUTED }}>Sales Counter</p>
-          <p className="text-xl font-bold" style={{ color: TEXT }}>{metrics.personCount}</p>
-        </div>
-        <div className="col-span-2 flex justify-between items-center rounded-lg px-3 py-2" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-          <p className="text-xs" style={{ color: MUTED }}>Variasi Produk SC / Total Pengajuan</p>
-          <p className="text-sm font-bold" style={{ color: TEXT }}>{metrics.productCount} produk ({metrics.totalProductEntries} pengajuan)</p>
+        <div className="rounded-lg p-3 space-y-0.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
+          <p className="text-xs" style={{ color: MUTED }}>Customer</p>
+          <p className="text-xl font-bold" style={{ color: TEXT }}>
+            {metrics.personCount}
+            <span className="text-xs font-normal ml-1" style={{ color: FAINT }}>Orang</span>
+          </p>
+          <p className="text-[11px]" style={{ color: FAINT }}>
+            Sales Counter
+          </p>
         </div>
       </div>
-
-      <button
-        type="button"
-        onClick={() => setSalesOpen((v) => !v)}
-        className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
-        style={{ background: BG, border: `1px solid ${BORDER}` }}>
-        <span className="text-xs" style={{ color: MUTED }}>
-          Data Sales {!salesIsReal && <span style={{ color: FAINT }}>★ data sementara</span>}
-        </span>
-        <span className="text-xs" style={{ color: FAINT }}>{salesOpen ? "▲" : "▼"}</span>
-      </button>
-
-      {salesOpen && (
-        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {[
-            { label: `Historis ${salesFigures.historisTahunLaluLabel}`, value: formatRp(salesFigures.historisTahunLalu) },
-            { label: `Sales YTD ${new Date().getFullYear()}`, value: formatRp(salesFigures.salesYtd) },
-            { label: "Sales YTD + Estimasi SC", value: formatRp(salesPlusEst) },
-            { label: "Growth YTD", value: `${salesFigures.growthPct >= 0 ? "+" : ""}${salesFigures.growthPct.toFixed(1)}%`, danger: salesFigures.growthPct < 0 },
-          ].map(({ label, value, danger }) => (
-            <div key={label} className="rounded-lg p-2.5" style={{ background: BG, border: `1px solid ${BORDER}` }}>
-              <p className="text-xs mb-0.5" style={{ color: FAINT }}>{label}</p>
-              <p className="text-sm font-semibold" style={{ color: danger ? DANGER : TEXT }}>{value}</p>
-            </div>
-          ))}
-        </div>
-      )}
     </Card>
   );
 }

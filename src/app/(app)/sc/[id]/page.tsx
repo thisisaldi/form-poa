@@ -42,6 +42,8 @@ export default async function SalesCounterDetailPage({
     scDrafts,
     salesSummary,
     targetValueFromGT,
+    totalCoverageScOutlets,
+    historyQuarterLabel,
   } = data;
 
   const isDraft = poa.status === "DRAFT";
@@ -104,6 +106,8 @@ export default async function SalesCounterDetailPage({
         selectable={isOwner}
         salesSummary={salesSummary}
         targetArea={targetValueFromGT ?? undefined}
+        totalCoverageScOutlets={totalCoverageScOutlets}
+        historyQuarterLabel={historyQuarterLabel}
       />
 
       {isFullyApproved && (
