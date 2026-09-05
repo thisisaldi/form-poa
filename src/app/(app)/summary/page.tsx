@@ -206,6 +206,10 @@ export default async function SummaryPage({
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
+
+  const user = await prisma.user.findUnique({ where: { nip: session.userId }, select: { project: true } });
+  const project = user?.project ?? session.project;
+  if (project?.toUpperCase() === "OMEGA") redirect("/sc/dashboard");
   if (session.role === "MR") redirect("/dashboard");
 
   const params = await searchParams;

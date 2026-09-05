@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { quarterToMonths } from "@/lib/quarterUtils";
+import { getB3ByQuarter } from "@/lib/b3Utils";
 import type { ScDraftFormItem } from "../types";
-import { getScCashbackPoaAction } from "@/app/actions/canvasser";
+import { getScCashbackPoaAction, getHistorySalesAction } from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
 
 export function useSalesCounterDetail({
@@ -15,10 +16,44 @@ export function useSalesCounterDetail({
 }) {
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
   const [cashbackData, setCashbackData] = useState<any>(null);
+  const [historySalesMap, setHistorySalesMap] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     getScCashbackPoaAction().then((res) => setCashbackData(res));
   }, []);
+
+  const b3Info = useMemo(() => {
+    try {
+      return getB3ByQuarter(poaPeriod);
+    } catch {
+      return null;
+    }
+  }, [poaPeriod]);
+
+  useEffect(() => {
+    if (!b3Info) return;
+    const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
+    const missingDrafts = safeScDrafts.filter(
+      (d) => d.kodePI && d.historySalesQuarter == null && !historySalesMap.has(d.kodePI)
+    );
+    if (missingDrafts.length === 0) return;
+
+    missingDrafts.forEach((d) => {
+      getHistorySalesAction(d.kodePI, false).then((res) => {
+        if (res?.data && Array.isArray(res.data)) {
+          let total = 0;
+          for (const it of res.data) {
+            const itemPeriod = Number(it.period);
+            const salesVal = Number(it.sales_value) || 0;
+            if (targetPeriodsSet.has(itemPeriod) && salesVal > 0) {
+              total += salesVal;
+            }
+          }
+          setHistorySalesMap((prev) => new Map(prev).set(d.kodePI, total));
+        }
+      });
+    });
+  }, [safeScDrafts, b3Info, historySalesMap]);
 
   const submittableIds = useMemo(() => {
     if (showSubmit) {
@@ -62,6 +97,7 @@ export function useSalesCounterDetail({
   // Computations across selected SC drafts
   const metrics = useMemo(() => {
     let totalEstimasiSales = 0;
+    let totalHistorySalesQuarter = 0;
     let totalNilaiSc = 0;
     let totalDiskon = 0;
     let totalCashback = 0;
@@ -80,6 +116,9 @@ export function useSalesCounterDetail({
     let totalProductEntries = 0;
 
     for (const draft of selectedDrafts) {
+      const histVal = draft.historySalesQuarter ?? historySalesMap.get(draft.kodePI) ?? 0;
+      totalHistorySalesQuarter += histVal;
+
       const lama = draft.lamaPeriode || 3;
 
       // Calculate overlap with quarter months
@@ -174,6 +213,8 @@ export function useSalesCounterDetail({
 
     return {
       totalEstimasiSales,
+      totalHistorySalesQuarter,
+      historyQuarterLabel: b3Info?.rangeLabel || "",
       totalNilaiSc,
       totalDiskon,
       totalCashback,
@@ -186,7 +227,7 @@ export function useSalesCounterDetail({
       personCount: distinctPersons.size,
       totalProductEntries,
     };
-  }, [selectedDrafts, quarterMonths, cashbackData]);
+  }, [selectedDrafts, quarterMonths, cashbackData, historySalesMap, b3Info]);
 
   const [isSubmitting, startSubmit] = useTransition();
   const [submitNotes, setSubmitNotes] = useState("");
@@ -199,6 +240,7 @@ export function useSalesCounterDetail({
     selectedDrafts,
     quarterMonths,
     metrics,
+    b3Info,
     isSubmitting,
     startSubmit,
     submitNotes,

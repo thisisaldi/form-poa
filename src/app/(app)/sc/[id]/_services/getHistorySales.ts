@@ -30,6 +30,9 @@ export async function getHistorySales(piCode: string, agg: boolean = true): Prom
     });
 
     if (!res.ok) {
+      if (res.status === 404) {
+        return null;
+      }
       console.error(`Failed to fetch history sales from ${url}: status ${res.status}`);
       return null;
     }

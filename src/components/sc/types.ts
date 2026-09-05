@@ -64,6 +64,7 @@ export interface ScDraftFormItem {
   isPosm?: boolean;
   totalScProducts?: number;
   validScProductsCount?: number;
+  historySalesQuarter?: number;
   products: ScProductItemData[];
   persons: ScPersonItemData[];
   entertainItems: ScEntertainItemData[];

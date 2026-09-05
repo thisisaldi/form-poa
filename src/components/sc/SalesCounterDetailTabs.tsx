@@ -19,6 +19,8 @@ export function SalesCounterDetailTabs({
   selectable = true,
   salesSummary,
   targetArea,
+  totalCoverageScOutlets,
+  historyQuarterLabel,
 }: {
   scDrafts?: ScDraftFormItem[];
   poaId?: string;
@@ -33,6 +35,8 @@ export function SalesCounterDetailTabs({
   selectable?: boolean;
   salesSummary?: SalesFigures;
   targetArea?: number;
+  totalCoverageScOutlets?: number;
+  historyQuarterLabel?: string;
 }) {
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
 
@@ -51,6 +55,8 @@ export function SalesCounterDetailTabs({
           selectable={selectable}
           salesSummary={salesSummary}
           targetArea={targetArea}
+          totalCoverageScOutlets={totalCoverageScOutlets}
+          historyQuarterLabel={historyQuarterLabel}
         />
       </div>
     </ScToastProvider>
