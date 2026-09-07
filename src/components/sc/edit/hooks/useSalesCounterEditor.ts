@@ -22,6 +22,7 @@ import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/ap
 import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { calculateCashbackDetails, type CashbackData } from "./useSalesCounterCashback";
 import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
+import { useScToast } from "../../ui/ScToast";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
   if (rawVal == null) return "0";
@@ -97,6 +98,7 @@ export function useSalesCounterEditor({
   savedDrafts?: any[];
 }) {
   const router = useRouter();
+  const { showToast } = useScToast();
   const [isPending, startTransition] = useTransition();
 
   // Form states
@@ -250,7 +252,7 @@ export function useSalesCounterEditor({
 
     getScProductMenangAction(outletId).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(outletId).then((res) => setProductsInsentif(res?.data || []));
-    getHistorySalesAction(outletId).then((res) => setHistorySalesData(res || null));
+    getHistorySalesAction(outletId, false).then((res) => setHistorySalesData(res || null));
     getSalesOnlineAction(outletId).then((res) => setSalesOnlineData(res || null));
     getSurveyRekomendasiByOutletAggregate(outletId).then((res) => setSurveyData(res || []));
     getScCashbackPoaAction(outletId).then((res) => {
@@ -621,6 +623,18 @@ export function useSalesCounterEditor({
     e.preventDefault();
     if (!validate()) return;
 
+    const existingDraft = savedDrafts?.find((d: any) => d.kodePI === outletId);
+    if (
+      existingDraft &&
+      existingDraft.status !== "DRAFT" &&
+      existingDraft.status !== "REVISI" &&
+      existingDraft.status !== "SUBMITTED_TO_ASM"
+    ) {
+      const targetRole = existingDraft.status === "SUBMITTED_TO_SM" ? "SM" : "Atasan";
+      showToast(`Outlet ini sudah di-Submitted to ${targetRole} dan tidak dapat diubah.`, "error");
+      return;
+    }
+
     const matchedOutlet = outlets?.find((o) => o.kodePI === outletId);
 
     startTransition(async () => {
@@ -640,9 +654,10 @@ export function useSalesCounterEditor({
         lamaPeriode
       );
       if (res.ok) {
+        showToast("Data rencana POA berhasil disimpan.", "success");
         router.push(redirectTo);
       } else {
-        alert(res.error || "Gagal menyimpan data.");
+        showToast(res.error || "Gagal menyimpan data.", "error");
       }
     });
   };

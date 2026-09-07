@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { HeaderInfo } from "@/components/ui/HeaderInfo";
 import { getPreviousQuarterInfo } from "@/lib/quarterUtils";
+import { aggregateHistorySales, type AggregatedProductHistory } from "@/lib/historySalesUtils";
 
 function formatRp(val: number) {
   return "Rp " + Math.round(val).toLocaleString("id-ID");
@@ -477,47 +478,47 @@ export function ScSidebar({
     return filteredCards.slice(start, start + KOMPETITOR_PER_PAGE);
   }, [filteredCards, kompetitorPage]);
 
-  // Map of product codes to history sales quantities (> 0)
-  const historySalesMap = useMemo(() => {
-    const map = new Map<string, number>();
-    if (!historySalesData) return map;
-    const items = Array.isArray(historySalesData?.data)
-      ? historySalesData.data
-      : Array.isArray(historySalesData)
-      ? historySalesData
-      : [];
-
-    for (const it of items) {
-      const code = String(it.code || "").trim();
-      const qty = Number(it.history_sales) || 0;
-      if (code && qty > 0) {
-        map.set(code, qty);
-        map.set(code.replace(/^0+/, ""), qty);
-      }
-    }
-    return map;
+  // Map of product codes to aggregated history sales (Average per active transaction month)
+  const aggregatedHistoryMap = useMemo(() => {
+    if (!historySalesData) return new Map<string, AggregatedProductHistory>();
+    return aggregateHistorySales(historySalesData);
   }, [historySalesData]);
 
   // Category 2: Only SC products from canvasserProducts that HAVE history sales (> 0)
   const historySalesList = useMemo(() => {
-    if (!Array.isArray(canvasserProducts) || historySalesMap.size === 0) return [];
+    if (!Array.isArray(canvasserProducts) || aggregatedHistoryMap.size === 0) return [];
 
-    const matchedList: { code: string; name: string; targetCode: string; salesQty: number; item: any }[] = [];
+    const matchedList: {
+      code: string;
+      name: string;
+      targetCode: string;
+      salesQty: number;
+      salesVal: number;
+      item: any;
+    }[] = [];
 
     for (const cp of canvasserProducts) {
       const code = String(cp.pro_code || cp.kode_item || cp.kodeProduk || "").trim();
       if (!code) continue;
       const strippedCode = code.replace(/^0+/, "");
 
-      const salesQty = historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0;
+      const agg = aggregatedHistoryMap.get(code) ?? aggregatedHistoryMap.get(strippedCode);
+      const salesQty = agg?.avgQty ?? 0;
       if (salesQty > 0) {
         const name = cp.pro_name || cp.namaProduk || cp.name || code;
-        matchedList.push({ code, name, targetCode: code, salesQty, item: cp });
+        matchedList.push({
+          code,
+          name,
+          targetCode: code,
+          salesQty,
+          salesVal: agg?.avgValue ?? 0,
+          item: cp,
+        });
       }
     }
 
     return matchedList.sort((a, b) => b.salesQty - a.salesQty);
-  }, [canvasserProducts, historySalesMap]);
+  }, [canvasserProducts, aggregatedHistoryMap]);
 
   // Set of codes already placed in Category 2 (Pernah diorder)
   const orderedScCodesSet = useMemo(() => {
@@ -842,14 +843,15 @@ export function ScSidebar({
 
                         {(() => {
                           const hna = getHnaForProduct(entry.code, masterProducts) || parseFloat(String(entry.item?.hna || entry.item?.pro_hna || 0)) || 0;
-                          const salesVal = entry.salesQty * hna;
+                          const salesVal = entry.salesVal > 0 ? entry.salesVal : entry.salesQty * hna;
+                          const formattedQty = entry.salesQty % 1 === 0 ? entry.salesQty.toString() : (Math.round(entry.salesQty * 10) / 10).toString();
                           return (
                             <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
                               <span
                                 className="font-medium px-1.5 py-0.5 rounded"
                                 style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
                               >
-                                History Sales: {salesVal > 0 ? `Rp ${Math.round(salesVal).toLocaleString("id-ID")} (${Math.floor(entry.salesQty)} UB)` : `${Math.floor(entry.salesQty)} UB`}
+                                Average History Per Bulan: {salesVal > 0 ? `Rp ${Math.round(salesVal).toLocaleString("id-ID")} (${formattedQty} UB)` : `${formattedQty} UB`}
                               </span>
                             </div>
                           );

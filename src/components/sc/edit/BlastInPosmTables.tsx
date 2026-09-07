@@ -46,7 +46,7 @@ export function BlastInPosmTables({
               {/* Header Title Bar */}
               <tr style={{ background: "#18181b", color: "#ffffff" }}>
                 <th colSpan={4} className="py-2 px-4 font-bold text-xs uppercase tracking-wider text-center">
-                  BLAST-IN
+                  BLAST-IN <span className="text-amber-400 font-semibold text-[10px] ml-1">(DUMMY)</span>
                 </th>
               </tr>
               {/* Column Headers */}
@@ -95,7 +95,7 @@ export function BlastInPosmTables({
                 {/* Header Title Bar */}
                 <tr style={{ background: "#18181b", color: "#ffffff" }}>
                   <th colSpan={3} className="py-2 px-4 font-bold text-xs uppercase tracking-wider text-center">
-                    POSM
+                    POSM <span className="text-amber-400 font-semibold text-[10px] ml-1">(DUMMY)</span>
                   </th>
                 </tr>
                 {/* Column Headers */}

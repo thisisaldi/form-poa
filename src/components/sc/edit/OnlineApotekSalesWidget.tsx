@@ -101,6 +101,16 @@ export function OnlineApotekSalesWidget({
             Sales Apotek Online
           </span>
           <span
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide"
+            style={{
+              background: "rgba(245, 158, 11, 0.12)",
+              color: "#d97706",
+              border: "1px solid rgba(245, 158, 11, 0.3)",
+            }}
+          >
+            (DUMMY)
+          </span>
+          <span
             className="text-[11px] font-medium px-2 py-0.5 rounded border"
             style={{
               background: "var(--color-bg-subtle)",
@@ -112,7 +122,7 @@ export function OnlineApotekSalesWidget({
           </span>
         </div>
         <div className="flex items-center gap-1.5 text-xs">
-          <span style={{ color: "var(--color-text-muted)" }}>Total Online:</span>
+          <span style={{ color: "var(--color-text-muted)" }}>Total PI Online:</span>
           <span className="font-bold" style={{ color: "var(--color-text)" }}>
             {formatRp(salesData.total)}
           </span>

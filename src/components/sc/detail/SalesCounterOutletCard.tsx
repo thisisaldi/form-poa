@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { deleteSalesCounterFormAction } from "@/app/actions/scActions";
 import {
@@ -30,6 +31,7 @@ import { useScToast } from "../ui/ScToast";
 import { BlastInTable } from "../edit/BlastInTable";
 import { PosmTable } from "../edit/PosmTable";
 import { ProdukKompetitorSidebar } from "./ProdukKompetitorSidebar";
+import { InfoTooltip } from "../edit/ProductSelector";
 
 
 
@@ -171,6 +173,10 @@ export function SalesCounterOutletCard({
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const [isSubmittingOutlet, setIsSubmittingOutlet] = useState(false);
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [reviseConfirmOpen, setReviseConfirmOpen] = useState(false);
+  const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
+
   const [isDeleting, startDelete] = useTransition();
 
   const lastLog = draft.auditLogs && draft.auditLogs.length > 0 ? draft.auditLogs[draft.auditLogs.length - 1] : null;
@@ -283,12 +289,16 @@ export function SalesCounterOutletCard({
     }
   }
 
-  async function handleRevise() {
+  function handleRevise() {
     if (isSubmittingAction) return;
-    if (!confirm(`Minta revisi untuk Sales Counter ${draft.namaOutlet}?`)) return;
+    setReviseConfirmOpen(true);
+  }
+
+  async function executeRevise() {
     setIsSubmittingAction(true);
     try {
       const res = await reviseSalesCounterFormAction([draft.id], actionNotes);
+      setReviseConfirmOpen(false);
       if (res.ok) {
         showToast(`Sales Counter ${draft.namaOutlet} dikembalikan ke MR untuk revisi.`, "info");
         setAtasanPanelOpen(false);
@@ -297,18 +307,23 @@ export function SalesCounterOutletCard({
         showToast(res.error || "Gagal meminta revisi.", "error");
       }
     } catch (err: any) {
+      setReviseConfirmOpen(false);
       showToast(err?.message || "Terjadi kesalahan saat meminta revisi.", "error");
     } finally {
       setIsSubmittingAction(false);
     }
   }
 
-  async function handleReject() {
+  function handleReject() {
     if (isSubmittingAction) return;
-    if (!confirm(`Tolak Sales Counter ${draft.namaOutlet}?`)) return;
+    setRejectConfirmOpen(true);
+  }
+
+  async function executeReject() {
     setIsSubmittingAction(true);
     try {
       const res = await rejectSalesCounterFormAction([draft.id], actionNotes);
+      setRejectConfirmOpen(false);
       if (res.ok) {
         showToast(`Sales Counter ${draft.namaOutlet} telah ditolak.`, "error");
         setAtasanPanelOpen(false);
@@ -317,6 +332,7 @@ export function SalesCounterOutletCard({
         showToast(res.error || "Gagal menolak.", "error");
       }
     } catch (err: any) {
+      setRejectConfirmOpen(false);
       showToast(err?.message || "Terjadi kesalahan saat menolak.", "error");
     } finally {
       setIsSubmittingAction(false);
@@ -677,9 +693,24 @@ export function SalesCounterOutletCard({
   }, [productDetailRows.sumNilaiScPerMonth, historyInsentifInfo]);
 
   function handleDelete() {
-    if (!confirm(`Hapus rencana POA SC untuk ${draft.namaOutlet}?`)) return;
+    setDeleteConfirmOpen(true);
+  }
+
+  async function executeDelete() {
     startDelete(async () => {
-      await deleteSalesCounterFormAction(draft.id);
+      try {
+        const res = await deleteSalesCounterFormAction(draft.id);
+        setDeleteConfirmOpen(false);
+        if (res && !res.ok) {
+          showToast(res.error || "Gagal menghapus data.", "error");
+        } else {
+          showToast(`Rencana POA SC untuk ${draft.namaOutlet} berhasil dihapus.`, "success");
+          router.refresh();
+        }
+      } catch (err: any) {
+        setDeleteConfirmOpen(false);
+        showToast(err?.message || "Terjadi kesalahan saat menghapus.", "error");
+      }
     });
   }
 
@@ -738,7 +769,7 @@ export function SalesCounterOutletCard({
         </div>
 
         <div>
-          <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Nilai SC (Insentif)</p>
+          <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Insentif SC</p>
           <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-blue)" }}>
             {outletNilaiSc > 0 ? formatRp(outletNilaiSc) : "-"}
           </p>
@@ -1293,9 +1324,14 @@ export function SalesCounterOutletCard({
                     <th className="text-left px-2.5 py-2 font-medium whitespace-nowrap sticky left-0 z-10 border-r" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Produk SC</th>
                     <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Qty ST / Bln</th>
                     <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</th>
-                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Nilai SC</th>
+                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Insentif SC</th>
                     {!isCashbackNotFound && (
-                      <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
+                      <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <span>Value Cashback</span>
+                          <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
+                        </div>
+                      </th>
                     )}
                     <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
                       <div>Growth Sebelumnya (B-3)</div>
@@ -1457,6 +1493,42 @@ export function SalesCounterOutletCard({
           {(draft.isPosm || draft.kodePI === "F4002441") && <PosmTable />}
         </div>
       )}
+      {/* Dialog Konfirmasi Custom */}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        tone="danger"
+        title="Hapus Rencana Outlet?"
+        message={`Hapus rencana POA SC untuk ${draft.namaOutlet}?`}
+        confirmLabel="Ya, Hapus"
+        cancelLabel="Batal"
+        confirmPending={isDeleting}
+        onConfirm={executeDelete}
+        onCancel={() => setDeleteConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={reviseConfirmOpen}
+        tone="warning"
+        title="Minta Revisi?"
+        message={`Minta revisi untuk Sales Counter ${draft.namaOutlet}?`}
+        confirmLabel="Minta Revisi"
+        cancelLabel="Batal"
+        confirmPending={isSubmittingAction}
+        onConfirm={executeRevise}
+        onCancel={() => setReviseConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={rejectConfirmOpen}
+        tone="danger"
+        title="Tolak Sales Counter?"
+        message={`Tolak Sales Counter ${draft.namaOutlet}?`}
+        confirmLabel="Tolak"
+        cancelLabel="Batal"
+        confirmPending={isSubmittingAction}
+        onConfirm={executeReject}
+        onCancel={() => setRejectConfirmOpen(false)}
+      />
     </div>
   );
 }

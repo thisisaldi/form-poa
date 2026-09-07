@@ -106,6 +106,7 @@ export interface MockCustomer {
   is_sc?: boolean;
   jumlah_sc?: number | null;
   isBlastIn?: boolean;
+  isOnline?: boolean;
   created?: string | null;
   jumlah_karyawan?: number | null;
   jumlah_pasien?: number | null;

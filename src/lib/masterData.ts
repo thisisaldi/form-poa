@@ -222,6 +222,7 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
 
 import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
+import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 
 export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {
   let targetUserId = userId;
@@ -244,7 +245,11 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
     if (!Array.isArray(rawOutlets) || rawOutlets.length === 0) {
       return getOutletsByUser(userId);
     }
-    const blastInSet = await getBlastInOutletSet();
+    const [blastInSet, onlineCodes] = await Promise.all([
+      getBlastInOutletSet(),
+      getApotekOnline(targetUserId, "MR").catch(() => []),
+    ]);
+    const onlineSet = new Set(onlineCodes);
 
     return rawOutlets.map((o: any) => ({
       kodeRequest: o.code,
@@ -261,6 +266,7 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
       is_sc: !!o.is_sc,
       jumlah_sc: typeof o.jumlah_sc === "number" ? o.jumlah_sc : o.jumlah_sc ? Number(o.jumlah_sc) : null,
       isBlastIn: blastInSet.has(o.code),
+      isOnline: onlineSet.has(o.code),
       created: o.created ?? null,
       jumlah_karyawan: typeof o.jumlah_karyawan === "number" ? o.jumlah_karyawan : o.jumlah_karyawan ? Number(o.jumlah_karyawan) : (typeof o.jumlahKaryawan === "number" ? o.jumlahKaryawan : o.jumlahKaryawan ? Number(o.jumlahKaryawan) : (typeof o.karyawan === "number" ? o.karyawan : o.karyawan ? Number(o.karyawan) : null)),
       jumlah_pasien: typeof o.jumlah_pasien === "number" ? o.jumlah_pasien : o.jumlah_pasien ? Number(o.jumlah_pasien) : (typeof o.jumlahPasien === "number" ? o.jumlahPasien : o.jumlahPasien ? Number(o.jumlahPasien) : (typeof o.pasien === "number" ? o.pasien : o.pasien ? Number(o.pasien) : null)),

@@ -8,6 +8,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
 import type { Product } from "@/lib/masterData";
 import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction, getScOutletB3SalesAction } from "@/app/actions/canvasser";
+import { aggregateHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 
 interface ProductSelectorProps {
@@ -60,6 +61,47 @@ function formatPeriodeDiskonLabel(p?: string) {
   return `${p} (${MONTH_NAMES[monthIdx]} ${year})`;
 }
 
+export function InfoTooltip({ text, size = "sm" }: { text: string; size?: "sm" | "md" }) {
+  const [open, setOpen] = useState(false);
+  const sizeClasses = size === "sm" ? "w-3.5 h-3.5 text-[9px]" : "w-4 h-4 text-[10px]";
+
+  return (
+    <span className="relative inline-flex items-center text-left">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((prev) => !prev);
+        }}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        className={`inline-flex items-center justify-center rounded-full font-bold border transition-colors cursor-pointer ${sizeClasses}`}
+        style={{
+          borderColor: "var(--color-border)",
+          background: "var(--color-bg)",
+          color: "var(--color-text-muted)",
+        }}
+        aria-label="Informasi"
+      >
+        i
+      </button>
+      {open && (
+        <span
+          className="absolute right-0 top-full mt-1.5 z-50 w-64 max-w-[260px] p-2.5 rounded-lg shadow-2xl text-xs font-normal normal-case text-left bg-slate-900 text-slate-100 border border-slate-700 leading-relaxed animate-fade-in pointer-events-none whitespace-normal break-words"
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function formatHnaLabel(product: Product | null | undefined): string {
+  const s = satuanLabel(product);
+  if (s.startsWith("(") && s.endsWith(")")) return `HNA ${s}`;
+  return `HNA (${s})`;
+}
+
 export function ProductSelector({
   rows,
   onAddRow,
@@ -106,7 +148,7 @@ export function ProductSelector({
       setHistoryPeriodRange("");
       return;
     }
-    getHistorySalesAction(kodePI).then((res) => {
+    getHistorySalesAction(kodePI, false).then((res) => {
       const hMap = new Map<string, {
         history_sales: number;
         sales_b1: number;
@@ -115,15 +157,14 @@ export function ProductSelector({
       }>();
 
       if (res?.data && Array.isArray(res.data)) {
-        for (const item of res.data) {
-          if (item.code) {
-            hMap.set(item.code, {
-              history_sales: Number(item.history_sales) || 0,
-              sales_b1: Number(item.sales_b1) || 0,
-              sales_b2: Number(item.sales_b2) || 0,
-              sales_b3: Number(item.sales_b3) || 0,
-            });
-          }
+        const aggMap = aggregateHistorySales(res);
+        for (const [code, item] of aggMap.entries()) {
+          hMap.set(code, {
+            history_sales: item.avgQty,
+            sales_b1: item.sales_b1,
+            sales_b2: item.sales_b2,
+            sales_b3: item.sales_b3,
+          });
         }
       }
 
@@ -319,23 +360,26 @@ export function ProductSelector({
                   Produk <Req />
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Potensi
+                  Potensi / Bln
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Est. Switch <Req />
+                  Est. Switch / Bln<Req />
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Diskon
                 </th>
                 <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Est. Sales
+                  Est. Sales / Bln
                 </th>
                 <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Nilai SC
+                  Est. Insentif SC / Bln
                 </th>
                 {!isCashbackNotFound && (
                   <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                    Estimasi Cashback
+                    <div className="inline-flex items-center justify-end gap-1">
+                      <span>Est. Cashback / Bln</span>
+                      <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
+                    </div>
                   </th>
                 )}
                 {!readOnly && (
@@ -406,7 +450,7 @@ export function ProductSelector({
                         {masterProduct && (
                           <div className="text-[11px] leading-tight space-y-0.5" style={{ color: "var(--color-text-faint)" }}>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(masterProduct.hna)}</strong></span>
+                              <span>{formatHnaLabel(masterProduct)}: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(masterProduct.hna)}</strong></span>
                             </div>
                             {masterProduct.zatAktif && (
                               <div className="truncate text-[10px]" style={{ color: "var(--color-text-faint)" }}>
@@ -449,8 +493,8 @@ export function ProductSelector({
                           };
 
                           const labelPrefix = historyPeriodRange
-                            ? `Rata - Rata History (${historyPeriodRange}) :`
-                            : "Rata - Rata History :";
+                            ? `Average History Per Bulan (${historyPeriodRange}) :`
+                            : "Average History Per Bulan :";
 
                           return (
                             <div
@@ -524,7 +568,7 @@ export function ProductSelector({
 
                           return (
                             <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-faint)" }}>
-                              <div>Matriks SC: <strong style={{ color: "var(--color-text-muted)" }}>{pctMatriks}%</strong></div>
+                              <div>% Insentif: <strong style={{ color: "var(--color-text-muted)" }}>{pctMatriks}%</strong></div>
 
                               <div>
                                 <div>Historis Insentif:</div>

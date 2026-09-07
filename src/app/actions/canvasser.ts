@@ -12,6 +12,7 @@ import { getRekomendasiProduk } from "@/app/(app)/sc/[id]/_services/getRekomenda
 import { getHistorySales } from "@/app/(app)/sc/[id]/_services/getHistorySales";
 import { getSalesOnline } from "@/app/(app)/sc/[id]/_services/getSalesOnline";
 import { getSalesApotekOnline } from "@/app/(app)/sc/[id]/_services/getSalesApotekOnline";
+import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 import { prisma } from "@/lib/prisma";
 
 export async function getSalesCountersAction(piCode: string) {
@@ -74,6 +75,11 @@ export async function getSalesApotekOnlineAction(period: string | number, piCode
   if (!piCode) return null;
   const res = await getSalesApotekOnline(period, piCode);
   return res;
+}
+
+export async function getApotekOnlineAction(nip: string, position: string = "MR") {
+  if (!nip) return [];
+  return await getApotekOnline(nip, position);
 }
 
 export async function getRekomendasiProdukAction(piCode: string) {
