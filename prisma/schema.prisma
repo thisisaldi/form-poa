@@ -1205,6 +1205,12 @@ model PoaDoctorsApiCredential {
 model GoogleDriveConfig {
   id             Int      @id @default(1)
   surveyFolderId String
+  // Surat Approval Standarisasi KFT dan Form Approval Standarisasi masing-
+  // masing punya folder tujuan sendiri, terpisah dari surveyFolderId
+  // (2026-09-07, user request — jangan campur sama data survey). Nullable:
+  // fitur upload tetap optional kalau admin belum set folder-nya.
+  kftApprovalFolderId  String?
+  formApprovalFolderId String?
   updatedByNip   String?
   updatedAt      DateTime @updatedAt
 }
@@ -1366,8 +1372,9 @@ model PoaStandarisasiProduk {
   // level dokter (PoaStandarisasiDokterApproval, sama pola dengan Finalisasi's
   // PoaStandarisasiDokterUser) karena estimasinya memang berbeda per dokter,
   // bukan satu angka gabungan per produk.
-  estimasiDiskonPct      Decimal? @db.Decimal(10, 4)
-  estimasiBiayaListingRp Decimal? @db.Decimal(18, 2)
+  estimasiDiskonPct            Decimal? @db.Decimal(10, 4)
+  estimasiDiskonDistributorPct Decimal? @db.Decimal(10, 4)
+  estimasiBiayaListingRp       Decimal? @db.Decimal(18, 2)
 
   // ── Finalisasi Biaya ──────────────────────────────────────────────────
   finalDiscountPct     Decimal? @db.Decimal(10, 4)
@@ -1426,14 +1433,13 @@ model PoaStandarisasiDokterApproval {
   customer   Customer @relation(fields: [customerId], references: [id])
 
   wajib    Boolean @default(true)
-  // sudahTtd sekarang di-derive dari upload bukti TTD (2026-08-26, docs/TODO.md
-  // #14), bukan dicentang manual lagi — di-set true oleh
-  // uploadPoaStandarisasiFileAction (kind "buktiTtd") saat file berhasil
-  // diupload untuk dokter ini. Kolomnya tetap dipertahankan (bukan derive
-  // on-the-fly dari buktiTtdDriveFileId) karena sudah dipakai di beberapa
-  // tempat sebagai boolean sederhana (mis. default kandidat dokterUser di
-  // Finalisasi).
+  // sudahTtd dicentang manual (setDokterTtdAction) — sempat di-derive dari
+  // upload bukti TTD (2026-08-26, docs/TODO.md #8/#14), dibalikin lagi ke
+  // checkbox karena upload Google Drive-nya bermasalah di staging.
   sudahTtd Boolean @default(false)
+  // buktiTtdFilePath/buktiTtdDriveFileId sudah tidak diisi lagi sejak balik
+  // ke checkbox manual — dipertahankan (bukan dihapus) supaya data historis
+  // dari periode upload-derived tetap ada, kolomnya jadi read-only legacy.
   buktiTtdFilePath    String?
   buktiTtdDriveFileId String?
 

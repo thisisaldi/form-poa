@@ -260,6 +260,16 @@ async function getSurveyFolderId(): Promise<string | null> {
 }
 
 /**
+ * Surat Approval Standarisasi KFT and Form Approval Standarisasi each get
+ * their own admin-settable folder (2026-09-07, user request — jangan campur
+ * sama folder data survey, dan jangan sama-sama juga satu sama lain).
+ */
+async function getPoaStandarisasiFolderId(kind: "kftApproval" | "formApproval"): Promise<string | null> {
+  const row = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
+  return (kind === "kftApproval" ? row?.kftApprovalFolderId : row?.formApprovalFolderId) || null;
+}
+
+/**
  * Uploads a file buffer to the configured shared drive folder, named exactly
  * as given (caller is responsible for the "[YYYYMMDDHHMM] - Data Survey
  * [Nama RS] Periode [Periode] oleh [Pengaju]" format — see
@@ -282,7 +292,27 @@ export async function uploadFileToSurveyDrive(
   if (!folderId) {
     throw new Error("Folder Drive tujuan upload belum diset — set di halaman Admin.");
   }
+  return uploadFileToFolder(fileName, mimeType, buffer, folderId);
+}
 
+/** Uploads Surat Approval Standarisasi KFT / Form Approval Standarisasi to their own admin-settable folder — never the survey folder. */
+export async function uploadFileToPoaStandarisasiDrive(
+  kind: "kftApproval" | "formApproval",
+  fileName: string,
+  mimeType: string,
+  buffer: Buffer
+): Promise<{ driveFileId: string }> {
+  if (!isGoogleDriveConfigured) {
+    throw new Error("Fitur upload belum dikonfigurasi.");
+  }
+  const folderId = await getPoaStandarisasiFolderId(kind);
+  if (!folderId) {
+    throw new Error("Folder Drive tujuan upload belum diset — set di halaman Admin.");
+  }
+  return uploadFileToFolder(fileName, mimeType, buffer, folderId);
+}
+
+async function uploadFileToFolder(fileName: string, mimeType: string, buffer: Buffer, folderId: string): Promise<{ driveFileId: string }> {
   const drive = google.drive({ version: "v3", auth: getAuth() });
   const res = await drive.files.create({
     requestBody: {

@@ -17,9 +17,9 @@ import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
-import { getDiscountsForOutlet } from "@/lib/exodusApi";
+import { getDiscountsForOutlet, type ExodusDiscountPct } from "@/lib/exodusApi";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
-import { uploadFileToSurveyDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
+import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
@@ -117,13 +117,14 @@ const d = (v: { toString(): string } | null | undefined): number | null => (v ==
 /**
  * Prisma Decimal fields can't cross the Server→Client Component boundary as-is
  * — stringify/numberify everything before returning. `discounts` (live Exodus
- * principal_percentage per kodeProduk, see getDiscountsForOutlet) replaces
- * finalDiscountPct entirely: null (empty) when this outlet+product has no
- * discount request, even though a DB value may exist from before this field
- * became read-only. Only falls back to the stored DB value when `discounts`
- * itself is null — Exodus unreachable/unconfigured for this environment.
+ * principal_percentage + distributor_percentage per kodeProduk, see
+ * getDiscountsForOutlet) replaces finalDiscountPct AND diskonDistributorPct
+ * entirely: null (empty) when this outlet+product has no discount request,
+ * even though a DB value may exist from before these fields became read-only.
+ * Only falls back to the stored DB value when `discounts` itself is null —
+ * Exodus unreachable/unconfigured for this environment.
  */
-function serializeDetail(p: RawDetail, discounts: Map<string, number> | null) {
+function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct> | null) {
   return {
     ...p,
     outlet: { ...p.outlet },
@@ -135,9 +136,10 @@ function serializeDetail(p: RawDetail, discounts: Map<string, number> | null) {
     produk: p.produk.map((prod) => ({
       ...prod,
       estimasiDiskonPct: d(prod.estimasiDiskonPct),
+      estimasiDiskonDistributorPct: d(prod.estimasiDiskonDistributorPct),
       estimasiBiayaListingRp: d(prod.estimasiBiayaListingRp),
-      finalDiscountPct: discounts ? discounts.get(prod.product.kodeProduk) ?? null : d(prod.finalDiscountPct),
-      diskonDistributorPct: d(prod.diskonDistributorPct),
+      finalDiscountPct: discounts ? discounts.get(prod.product.kodeProduk)?.principalPct ?? null : d(prod.finalDiscountPct),
+      diskonDistributorPct: discounts ? discounts.get(prod.product.kodeProduk)?.distributorPct ?? null : d(prod.diskonDistributorPct),
       finalBiayaListingRp: d(prod.finalBiayaListingRp),
       product: {
         ...prod.product,
@@ -201,18 +203,21 @@ export async function getDokterOptionsAction(kodePI: string) {
 }
 
 /**
- * Live Exodus discount (principal_percentage), keyed by kodeProduk, for
- * pre-filling Planning's "Estimasi Diskon" so an MR doesn't start from a
- * blank field and can immediately see/adjust the margin math (2026-08-28
- * user request) — same source as Finalisasi's read-only Discount Final
- * (`getDiscountsForOutlet`), but here it's just a DEFAULT: the field stays
- * editable, the caller only applies this when the row's own value is still
- * empty (never overwrites what the MR already typed/saved).
+ * Live Exodus discount (principal_percentage + distributor_percentage),
+ * keyed by kodeProduk, for pre-filling Planning's "Estimasi Diskon (PI)" and
+ * "Estimasi Diskon Distributor" so an MR doesn't start from a blank field and
+ * can immediately see/adjust the margin math (2026-08-28 user request for PI,
+ * extended to distributor 2026-09-07) — same source as Finalisasi's
+ * read-only Discount Final / Diskon Distributor (`getDiscountsForOutlet`),
+ * but here it's just a DEFAULT: both fields stay editable, the caller only
+ * applies this when the row's own value is still empty (never overwrites
+ * what the MR already typed/saved).
  */
-export async function getEstimasiDiskonPreviewAction(kodePI: string): Promise<Record<string, number>> {
+export async function getEstimasiDiskonPreviewAction(kodePI: string): Promise<Record<string, ExodusDiscountPct>> {
   if (!kodePI) return {};
   const discounts = await getDiscountsForOutlet(kodePI);
-  return discounts ? Object.fromEntries(discounts) : {};
+  if (!discounts) return {};
+  return Object.fromEntries(discounts);
 }
 
 /**
@@ -304,6 +309,7 @@ export interface PlanningProdukInput {
   id?: string;
   kodeProduk: string;
   estimasiDiskonPct: number | string | null;
+  estimasiDiskonDistributorPct: number | string | null;
   estimasiBiayaListingRp: number | string | null;
   dokterKlinis: PlanningDokterKlinisInput[];
 }
@@ -488,6 +494,7 @@ async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: st
       kodeProduk: p.kodeProduk,
       statusPengajuan: statusMap.get(p.kodeProduk) ?? "BARU",
       estimasiDiskonPct: toNum(p.estimasiDiskonPct),
+      estimasiDiskonDistributorPct: toNum(p.estimasiDiskonDistributorPct),
       estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
     };
 
@@ -608,10 +615,10 @@ export async function approvePoaStandarisasiAtasanAction(
 }
 
 // ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
-// "Sudah TTD" tidak lagi checkbox manual (2026-08-26, docs/TODO.md #14) —
-// di-derive dari upload Bukti TTD (lihat uploadPoaStandarisasiFileAction,
-// kind "buktiTtd"). Dokter di list ini juga bisa ditambah/dihapus di fase
-// ini (bukan cuma fixed dari Planning), sesuai permintaan user.
+// "Sudah TTD" adalah checkbox manual (setDokterTtdAction) — sempat diganti
+// upload-derived 2026-08-26 (docs/TODO.md #8/#14), dibalikin lagi ke checkbox
+// karena upload Google Drive-nya bermasalah di staging. Dokter di list ini
+// juga bisa ditambah/dihapus di fase ini (bukan cuma fixed dari Planning).
 
 /** Adds a dokter to a produk's Approval User/Dokter checklist — lets an
  * atasan/MR change who needs to sign after Planning, not just what was
@@ -643,7 +650,20 @@ export async function removeDokterApprovalAction(produkId: string, customerId: s
   revalidatePath(`/poa-standarisasi/${produk.pengajuanId}`);
 }
 
-/** Phase 3 → Phase 4. Requires bukti TTD uploaded for every dokter WAJIB di setiap produk. */
+/** Toggles "Sudah TTD" manually — checkbox, not upload-derived anymore
+ * (docs batch standarisasi #11, reverts docs/TODO.md #8/#14 2026-08-26). */
+export async function setDokterTtdAction(produkId: string, customerId: string, sudahTtd: boolean): Promise<void> {
+  const { actor } = await requireActor();
+  const produk = await prisma.poaStandarisasiProduk.findUnique({ where: { id: produkId }, include: { pengajuan: true } });
+  if (!produk) throw new Error("Produk tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, produk.pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (produk.pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase ini.");
+
+  await prisma.poaStandarisasiDokterApproval.updateMany({ where: { produkId, customerId }, data: { sudahTtd } });
+  revalidatePath(`/poa-standarisasi/${produk.pengajuanId}`);
+}
+
+/** Phase 3 → Phase 4. Requires "Sudah TTD" dicentang for every dokter WAJIB di setiap produk. */
 export async function advanceToMenungguMeetingKftAction(id: string): Promise<void> {
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({
@@ -653,13 +673,10 @@ export async function advanceToMenungguMeetingKftAction(id: string): Promise<voi
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase Approval User/Dokter.");
-  // Gate skipped while upload is disabled (POA_STANDARISASI_UPLOAD_DISABLED)
-  // so the flow past this phase stays testable even though uploading Bukti
-  // TTD to satisfy it is currently impossible.
-  const belumTtd = !POA_STANDARISASI_UPLOAD_DISABLED && pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) =>
+  const belumTtd = pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) =>
     p.dokterApproval.some((d: (typeof p.dokterApproval)[number]) => d.wajib && !d.sudahTtd)
   );
-  if (belumTtd) throw new Error("Upload Bukti TTD untuk semua dokter wajib sebelum lanjut.");
+  if (belumTtd) throw new Error("Centang Sudah TTD untuk semua dokter wajib sebelum lanjut.");
 
   await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "MENUNGGU_MEETING_KFT" } });
   revalidatePath(`/poa-standarisasi/${id}`);
@@ -706,13 +723,8 @@ export async function advanceToFinalisasiAction(id: string): Promise<void> {
     // dokter yang sudah TTD di Phase 3") — was never actually done, leaving
     // Finalisasi's dokter list permanently empty. skipDuplicates makes this
     // safe to re-run if the pengajuan ever revisits this transition.
-    // While upload is disabled (POA_STANDARISASI_UPLOAD_DISABLED), sudahTtd
-    // can never become true (only Bukti TTD upload sets it), so seed from
-    // EVERY dokter added at Planning instead — otherwise Finalisasi looks
-    // like the Phase 1 dokter just vanished, when they're only being held
-    // back by an unrelated flag.
     for (const p of pengajuan.produk) {
-      const ttdCustomerIds = (POA_STANDARISASI_UPLOAD_DISABLED ? p.dokterApproval : p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd)).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
+      const ttdCustomerIds = p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
       if (ttdCustomerIds.length === 0) continue;
       await tx.poaStandarisasiDokterUser.createMany({
         data: ttdCustomerIds.map((customerId: string) => ({ produkId: p.id, customerId })),
@@ -831,18 +843,8 @@ export async function submitPoaStandarisasiAction(id: string): Promise<void> {
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
   if (pengajuan.currentPhase !== "FINALISASI") throw new Error("Pengajuan belum di fase Finalisasi.");
-  // Form Approval Standarisasi upload dipindah ke Finalisasi (2026-08-26,
-  // user request) — jadi gate-nya pindah ke sini juga, bukan lagi di
-  // advanceToMenungguMeetingKftAction. Skipped while upload is disabled
-  // (POA_STANDARISASI_UPLOAD_DISABLED) so submit stays testable.
-  if (!POA_STANDARISASI_UPLOAD_DISABLED) {
-    if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.formApprovalDriveFileId)) {
-      throw new Error("Upload Form Approval Standarisasi untuk setiap produk sebelum submit.");
-    }
-    if (!pengajuan.suratApprovalStandarisasiKftDriveFileId) {
-      throw new Error("Upload Surat Approval Standarisasi KFT sebelum submit.");
-    }
-  }
+  // Form Approval Standarisasi & Surat Approval Standarisasi KFT keduanya
+  // optional (2026-09-07, user request) — tidak lagi gate submit.
 
   await prisma.poaStandarisasi.update({ where: { id }, data: { submittedAt: new Date() } });
   revalidatePath(`/poa-standarisasi/${id}`);
@@ -864,14 +866,11 @@ function sanitizeForFileName(s: string): string {
 }
 
 /**
- * Uploads "Form Approval Standarisasi" (per produk, Finalisasi), "Surat
+ * Uploads "Form Approval Standarisasi" (per produk, Finalisasi) or "Surat
  * Approval Standarisasi KFT" (per pengajuan, resolved Q6 — one file, not per
- * produk), or "Bukti TTD" (per dokter per produk, Approval User/Dokter —
- * replaces the old manual "Sudah TTD" checkbox, docs/TODO.md #14: uploading
- * sets sudahTtd=true server-side, never toggled directly by the client).
- * Same Google Drive service account/folder as Input Data Survey — no
- * dedicated folder for this feature, reuses the single ADMIN-settable
- * GoogleDriveConfig folder (2026-08-27, see src/lib/googleDrive.ts).
+ * produk). Each goes to its own ADMIN-settable GoogleDriveConfig folder,
+ * separate from the survey folder and from each other (2026-09-07, user
+ * request — see src/lib/googleDrive.ts).
  */
 export async function uploadPoaStandarisasiFileAction(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
   if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
@@ -880,9 +879,8 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
 
   const file = formData.get("file");
   const pengajuanId = (formData.get("pengajuanId") as string | null) ?? "";
-  const kind = (formData.get("kind") as string | null) ?? ""; // "formApproval" | "suratKft" | "buktiTtd"
+  const kind = (formData.get("kind") as string | null) ?? ""; // "formApproval" | "suratKft"
   const produkId = (formData.get("produkId") as string | null) || null;
-  const customerId = (formData.get("customerId") as string | null) || null;
 
   if (!(file instanceof File)) throw new Error("File wajib diisi.");
   if (!pengajuanId) throw new Error("Pengajuan tidak valid.");
@@ -899,14 +897,14 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
-  const label = kind === "suratKft" ? "Surat Approval Standarisasi KFT" : kind === "buktiTtd" ? "Bukti TTD" : "Form Approval Standarisasi";
+  const label = kind === "suratKft" ? "Surat Approval Standarisasi KFT" : "Form Approval Standarisasi";
   const namaFile = `${timestamp} - ${label} - POA Standarisasi ${sanitizeForFileName(pengajuan.kodePI)} oleh ${sanitizeForFileName(session.name)}`;
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const mimeType = MIME_BY_EXT[ext] ?? "application/octet-stream";
   let driveFileId: string;
   try {
-    ({ driveFileId } = await uploadFileToSurveyDrive(namaFile, mimeType, buffer));
+    ({ driveFileId } = await uploadFileToPoaStandarisasiDrive(kind === "suratKft" ? "kftApproval" : "formApproval", namaFile, mimeType, buffer));
   } catch (err) {
     // Same degradation as /api/survey/upload's POST — an unhandled throw
     // here becomes an opaque "Server Components render" digest error in
@@ -923,12 +921,6 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
     await prisma.poaStandarisasi.update({
       where: { id: pengajuanId },
       data: { suratApprovalStandarisasiKftPath: namaFile, suratApprovalStandarisasiKftDriveFileId: driveFileId },
-    });
-  } else if (kind === "buktiTtd") {
-    if (!produkId || !customerId) throw new Error("Produk/dokter tidak valid.");
-    await prisma.poaStandarisasiDokterApproval.updateMany({
-      where: { produkId, customerId },
-      data: { buktiTtdFilePath: namaFile, buktiTtdDriveFileId: driveFileId, sudahTtd: true },
     });
   } else {
     if (!produkId) throw new Error("Produk tidak valid.");

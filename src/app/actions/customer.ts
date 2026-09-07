@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusDplContracts, getExodusDiskonHistory } from "@/lib/exodusApi";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusCustomerDatabaseByNip, getExodusDplContracts, getExodusDiskonHistory } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -712,15 +712,41 @@ async function materializeLocalCustomerOutlet(kodePI: string, nc: SourcedCustome
  * (`materializeLocalCustomerOutlet`) for whichever entries don't have one yet
  * — same shape as the manual "Daftar User Baru" flow. `id` is always a real
  * `Customer.id`.
+ *
+ * Enrichment pass (2026-09-07, user report: inactive customers not showing
+ * up here) — `fetchCustomersForOutlet`'s source (core/v1/outlets/{id}/
+ * customers) appears to drop inactive customers entirely. Merges in the
+ * logged-in MR's own roster from getExodusCustomerDatabaseByNip (carries
+ * ALL statuses, filtered to this outlet by outlet_code) for any doctor not
+ * already returned by the primary source — additive only, never replaces a
+ * primary-source entry.
  */
 export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOption[]> {
-  const [localRows, sourcedCustomers] = await Promise.all([
+  const session = await getCurrentUser();
+  const [localRows, sourcedCustomers, dbRoster] = await Promise.all([
     prisma.customerOutlet.findMany({
       where: { kodePI },
       include: { customer: true },
     }),
     fetchCustomersForOutlet(kodePI),
+    session ? getExodusCustomerDatabaseByNip(session.nip) : Promise.resolve(null),
   ]);
+
+  if (dbRoster) {
+    const known = new Set(sourcedCustomers.map((c) => c.vbCode?.toUpperCase()).filter((v): v is string => !!v));
+    for (const entry of dbRoster) {
+      if (entry.outletCode !== kodePI) continue;
+      const key = entry.customerCode?.toUpperCase();
+      if (key && known.has(key)) continue;
+      sourcedCustomers.push({
+        vbCode: entry.customerCode,
+        namaCustomer: entry.name,
+        spesialisasi: entry.specialist && entry.specialist.trim() ? entry.specialist.trim() : (entry.position && entry.position.trim() ? entry.position.trim() : "-"),
+        position: entry.position,
+      });
+      if (key) known.add(key);
+    }
+  }
 
   const localByKode = new Map<string, LocalCustomerOutletRow>();
   const localByName = new Map<string, LocalCustomerOutletRow>();

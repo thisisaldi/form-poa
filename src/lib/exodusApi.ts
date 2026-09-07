@@ -160,6 +160,66 @@ export async function getExodusCustomersForMr(nip: string): Promise<ExodusCustom
   }
 }
 
+export interface ExodusCustomerDbEntry {
+  customerCode: string | null;
+  customerCodeExodus: string | null;
+  name: string;
+  outletCode: string | null;
+  specialist: string | null;
+  position: string | null;
+  status: string | null; // e.g. "inactive-new", "active-new", "active-repeat"
+}
+
+const customersDbCacheByNip = new Map<string, { list: ExodusCustomerDbEntry[]; expiresAt: number }>();
+
+/**
+ * One MR's FULL customer roster (all statuses, active AND inactive) from
+ * Exodus's PSSP settlements database — unlike getExodusCustomersByOutletCode
+ * (customer.ts's primary outlet-picker source), which only returns customers
+ * Exodus currently considers "confirmed at this outlet" and appears to drop
+ * inactive ones. Each row DOES carry outlet_code (unlike the old
+ * core/v1/customers/users/{nip} that getExodusCustomersForMr uses), so
+ * callers can still filter down to one outlet. Used as an enrichment pass in
+ * customer.ts's getCustomersByOutlet — adds customers missing from the
+ * primary source, not a replacement for it (2026-09-07, user report:
+ * inactive customers not showing up in the dropdown).
+ */
+export async function getExodusCustomerDatabaseByNip(nip: string): Promise<ExodusCustomerDbEntry[] | null> {
+  if (!isConfigured || !nip) return null;
+  const cached = customersDbCacheByNip.get(nip);
+  if (cached && cached.expiresAt > Date.now()) return cached.list;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/pssp/settlements/customers-databases`);
+    url.searchParams.set("user_nip", nip);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { customers?: Record<string, unknown>[] }; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data?.customers)) return null;
+
+    const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const list: ExodusCustomerDbEntry[] = body.data.customers
+      .map((c) => ({
+        customerCode: str(c.customer_code),
+        customerCodeExodus: str(c.customer_code_exodus),
+        name: str(c.customer_name) ?? "",
+        outletCode: str(c.outlet_code),
+        specialist: str(c.customer_specialist),
+        position: str(c.position),
+        status: str(c.status),
+      }))
+      .filter((c) => c.name);
+
+    customersDbCacheByNip.set(nip, { list, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
+    return list;
+  } catch {
+    return null;
+  }
+}
+
 // outlet_code → Exodus's own numeric outlet id essentially never changes
 // once assigned, so this is cached far longer than the other exodusApi.ts
 // caches (30 min) — it's a pure lookup, not something that goes stale like
@@ -365,7 +425,7 @@ interface DiscountProductOutletResponse {
     request_doc_date: string | null;
     start_date?: string | null;
     end_date?: string | null;
-    products?: { product_code: string; principal_percentage: number | null }[];
+    products?: { product_code: string; principal_percentage: number | null; distributor_percentage?: number | null }[];
   }[];
   error?: { status: boolean };
 }
@@ -375,7 +435,7 @@ interface ExodusDiscountRequest {
   requestDocDate: string | null;
   startDate: string | null;
   endDate: string | null;
-  products: { productCode: string; principalPct: number }[];
+  products: { productCode: string; principalPct: number; distributorPct: number }[];
 }
 
 /**
@@ -422,7 +482,7 @@ async function getDiscountRequestsForOutlet(outletCode: string): Promise<ExodusD
           endDate: req.end_date ?? null,
           products: (req.products ?? [])
             .filter((p) => p.product_code && p.principal_percentage != null)
-            .map((p) => ({ productCode: p.product_code, principalPct: p.principal_percentage! })),
+            .map((p) => ({ productCode: p.product_code, principalPct: p.principal_percentage!, distributorPct: p.distributor_percentage ?? 0 })),
         });
       }
 
@@ -436,22 +496,26 @@ async function getDiscountRequestsForOutlet(outletCode: string): Promise<ExodusD
   }
 }
 
+export interface ExodusDiscountPct {
+  principalPct: number;
+  distributorPct: number;
+}
+
 /**
- * Principal-side discount percentage per product code, for one outlet —
- * replaces the previously hardcoded/manual finalDiscountPct on POA
- * Standarisasi's Finalisasi phase (2026-08-28 decision, see
- * poaStandarisasi.ts's getPoaStandarisasiDetail). Only principal_percentage
- * is used; distributor_percentage is explicitly ignored — diskonDistributorPct
- * stays a manual field. Duplicate product_code across multiple discount
- * requests for the same outlet: latest request_doc_date wins (DPL rows have
- * no request_doc_date — treated as oldest, so any dated DPF request wins the
- * tie against them).
+ * Principal + distributor discount percentage per product code, for one
+ * outlet — replaces the previously hardcoded/manual finalDiscountPct AND
+ * diskonDistributorPct on POA Standarisasi's Finalisasi phase (2026-08-28
+ * decision for principal; 2026-09-07 extended to also pull distributor_percentage
+ * instead of leaving it manual, see poaStandarisasi.ts's getPoaStandarisasiDetail).
+ * Duplicate product_code across multiple discount requests for the same
+ * outlet: latest request_doc_date wins (DPL rows have no request_doc_date —
+ * treated as oldest, so any dated DPF request wins the tie against them).
  */
-export async function getDiscountsForOutlet(outletCode: string): Promise<Map<string, number> | null> {
+export async function getDiscountsForOutlet(outletCode: string): Promise<Map<string, ExodusDiscountPct> | null> {
   const reqs = await getDiscountRequestsForOutlet(outletCode);
   if (!reqs) return null;
 
-  const map = new Map<string, number>();
+  const map = new Map<string, ExodusDiscountPct>();
   const dateByCode = new Map<string, string>();
   for (const req of reqs) {
     const docDate = req.requestDocDate ?? "";
@@ -459,7 +523,7 @@ export async function getDiscountsForOutlet(outletCode: string): Promise<Map<str
       const prevDate = dateByCode.get(p.productCode);
       if (prevDate !== undefined && prevDate >= docDate) continue;
       dateByCode.set(p.productCode, docDate);
-      map.set(p.productCode, p.principalPct);
+      map.set(p.productCode, { principalPct: p.principalPct, distributorPct: p.distributorPct });
     }
   }
   return map;

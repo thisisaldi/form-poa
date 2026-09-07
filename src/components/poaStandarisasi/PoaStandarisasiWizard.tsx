@@ -20,6 +20,7 @@ import {
   approvePoaStandarisasiAtasanAction,
   addDokterApprovalAction,
   removeDokterApprovalAction,
+  setDokterTtdAction,
   advanceToMenungguMeetingKftAction,
   saveMenungguMeetingKftAction,
   advanceToFinalisasiAction,
@@ -38,6 +39,7 @@ import {
   type PlanningProdukInput,
   type FileAccessLogRow,
 } from "@/app/actions/poaStandarisasi";
+import { type ExodusDiscountPct } from "@/lib/exodusApi";
 
 export { PHASES };
 
@@ -48,8 +50,6 @@ const DOKUMEN_JENIS: { jenis: string; label: string }[] = [
   { jenis: "FLYER", label: "Flyer" },
   { jenis: "SP_NON_SALES", label: "Permintaan SP Non Sales" },
 ];
-/** Shown at "Menunggu Meeting KFT" — dokumen yang dibawa ke rapat KFT (2026-08-27: NIE/COA/CPOB/Flyer, koreksi dari NIE/CPOB/KFA). */
-const DOKUMEN_JENIS_KFT = DOKUMEN_JENIS.filter((d) => d.jenis !== "SP_NON_SALES");
 /** Shown at "Finalisasi" (2026-08-26, user request) — bukan dokumen rapat KFT. */
 const DOKUMEN_JENIS_FINALISASI = DOKUMEN_JENIS.filter((d) => d.jenis === "SP_NON_SALES");
 
@@ -306,6 +306,7 @@ export interface ProdukFormState {
   // pengajuan, status standarisasi memang berbeda per produk).
   statusPengajuan: "BARU" | "PERPANJANGAN";
   estimasiDiskonPct: string;
+  estimasiDiskonDistributorPct: string;
   estimasiBiayaListingRp: string;
   dokterKlinis: DokterKlinisFormState[];
   finalDiscountPct: string;
@@ -319,6 +320,7 @@ export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
     kodeProduk: "",
     statusPengajuan: inherit?.statusPengajuan ?? "BARU",
     estimasiDiskonPct: "",
+    estimasiDiskonDistributorPct: "",
     estimasiBiayaListingRp: "",
     // New product inherits WHICH dokter to consider, not their estimate figures.
     dokterKlinis: inherit
@@ -337,6 +339,7 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
     kodeProduk: p.kodeProduk,
     statusPengajuan: p.statusPengajuan,
     estimasiDiskonPct: p.estimasiDiskonPct != null ? String(p.estimasiDiskonPct) : "",
+    estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct != null ? String(p.estimasiDiskonDistributorPct) : "",
     estimasiBiayaListingRp: p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
     dokterKlinis: p.dokterApproval.map((d) => ({
       customerId: d.customerId,
@@ -347,7 +350,8 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
     // Final fields default to what was already entered as the estimate at Planning — Finalisasi tweaks those numbers, not starting blank.
     finalDiscountPct:
       p.finalDiscountPct != null ? String(p.finalDiscountPct) : p.estimasiDiskonPct != null ? String(p.estimasiDiskonPct) : "",
-    diskonDistributorPct: p.diskonDistributorPct != null ? String(p.diskonDistributorPct) : "",
+    diskonDistributorPct:
+      p.diskonDistributorPct != null ? String(p.diskonDistributorPct) : p.estimasiDiskonDistributorPct != null ? String(p.estimasiDiskonDistributorPct) : "",
     finalBiayaListingRp:
       p.finalBiayaListingRp != null ? String(p.finalBiayaListingRp) : p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
     dokterUser:
@@ -514,6 +518,7 @@ export function PoaStandarisasiWizard({
             id: p.id,
             kodeProduk: p.kodeProduk,
             estimasiDiskonPct: p.estimasiDiskonPct || null,
+            estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct || null,
             estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
             dokterKlinis: p.dokterKlinis.map((dk) => ({
               customerId: dk.customerId,
@@ -740,7 +745,6 @@ export function PoaStandarisasiWizard({
       {viewedPhaseId === "MENUNGGU_MEETING_KFT" && (
         <MenungguMeetingKftPhase
           canEdit={canEdit && isViewingCurrentPhase}
-          pengajuan={pengajuan}
           jadwalMeetingKft={jadwalMeetingKft}
           setJadwalMeetingKft={setJadwalMeetingKft}
         />
@@ -938,22 +942,32 @@ export function PlanningPhase(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kodePI, kodeProdukKey]);
 
-  // Pre-fills "Estimasi Diskon" from live Exodus discount (same source as
-  // Finalisasi's read-only Discount Final) so the MR sees a real default
-  // instead of a blank field and can adjust it to see the margin warning
-  // react (2026-08-28 user request). Only applied when the row's own value
-  // is still empty — never overwrites what the MR already typed or what was
-  // already saved, so this only fires once per produk row in practice.
+  // Pre-fills "Estimasi Diskon (PI)" and "Estimasi Diskon Distributor" from
+  // live Exodus discount (same source as Finalisasi's read-only Discount
+  // Final / Diskon Distributor) so the MR sees a real default instead of a
+  // blank field and can adjust it to see the margin warning react (2026-08-28
+  // user request for PI, extended to distributor 2026-09-07). Only applied
+  // when the row's own value is still empty — never overwrites what the MR
+  // already typed or what was already saved, so this only fires once per
+  // produk row in practice. Kept in state (not just consumed inline) so the
+  // "diskon terdahulu" figure stays available for the growth/margin
+  // perpanjangan comparison below even after the MR edits the fields away
+  // from this default.
+  const [diskonLamaMap, setDiskonLamaMap] = useState<Record<string, ExodusDiscountPct>>({});
   useEffect(() => {
     const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
-    if (!kodePI || kodeList.length === 0) return;
+    if (!kodePI || kodeList.length === 0) { setDiskonLamaMap({}); return; }
     let cancelled = false;
     getEstimasiDiskonPreviewAction(kodePI).then((map) => {
       if (cancelled) return;
+      setDiskonLamaMap(map);
       produkList.forEach((p, idx) => {
-        if (p.estimasiDiskonPct) return;
         const pct = p.kodeProduk ? map[p.kodeProduk] : undefined;
-        if (pct != null) updateProduk(idx, { estimasiDiskonPct: String(pct) });
+        if (!pct) return;
+        const patch: Partial<ProdukFormState> = {};
+        if (!p.estimasiDiskonPct) patch.estimasiDiskonPct = String(pct.principalPct);
+        if (!p.estimasiDiskonDistributorPct) patch.estimasiDiskonDistributorPct = String(pct.distributorPct);
+        if (Object.keys(patch).length > 0) updateProduk(idx, patch);
       });
     });
     return () => { cancelled = true; };
@@ -1128,7 +1142,10 @@ export function PlanningPhase(props: {
                 </div>
               </div>
               <div className="w-32 shrink-0">
-                <UnitCountInput label="Estimasi Diskon" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
+                <UnitCountInput label="Estimasi Diskon (PI)" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
+              </div>
+              <div className="w-32 shrink-0">
+                <UnitCountInput label="Estimasi Diskon Distributor" unit="%" value={p.estimasiDiskonDistributorPct} onChange={(v) => updateProduk(idx, { estimasiDiskonDistributorPct: v })} disabled={disabled} />
               </div>
               <div className="w-36 shrink-0">
                 <RpInput label="Estimasi Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
@@ -1143,6 +1160,23 @@ export function PlanningPhase(props: {
               return (
                 <p className="text-xs mt-1" style={{ color: "var(--color-error)" }}>
                   ⚠ Estimasi beban diskon {formatRp(biayaDiskonBaru)}/bln melebihi budget margin histori {formatRp(marginBudgetLama)}/bln ({MARGIN_CAP_PCT}% dari sales 12 bulan terakhir) — margin standarisasi berpotensi tergerus lebih dalam dari sebelumnya.
+                </p>
+              );
+            })()}
+            {/* Informational only (docs/TODO.md #7) — growth vs sales histori + margin (PI+Distributor) vs target GM 20% pakai diskon terdahulu, buat pembanding pengisi saat perpanjangan DPL/DPF. Tidak nge-block submit. */}
+            {p.statusPengajuan === "PERPANJANGAN" && p.kodeProduk && marginBaseline[p.kodeProduk] !== undefined && (() => {
+              const salesLamaPerBulan = marginBaseline[p.kodeProduk] / 12;
+              const growthPct = salesLamaPerBulan > 0 ? ((totalSales - salesLamaPerBulan) / salesLamaPerBulan) * 100 : null;
+              const lama = diskonLamaMap[p.kodeProduk];
+              const diskonPiLama = lama?.principalPct ?? 0;
+              const diskonDistLama = lama?.distributorPct ?? 0;
+              const diskonPiBaru = parseFloat(p.estimasiDiskonPct) || 0;
+              const diskonDistBaru = parseFloat(p.estimasiDiskonDistributorPct) || 0;
+              const marginLama = 100 - diskonPiLama - diskonDistLama;
+              const marginBaru = 100 - diskonPiBaru - diskonDistBaru;
+              return (
+                <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
+                  ℹ Perpanjangan — growth sales: {growthPct === null ? "-" : `${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}%`} vs {formatRp(salesLamaPerBulan)}/bln (histori 12 bln lalu). Margin (asumsi flat, {"= 100% - diskon PI% - diskon Distributor%"}): dulu {marginLama.toFixed(1)}% (PI {diskonPiLama}% + Dist {diskonDistLama}%) → sekarang {marginBaru.toFixed(1)}% (PI {diskonPiBaru}% + Dist {diskonDistBaru}%), target GM {MARGIN_CAP_PCT}%.
                 </p>
               );
             })()}
@@ -1173,11 +1207,11 @@ export function PlanningPhase(props: {
                   <thead>
                     <tr style={{ color: "var(--color-text-faint)" }}>
                       <th className="text-left py-1 pr-3">Dokter</th>
-                      <th className="text-right py-1 px-2">Jumlah Pasien</th>
-                      <th className="text-right py-1 px-2">Resep/Pasien</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2" style={{ minWidth: 110 }}>Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 150 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1193,11 +1227,11 @@ export function PlanningPhase(props: {
                               {p.kodeProduk && <GolonganBadge kodeCustomer={d?.kodeCustomer ?? ""} kodePI={kodePI} kodeProduk={p.kodeProduk} />}
                             </div>
                           </td>
-                          <td className="py-1.5 px-2"><UnitCountInput unit="Pasien" value={dk.jumlahPasien} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { jumlahPasien: v })} disabled={disabled} dense /></td>
-                          <td className="py-1.5 px-2"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={dk.resepPerPasienSt} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { resepPerPasienSt: v })} disabled={disabled} dense /></td>
+                          <td className="py-1.5 px-2"><UnitCountInput unit="Pasien" value={dk.jumlahPasien} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { jumlahPasien: v })} disabled={disabled} /></td>
+                          <td className="py-1.5 px-2"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={dk.resepPerPasienSt} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { resepPerPasienSt: v })} disabled={disabled} /></td>
                           <td className="py-1.5 px-2 text-right">{dq ? dq.toLocaleString("id-ID") : "-"}</td>
                           <td className="py-1.5 px-2 text-right">{formatRp(dq * hst)}</td>
-                          <td className="py-1.5 px-2"><RpInput value={dk.entertainRp} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { entertainRp: v })} disabled={disabled} dense /></td>
+                          <td className="py-1.5 px-2"><RpInput value={dk.entertainRp} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { entertainRp: v })} disabled={disabled} /></td>
                           <td className="pl-1">{!disabled && <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeDokterFromProduk(idx, dk.customerId)}>✕</button>}</td>
                         </tr>
                       );
@@ -1316,107 +1350,27 @@ function StatusPill({ status }: { status: string }) {
 
 function MenungguMeetingKftPhase({
   canEdit,
-  pengajuan,
   jadwalMeetingKft,
   setJadwalMeetingKft,
 }: {
   canEdit: boolean;
-  pengajuan: PoaStandarisasiDetail;
   jadwalMeetingKft: string;
   setJadwalMeetingKft: (v: string) => void;
 }) {
-  // Purely a browser for Dokumen Standarisasi NIE/COA/CPOB/Flyer (read-only,
-  // diupload dari tempat lain) — "Permintaan SP Non Sales" dan upload "Form
-  // Approval Standarisasi" dipindah ke Finalisasi (2026-08-26, user request).
-  const [selectedProdukId, setSelectedProdukId] = useState<string>(pengajuan.produk[0]?.id ?? "");
-  const p = pengajuan.produk.find((x) => x.id === selectedProdukId) ?? pengajuan.produk[0];
-
+  // Dokumen Standarisasi (NIE/COA/CPOB/Flyer) dropped (2026-09-07, user
+  // request) — step ini cuma jadwal, optional.
   return (
-    <div className="flex gap-4 items-start mb-4 flex-col lg:flex-row">
-      <Card className="flex-1 min-w-0">
+    <div className="mb-4">
+      <Card className="max-w-xs">
         <CardHeader><CardTitle>Menunggu Meeting KFT</CardTitle></CardHeader>
-        <div className="max-w-xs mb-4">
-          <Input
-            label="Jadwal Meeting KFT"
-            type="datetime-local"
-            value={jadwalMeetingKft}
-            onChange={(e) => setJadwalMeetingKft(e.target.value)}
-            disabled={!canEdit}
-          />
-        </div>
-
-        {!p ? (
-          <p className="text-sm" style={{ color: "var(--color-text-faint)" }}>Belum ada produk diajukan.</p>
-        ) : (
-          <>
-            <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--color-blue)" }}>{p.product.namaProduk}</h3>
-
-            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>
-              Dokumen Standarisasi (untuk dibawa ke meeting KFT)
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {DOKUMEN_JENIS_KFT.map(({ jenis, label }) => {
-                const doc = p.dokumen.find((dd) => dd.jenis === jenis);
-                return (
-                  <div key={jenis} className="rounded-lg p-3" style={{ border: "1px solid var(--color-border)" }}>
-                    <div className="text-sm font-semibold">{label}</div>
-                    {doc ? (
-                      <>
-                        <div className="text-xs mt-0.5 truncate" style={{ color: "var(--color-text-faint)" }}>{doc.namaFile}</div>
-                        <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium mt-1 inline-block" style={{ color: "var(--color-blue)" }}>
-                          ↓ Download
-                        </a>
-                      </>
-                    ) : (
-                      <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>Belum diupload</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+        <Input
+          label="Jadwal Meeting KFT (optional)"
+          type="datetime-local"
+          value={jadwalMeetingKft}
+          onChange={(e) => setJadwalMeetingKft(e.target.value)}
+          disabled={!canEdit}
+        />
       </Card>
-
-      {pengajuan.produk.length > 0 && (
-        <div className="w-full lg:w-64 shrink-0">
-          <Card>
-            <div className="text-sm font-bold mb-1">Produk Diajukan</div>
-            <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
-              Klik produk untuk pindah. Centang muncul kalau NIE/COA/CPOB/Flyer sudah lengkap.
-            </p>
-            <div className="space-y-2">
-              {pengajuan.produk.map((prod) => {
-                const active = prod.id === selectedProdukId;
-                const done = DOKUMEN_JENIS_KFT.every(({ jenis }) => prod.dokumen.some((dd) => dd.jenis === jenis));
-                return (
-                  <button
-                    key={prod.id}
-                    type="button"
-                    onClick={() => setSelectedProdukId(prod.id)}
-                    className="w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold"
-                    style={{
-                      background: active ? "var(--color-blue)" : "var(--color-bg-subtle)",
-                      color: active ? "#fff" : "var(--color-text)",
-                    }}
-                  >
-                    <span className="truncate">{prod.product.namaProduk}</span>
-                    <span
-                      className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs"
-                      style={{
-                        background: done ? (active ? "rgba(255,255,255,0.9)" : "var(--color-status-approved-bg, #E6F5EC)") : (active ? "rgba(255,255,255,0.25)" : "var(--color-border)"),
-                        color: done ? "var(--color-status-approved, #008f42)" : "transparent",
-                      }}
-                    >
-                      {done ? "✓" : ""}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
-      )}
     </div>
   );
 }
@@ -1436,28 +1390,21 @@ function ApprovalUserDokterPhase({
 }) {
   const [selectedProdukId, setSelectedProdukId] = useState<string>(pengajuan.produk[0]?.id ?? "");
   const p = pengajuan.produk.find((x) => x.id === selectedProdukId) ?? pengajuan.produk[0];
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [replacingKey, setReplacingKey] = useState<string | null>(null);
 
-  async function handleUploadBuktiTtd(produkId: string, customerId: string, file: File) {
+  async function handleToggleTtd(produkId: string, customerId: string, sudahTtd: boolean) {
     const key = `${produkId}:${customerId}`;
-    setUploadingKey(key);
+    setTogglingKey(key);
     setLocalError(null);
     try {
-      const fd = new FormData();
-      fd.set("file", file);
-      fd.set("pengajuanId", pengajuan.id);
-      fd.set("kind", "buktiTtd");
-      fd.set("produkId", produkId);
-      fd.set("customerId", customerId);
-      await uploadPoaStandarisasiFileAction(fd);
+      await setDokterTtdAction(produkId, customerId, sudahTtd);
       window.location.reload();
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : "Upload gagal.");
-      setUploadingKey(null);
+      setLocalError(e instanceof Error ? e.message : "Gagal menyimpan.");
+      setTogglingKey(null);
     }
   }
 
@@ -1529,7 +1476,7 @@ function ApprovalUserDokterPhase({
           </p>
         )}
         <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-          Dokter di bawah ini masih bisa ditambah/dihapus di tahap ini (tidak fixed dari Planning) — upload Memo sebagai bukti tanda tangan, menggantikan checkbox &quot;Sudah TTD&quot;. Dokumen Standarisasi &amp; Form Approval Standarisasi diupload di tahap Menunggu Meeting KFT / Finalisasi.
+          Dokter di bawah ini masih bisa ditambah/dihapus di tahap ini (tidak fixed dari Planning) — centang &quot;Sudah TTD&quot; setelah tanda tangan fisik didapat. Form Approval Standarisasi (optional) diupload di tahap Finalisasi.
         </p>
 
         <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--color-blue)" }}>{p.product.namaProduk}</h3>
@@ -1545,32 +1492,15 @@ function ApprovalUserDokterPhase({
                 {d.wajib ? "Wajib" : "Opsional"}
               </span>
 
-              <input
-                ref={(el) => { fileInputRefs.current[key] = el; }}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadBuktiTtd(p.id, d.customerId, f); }}
-              />
-              {d.buktiTtdDriveFileId ? (
-                <a href={driveViewUrl(d.buktiTtdDriveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "var(--color-status-approved, #008f42)" }}>
-                  ✓ Sudah TTD — lihat bukti
-                </a>
-              ) : (
-                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada bukti TTD</span>
-              )}
-              {canEdit && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={uploadingKey === key || POA_STANDARISASI_UPLOAD_DISABLED}
-                  title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
-                  onClick={() => fileInputRefs.current[key]?.click()}
-                >
-                  {uploadingKey === key ? "Mengupload…" : d.buktiTtdDriveFileId ? "Ganti" : "Upload Memo"}
-                </Button>
-              )}
+              <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: d.sudahTtd ? "var(--color-status-approved, #008f42)" : "var(--color-text-faint)" }}>
+                <input
+                  type="checkbox"
+                  checked={d.sudahTtd}
+                  disabled={!canEdit || togglingKey === key}
+                  onChange={(e) => handleToggleTtd(p.id, d.customerId, e.target.checked)}
+                />
+                {togglingKey === key ? "Menyimpan…" : d.sudahTtd ? "✓ Sudah TTD" : "Belum TTD"}
+              </label>
               {canEdit && (
                 <button type="button" className="text-xs" style={{ color: "var(--color-blue)" }} disabled={busy} onClick={() => setReplacingKey(replacingKey === key ? null : key)}>
                   Ganti Dokter
@@ -1760,7 +1690,7 @@ function FinalisasiPhase({
       </div>
 
       <div className="mb-4">
-        <span className="text-sm font-medium block mb-1">Surat Approval Standarisasi KFT <span style={{ color: "var(--color-error)" }}>*</span></span>
+        <span className="text-sm font-medium block mb-1">Surat Approval Standarisasi KFT <span className="text-xs font-normal" style={{ color: "var(--color-text-faint)" }}>(optional)</span></span>
         <div className="flex items-center gap-3">
           {pengajuan.suratApprovalStandarisasiKftPath ? (
             <span className="text-xs" style={{ color: "var(--color-status-approved, #008f42)" }}>✓ {pengajuan.suratApprovalStandarisasiKftPath}</span>
@@ -1823,9 +1753,9 @@ function FinalisasiPhase({
             <div className="text-sm font-bold mb-3" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</div>
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Finalisasi Biaya</span>
             <div className="grid grid-cols-3 gap-3 mb-4">
-              {/* Sourced live from Exodus discount-request API (principal_percentage), see getPoaStandarisasiDetail — no longer manually editable. */}
-              <UnitCountInput label="Discount Final" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled />
-              <UnitCountInput label="Diskon Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled={disabled} />
+              {/* Sourced live from Exodus discount-request API (principal_percentage / distributor_percentage), see getPoaStandarisasiDetail — no longer manually editable (2026-09-07: distributor stopped being manual too). */}
+              <UnitCountInput label="Discount Final PI" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled />
+              <UnitCountInput label="Discount Final Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled />
               <RpInput label="Biaya Listing Final" value={p.finalBiayaListingRp} onChange={(v) => updateProduk(idx, { finalBiayaListingRp: v })} disabled={disabled} />
             </div>
 
@@ -1838,11 +1768,11 @@ function FinalisasiPhase({
                   <thead>
                     <tr style={{ color: "var(--color-text-faint)" }}>
                       <th className="text-left py-1 pr-3">Dokter</th>
-                      <th className="text-right py-1 px-2">Jumlah Pasien</th>
-                      <th className="text-right py-1 px-2">Resep/Pasien</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2" style={{ minWidth: 110 }}>Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 150 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1852,11 +1782,11 @@ function FinalisasiPhase({
                       return (
                         <tr key={d.customerId} style={{ borderTop: "1px solid var(--color-border)" }}>
                           <td className="py-1.5 pr-3">{dokterById.get(d.customerId)?.namaCustomer ?? d.customerId}</td>
-                          <td className="py-1.5 px-2"><UnitCountInput unit="Pasien" value={d.jumlahPasien} onChange={(v) => updateDokterUser(idx, d.customerId, { jumlahPasien: v })} disabled={disabled} dense /></td>
-                          <td className="py-1.5 px-2"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={d.resepPerPasienSt} onChange={(v) => updateDokterUser(idx, d.customerId, { resepPerPasienSt: v })} disabled={disabled} dense /></td>
+                          <td className="py-1.5 px-2"><UnitCountInput unit="Pasien" value={d.jumlahPasien} onChange={(v) => updateDokterUser(idx, d.customerId, { jumlahPasien: v })} disabled={disabled} /></td>
+                          <td className="py-1.5 px-2"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={d.resepPerPasienSt} onChange={(v) => updateDokterUser(idx, d.customerId, { resepPerPasienSt: v })} disabled={disabled} /></td>
                           <td className="py-1.5 px-2 text-right">{dq ? dq.toLocaleString("id-ID") : "-"}</td>
                           <td className="py-1.5 px-2 text-right">{formatRp(dq * hst)}</td>
-                          <td className="py-1.5 px-2"><RpInput value={d.entertainRp} onChange={(v) => updateDokterUser(idx, d.customerId, { entertainRp: v })} disabled={disabled} dense /></td>
+                          <td className="py-1.5 px-2"><RpInput value={d.entertainRp} onChange={(v) => updateDokterUser(idx, d.customerId, { entertainRp: v })} disabled={disabled} /></td>
                           <td className="pl-1">{!disabled && <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeDokterUser(idx, d.customerId)}>✕</button>}</td>
                         </tr>
                       );
@@ -1906,7 +1836,7 @@ function FinalisasiPhase({
 
                   <div>
                     <span className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: "var(--color-text-faint)" }}>
-                      Form Approval Standarisasi <span style={{ color: "var(--color-error)" }}>*</span>
+                      Form Approval Standarisasi <span className="normal-case font-normal">(optional)</span>
                     </span>
                     <input
                       ref={(el) => { formApprovalInputRefs.current[p.id!] = el; }}

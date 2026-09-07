@@ -15,9 +15,13 @@ import {
  * PoaDoctorsApiCredentialPanel's password), so the current value is shown
  * and pre-filled, not hidden.
  */
+const EMPTY_STATE: GoogleDriveConfigState = { surveyFolderId: null, kftApprovalFolderId: null, formApprovalFolderId: null, updatedAt: null };
+
 export function GoogleDriveConfigPanel() {
   const [state, setState] = useState<GoogleDriveConfigState | null>(null);
   const [surveyFolderId, setSurveyFolderId] = useState("");
+  const [kftApprovalFolderId, setKftApprovalFolderId] = useState("");
+  const [formApprovalFolderId, setFormApprovalFolderId] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -26,18 +30,22 @@ export function GoogleDriveConfigPanel() {
     getGoogleDriveConfigStateAction().then((s) => {
       setState(s);
       setSurveyFolderId(s.surveyFolderId ?? "");
-    }).catch(() => setState({ surveyFolderId: null, updatedAt: null }));
+      setKftApprovalFolderId(s.kftApprovalFolderId ?? "");
+      setFormApprovalFolderId(s.formApprovalFolderId ?? "");
+    }).catch(() => setState(EMPTY_STATE));
   }, []);
 
   function save() {
     setError(null);
     if (!surveyFolderId.trim()) {
-      setError("Folder ID wajib diisi.");
+      setError("Folder ID Data Survey wajib diisi.");
       return;
     }
     startTransition(async () => {
       const formData = new FormData();
       formData.set("surveyFolderId", surveyFolderId.trim());
+      formData.set("kftApprovalFolderId", kftApprovalFolderId.trim());
+      formData.set("formApprovalFolderId", formApprovalFolderId.trim());
       const res = await setGoogleDriveFolderIdAction(formData);
       if (!res.ok) { setError(res.error ?? "Gagal menyimpan."); return; }
       setSavedAt(Date.now());
@@ -49,21 +57,12 @@ export function GoogleDriveConfigPanel() {
 
   return (
     <div className="space-y-3 rounded-lg border p-4" style={{ borderColor: "var(--color-border)" }}>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Folder Google Drive — Upload Dokumen</p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-            ID folder shared drive tujuan upload &quot;Input Data Survey&quot; dan dokumen POA Standarisasi (Upload Memo, Surat Approval KFT, Form Approval).
-            Ambil dari URL folder-nya di Google Drive (bagian setelah <code>/folders/</code>).
-          </p>
-        </div>
-        <span className="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap"
-          style={{
-            background: state.surveyFolderId ? "var(--color-green-light, #E6F5EC)" : "var(--color-warning-bg, #fef3c7)",
-            color: state.surveyFolderId ? "var(--color-green, #008f42)" : "var(--color-warning, #f59e0b)",
-          }}>
-          {state.surveyFolderId ? "SUDAH DISET" : "BELUM DISET"}
-        </span>
+      <div>
+        <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Folder Google Drive — Upload Dokumen</p>
+        <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+          Tiga folder tujuan upload terpisah — Input Data Survey, Surat Approval Standarisasi KFT, dan Form Approval Standarisasi.
+          Ambil ID dari URL folder-nya di Google Drive (bagian setelah <code>/folders/</code>).
+        </p>
       </div>
 
       {state.updatedAt && (
@@ -72,13 +71,38 @@ export function GoogleDriveConfigPanel() {
         </p>
       )}
 
-      <input
-        type="text"
-        value={surveyFolderId}
-        onChange={(e) => setSurveyFolderId(e.target.value)}
-        placeholder="Folder ID Google Drive"
-        className="input-field text-sm w-full"
-      />
+      <div className="space-y-1">
+        <label className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Input Data Survey (wajib)</label>
+        <input
+          type="text"
+          value={surveyFolderId}
+          onChange={(e) => setSurveyFolderId(e.target.value)}
+          placeholder="Folder ID Google Drive"
+          className="input-field text-sm w-full"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Surat Approval Standarisasi KFT</label>
+        <input
+          type="text"
+          value={kftApprovalFolderId}
+          onChange={(e) => setKftApprovalFolderId(e.target.value)}
+          placeholder="Folder ID Google Drive"
+          className="input-field text-sm w-full"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Form Approval Standarisasi</label>
+        <input
+          type="text"
+          value={formApprovalFolderId}
+          onChange={(e) => setFormApprovalFolderId(e.target.value)}
+          placeholder="Folder ID Google Drive"
+          className="input-field text-sm w-full"
+        />
+      </div>
 
       <Button type="button" size="sm" onClick={save} disabled={isPending}>
         {isPending ? "Menyimpan…" : "Simpan"}

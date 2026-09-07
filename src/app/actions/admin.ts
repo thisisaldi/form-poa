@@ -843,30 +843,46 @@ export async function setPoaDoctorsApiCredentialAction(formData: FormData): Prom
 
 export interface GoogleDriveConfigState {
   surveyFolderId: string | null;
+  kftApprovalFolderId: string | null;
+  formApprovalFolderId: string | null;
   updatedAt: string | null;
 }
 
+const EMPTY_GOOGLE_DRIVE_CONFIG_STATE: GoogleDriveConfigState = {
+  surveyFolderId: null,
+  kftApprovalFolderId: null,
+  formApprovalFolderId: null,
+  updatedAt: null,
+};
+
 export async function getGoogleDriveConfigStateAction(): Promise<GoogleDriveConfigState> {
   const authCheck = await requireAdmin();
-  if (!authCheck.ok) return { surveyFolderId: null, updatedAt: null };
+  if (!authCheck.ok) return EMPTY_GOOGLE_DRIVE_CONFIG_STATE;
 
   const row = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
-  return { surveyFolderId: row?.surveyFolderId ?? null, updatedAt: row?.updatedAt.toISOString() ?? null };
+  return {
+    surveyFolderId: row?.surveyFolderId ?? null,
+    kftApprovalFolderId: row?.kftApprovalFolderId ?? null,
+    formApprovalFolderId: row?.formApprovalFolderId ?? null,
+    updatedAt: row?.updatedAt.toISOString() ?? null,
+  };
 }
 
-/** Sets/changes the shared Drive folder "Input Data Survey" + POA Standarisasi uploads go into. */
+/** Sets/changes the shared Drive folders — "Input Data Survey", Surat Approval Standarisasi KFT, and Form Approval Standarisasi each have their own, independently settable. */
 export async function setGoogleDriveFolderIdAction(formData: FormData): Promise<AdminActionResult> {
   const authCheck = await requireAdmin();
   if (!authCheck.ok) return authCheck;
   const session = await getCurrentUser();
 
   const surveyFolderId = str(formData, "surveyFolderId");
-  if (!surveyFolderId) return { ok: false, error: "Folder ID wajib diisi." };
+  if (!surveyFolderId) return { ok: false, error: "Folder ID Data Survey wajib diisi." };
+  const kftApprovalFolderId = str(formData, "kftApprovalFolderId") || null;
+  const formApprovalFolderId = str(formData, "formApprovalFolderId") || null;
 
   await prisma.googleDriveConfig.upsert({
     where: { id: 1 },
-    update: { surveyFolderId, updatedByNip: session?.userId },
-    create: { id: 1, surveyFolderId, updatedByNip: session?.userId },
+    update: { surveyFolderId, kftApprovalFolderId, formApprovalFolderId, updatedByNip: session?.userId },
+    create: { id: 1, surveyFolderId, kftApprovalFolderId, formApprovalFolderId, updatedByNip: session?.userId },
   });
   return { ok: true };
 }

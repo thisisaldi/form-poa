@@ -148,6 +148,7 @@ export function NewPoaStandarisasiForm({
                 id: p.id,
                 kodeProduk: p.kodeProduk,
                 estimasiDiskonPct: p.estimasiDiskonPct || null,
+                estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct || null,
                 estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
                 dokterKlinis: p.dokterKlinis.map((dk) => ({
                   customerId: dk.customerId,
