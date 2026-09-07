@@ -101,6 +101,7 @@ enum BentukPssp {
   CASH
   BARANG
   JASA
+  PRIMATAX
 }
 
 // ─── Models ──────────────────────────────────────────────────────────────────

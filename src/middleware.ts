@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type SessionData } from "@/lib/session";
+import { STAGING_HOST, PRODUCTION_HOST, STAGING_REDIRECT_EXEMPT_NIPS } from "@/lib/stagingAccess";
 
 // Users kept bookmarking/opening the staging URL out of habit after
 // production went live (2026-08-04) — redirect every staging PAGE NAVIGATION
@@ -19,17 +20,10 @@ import { sessionOptions, type SessionData } from "@/lib/session";
 // redirect to GET/HEAD means only the initial page load ever crosses
 // deployments; once the browser is on production, every subsequent POST
 // (login, any other Server Action) both originates AND stays there.
-const STAGING_HOST = "staging-form-poa.chc.pharmalink.id";
-const PRODUCTION_HOST = "form-poa.chc.pharmalink.id";
-
-// Re-enabled 2026-09-07 with a per-nip exemption below (was fully disabled
-// 2026-08-20 for testing) — one MR (Lucco Boer, L090657) needs staging
-// reachable directly, so their whole approval chain up to NSM is exempted
-// too (P060213 ASM, L090111 SM, 995338 NSM — resolved via nipAtasan, see
-// docs/form-poa's org structure) instead of just the one nip, otherwise
-// their own submissions would never show up for approval on staging.
+// Re-enabled 2026-09-07 with a per-nip exemption (STAGING_REDIRECT_EXEMPT_NIPS,
+// see lib/stagingAccess.ts — shared with actions/auth.ts's own staging bounce)
+// — was fully disabled 2026-08-20 for testing.
 const STAGING_REDIRECT_ENABLED = true;
-const STAGING_REDIRECT_EXEMPT_NIPS = new Set(["L090657", "P060213", "L090111", "995338"]);
 
 export async function middleware(req: NextRequest) {
   if (!STAGING_REDIRECT_ENABLED) return NextResponse.next();

@@ -29,6 +29,7 @@ const BENTUK_PSSP_LABELS: Record<string, string> = {
   CASH: "Cash",
   BARANG: "Barang",
   JASA: "Jasa",
+  PRIMATAX: "Primatax",
 };
 
 // Fraction of the most recent PSSP contract (active if any, else most recent expired) that has been paid off.

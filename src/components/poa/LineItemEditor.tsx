@@ -32,6 +32,16 @@ function formatRp(val: string | number | { toString(): string } | null | undefin
   return valJt.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// HNA specifically shown as a raw Rupiah number, NOT denominated into "Juta"
+// like formatRp above (2026-09-07 user request — showing e.g. product price
+// 50000 as "0.05" reads as wrong/confusing, HNA isn't an "estimasi" figure).
+function formatRpFull(val: string | number | { toString(): string } | null | undefined) {
+  if (val == null) return "-";
+  const n = typeof val === "number" ? val : parseFloat(val.toString());
+  if (isNaN(n)) return "-";
+  return n.toLocaleString("id-ID");
+}
+
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
   SUDAH_STANDARISASI: "Sudah Standarisasi",
   PROSES_PENGAJUAN: "Proses Pengajuan",
@@ -97,6 +107,7 @@ const BENTUK_PSSP_LABELS: Record<string, string> = {
   CASH: "Cash",
   BARANG: "Barang",
   JASA: "Jasa",
+  PRIMATAX: "Primatax",
 };
 
 // "Quarter berjalan" — the calendar quarter containing today, e.g. Jul-Sep -> ["202607","202608","202609"].
@@ -1130,9 +1141,9 @@ function ProdukEntryRow({
           {produkErr && <span className="text-xs mt-0.5" style={{ color: "var(--color-red)" }}>Pilih produk</span>}
           {product && (
             <div className="flex gap-3 text-xs mt-1 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
-              <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(product.hna)}</strong> ({satuanLabel(product)})</span>
-              <span>HNA ST: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(hna)}</strong> ({product.satuanTerkecil ?? satuanLabel(product)})
-                <span style={{ opacity: 0.7 }}> = {formatRp(product.hna)} / {product.konversiPembagi ?? "1"}</span>
+              <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>{formatRpFull(product.hna)}</strong> ({satuanLabel(product)})</span>
+              <span>HNA ST: <strong style={{ color: "var(--color-text-muted)" }}>{formatRpFull(hna)}</strong> ({product.satuanTerkecil ?? satuanLabel(product)})
+                <span style={{ opacity: 0.7 }}> = {formatRpFull(product.hna)} / {product.konversiPembagi ?? "1"}</span>
               </span>
               <span>{product.namaGroupBrand}</span>
               {nilaiRPersen != null && (

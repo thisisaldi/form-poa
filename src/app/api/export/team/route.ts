@@ -63,6 +63,7 @@ const BENTUK_PSSP_LABELS: Record<string, string> = {
   CASH: "Cash",
   BARANG: "Barang",
   JASA: "Jasa",
+  PRIMATAX: "Primatax",
 };
 
 // "Periode Diskon" — mirrors resolveDiskonPeriodLabel in
