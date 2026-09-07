@@ -8,6 +8,7 @@ import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { PoaStatus, AuditAction, DiskonDplDpf } from "@prisma/client";
 import { getSalesCountersByOutlet } from "../(app)/sc/[id]/_services/getSalesCounters";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
+import { canUserEditScForm } from "@/lib/authz";
 
 async function requireSession() {
   const session = await getCurrentUser();
@@ -102,8 +103,8 @@ export async function saveSalesCounterFormAction(
       // 3. Query existing form with its relations
       let existing: any = null;
       if (scIdParam) {
-        existing = await tx.poaScForm.findFirst({
-          where: { id: scIdParam, ownerId: session.userId },
+        existing = await tx.poaScForm.findUnique({
+          where: { id: scIdParam },
           include: {
             products: true,
             persons: true,
@@ -120,6 +121,18 @@ export async function saveSalesCounterFormAction(
             entertainItems: true,
           },
         });
+      }
+
+      if (existing) {
+        const canEdit = canUserEditScForm(
+          session.role,
+          session.userId,
+          existing.ownerId,
+          existing.status
+        );
+        if (!canEdit) {
+          throw new Error("Anda tidak memiliki wewenang untuk mengedit form ini.");
+        }
       }
 
       const isNew = !existing;
@@ -237,7 +250,7 @@ export async function saveSalesCounterFormAction(
           data: {
             periodeAwal,
             lamaPeriode,
-            status: PoaStatus.DRAFT,
+            status: existing.status,
             version: existing.version + 1,
             namaOutlet: namaOutlet || existing.namaOutlet,
             persenResepDokter,
@@ -529,7 +542,7 @@ export async function saveSalesCounterFormAction(
           actorId: session.userId,
           action: isNew ? AuditAction.CREATE : AuditAction.UPDATE,
           fromStatus: existing?.status || null,
-          toStatus: PoaStatus.DRAFT,
+          toStatus: poaSc.status,
           snapshot: snapshot,
         },
       });
@@ -539,6 +552,10 @@ export async function saveSalesCounterFormAction(
 
     revalidatePath(`/sc/${period}`);
     revalidatePath(`/sc/${period}/edit`);
+    if (scIdParam) {
+      revalidatePath(`/sc/${scIdParam}`);
+      revalidatePath(`/sc/${period}/edit/${scIdParam}`);
+    }
     return { ok: true, poaScId: result.id };
   } catch (error: any) {
     console.error("Failed to save Sales Counter POA:", error);
