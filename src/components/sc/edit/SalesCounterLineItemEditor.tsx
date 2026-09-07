@@ -18,10 +18,13 @@ import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
 import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { useScToast } from "../ui/ScToast";
 
 interface SalesCounterLineItemEditorProps {
   poaId: string;
   poaPeriod: string;
+  ownerName?: string;
   outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null; is_sc?: boolean; jumlah_sc?: number | null; isBlastIn?: boolean; isPosm?: boolean }[];
   products: Product[];
   savedDrafts?: any[];
@@ -53,11 +56,35 @@ function Req() {
   return <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>;
 }
 
+function formatHumanStatus(status?: string): string {
+  if (!status) return "";
+  switch (status) {
+    case "SUBMITTED_TO_ASM":
+      return "Submitted to ASM";
+    case "SUBMITTED_TO_SM":
+      return "Submitted to SM";
+    case "SUBMITTED_TO_NSM":
+      return "Submitted to NSM";
+    case "APPROVED_BY_ASM":
+      return "Disetujui ASM";
+    case "APPROVED_BY_SM":
+      return "Disetujui SM";
+    case "APPROVED_BY_NSM":
+    case "APPROVED":
+      return "Disetujui (Approved)";
+    case "REVISI":
+      return "Revisi";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
 const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
 
 export function SalesCounterLineItemEditor({
   poaId,
   poaPeriod,
+  ownerName,
   outlets,
   products,
   savedDrafts = [],
@@ -150,6 +177,20 @@ export function SalesCounterLineItemEditor({
     () => outlets.find((o) => o.kodePI === outletId) ?? null,
     [outlets, outletId]
   );
+
+  const activeDraft = useMemo(
+    () => (outletId ? savedDrafts.find((d: any) => d.kodePI === outletId) : null),
+    [savedDrafts, outletId]
+  );
+
+  const isReadOnly = activeDraft
+    ? activeDraft.status !== "DRAFT" &&
+      activeDraft.status !== "REVISI" &&
+      activeDraft.status !== "SUBMITTED_TO_ASM"
+    : false;
+
+  const currentStatus = activeDraft ? activeDraft.status : "DRAFT";
+  const currentVersion = activeDraft ? activeDraft.version : 1;
 
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
@@ -308,31 +349,71 @@ export function SalesCounterLineItemEditor({
     <>
       <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl">
         <div className="space-y-6">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <h2 className="text-lg font-semibold" style={{ color: "var(--color-text)" }}>
-              Tambah Rencana POA (Sales Counter)
-            </h2>
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-xl font-bold" style={{ color: "var(--color-text)" }}>
+                {activeDraft
+                  ? `Edit Rencana POA (${activeDraft.namaOutlet || outletId})`
+                  : outletId
+                  ? `Tambah Rencana POA (${selectedOutlet?.namaOutlet || outletId})`
+                  : "Tambah Rencana POA Sales Counter"}
+              </h2>
+              <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+                Periode {poaPeriod} {ownerName ? `· ${ownerName}` : ""}
+              </p>
+            </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Quarter</span>
-              <select
-                value={rowQuarter}
-                onChange={(e) => handleQuarterChange(parseInt(e.target.value, 10))}
-                className="input-field font-semibold text-xs px-3 py-1.5 h-9 rounded-md border"
-                style={{
-                  background: "var(--color-bg)",
-                  borderColor: "var(--color-border)",
-                  color: "var(--color-text)",
-                }}
-              >
-                {quartersOptions.map((q) => (
-                  <option key={q.number} value={q.number}>
-                    {q.label} ({q.monthsName.join("-")})
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-3">
+              {outletId && (
+                <StatusBadge status={currentStatus} version={currentVersion} />
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Quarter</span>
+                <select
+                  value={rowQuarter}
+                  onChange={(e) => handleQuarterChange(parseInt(e.target.value, 10))}
+                  className="input-field font-semibold text-xs px-3 py-1.5 h-9 rounded-md border"
+                  style={{
+                    background: "var(--color-bg)",
+                    borderColor: "var(--color-border)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {quartersOptions.map((q) => (
+                    <option key={q.number} value={q.number}>
+                      {q.label} ({q.monthsName.join("-")})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
+
+          {isReadOnly && (
+            <div
+              className="rounded-md px-4 py-3 text-sm font-medium"
+              style={{
+                background: "var(--color-blue-light, #eff6ff)",
+                color: "var(--color-blue)",
+                border: "1px solid var(--color-blue)",
+              }}
+            >
+              Mode Lihat (Read-Only) — Outlet ini sudah di-<strong>{formatHumanStatus(activeDraft?.status)}</strong> dan sedang dalam proses approval Atasan sehingga tidak dapat diubah oleh MR.
+            </div>
+          )}
+
+          {activeDraft?.status === "SUBMITTED_TO_ASM" && (
+            <div
+              className="rounded-md px-4 py-3 text-sm font-medium"
+              style={{
+                background: "var(--color-warning-bg, #fef3c7)",
+                color: "var(--color-warning, #b45309)",
+                border: "1px solid var(--color-warning, #f59e0b)",
+              }}
+            >
+              Outlet ini sudah di-<strong>Submitted to ASM</strong> (Menunggu Review ASM). Perubahan yang Anda simpan akan memperbarui data pengajuan tersebut.
+            </div>
+          )}
 
           {/* 1. OUTLET */}
           <div className="space-y-4">
@@ -350,7 +431,8 @@ export function SalesCounterLineItemEditor({
                         const isSc = !!(o as any).is_sc;
                         const isBlastIn = !!(o as any).isBlastIn;
                         const isPosm = !!(o as any).isPosm;
-                        const statusCount = (isSc ? 1 : 0) + (isBlastIn ? 1 : 0) + (isPosm ? 1 : 0);
+                        const isOnline = !!(o as any).isOnline;
+                        const statusCount = (isSc ? 1 : 0) + (isBlastIn ? 1 : 0) + (isPosm ? 1 : 0) + (isOnline ? 1 : 0);
                         const jumlahSc = (o as any).jumlah_sc;
                         const rawCreated = (o as any).created ?? (o as any).created_at;
                         let createdPeriodStr = "";
@@ -375,11 +457,13 @@ export function SalesCounterLineItemEditor({
                         if (isSc) tags.push({ tag: "INS - SC", color: "indigo" as const });
                         if (isBlastIn) tags.push({ tag: "BLAST-IN", color: "gray" as const });
                         if (isPosm) tags.push({ tag: "POSM", color: "purple" as const });
+                        if (isOnline) tags.push({ tag: "ONLINE", color: "yellow" as const });
 
                         return {
                           value: o.kodePI,
                           label: `${o.kodePI} · ${o.namaOutlet}${o.groupRS ? ` (${o.groupRS})` : ""}`,
                           sublabel,
+                          tags,
                           tag: tags[0]?.tag,
                           tagColor: tags[0]?.color,
                           tag2: tags[1]?.tag,
@@ -788,7 +872,7 @@ export function SalesCounterLineItemEditor({
             {selectedProducts.some(p => p.kodeProduk) && (
               <div className="space-y-3 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
                 <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                  Estimasi &amp; Nilai SC Per Produk
+                  Estimasi &amp; Insentif SC Per Produk
                 </p>
                 <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}>
                   <table className="w-full text-xs text-left min-w-[580px]" style={{ borderCollapse: "collapse" }}>
@@ -797,7 +881,7 @@ export function SalesCounterLineItemEditor({
                         <th className="px-3 py-2 font-medium whitespace-nowrap min-w-[160px]">Produk</th>
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Qty</th>
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Estimasi Sales</th>
-                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Nilai SC</th>
+                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Insentif SC</th>
                         {!isCashbackNotFound && (
                           <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Value Cashback</th>
                         )}
@@ -880,12 +964,12 @@ export function SalesCounterLineItemEditor({
             )}
           </div>
 
-          {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
+          {/* ESTIMASI & INSENTIF SC/CASHBACK PER BULAN */}
           {monthlyBreakdown.length > 0 && selectedProducts.some(p => p.kodeProduk) && (
             <div className="rounded-xl border px-4 py-3 space-y-3"
               style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                {isCashbackNotFound ? "Estimasi & Nilai SC per Bulan" : "Estimasi & Nilai SC/Cashback per Bulan"}
+                {isCashbackNotFound ? "Estimasi & Insentif SC per Bulan" : "Estimasi & Insentif SC/Cashback per Bulan"}
               </p>
               <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
                 <table className="w-full text-xs min-w-[460px]">
@@ -957,8 +1041,8 @@ export function SalesCounterLineItemEditor({
           <Button type="button" variant="ghost" onClick={handleCancel} disabled={isPending}>
             Batal
           </Button>
-          <Button type="submit" disabled={isPending}>
-            {isPending ? "Menyimpan..." : "Simpan Rencana"}
+          <Button type="submit" disabled={isPending || isReadOnly}>
+            {isReadOnly ? "Terkunci (Sudah Diajukan)" : isPending ? "Menyimpan..." : "Simpan Rencana"}
           </Button>
         </div>
       </form>

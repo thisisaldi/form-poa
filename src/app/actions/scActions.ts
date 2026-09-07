@@ -141,6 +141,7 @@ export async function saveSalesCounterFormAction(
       let hasChanges = isNew;
       if (existing) {
         if (
+          existing.period !== period ||
           existing.periodeAwal !== periodeAwal ||
           existing.lamaPeriode !== lamaPeriode ||
           existing.persenResepDokter !== persenResepDokter ||
@@ -248,6 +249,7 @@ export async function saveSalesCounterFormAction(
         poaSc = await tx.poaScForm.update({
           where: { id: existing.id },
           data: {
+            period,
             periodeAwal,
             lamaPeriode,
             status: existing.status,

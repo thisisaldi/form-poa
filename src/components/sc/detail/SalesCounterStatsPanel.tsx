@@ -106,14 +106,14 @@ export function SalesCounterStatsPanel({
 
       {monthlySorted.length > 0 && (
         <div className="mb-5">
-          <SectionTitle>Estimasi &amp; Nilai SC per Bulan</SectionTitle>
+          <SectionTitle>Estimasi &amp; Insentif SC per Bulan</SectionTitle>
           <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: `1px solid ${BORDER}` }}>
             <table className="w-full text-xs min-w-[340px]">
               <thead>
                 <tr style={{ color: FAINT, background: BG }}>
                   <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
                   <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
-                  <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai SC (Insentif)</th>
+                  <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Insentif SC</th>
                 </tr>
               </thead>
               <tbody>

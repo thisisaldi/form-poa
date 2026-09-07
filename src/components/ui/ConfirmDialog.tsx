@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
 
 interface ConfirmDialogProps {
@@ -26,6 +27,12 @@ export function ConfirmDialog({
   open, title, message, confirmLabel = "Lanjutkan", cancelLabel = "Batal",
   tone = "warning", confirmPending = false, onConfirm, onCancel,
 }: ConfirmDialogProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
@@ -33,37 +40,26 @@ export function ConfirmDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onCancel]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
   const t = TONE[tone];
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={onCancel} aria-hidden />
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 text-left whitespace-normal">
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-xs" onClick={onCancel} aria-hidden />
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="relative w-full max-w-sm rounded-lg shadow-xl"
+        className="relative w-full max-w-md rounded-lg shadow-xl text-left whitespace-normal"
         style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)" }}
       >
-        <div className="p-5 space-y-3">
-          <div className="flex items-start gap-3">
-            <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base"
-              style={{ background: t.bg, color: t.fg }}
-              aria-hidden
-            >
-              {t.icon}
-            </span>
-            <div className="min-w-0 pt-1">
-              <p id="confirm-dialog-title" className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>
-                {title}
-              </p>
-              <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-                {message}
-              </p>
-            </div>
-          </div>
+        <div className="p-5 space-y-2">
+          <h3 id="confirm-dialog-title" className="font-semibold text-base" style={{ color: "var(--color-text)" }}>
+            {title}
+          </h3>
+          <p className="text-sm leading-relaxed whitespace-normal break-words" style={{ color: "var(--color-text-muted)" }}>
+            {message}
+          </p>
         </div>
         <div className="flex justify-end gap-2 border-t px-5 py-3" style={{ borderColor: "var(--color-border)" }}>
           <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={confirmPending}>
@@ -81,6 +77,7 @@ export function ConfirmDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

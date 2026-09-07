@@ -69,6 +69,7 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
       is_sc: !!(o as any).is_sc,
       jumlah_sc: (o as any).jumlah_sc ?? null,
       isBlastIn: blastInSet.has(o.kodePI as string),
+      isOnline: !!(o as any).isOnline,
       created: (o as any).created ?? (o as any).created_at ?? null,
     }));
 

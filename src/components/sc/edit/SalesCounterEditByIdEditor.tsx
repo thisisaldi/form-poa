@@ -17,6 +17,7 @@ import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
 import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
+import { useScToast } from "../ui/ScToast";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
   if (rawVal == null) return "0";
@@ -180,15 +181,36 @@ export function SalesCounterEditByIdEditor({
   isOwner,
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
+  const { showToast } = useScToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
 
   // Pre-filled locked values
   const selectedPersonIds = persons.map((p) => parseInt(p.nik_ktp, 10));
 
+  // Quarter & period setup
+  const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
+  const quarterMatch = poaPeriod.match(/-Q([1-4])/);
+  const initialRowQuarter = quarterMatch ? parseInt(quarterMatch[1], 10) : 1;
+
+  const [rowQuarter, setRowQuarter] = useState(initialRowQuarter);
+  const [periodeAwal, setPeriodeAwal] = useState(initialPeriodeAwal);
+  const [lamaPeriode, setLamaPeriode] = useState(initialLamaPeriode);
+
+  const effectivePoaPeriod = `${poaYear}-Q${rowQuarter}`;
+  const quarterMonths = useMemo(() => quarterToMonths(effectivePoaPeriod), [effectivePoaPeriod]);
+
+  const quartersOptions = useMemo(
+    () => [
+      { number: 1, label: "Q1", monthsName: ["Jan", "Feb", "Mar"] },
+      { number: 2, label: "Q2", monthsName: ["Apr", "Mei", "Jun"] },
+      { number: 3, label: "Q3", monthsName: ["Jul", "Agu", "Sep"] },
+      { number: 4, label: "Q4", monthsName: ["Okt", "Nov", "Des"] },
+    ],
+    []
+  );
+
   // Editable states - pre-filled from DB
-  const [periodeAwal] = useState(initialPeriodeAwal);
-  const [lamaPeriode] = useState(initialLamaPeriode);
   const [persenResepDokter, setPersenResepDokter] = useState(String(initialPersenResepDokter ?? "0"));
   const [jumlahKaryawan, setJumlahKaryawan] = useState(String(initialJumlahKaryawan ?? ""));
   const [jumlahPasien, setJumlahPasien] = useState(String(initialJumlahPasien ?? ""));
@@ -221,12 +243,12 @@ export function SalesCounterEditByIdEditor({
   // Entertain
   const [entertainList, setEntertainList] = useState(() => {
     const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
-    const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
+    const y = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
     const q = validPeriodMatch ? parseInt(validPeriodMatch[2], 10) : 1;
-    const qPeriod = `${poaYear}-Q${q}`;
-    const months = quarterToMonths(qPeriod);
+    const qPeriod = `${y}-Q${q}`;
+    const mths = quarterToMonths(qPeriod);
 
-    return months
+    return mths
       .filter((m) => {
         const monthNum = parseInt(m.slice(4), 10);
         const startMonthNum = parseInt(initialPeriodeAwal.slice(4), 10);
@@ -241,6 +263,62 @@ export function SalesCounterEditByIdEditor({
         };
       });
   });
+
+  const handlePeriodeAwalChange = (newStart: string, q = rowQuarter) => {
+    setPeriodeAwal(newStart);
+    if (!newStart) {
+      setLamaPeriode(0);
+      setEntertainList([]);
+      return;
+    }
+
+    const startYear = parseInt(newStart.slice(0, 4), 10);
+    const startMonth = parseInt(newStart.slice(4, 6), 10);
+    const endMonth = q * 3;
+    const calcDuration = endMonth - startMonth + 1;
+    const duration = calcDuration > 0 ? calcDuration : 1;
+    setLamaPeriode(duration);
+
+    // Recalculate products rencanaTotalBiaya with new duration
+    setProducts((prev) =>
+      prev.map((row) => {
+        const qty = parseFloat(row.qtyPerBulan) || 0;
+        const masterProd = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
+        const hna = parseFloat(masterProd?.hna || "0") || 0;
+        const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
+        return {
+          ...row,
+          rencanaTotalBiaya: qty * hna * duration * (pctMatriks / 100),
+        };
+      })
+    );
+
+    setEntertainList((prevList) => {
+      const newItems = [];
+      for (let m = startMonth; m <= endMonth; m++) {
+        const monthStr = String(m).padStart(2, "0");
+        const periodMonth = `${startYear}${monthStr}`;
+        const existingItem = prevList.find((item) => item.month === periodMonth);
+        const existingInitial = initialEntertainItems.find((e) => e.periodeMonth === periodMonth);
+
+        newItems.push({
+          month: periodMonth,
+          label: formatMonthLabel(periodMonth),
+          value: existingItem ? existingItem.value : (existingInitial ? String(existingInitial.biayaEntertain) : ""),
+        });
+      }
+      return newItems;
+    });
+  };
+
+  const handleQuarterChange = (qNum: number) => {
+    setRowQuarter(qNum);
+    const newQuarterPeriod = `${poaYear}-Q${qNum}`;
+    const newMonths = quarterToMonths(newQuarterPeriod);
+    if (newMonths.length > 0) {
+      handlePeriodeAwalChange(newMonths[0], qNum);
+    }
+  };
 
   const [canvasserProducts, setCanvasserProducts] = useState<SalesCounterProduct[]>([]);
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
@@ -293,7 +371,7 @@ export function SalesCounterEditByIdEditor({
     const selectedCodes = products.map((p) => p.kodeProduk).filter(Boolean);
     if (selectedCodes.length === 0) return;
 
-    const b3Info = getB3PeriodInfo(poaPeriod);
+    const b3Info = getB3PeriodInfo(effectivePoaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
     getScOutletB3SalesAction(b3Info.period, kodePI, selectedCodes).then((res) => {
@@ -307,7 +385,7 @@ export function SalesCounterEditByIdEditor({
       }
       setB3SalesMap(map);
     });
-  }, [kodePI, products, poaPeriod]);
+  }, [kodePI, products, effectivePoaPeriod]);
 
   // Load canvasser products & sidebar data for the outlet
   useEffect(() => {
@@ -320,7 +398,7 @@ export function SalesCounterEditByIdEditor({
     });
     getScProductMenangAction(kodePI).then((res) => setProductsMenang(res?.data || []));
     getScProductWithInsentifAction(kodePI).then((res) => setProductsInsentif(res?.data || []));
-    getHistorySalesAction(kodePI).then((res) => setHistorySalesData(res || null));
+    getHistorySalesAction(kodePI, false).then((res) => setHistorySalesData(res || null));
     getSalesOnlineAction(kodePI).then((res) => setSalesOnlineData(res || null));
     getSurveyRekomendasiByOutletAggregate(kodePI).then((res) => setSurveyData(res || []));
     getRekomendasiProdukAction(kodePI).then((res) => {
@@ -357,8 +435,8 @@ export function SalesCounterEditByIdEditor({
 
   // Period-aware SC insentif history
   const targetPeriod = useMemo(
-    () => resolvePeriodForQuarter(poaPeriod, periodeAwal),
-    [poaPeriod, periodeAwal]
+    () => resolvePeriodForQuarter(effectivePoaPeriod, periodeAwal),
+    [effectivePoaPeriod, periodeAwal]
   );
 
   useEffect(() => {
@@ -465,12 +543,7 @@ export function SalesCounterEditByIdEditor({
     });
   };
 
-  // Quarter info
-  const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
-  const quarterMatch = poaPeriod.match(/-Q([1-4])/);
-  const rowQuarter = quarterMatch ? parseInt(quarterMatch[1], 10) : 1;
-  const rowQuarterPeriod = `${poaYear}-Q${rowQuarter}`;
-  const months = quarterToMonths(rowQuarterPeriod);
+  const months = quarterMonths;
 
   const productOptions = useMemo(() => {
     return buildScProductOptions({
@@ -568,12 +641,8 @@ export function SalesCounterEditByIdEditor({
     if (periodeAwal && /^\d{6}$/.test(periodeAwal) && lamaPeriode > 0) {
       return expandPeriodeMonths(periodeAwal, lamaPeriode);
     }
-    const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
-    const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
-    const q = validPeriodMatch ? parseInt(validPeriodMatch[2], 10) : 1;
-    const qPeriod = `${poaYear}-Q${q}`;
-    return quarterToMonths(qPeriod);
-  }, [poaPeriod, periodeAwal, lamaPeriode]);
+    return quarterMonths;
+  }, [quarterMonths, periodeAwal, lamaPeriode]);
 
   const monthlyBreakdown = useMemo(() => {
     return monthlyMonths.map((m: string) => {
@@ -701,7 +770,7 @@ export function SalesCounterEditByIdEditor({
     setIsSubmitting(true);
     try {
       const res = await saveSalesCounterFormAction(
-        poaPeriod,
+        effectivePoaPeriod,
         kodePI,
         selectedPersonIds,
         products,
@@ -717,13 +786,16 @@ export function SalesCounterEditByIdEditor({
         scId
       );
       if (res.ok) {
-        window.location.href = `/sc/${scId}`;
+        showToast("Perubahan rencana POA berhasil disimpan.", "success");
+        setTimeout(() => {
+          window.location.href = `/sc/${scId}`;
+        }, 800);
       } else {
-        alert(res.error || "Gagal menyimpan data.");
+        showToast(res.error || "Gagal menyimpan data.", "error");
         setIsSubmitting(false);
       }
     } catch (err: any) {
-      alert(err?.message || "Terjadi kesalahan saat menyimpan data.");
+      showToast(err?.message || "Terjadi kesalahan saat menyimpan data.", "error");
       setIsSubmitting(false);
     }
   };
@@ -865,21 +937,81 @@ export function SalesCounterEditByIdEditor({
           </div>
         </div>
 
-        {/* RENCANA SC — Periode locked */}
+        {/* RENCANA SC */}
         <div>
           <SectionLabel>Rencana SC</SectionLabel>
-          <div className="grid grid-cols-2 gap-3 mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Kuartal</span>
+              {readOnly ? (
+                <div
+                  className="input-field flex items-center"
+                  style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 38, cursor: "not-allowed" }}
+                >
+                  <span className="text-xs font-semibold px-1">Q{rowQuarter}</span>
+                </div>
+              ) : (
+                <select
+                  value={rowQuarter}
+                  onChange={(e) => handleQuarterChange(parseInt(e.target.value, 10))}
+                  className="input-field font-semibold text-xs px-3 py-1.5 h-[38px] rounded-md border w-full"
+                  style={{
+                    background: "var(--color-bg)",
+                    borderColor: "var(--color-border)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {quartersOptions.map((q) => (
+                    <option key={q.number} value={q.number}>
+                      {q.label} ({q.monthsName.join("-")})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Periode Awal</span>
-              <div className="input-field flex items-center"
-                style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 32, cursor: "not-allowed" }}>
-                <span className="text-xs font-semibold px-1">{periodeAwal}</span>
-              </div>
+              {readOnly ? (
+                <div
+                  className="input-field flex items-center"
+                  style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 38, cursor: "not-allowed" }}
+                >
+                  <span className="text-xs font-semibold px-1">{periodeAwal}</span>
+                </div>
+              ) : (
+                <select
+                  value={periodeAwal}
+                  onChange={(e) => handlePeriodeAwalChange(e.target.value)}
+                  className="input-field font-mono w-full text-xs h-[38px] rounded-md border"
+                  style={{
+                    background: "var(--color-bg)",
+                    borderColor: "var(--color-border)",
+                    color: periodeAwal ? "var(--color-text)" : "var(--color-text-faint)",
+                  }}
+                  required
+                >
+                  <option value="">YYYYMM</option>
+                  {quarterMonths.map((m) => {
+                    const year = m.slice(0, 4);
+                    const monthIndex = parseInt(m.slice(4)) - 1;
+                    const label = new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "long", year: "numeric" });
+                    return (
+                      <option key={m} value={m}>
+                        {m} · {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
             </div>
+
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Lama Periode</span>
-              <div className="input-field flex items-center"
-                style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 32, cursor: "not-allowed" }}>
+              <div
+                className="input-field flex items-center"
+                style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 38, cursor: "not-allowed" }}
+              >
                 <span className="text-xs font-semibold px-1">{lamaPeriode} bulan</span>
               </div>
             </div>
@@ -953,7 +1085,7 @@ export function SalesCounterEditByIdEditor({
           )}
 
           {/* Tabel BLAST-IN & POSM (Autofill data) */}
-          {isBlastIn && <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />}
+          {isBlastIn && <BlastInTable poaPeriod={effectivePoaPeriod} quarter={rowQuarter} />}
           {(isPosm || kodePI === "F4002441") && <PosmTable />}
         </div>
 
@@ -1049,7 +1181,7 @@ export function SalesCounterEditByIdEditor({
           {products.some(p => p.kodeProduk) && (
             <div className="space-y-3 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
               <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                Estimasi &amp; Nilai SC Per Produk
+                Estimasi &amp; Insentif SC Per Produk
               </p>
               <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}>
                 <table className="w-full text-xs text-left min-w-[580px]" style={{ borderCollapse: "collapse" }}>
@@ -1058,7 +1190,7 @@ export function SalesCounterEditByIdEditor({
                       <th className="px-3 py-2 font-medium whitespace-nowrap min-w-[160px]">Produk</th>
                       <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Qty</th>
                       <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Estimasi Sales</th>
-                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Nilai SC</th>
+                      <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Insentif SC</th>
                       {!isCashbackHidden && (
                         <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Value Cashback</th>
                       )}
@@ -1146,7 +1278,7 @@ export function SalesCounterEditByIdEditor({
           <div className="rounded-xl border px-4 py-3 space-y-3"
             style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              {isCashbackHidden ? "Estimasi & Nilai SC per Bulan" : "Estimasi & Nilai SC/Cashback per Bulan"}
+              {isCashbackHidden ? "Estimasi & Insentif SC per Bulan" : "Estimasi & Insentif SC/Cashback per Bulan"}
             </p>
             <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
               <table className="w-full text-xs min-w-[460px]">

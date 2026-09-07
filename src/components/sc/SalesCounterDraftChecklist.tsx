@@ -12,6 +12,7 @@ import { SalesCounterSubmitPanel } from "./detail/SalesCounterSubmitPanel";
 import type { ScDraftFormItem, SalesFigures } from "./types";
 
 import { submitSalesCounterFormAction } from "@/app/actions/scApprovalActions";
+import { useScToast } from "./ui/ScToast";
 
 export function SalesCounterDraftChecklist({
   scDrafts = [],
@@ -70,6 +71,8 @@ export function SalesCounterDraftChecklist({
     growthPct: 0,
   };
 
+  const { showToast } = useScToast();
+
   async function handleSubmitAction() {
     if (checked.size === 0 || isSubmittingState) return;
     setIsSubmittingState(true);
@@ -77,13 +80,13 @@ export function SalesCounterDraftChecklist({
       const selectedIds = Array.from(checked);
       const res = await submitSalesCounterFormAction(selectedIds, submitNotes);
       if (res.ok) {
-        alert("Rencana POA Sales Counter berhasil diajukan ke atasan.");
-        window.location.reload();
+        showToast("Rencana POA Sales Counter berhasil diajukan ke atasan.", "success");
+        setTimeout(() => window.location.reload(), 800);
       } else {
-        alert(res.error || "Gagal mengajukan POA Sales Counter.");
+        showToast(res.error || "Gagal mengajukan POA Sales Counter.", "error");
       }
     } catch (err: any) {
-      alert(err?.message || "Terjadi kesalahan saat mengajukan.");
+      showToast(err?.message || "Terjadi kesalahan saat mengajukan.", "error");
     } finally {
       setIsSubmittingState(false);
     }

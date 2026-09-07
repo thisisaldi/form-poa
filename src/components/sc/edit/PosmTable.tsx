@@ -5,7 +5,19 @@ import React from "react";
 export function PosmTable() {
   return (
     <div className="space-y-2 mt-4">
-      <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>POSM</span>
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>POSM</span>
+        <span
+          className="text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide"
+          style={{
+            background: "rgba(245, 158, 11, 0.12)",
+            color: "#d97706",
+            border: "1px solid rgba(245, 158, 11, 0.3)",
+          }}
+        >
+          (DUMMY)
+        </span>
+      </div>
       <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
         <table className="w-full text-xs text-center border-collapse min-w-[360px]">
           <thead>

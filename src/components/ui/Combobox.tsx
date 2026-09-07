@@ -24,6 +24,10 @@ export interface ComboboxOption {
    * (2026-07-27: previously baked into tag2's text, easy to miss). */
   tag3?: string;
   tag3Color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple" | "gray";
+  tags?: {
+    tag: string;
+    color?: "blue" | "yellow" | "red" | "green" | "orange" | "lime" | "indigo" | "purple" | "gray";
+  }[];
 }
 
 export const TAG_COLORS = {
@@ -311,57 +315,133 @@ export function Combobox({
                             >
                               {option.label}
                             </span>
-                            {option.tag && (
-                              option.tagDotOnly ? (
-                                <span
-                                  title={option.tag}
-                                  className="shrink-0 rounded-full"
-                                  style={{
-                                    width: 8,
-                                    height: 8,
-                                    background: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
-                                  }}
-                                />
-                              ) : (
-                                <span
-                                  className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
-                                    option.tag === "BLAST-IN" ? "text-[10px]" : "text-xs"
-                                  }`}
-                                  style={{
-                                    background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tagColor ?? "blue"].bg,
-                                    color: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
-                                  }}
-                                >
-                                  {option.tag}
-                                </span>
-                              )
-                            )}
-                            {option.tag2 && (
-                              <span
-                                className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
-                                  option.tag2 === "BLAST-IN" ? "text-[10px]" : "text-xs"
-                                }`}
-                                style={{
-                                  background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tag2Color ?? "green"].bg,
-                                  color: isHighlighted ? "#fff" : TAG_COLORS[option.tag2Color ?? "green"].fg,
-                                }}
-                              >
-                                {option.tag2}
-                              </span>
-                            )}
-                            {option.tag3 && (
-                              <span
-                                className={`shrink-0 px-1.5 py-0.5 rounded font-bold ${
-                                  option.tag3 === "BLAST-IN" ? "text-[10px]" : "text-xs"
-                                }`}
-                                style={{
-                                  background: isHighlighted ? "#fff" : TAG_COLORS[option.tag3Color ?? "orange"].fg,
-                                  color: isHighlighted ? TAG_COLORS[option.tag3Color ?? "orange"].fg : "#fff",
-                                  boxShadow: isHighlighted ? "none" : "0 0 0 1px rgba(0,0,0,0.06)",
-                                }}
-                              >
-                                {option.tag3}
-                              </span>
+                            {option.tags && option.tags.length > 0 ? (
+                              option.tags.map((t, tIdx) => {
+                                const isOnline = t.tag === "ONLINE";
+                                const isBlastIn = t.tag === "BLAST-IN";
+                                if (isOnline) {
+                                  return (
+                                    <span
+                                      key={tIdx}
+                                      className="shrink-0 px-1.5 py-0.5 rounded font-bold text-[10px]"
+                                      style={{
+                                        background: isHighlighted ? "#fff" : "#fde047",
+                                        color: "#000",
+                                        boxShadow: isHighlighted ? "none" : "0 1px 2px rgba(0,0,0,0.06)",
+                                      }}
+                                    >
+                                      ONLINE
+                                    </span>
+                                  );
+                                }
+                                const col = (t.color && TAG_COLORS[t.color]) || TAG_COLORS.blue;
+                                return (
+                                  <span
+                                    key={tIdx}
+                                    className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
+                                      isBlastIn ? "text-[10px]" : "text-xs"
+                                    }`}
+                                    style={{
+                                      background: isHighlighted ? "rgba(255,255,255,0.2)" : col.bg,
+                                      color: isHighlighted ? "#fff" : col.fg,
+                                    }}
+                                  >
+                                    {t.tag}
+                                  </span>
+                                );
+                              })
+                            ) : (
+                              <>
+                                {option.tag && (
+                                  option.tagDotOnly ? (
+                                    <span
+                                      title={option.tag}
+                                      className="shrink-0 rounded-full"
+                                      style={{
+                                        width: 8,
+                                        height: 8,
+                                        background: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
+                                      }}
+                                    />
+                                  ) : option.tag === "ONLINE" ? (
+                                    <span
+                                      className="shrink-0 px-1.5 py-0.5 rounded font-bold text-[10px]"
+                                      style={{
+                                        background: isHighlighted ? "#fff" : "#fde047",
+                                        color: "#000",
+                                        boxShadow: isHighlighted ? "none" : "0 1px 2px rgba(0,0,0,0.06)",
+                                      }}
+                                    >
+                                      ONLINE
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
+                                        option.tag === "BLAST-IN" ? "text-[10px]" : "text-xs"
+                                      }`}
+                                      style={{
+                                        background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tagColor ?? "blue"].bg,
+                                        color: isHighlighted ? "#fff" : TAG_COLORS[option.tagColor ?? "blue"].fg,
+                                      }}
+                                    >
+                                      {option.tag}
+                                    </span>
+                                  )
+                                )}
+                                {option.tag2 && (
+                                  option.tag2 === "ONLINE" ? (
+                                    <span
+                                      className="shrink-0 px-1.5 py-0.5 rounded font-bold text-[10px]"
+                                      style={{
+                                        background: isHighlighted ? "#fff" : "#fde047",
+                                        color: "#000",
+                                        boxShadow: isHighlighted ? "none" : "0 1px 2px rgba(0,0,0,0.06)",
+                                      }}
+                                    >
+                                      ONLINE
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
+                                        option.tag2 === "BLAST-IN" ? "text-[10px]" : "text-xs"
+                                      }`}
+                                      style={{
+                                        background: isHighlighted ? "rgba(255,255,255,0.2)" : TAG_COLORS[option.tag2Color ?? "green"].bg,
+                                        color: isHighlighted ? "#fff" : TAG_COLORS[option.tag2Color ?? "green"].fg,
+                                      }}
+                                    >
+                                      {option.tag2}
+                                    </span>
+                                  )
+                                )}
+                                {option.tag3 && (
+                                  option.tag3 === "ONLINE" ? (
+                                    <span
+                                      className="shrink-0 px-1.5 py-0.5 rounded font-bold text-[10px]"
+                                      style={{
+                                        background: isHighlighted ? "#fff" : "#fde047",
+                                        color: "#000",
+                                        boxShadow: isHighlighted ? "none" : "0 1px 2px rgba(0,0,0,0.06)",
+                                      }}
+                                    >
+                                      ONLINE
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className={`shrink-0 px-1.5 py-0.5 rounded font-bold ${
+                                        option.tag3 === "BLAST-IN" ? "text-[10px]" : "text-xs"
+                                      }`}
+                                      style={{
+                                        background: isHighlighted ? "#fff" : TAG_COLORS[option.tag3Color ?? "orange"].fg,
+                                        color: isHighlighted ? TAG_COLORS[option.tag3Color ?? "orange"].fg : "#fff",
+                                        boxShadow: isHighlighted ? "none" : "0 0 0 1px rgba(0,0,0,0.06)",
+                                      }}
+                                    >
+                                      {option.tag3}
+                                    </span>
+                                  )
+                                )}
+                              </>
                             )}
                           </span>
                           {option.sublabel && (

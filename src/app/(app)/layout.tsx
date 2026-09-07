@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MaintenanceScreen } from "@/components/layout/MaintenanceScreen";
 import { getMaintenanceState, maintenanceMessage } from "@/lib/maintenance";
+import { ScToastProvider } from "@/components/sc/ui/ScToast";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -58,7 +59,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               🛠️ {viewOnlyBanner}
             </div>
           )}
-          {children}
+          <ScToastProvider>
+            {children}
+          </ScToastProvider>
         </div>
       </main>
     </div>
