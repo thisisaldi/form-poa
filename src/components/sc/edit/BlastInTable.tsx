@@ -36,22 +36,22 @@ export function BlastInTable({ poaPeriod = "2026-Q3", quarter }: BlastInTablePro
     <div className="space-y-2 mt-4">
       <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>BLAST-IN</span>
       <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-        <table className="w-full text-xs text-center border-collapse">
+        <table className="w-full text-xs text-center border-collapse min-w-[500px]">
           <thead>
             <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {actualHeader}
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {estimasiHeader}
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {sumHeader}
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {targetHeader}
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
                 {hadiahHeader}
               </th>
             </tr>

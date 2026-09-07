@@ -426,16 +426,25 @@ export function SalesCounterOutletCard({
 
   const [insentifHistoryData, setInsentifHistoryData] = useState<any>(null);
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
+  const [isLoadingSalesOnline, setIsLoadingSalesOnline] = useState<boolean>(false);
 
   useEffect(() => {
-    if ((!isExpanded && !isKompetitorOpen) || !draft.kodePI) return;
+    if (!draft.kodePI) return;
+    setIsLoadingSalesOnline(true);
     getScInsentifHistoryAction(draft.kodePI).then((res) => {
       setInsentifHistoryData(res?.data || null);
     });
-    getSalesOnlineAction(draft.kodePI).then((res) => {
-      setSalesOnlineData(res || null);
-    });
-  }, [isExpanded, isKompetitorOpen, draft.kodePI]);
+    getSalesOnlineAction(draft.kodePI)
+      .then((res) => {
+        setSalesOnlineData(res || null);
+      })
+      .catch(() => {
+        setSalesOnlineData(null);
+      })
+      .finally(() => {
+        setIsLoadingSalesOnline(false);
+      });
+  }, [draft.kodePI]);
 
   const salesOnlineItems = useMemo(() => {
     if (Array.isArray(salesOnlineData?.data)) return salesOnlineData.data;
@@ -1270,50 +1279,107 @@ export function SalesCounterOutletCard({
             </button>
           </div>
 
-          {/* Products table */}
-          <div className="rounded-lg border overflow-hidden overflow-x-auto" style={{ borderColor: "var(--color-border)" }}>
-            <table className="w-full text-xs">
-              <thead>
-                <tr style={{ background: "var(--color-bg-subtle)" }}>
-                  <th className="text-left px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Produk SC</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Qty ST / Bln</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</th>
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Nilai SC</th>
-                  {!isCashbackNotFound && (
-                    <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
-                  )}
-                  <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    <div>Growth Sebelumnya (B-3)</div>
-                    {b3RangeLabel && (
-                      <div className="text-[10px] font-normal normal-case opacity-75">
-                        ({b3RangeLabel})
-                      </div>
+          {/* Hint geser untuk mobile */}
+          <div className="sm:hidden -mt-1 text-[11px] flex items-center gap-1" style={{ color: "var(--color-text-faint)" }}>
+            <span>↔</span> Geser tabel untuk melihat rincian angka &amp; growth
+          </div>
+
+          {/* Products table container */}
+          <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-[620px]">
+                <thead>
+                  <tr style={{ background: "var(--color-bg-subtle)" }}>
+                    <th className="text-left px-2.5 py-2 font-medium whitespace-nowrap sticky left-0 z-10 border-r" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Produk SC</th>
+                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Qty ST / Bln</th>
+                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</th>
+                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Nilai SC</th>
+                    {!isCashbackNotFound && (
+                      <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Value Cashback</th>
                     )}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {productDetailRows.rows.map(({ product: p, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, valCashbackFull, salesHistorical, growthPct }) => (
-                  <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                    <td className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text)" }}>
-                      {p.namaProduk}
-                      {totalScCount > 0 && (p.isScProduct === false || (clientScData && !clientScData.codes.has(p.kodeProduk))) && (
-                        <span
-                          className="text-[10px] font-normal ml-1.5 px-1.5 py-0.5 rounded"
-                          style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" }}
-                        >
-                          Non-SC
-                        </span>
+                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                      <div>Growth Sebelumnya (B-3)</div>
+                      {b3RangeLabel && (
+                        <div className="text-[10px] font-normal normal-case opacity-75">
+                          ({b3RangeLabel})
+                        </div>
                       )}
-                    </td>
-                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
-                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
-                      {estSalesFull > 0 ? (
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productDetailRows.rows.map(({ product: p, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, valCashbackFull, salesHistorical, growthPct }) => (
+                    <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                      <td className="px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+                        <div className="max-w-[150px] sm:max-w-none truncate sm:whitespace-normal font-semibold">
+                          {p.namaProduk}
+                        </div>
+                        {totalScCount > 0 && (p.isScProduct === false || (clientScData && !clientScData.codes.has(p.kodeProduk))) && (
+                          <span
+                            className="inline-block text-[10px] font-normal mt-0.5 px-1.5 py-0.5 rounded"
+                            style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" }}
+                          >
+                            Non-SC
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
+                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                        {estSalesFull > 0 ? (
+                          <div>
+                            <span>{formatRp(estSalesFull)}</span>
+                            {lama > 1 && (
+                              <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                                ({formatRp(estSalesMonth)}/bln)
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="px-2.5 py-2 text-right whitespace-nowrap font-semibold" style={{ color: "var(--color-blue)" }}>
+                        {nilaiScFull > 0 ? (
+                          <div>
+                            <span>{formatRp(nilaiScFull)}</span>
+                            {lama > 1 && (
+                              <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                                ({formatRp(nilaiScPerMonth)}/bln)
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      {!isCashbackNotFound && (
+                        <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                          {valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}
+                        </td>
+                      )}
+                      <td className="px-2.5 py-2 text-right whitespace-nowrap">
+                        {salesHistorical > 0 ? (
+                          <span className={growthPct >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>
+                            {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--color-text-faint)" }}>-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="font-semibold border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
+                    <td className="px-2.5 py-2 sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Total</td>
+                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>{productDetailRows.sumQtyPerBulan}</td>
+                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                      {productDetailRows.sumEstSales > 0 ? (
                         <div>
-                          <span>{formatRp(estSalesFull)}</span>
+                          <span>{formatRp(productDetailRows.sumEstSales)}</span>
                           {lama > 1 && (
                             <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({formatRp(estSalesMonth)}/bln)
+                              ({formatRp(productDetailRows.sumEstSalesPerMonth)}/bln)
                             </span>
                           )}
                         </div>
@@ -1321,13 +1387,13 @@ export function SalesCounterOutletCard({
                         "-"
                       )}
                     </td>
-                    <td className="px-2.5 py-2 text-right font-semibold" style={{ color: "var(--color-blue)" }}>
-                      {nilaiScFull > 0 ? (
+                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
+                      {productDetailRows.sumNilaiSc > 0 ? (
                         <div>
-                          <span>{formatRp(nilaiScFull)}</span>
+                          <span>{formatRp(productDetailRows.sumNilaiSc)}</span>
                           {lama > 1 && (
                             <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({formatRp(nilaiScPerMonth)}/bln)
+                              ({formatRp(productDetailRows.sumNilaiScPerMonth)}/bln)
                             </span>
                           )}
                         </div>
@@ -1336,73 +1402,25 @@ export function SalesCounterOutletCard({
                       )}
                     </td>
                     {!isCashbackNotFound && (
-                      <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
-                        {valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}
+                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                        {productDetailRows.sumCashback > 0 ? formatRp(productDetailRows.sumCashback) : "-"}
                       </td>
                     )}
-                    <td className="px-2.5 py-2 text-right">
-                      {salesHistorical > 0 ? (
-                        <span className={growthPct >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>
-                          {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+                    <td className="px-2.5 py-2 text-right whitespace-nowrap">
+                      {productDetailRows.sumSalesHistorical > 0 ? (
+                        <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
+                          {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
                         </span>
                       ) : (
-                        <span style={{ color: "var(--color-text-faint)" }}>-</span>
+                        <span style={{ color: "var(--color-text-faint)" }}>0%</span>
                       )}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="font-semibold border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                  <td className="px-2.5 py-2" style={{ color: "var(--color-text)" }}>Total</td>
-                  <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>{productDetailRows.sumQtyPerBulan}</td>
-                  <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
-                    {productDetailRows.sumEstSales > 0 ? (
-                      <div>
-                        <span>{formatRp(productDetailRows.sumEstSales)}</span>
-                        {lama > 1 && (
-                          <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                            ({formatRp(productDetailRows.sumEstSalesPerMonth)}/bln)
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                  <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-blue)" }}>
-                    {productDetailRows.sumNilaiSc > 0 ? (
-                      <div>
-                        <span>{formatRp(productDetailRows.sumNilaiSc)}</span>
-                        {lama > 1 && (
-                          <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                            ({formatRp(productDetailRows.sumNilaiScPerMonth)}/bln)
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                  {!isCashbackNotFound && (
-                    <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>
-                      {productDetailRows.sumCashback > 0 ? formatRp(productDetailRows.sumCashback) : "-"}
-                    </td>
-                  )}
-                  <td className="px-2.5 py-2 text-right">
-                    {productDetailRows.sumSalesHistorical > 0 ? (
-                      <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
-                        {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
-                      </span>
-                    ) : (
-                      <span style={{ color: "var(--color-text-faint)" }}>0%</span>
-                    )}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+                </tfoot>
+              </table>
+            </div>
             {b3RangeLabel && (
-              <p className="text-[11px] px-3 py-1.5 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
+              <p className="text-[11px] px-3 py-2 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
                 * Growth Dihitung dari Histori Rata-Rata Penjualan Quarter ({b3RangeLabel})
               </p>
             )}
@@ -1416,6 +1434,7 @@ export function SalesCounterOutletCard({
             products={allScProducts.length > 0 ? allScProducts : draft.products}
             selectedCodes={selectedProductCodes}
             salesOnlineData={salesOnlineData}
+            isLoadingSalesOnline={isLoadingSalesOnline}
             periodLabel={b3RangeLabel}
           />
 

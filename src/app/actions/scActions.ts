@@ -344,6 +344,36 @@ export async function saveSalesCounterFormAction(
           snapshot.new_persenResepDokter = persenResepDokter;
         }
 
+        if ((existing.jumlahKaryawan ?? null) !== (jumlahKaryawan ?? null)) {
+          snapshot.old_jumlahKaryawan = existing.jumlahKaryawan ?? null;
+          snapshot.new_jumlahKaryawan = jumlahKaryawan ?? null;
+        }
+
+        if ((existing.jumlahPasien ?? null) !== (jumlahPasien ?? null)) {
+          snapshot.old_jumlahPasien = existing.jumlahPasien ?? null;
+          snapshot.new_jumlahPasien = jumlahPasien ?? null;
+        }
+
+        if ((existing.jumlahPasienResep ?? null) !== (jumlahPasienResep ?? null)) {
+          snapshot.old_jumlahPasienResep = existing.jumlahPasienResep ?? null;
+          snapshot.new_jumlahPasienResep = jumlahPasienResep ?? null;
+        }
+
+        if ((existing.jumlahPasienNonResep ?? null) !== (jumlahPasienNonResep ?? null)) {
+          snapshot.old_jumlahPasienNonResep = existing.jumlahPasienNonResep ?? null;
+          snapshot.new_jumlahPasienNonResep = jumlahPasienNonResep ?? null;
+        }
+
+        if ((existing.periodeAwal ?? null) !== (periodeAwal ?? null)) {
+          snapshot.old_periodeAwal = existing.periodeAwal ?? null;
+          snapshot.new_periodeAwal = periodeAwal ?? null;
+        }
+
+        if ((existing.lamaPeriode ?? null) !== (lamaPeriode ?? null)) {
+          snapshot.old_lamaPeriode = existing.lamaPeriode ?? null;
+          snapshot.new_lamaPeriode = lamaPeriode ?? null;
+        }
+
         // Compare person staff items
         const oldPersonMap = new Map<string, any>(existing.persons.map((p: any) => [p.nik_ktp, p]));
         const newPersonMap = new Map<string, any>(personItems.map((p: any) => [p.nik_ktp, p]));
@@ -455,19 +485,6 @@ export async function saveSalesCounterFormAction(
               productDiffs.push(updateDiff);
             }
           }
-        }
-
-        for (const [code, oldP] of oldProdMap.entries()) {
-          if (!newProdMap.has(code)) {
-            productDiffs.push({
-              type: "delete",
-              ...oldP,
-            });
-          }
-        }
-
-        if (productDiffs.length > 0) {
-          snapshot.product = productDiffs;
         }
 
         for (const [code, oldP] of oldProdMap.entries()) {

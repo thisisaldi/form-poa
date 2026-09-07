@@ -7,16 +7,16 @@ export function PosmTable() {
     <div className="space-y-2 mt-4">
       <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>POSM</span>
       <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-        <table className="w-full text-xs text-center border-collapse">
+        <table className="w-full text-xs text-center border-collapse min-w-[360px]">
           <thead>
             <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "34%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "34%" }}>
                 NAMA POSM
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "33%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "33%" }}>
                 PERIODE
               </th>
-              <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)", width: "33%" }}>
+              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "33%" }}>
                 KOMISI
               </th>
             </tr>

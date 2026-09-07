@@ -641,93 +641,93 @@ export function ScSidebar({
 
   if (activeTab === null) {
     return (
-      <div
-        style={{
-          position: "fixed",
-          right: 0,
-          top: "50%",
-          transform: "translateY(-50%)",
-          zIndex: 40,
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setActiveTab("rekomendasi")}
-          style={sidebarEdgeTabStyle(SIDEBAR_GREEN)}
+      <>
+        {/* Desktop Vertical Tabs */}
+        <div
+          className="hidden md:flex flex-col gap-1 fixed right-0 top-1/2 -translate-y-1/2 z-40"
         >
-          Produk Rekomendasi
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("history")}
-          style={sidebarEdgeTabStyle(SIDEBAR_BLUE)}
-        >
-          Histori SC
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("analisis_kompetitor")}
-          style={sidebarEdgeTabStyle(SIDEBAR_RED)}
-        >
-          Analisis Kompetitor
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab("rekomendasi")}
+            style={sidebarEdgeTabStyle(SIDEBAR_GREEN)}
+          >
+            Produk Rekomendasi
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("history")}
+            style={sidebarEdgeTabStyle(SIDEBAR_BLUE)}
+          >
+            Histori SC
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("analisis_kompetitor")}
+            style={sidebarEdgeTabStyle(SIDEBAR_RED)}
+          >
+            Analisis Kompetitor
+          </button>
+        </div>
+
+        {/* Mobile Floating Action Pill at Bottom-Right */}
+        <div className="flex md:hidden fixed bottom-6 right-4 z-40">
+          <button
+            type="button"
+            onClick={() => setActiveTab("rekomendasi")}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full shadow-lg text-xs font-semibold text-white transition-all active:scale-95 cursor-pointer"
+            style={{ background: "var(--color-blue, #0063a0)" }}
+          >
+            <span>Data Rekomendasi / SC</span>
+          </button>
+        </div>
+      </>
     );
   }
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        right: 0,
-        top: 0,
-        bottom: 0,
-        zIndex: 40,
-        width: 300,
-        background: "var(--color-bg)",
-        borderLeft: "1px solid var(--color-border)",
-        display: "flex",
-        flexDirection: "column",
-        boxShadow: "-4px 0 16px rgba(0,0,0,0.06)",
-      }}
-    >
-      {/* Header */}
+    <>
+      {/* Mobile Backdrop */}
       <div
+        className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 md:hidden"
+        onClick={() => setActiveTab(null)}
+      />
+
+      <div
+        className="fixed right-0 top-0 bottom-0 z-50 flex flex-col shadow-2xl transition-all duration-300 w-[88vw] sm:w-[320px] max-w-[360px]"
         style={{
-          padding: "10px 14px",
-          borderBottom: "1px solid var(--color-border)",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          flexShrink: 0,
+          background: "var(--color-bg)",
+          borderLeft: "1px solid var(--color-border)",
         }}
       >
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <SidebarTabSwitcher activeTab={activeTab} onChange={setActiveTab} />
-          {doctorName && (
-            <p className="truncate" style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginTop: 1 }}>
-              {doctorName}
-            </p>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setActiveTab(null)}
+        {/* Header */}
+        <div
           style={{
-            color: "var(--color-text-faint)",
-            fontSize: 18,
-            lineHeight: 1,
-            padding: "0 2px",
-            cursor: "pointer",
+            padding: "10px 14px",
+            borderBottom: "1px solid var(--color-border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
             flexShrink: 0,
           }}
         >
-          ›
-        </button>
-      </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <SidebarTabSwitcher activeTab={activeTab} onChange={setActiveTab} />
+            {doctorName && (
+              <p className="truncate" style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text)", marginTop: 1 }}>
+                {doctorName}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab(null)}
+            className="p-1 rounded text-gray-500 hover:text-gray-800 text-sm font-bold flex items-center gap-1 cursor-pointer"
+            title="Tutup"
+          >
+            <span>✕</span>
+            <span className="text-xs md:hidden">Tutup</span>
+          </button>
+        </div>
 
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
@@ -1497,5 +1497,6 @@ export function ScSidebar({
         )}
       </div>
     </div>
-  );
+  </>
+);
 }

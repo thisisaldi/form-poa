@@ -107,6 +107,42 @@ export function SalesCounterDraftChecklist({
 
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+      {/* Mobile Stats Panel (Ringkasan Target & Estimasi SC) */}
+      <div className="block md:hidden">
+        <details
+          open
+          className="group rounded-xl border overflow-hidden shadow-xs"
+          style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
+        >
+          <summary
+            className="cursor-pointer select-none list-none p-3.5 flex items-center justify-between font-semibold text-xs uppercase tracking-wide [&::-webkit-details-marker]:hidden [&::marker]:hidden"
+            style={{ background: "var(--color-bg-subtle)", color: "var(--color-text)" }}
+          >
+            <span>Ringkasan Target &amp; Estimasi SC</span>
+            <span
+              className="text-xs transition-transform duration-200 group-open:rotate-180"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              ▼
+            </span>
+          </summary>
+          <div className="border-t" style={{ borderColor: "var(--color-border)" }}>
+            <SalesCounterStatsPanel
+              selectedOutletCount={checked.size}
+              totalOutletCount={safeScDrafts.length}
+              metrics={metrics}
+              targetArea={targetArea ?? 0}
+              targetAreaIsReal={targetArea != null}
+              salesFigures={salesFigures}
+              salesIsReal={!!salesSummary}
+              quarterMonths={quarterMonths}
+              totalCoverageScOutlets={totalCoverageScOutlets}
+              historyQuarterLabel={historyQuarterLabel}
+            />
+          </div>
+        </details>
+      </div>
+
       {/* Left Column: Checklist & Cards */}
       <div className="space-y-4 md:col-span-2">
         <Card className="p-4">

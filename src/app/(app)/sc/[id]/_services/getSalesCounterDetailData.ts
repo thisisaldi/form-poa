@@ -108,7 +108,13 @@ export async function getSalesCounterDetailData(
       currentHolderId: first.currentHolderId,
       currentHolder: first.currentHolder,
       auditLogs: drafts
-        .flatMap((d: any) => d.auditLogs)
+        .flatMap((d: any) =>
+          d.auditLogs.map((log: any) => ({
+            ...log,
+            namaOutlet: d.namaOutlet || null,
+            kodePI: d.kodePI || null,
+          }))
+        )
         .sort((a: any, b: any) => a.createdAt.getTime() - b.createdAt.getTime()),
       entertainItems: drafts
         .flatMap((d: any) => d.entertainItems)
