@@ -41,7 +41,7 @@ export function BlastInPosmTables({
       {isBlastIn && (
         <div className="space-y-1">
         <div className="overflow-x-auto rounded-lg border shadow-sm" style={{ borderColor: "var(--color-border)" }}>
-          <table className="w-full text-xs text-center border-collapse">
+          <table className="w-full text-xs text-center border-collapse min-w-[480px]">
             <thead>
               {/* Header Title Bar */}
               <tr style={{ background: "#18181b", color: "#ffffff" }}>
@@ -51,16 +51,16 @@ export function BlastInPosmTables({
               </tr>
               {/* Column Headers */}
               <tr className="border-b" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                <th className="py-2.5 px-3 font-semibold text-xs border-r" style={{ color: "var(--color-text-muted)", width: "25%", borderColor: "var(--color-border)" }}>
+                <th className="py-2.5 px-3 font-semibold text-xs border-r whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "25%", borderColor: "var(--color-border)" }}>
                   {actualHeader}
                 </th>
-                <th className="py-2.5 px-3 font-semibold text-xs border-r" style={{ color: "var(--color-text-muted)", width: "25%", borderColor: "var(--color-border)" }}>
+                <th className="py-2.5 px-3 font-semibold text-xs border-r whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "25%", borderColor: "var(--color-border)" }}>
                   {estimasiHeader}
                 </th>
-                <th className="py-2.5 px-3 font-semibold text-xs border-r" style={{ color: "var(--color-text-muted)", width: "25%", borderColor: "var(--color-border)" }}>
+                <th className="py-2.5 px-3 font-semibold text-xs border-r whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "25%", borderColor: "var(--color-border)" }}>
                   {targetHeader}
                 </th>
-                <th className="py-2.5 px-3 font-semibold text-xs" style={{ color: "var(--color-text-muted)", width: "25%" }}>
+                <th className="py-2.5 px-3 font-semibold text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "25%" }}>
                   {hadiahHeader}
                 </th>
               </tr>
@@ -90,7 +90,7 @@ export function BlastInPosmTables({
       {isPosm && (
         <div className="space-y-1">
           <div className="overflow-x-auto rounded-lg border shadow-sm" style={{ borderColor: "var(--color-border)" }}>
-            <table className="w-full text-xs text-center border-collapse">
+            <table className="w-full text-xs text-center border-collapse min-w-[360px]">
               <thead>
                 {/* Header Title Bar */}
                 <tr style={{ background: "#18181b", color: "#ffffff" }}>
@@ -100,13 +100,13 @@ export function BlastInPosmTables({
                 </tr>
                 {/* Column Headers */}
                 <tr className="border-b" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                  <th className="py-2.5 px-3 font-semibold text-xs border-r" style={{ color: "var(--color-text-muted)", width: "34%", borderColor: "var(--color-border)" }}>
+                  <th className="py-2.5 px-3 font-semibold text-xs border-r whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "34%", borderColor: "var(--color-border)" }}>
                     NAMA POSM
                   </th>
-                  <th className="py-2.5 px-3 font-semibold text-xs border-r" style={{ color: "var(--color-text-muted)", width: "33%", borderColor: "var(--color-border)" }}>
+                  <th className="py-2.5 px-3 font-semibold text-xs border-r whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "33%", borderColor: "var(--color-border)" }}>
                     PERIODE
                   </th>
-                  <th className="py-2.5 px-3 font-semibold text-xs" style={{ color: "var(--color-text-muted)", width: "33%" }}>
+                  <th className="py-2.5 px-3 font-semibold text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "33%" }}>
                     KOMISI
                   </th>
                 </tr>

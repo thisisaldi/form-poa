@@ -730,7 +730,7 @@ export function SalesCounterEditByIdEditor({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-6 p-6 max-w-5xl">
+      <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl">
       {readOnly && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
@@ -775,12 +775,12 @@ export function SalesCounterEditByIdEditor({
                 Sales Counter ({persons.length} terpilih)
               </p>
               <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-                <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
+                <table className="w-full text-xs text-left min-w-[340px]" style={{ borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                      <th className="py-2 px-3 font-semibold" style={{ color: "var(--color-text-muted)" }}>Nama</th>
-                      <th className="py-2 px-3 font-semibold" style={{ color: "var(--color-text-muted)" }}>Jabatan</th>
-                      <th className="py-2 px-3 font-semibold" style={{ color: "var(--color-text-muted)" }}>Tipe Upload</th>
+                      <th className="py-2 px-3 font-semibold whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Nama</th>
+                      <th className="py-2 px-3 font-semibold whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Jabatan</th>
+                      <th className="py-2 px-3 font-semibold whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Tipe Upload</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -920,11 +920,11 @@ export function SalesCounterEditByIdEditor({
                 </span>
               </div>
               <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-                <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
+                <table className="w-full text-xs text-left min-w-[320px]" style={{ borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                      <th className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text-muted)" }}>Bulan</th>
-                      <th className="px-4 py-2.5 font-medium w-[220px]" style={{ color: "var(--color-text-muted)" }}>Biaya Entertain</th>
+                      <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Bulan</th>
+                      <th className="px-4 py-2.5 font-medium w-[220px] whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Biaya Entertain</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -980,7 +980,7 @@ export function SalesCounterEditByIdEditor({
               <span>Perincian Budget</span>
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 overflow-x-auto pb-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 overflow-x-auto pb-1">
             <div className="shrink-0 min-w-[180px]">
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                 ESTIMASI SALES
@@ -992,7 +992,10 @@ export function SalesCounterEditByIdEditor({
                 Rp {Math.round(totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1)).toLocaleString("id-ID")} / Bln
               </div>
             </div>
-            <div className="shrink-0 min-w-[220px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+            <div
+              className="shrink-0 min-w-[200px] border-t pt-4 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-6"
+              style={{ borderColor: "var(--color-border)" }}
+            >
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                 ESTIMASI GROWTH SALES
               </div>
@@ -1027,7 +1030,10 @@ export function SalesCounterEditByIdEditor({
                 </div>
               )}
             </div>
-            <div className="shrink-0 min-w-[200px]" style={{ borderLeft: "1px solid var(--color-border)", paddingLeft: "1.5rem" }}>
+            <div
+              className="shrink-0 min-w-[180px] border-t pt-4 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-6"
+              style={{ borderColor: "var(--color-border)" }}
+            >
               <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                 TOTAL % COST RATIO
               </div>
@@ -1046,10 +1052,10 @@ export function SalesCounterEditByIdEditor({
                 Estimasi &amp; Nilai SC Per Produk
               </p>
               <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}>
-                <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
+                <table className="w-full text-xs text-left min-w-[580px]" style={{ borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                      <th className="px-3 py-2 font-medium whitespace-nowrap">Produk</th>
+                      <th className="px-3 py-2 font-medium whitespace-nowrap min-w-[160px]">Produk</th>
                       <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Qty</th>
                       <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Estimasi Sales</th>
                       <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Nilai SC</th>
@@ -1143,7 +1149,7 @@ export function SalesCounterEditByIdEditor({
               {isCashbackHidden ? "Estimasi & Nilai SC per Bulan" : "Estimasi & Nilai SC/Cashback per Bulan"}
             </p>
             <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
-              <table className="w-full text-xs">
+              <table className="w-full text-xs min-w-[460px]">
                 <thead>
                   <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
                     <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
@@ -1159,7 +1165,7 @@ export function SalesCounterEditByIdEditor({
                     const mCashback = totalCashbackVal / (lamaPeriode || 1);
                     return (
                       <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                        <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
+                        <td className="px-3 py-1.5 align-middle whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
                         <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
                           {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
                         </td>
@@ -1175,7 +1181,7 @@ export function SalesCounterEditByIdEditor({
                     );
                   })}
                   <tr style={{ fontWeight: 600 }}>
-                    <td className="px-3 py-1.5 align-middle" style={{ color: "var(--color-text)" }}>Total</td>
+                    <td className="px-3 py-1.5 align-middle whitespace-nowrap" style={{ color: "var(--color-text)" }}>Total</td>
                     <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
                       Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
                     </td>

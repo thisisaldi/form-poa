@@ -514,31 +514,35 @@ export default async function SalesCounterDashboardPage({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* Mobile Scroll Hint */}
+            <div className="flex items-center text-[11px] sm:hidden pb-2" style={{ color: "var(--color-text-muted)" }}>
+              <span>↔ Geser tabel ke samping untuk melihat semua kolom</span>
+            </div>
+            <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="border-b text-left" style={{ borderColor: "var(--color-border)" }}>
-                  <th className="pb-3 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                  <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     MR
                   </th>
-                  <th className="pb-3 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                  <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     PERIOD
                   </th>
-                  <th className="pb-3 text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                  <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     STATUS
                   </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     TARGET
                   </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     ESTIMASI
                   </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     RATIO %
                   </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
+                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     % BUDGET
                   </th>
-                  <th className="pb-3" />
+                  <th className="pb-3 whitespace-nowrap" />
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
@@ -548,8 +552,8 @@ export default async function SalesCounterDashboardPage({
                   const ratioPct = p._totalEstSales > 0 ? (p._totalBudgetSc / p._totalEstSales) * 100 : 0;
                   const detailHref = `/sc/${p.id}`;
                   return (
-                    <tr key={`${p.period}_${p.owner.nip}`} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/20">
-                      <td className="py-3">
+                    <tr key={`${p.period}_${p.owner.nip}`} className="hover:bg-[var(--color-bg-subtle)]/50 transition-colors">
+                      <td className="py-3 whitespace-nowrap">
                         <p className="font-medium" style={{ color: "var(--color-text)" }}>
                           {p.owner.name}
                         </p>
@@ -557,25 +561,25 @@ export default async function SalesCounterDashboardPage({
                           {p.owner.nip}
                         </p>
                       </td>
-                      <td className="py-3 font-medium" style={{ color: "var(--color-text)" }}>
+                      <td className="py-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                         {p.period}
                       </td>
-                      <td className="py-3">
+                      <td className="py-3 whitespace-nowrap">
                         <StatusBadge status={p.status} version={p.version} />
                       </td>
-                      <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
                         -
                       </td>
-                      <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text)" }}>
+                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                         {p._totalEstSales > 0 ? formatRp(p._totalEstSales) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                       </td>
-                      <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-faint)" }}>
+                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                         -
                       </td>
-                      <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text)" }}>
+                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                         {ratioPct > 0 ? `${ratioPct.toFixed(1)}%` : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                       </td>
-                      <td className="py-3 text-right">
+                      <td className="py-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-3">
                           {isMR && (isDraft || isRevisi) && (
                             <Link href={`/sc/${p.period}/edit`} className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>

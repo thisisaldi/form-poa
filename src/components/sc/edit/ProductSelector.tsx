@@ -279,14 +279,15 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[32%]" : "w-[35%]") : (!readOnly ? "w-[26%]" : "w-[29%]");
-  const colPotensiWidth = isCashbackNotFound ? "w-[9%]" : "w-[8%]";
-  const colSwitchWidth = isCashbackNotFound ? "w-[15%]" : "w-[13%]";
-  const colDiskonWidth = "w-[8%]";
-  const colEstSalesWidth = isCashbackNotFound ? "w-[16%]" : "w-[14%]";
-  const colNilaiScWidth = isCashbackNotFound ? "w-[17%]" : "w-[14%]";
-  const colCashbackWidth = "w-[14%]";
-  const colActionWidth = "w-[3%]";
+  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[32%] min-w-[220px]" : "w-[35%] min-w-[240px]") : (!readOnly ? "w-[26%] min-w-[200px]" : "w-[29%] min-w-[220px]");
+  const colPotensiWidth = isCashbackNotFound ? "w-[9%] min-w-[85px]" : "w-[8%] min-w-[80px]";
+  const colSwitchWidth = isCashbackNotFound ? "w-[15%] min-w-[130px]" : "w-[13%] min-w-[125px]";
+  const colDiskonWidth = "w-[8%] min-w-[65px]";
+  const colEstSalesWidth = isCashbackNotFound ? "w-[16%] min-w-[125px]" : "w-[14%] min-w-[120px]";
+  const colNilaiScWidth = isCashbackNotFound ? "w-[17%] min-w-[140px]" : "w-[14%] min-w-[130px]";
+  const colCashbackWidth = "w-[14%] min-w-[130px]";
+  const colActionWidth = "w-[3%] min-w-[36px]";
+  const tableMinWidth = isCashbackNotFound ? "min-w-[800px]" : "min-w-[890px]";
 
   return (
     <div className="space-y-4">
@@ -301,32 +302,39 @@ export function ProductSelector({
         </div>
       )}
 
+      {/* Mobile Scroll Hint */}
+      <div className="flex items-center justify-between text-[11px] sm:hidden px-1" style={{ color: "var(--color-text-muted)" }}>
+        <span className="inline-flex items-center gap-1">
+          <span>↔</span> Geser tabel ke samping untuk melihat semua kolom
+        </span>
+      </div>
+
       {/* Main Product Table Container */}
-      <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+      <div className="rounded-lg border overflow-x-auto" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
         <div className="w-full">
-          <table className="w-full text-left text-xs border-collapse table-fixed">
+          <table className={`w-full text-left text-xs border-collapse table-fixed ${tableMinWidth}`}>
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-left ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-left whitespace-nowrap ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Produk <Req />
                 </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Potensi
                 </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Switch <Req />
                 </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Diskon
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Sales
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Nilai SC
                 </th>
                 {!isCashbackNotFound && (
-                  <th className={`py-2 px-1.5 font-semibold text-[11px] text-right ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
                     Estimasi Cashback
                   </th>
                 )}
@@ -601,24 +609,24 @@ export function ProductSelector({
             {rows.length > 0 && (
               <tfoot>
                 <tr className="border-t font-semibold" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                  <td className="py-2.5 px-3 text-xs" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 px-3 text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Total ({rows.length} produk)
                   </td>
-                  <td className="py-2.5 px-3 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     0
                   </td>
-                  <td className="py-2.5 px-3 text-center text-xs" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     {grandTotalQtyUb} UB
                   </td>
                   <td className="py-2.5 px-3"></td>
-                  <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 px-3 text-right text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Rp {formatRp(grandTotalEstSalesBln)}
                   </td>
-                  <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-blue, #2563eb)" }}>
+                  <td className="py-2.5 px-3 text-right text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
                     Rp {formatRp(grandTotalNilaiScBln)}
                   </td>
                   {!isCashbackNotFound && (
-                    <td className="py-2.5 px-3 text-right text-xs" style={{ color: "var(--color-green, #16a34a)" }}>
+                    <td className="py-2.5 px-3 text-right text-xs whitespace-nowrap" style={{ color: "var(--color-green, #16a34a)" }}>
                       Rp {formatRp(cashbackDetails.totalFinalCashbackMonthly)}
                     </td>
                   )}

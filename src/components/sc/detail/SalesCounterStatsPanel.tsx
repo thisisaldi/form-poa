@@ -108,12 +108,12 @@ export function SalesCounterStatsPanel({
         <div className="mb-5">
           <SectionTitle>Estimasi &amp; Nilai SC per Bulan</SectionTitle>
           <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: `1px solid ${BORDER}` }}>
-            <table className="w-full text-xs">
+            <table className="w-full text-xs min-w-[340px]">
               <thead>
                 <tr style={{ color: FAINT, background: BG }}>
-                  <th className="text-left font-medium px-3 py-1.5">Bulan</th>
-                  <th className="text-right font-medium px-3 py-1.5">Estimasi Sales</th>
-                  <th className="text-right font-medium px-3 py-1.5">Nilai SC (Insentif)</th>
+                  <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
+                  <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
+                  <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai SC (Insentif)</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,9 +121,9 @@ export function SalesCounterStatsPanel({
                   const v = metrics.monthlyBreakdownMap.get(m)!;
                   return (
                     <tr key={m} style={{ borderTop: `1px solid ${BORDER}` }}>
-                      <td className="px-3 py-1.5" style={{ color: MUTED }}>{formatPeriode(m)}</td>
-                      <td className="text-right px-3 py-1.5" style={{ color: TEXT }}>{v.estimasiSales > 0 ? formatRp(v.estimasiSales) : "-"}</td>
-                      <td className="text-right px-3 py-1.5 font-semibold" style={{ color: PRIMARY }}>{v.nilaiSc > 0 ? formatRp(v.nilaiSc) : "-"}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap" style={{ color: MUTED }}>{formatPeriode(m)}</td>
+                      <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap" style={{ color: TEXT }}>{v.estimasiSales > 0 ? formatRp(v.estimasiSales) : "-"}</td>
+                      <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap" style={{ color: PRIMARY }}>{v.nilaiSc > 0 ? formatRp(v.nilaiSc) : "-"}</td>
                     </tr>
                   );
                 })}

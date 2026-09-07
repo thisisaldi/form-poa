@@ -14,6 +14,7 @@ interface ProdukKompetitorSidebarProps {
   products: Array<any>;
   selectedCodes?: Set<string>;
   salesOnlineData?: any;
+  isLoadingSalesOnline?: boolean;
   periodLabel?: string;
 }
 
@@ -24,6 +25,7 @@ export function ProdukKompetitorSidebar({
   products = [],
   selectedCodes = new Set<string>(),
   salesOnlineData,
+  isLoadingSalesOnline = false,
   periodLabel,
 }: ProdukKompetitorSidebarProps) {
   const [kompetitorFilter, setKompetitorFilter] = useState<string>("semua");
@@ -91,6 +93,18 @@ export function ProdukKompetitorSidebar({
     return list;
   }, [cards, kompetitorFilter, searchQuery]);
 
+  const counts = useMemo(() => {
+    let survey = 0;
+    let healthyone = 0;
+    let b2b = 0;
+    for (const c of cards) {
+      if (c.hasSurvey) survey++;
+      if (c.hasHealthyOne) healthyone++;
+      if (c.hasB2b) b2b++;
+    }
+    return { semua: cards.length, survey, healthyone, b2b };
+  }, [cards]);
+
   const ITEMS_PER_PAGE = 4;
   const totalPages = Math.max(1, Math.ceil(filteredCards.length / ITEMS_PER_PAGE));
   const paginatedCards = useMemo(() => {
@@ -101,161 +115,211 @@ export function ProdukKompetitorSidebar({
   if (!isOpen) return null;
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        right: 0,
-        top: 0,
-        bottom: 0,
-        zIndex: 50,
-        width: 320,
-        background: "var(--color-bg)",
-        borderLeft: "1px solid var(--color-border)",
-        display: "flex",
-        flexDirection: "column",
-        boxShadow: "-4px 0 20px rgba(0,0,0,0.08)",
-      }}
-    >
-      {/* Sidebar Header */}
+    <>
+      {/* Mobile-only backdrop so on desktop the main page is not dimmed or blurred */}
       <div
-        style={{
-          padding: "12px 14px",
-          borderBottom: "1px solid var(--color-border)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          flexShrink: 0,
-          background: "var(--color-bg-subtle)",
-        }}
-      >
-        <div className="min-w-0 flex-1">
-          <h3
-            className="text-[11px] font-bold uppercase tracking-wider truncate"
-            style={{ color: "var(--color-text)" }}
-          >
-            Analisis Produk Kompetitor
-          </h3>
-          {outletName && (
-            <p
-              className="truncate text-xs font-semibold mt-0.5"
-              style={{ color: "var(--color-text)" }}
-            >
-              {outletName}
-            </p>
-          )}
-          <p className="text-[10px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-            Sumber: Survey, HealthyOne &amp; B2B {periodLabel ? `· Periode: ${periodLabel}` : ""}
-          </p>
-        </div>
+        className="fixed inset-0 bg-black/40 backdrop-blur-xs z-40 transition-opacity md:hidden"
+        onClick={onClose}
+        aria-hidden="true"
+      />
 
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            color: "var(--color-text-faint)",
-            fontSize: 18,
-            lineHeight: 1,
-            padding: "3px 6px",
-            cursor: "pointer",
-            flexShrink: 0,
-            borderRadius: 6,
-            border: "1px solid var(--color-border)",
-            background: "var(--color-surface)",
-          }}
-          title="Tutup helper"
-        >
-          ›
-        </button>
-      </div>
-
-      {/* Filter & Search Bar */}
-      <div
-        className="p-3 border-b space-y-2 shrink-0"
+      <aside
+        className="fixed right-0 top-0 bottom-0 z-50 w-[92vw] sm:w-[380px] max-w-[420px] flex flex-col shadow-2xl border-l transition-transform"
         style={{
           background: "var(--color-bg)",
           borderColor: "var(--color-border)",
         }}
       >
-        {/* Search Input */}
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Cari produk SC / zat aktif..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(1);
-            }}
-            className="w-full px-2.5 py-1.5 rounded-lg border outline-none transition-colors text-xs"
+        {/* Sidebar Header */}
+        <div
+          className="p-3 sm:px-4 sm:py-3.5 border-b flex items-center justify-between gap-3 shrink-0"
+          style={{
+            borderColor: "var(--color-border)",
+            background: "var(--color-bg-subtle)",
+          }}
+        >
+          <div className="min-w-0 flex-1">
+            <h3
+              className="text-xs font-bold uppercase tracking-wider truncate"
+              style={{ color: "var(--color-text)" }}
+            >
+              Analisis Produk Kompetitor
+            </h3>
+            {outletName && (
+              <p
+                className="truncate text-xs font-medium mt-0.5"
+                style={{ color: "var(--color-text)" }}
+              >
+                {outletName}
+              </p>
+            )}
+            <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--color-text-muted)" }}>
+              Sumber: Survey, HealthyOne &amp; B2B {periodLabel ? `· Periode: ${periodLabel}` : ""}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg border text-slate-500 hover:text-slate-800 hover:bg-[var(--color-bg-subtle)] transition-colors cursor-pointer shrink-0 shadow-2xs flex items-center justify-center"
             style={{
-              background: "var(--color-surface)",
               borderColor: "var(--color-border)",
-              color: "var(--color-text)",
+              background: "var(--color-surface)",
             }}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery("");
+            title="Tutup panel"
+            aria-label="Tutup panel"
+          >
+            <span className="text-sm font-bold leading-none">✕</span>
+          </button>
+        </div>
+
+        {/* Filter & Search Bar */}
+        <div
+          className="p-3 border-b space-y-2.5 shrink-0"
+          style={{
+            background: "var(--color-bg)",
+            borderColor: "var(--color-border)",
+          }}
+        >
+          {/* Search Input */}
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Cari produk SC / zat aktif..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
                 setPage(1);
               }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-
-        {/* Pill Filter Tabs */}
-        <div className="flex gap-1 overflow-x-auto pb-0.5 text-[11px]">
-          {[
-            { id: "semua", label: "Semua", activeBg: "#7c3aed" },
-            { id: "survey", label: "Survey", activeBg: "#dc2626" },
-            { id: "healthyone", label: "HealthyOne", activeBg: "#026D77" },
-            { id: "b2b", label: "B2B", activeBg: "#028CD5" },
-          ].map((f) => {
-            const isActive = kompetitorFilter === f.id;
-            return (
+              className="w-full px-3 py-1.5 pr-7 rounded-lg border outline-none transition-colors text-xs"
+              style={{
+                background: "var(--color-surface)",
+                borderColor: "var(--color-border)",
+                color: "var(--color-text)",
+              }}
+            />
+            {searchQuery && (
               <button
-                key={f.id}
                 type="button"
                 onClick={() => {
-                  setKompetitorFilter(f.id);
+                  setSearchQuery("");
                   setPage(1);
                 }}
-                className="px-2.5 py-0.5 rounded-full border transition-all cursor-pointer whitespace-nowrap text-[10px] font-semibold"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Pill Filter Tabs */}
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 text-[11px] no-scrollbar">
+            {[
+              {
+                id: "semua",
+                label: "Semua",
+                count: counts.semua,
+                activeBg: "#7c3aed",
+                activeText: "#ffffff",
+                activeBorder: "#7c3aed",
+                inactiveText: "#7c3aed",
+                inactiveBorder: "#ddd6fe",
+              },
+              {
+                id: "survey",
+                label: "Survey",
+                count: counts.survey,
+                activeBg: "#dc2626",
+                activeText: "#ffffff",
+                activeBorder: "#dc2626",
+                inactiveText: "#dc2626",
+                inactiveBorder: "#fca5a5",
+              },
+              {
+                id: "healthyone",
+                label: "HealthyOne",
+                count: counts.healthyone,
+                activeBg: "#026D77",
+                activeText: "#ffffff",
+                activeBorder: "#026D77",
+                inactiveText: "#026D77",
+                inactiveBorder: "#80ced4",
+              },
+              {
+                id: "b2b",
+                label: "B2B",
+                count: isLoadingSalesOnline ? "..." : counts.b2b,
+                activeBg: "#028CD5",
+                activeText: "#ffffff",
+                activeBorder: "#028CD5",
+                inactiveText: "#028CD5",
+                inactiveBorder: "#7dd3fc",
+              },
+            ].map((f) => {
+              const isActive = kompetitorFilter === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => {
+                    setKompetitorFilter(f.id);
+                    setPage(1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap shadow-2xs"
+                  style={{
+                    background: isActive ? f.activeBg : "var(--color-surface)",
+                    color: isActive ? f.activeText : f.inactiveText,
+                    borderColor: isActive ? f.activeBorder : f.inactiveBorder,
+                    fontWeight: isActive ? 700 : 500,
+                  }}
+                >
+                  <span>{f.label}</span>
+                  <span
+                    className="text-[9px] px-1.5 py-0.2 rounded-full font-bold leading-tight"
+                    style={{
+                      background: isActive ? "rgba(255,255,255,0.25)" : "var(--color-bg-subtle)",
+                      color: isActive ? "#ffffff" : f.inactiveText,
+                    }}
+                  >
+                    {f.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Cards List (Scrollable) */}
+        <div
+          className="flex-1 overflow-y-auto p-3 space-y-2.5"
+          style={{ background: "var(--color-bg)" }}
+        >
+          {paginatedCards.length === 0 ? (
+            isLoadingSalesOnline && kompetitorFilter === "b2b" ? (
+              <div
+                className="rounded-lg border p-6 text-center text-xs space-y-2"
                 style={{
-                  background: isActive ? f.activeBg : "var(--color-surface)",
-                  color: isActive ? "#ffffff" : "var(--color-text-muted)",
-                  borderColor: isActive ? f.activeBg : "var(--color-border)",
+                  color: "var(--color-text-muted)",
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-surface)",
                 }}
               >
-                {f.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Cards List (Scrollable) */}
-      <div
-        className="flex-1 overflow-y-auto p-3 space-y-2.5"
-        style={{ background: "var(--color-bg)" }}
-      >
-        {paginatedCards.length === 0 ? (
-          <div
-            className="rounded-lg border p-4 text-center text-xs"
-            style={{
-              color: "var(--color-text-faint)",
-              borderColor: "var(--color-border)",
-              background: "var(--color-surface)",
-            }}
-          >
-            Tidak ada produk yang cocok dengan pencarian atau filter ini.
-          </div>
-        ) : (
+                <div className="inline-block w-5 h-5 border-2 border-[#028CD5] border-t-transparent rounded-full animate-spin" />
+                <p>Memuat data Sell In (B2B)...</p>
+              </div>
+            ) : (
+              <div
+                className="rounded-lg border p-4 text-center text-xs"
+                style={{
+                  color: "var(--color-text-faint)",
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-surface)",
+                }}
+              >
+                Tidak ada produk yang cocok dengan pencarian atau filter ini.
+              </div>
+            )
+          ) : (
           paginatedCards.map((item, idx) => {
             const showSurvey = kompetitorFilter === "semua" || kompetitorFilter === "survey";
             const showHealthyOne =
@@ -534,6 +598,7 @@ export function ProdukKompetitorSidebar({
           </button>
         </div>
       )}
-    </div>
+      </aside>
+    </>
   );
 }

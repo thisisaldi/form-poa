@@ -7,19 +7,10 @@ import { SalesCounterDetailTabs } from "@/components/sc/SalesCounterDetailTabs";
 import { displayRole } from "@/lib/role";
 import { EditQuarterControl } from "@/components/poa/EditQuarterControl";
 import { getSalesCounterDetailData } from "./_services/getSalesCounterDetailData";
+import { SalesCounterActivityTimeline } from "@/components/sc/detail/SalesCounterActivityTimeline";
 import type { PoaAuditLog, User } from "@prisma/client";
 
 export const metadata = { title: "Detail POA Sales Counter · Form POA" };
-
-const AUDIT_ACTION_LABELS: Record<string, string> = {
-  CREATE: "membuat draft SC",
-  UPDATE: "mengedit SC",
-  SUBMIT: "mengajukan SC",
-  APPROVE: "menyetujui SC",
-  REVISE: "mengedit SC (kembali ke Revisi)",
-  REJECT: "menolak SC",
-  CANCEL: "membatalkan approval SC",
-};
 
 export default async function SalesCounterDetailPage({
   params,
@@ -117,43 +108,28 @@ export default async function SalesCounterDetailPage({
         </div>
       )}
 
-      <details>
-        <summary className="cursor-pointer select-none list-none">
-          <Card><p className="font-semibold text-sm">Riwayat Aktivitas SC</p></Card>
+      <details className="group">
+        <summary
+          className="cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden [&::marker]:hidden"
+          style={{ listStyle: "none" }}
+        >
+          <Card className="flex items-center justify-between hover:bg-[var(--color-bg-subtle)] transition-colors cursor-pointer">
+            <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>
+              Riwayat Aktivitas SC
+            </p>
+            <span
+              className="text-xs transition-transform duration-200 group-open:rotate-180"
+              style={{ color: "var(--color-text-muted)" }}
+            >
+              ▼
+            </span>
+          </Card>
         </summary>
-        <Card className="mt-2">
-          {poa.auditLogs.length === 0 ? <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Belum ada aktivitas.</p> : (
-            <ol className="relative space-y-4 pl-5 border-l" style={{ borderColor: "var(--color-border)" }}>
-              {(poa.auditLogs as (PoaAuditLog & { actor: User })[]).map((log) => (
-                <li key={log.id} className="relative">
-                  <span
-                    className="absolute left-[-1.4rem] mt-1 h-2.5 w-2.5 rounded-full border-2 border-white"
-                    style={{ background: "var(--color-blue)" }}
-                  />
-                  <p className="text-xs font-mono" style={{ color: "var(--color-text-faint)" }}>
-                    {new Date(log.createdAt).toLocaleString("id-ID", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
-                    {log.actor.name}
-                    <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>
-                      {AUDIT_ACTION_LABELS[log.action] ?? log.action.toLowerCase()}
-                    </span>
-                  </p>
-                  {log.toStatus && log.toStatus !== log.fromStatus && (
-                    <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      → {log.toStatus.replace(/_/g, " ")}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
+        <Card className="mt-2 p-0 overflow-hidden">
+          <SalesCounterActivityTimeline
+            auditLogs={poa.auditLogs}
+            outlets={scDrafts}
+          />
         </Card>
       </details>
     </div>
