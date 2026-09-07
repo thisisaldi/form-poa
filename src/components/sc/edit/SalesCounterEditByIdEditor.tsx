@@ -180,7 +180,7 @@ export function SalesCounterEditByIdEditor({
   isOwner,
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
 
   // Pre-filled locked values
@@ -694,11 +694,12 @@ export function SalesCounterEditByIdEditor({
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate() || isSubmitting) return;
 
-    startTransition(async () => {
+    setIsSubmitting(true);
+    try {
       const res = await saveSalesCounterFormAction(
         poaPeriod,
         kodePI,
@@ -716,11 +717,15 @@ export function SalesCounterEditByIdEditor({
         scId
       );
       if (res.ok) {
-        router.push(`/sc/${scId}`);
+        window.location.href = `/sc/${scId}`;
       } else {
         alert(res.error || "Gagal menyimpan data.");
+        setIsSubmitting(false);
       }
-    });
+    } catch (err: any) {
+      alert(err?.message || "Terjadi kesalahan saat menyimpan data.");
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1193,16 +1198,16 @@ export function SalesCounterEditByIdEditor({
       {/* ACTION BUTTONS */}
       <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: "var(--color-border)" }}>
         {readOnly ? (
-          <Button type="button" variant="secondary" onClick={() => router.push(`/sc/${poaPeriod}`)}>
+          <Button type="button" variant="secondary" onClick={() => router.push(`/sc/${scId}`)}>
             Kembali ke Detail
           </Button>
         ) : (
           <>
-            <Button type="button" variant="ghost" onClick={() => router.push(`/sc/${poaPeriod}`)} disabled={isPending}>
+            <Button type="button" variant="ghost" onClick={() => router.push(`/sc/${scId}`)} disabled={isSubmitting}>
               Batal
             </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Menyimpan..." : "Simpan Perubahan"}
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Menyimpan..." : "Simpan Perubahan"}
             </Button>
           </>
         )}
