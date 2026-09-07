@@ -20,6 +20,13 @@
  * per-GT row shape as "get target all" above, instead of one summed total
  * per periode — scoped to just this nip's subtree of GTs.
  *
+ * `?namaGT=` (ignored if `?nip=` is also present/forced — nip wins): same
+ * per-GT row shape as "get target all", filtered to just that one GT.
+ * Matched via normalizeGTName (targetHospitalValue.ts) so either the live
+ * Outlet.namaGT spelling or the TargetHospitalValue/Excel spelling works.
+ * For a session NSM, `nip` is always forced to their own nip (see below), so
+ * `?namaGT=` only ever takes effect for Basic Auth or an ADMIN session.
+ *
  * Two credential paths, same pattern as /api/poa-doctors (2026-08-19): the
  * app's own browser calls carry a session cookie; an external app
  * authenticates with HTTP Basic Auth instead, checked against the SAME
@@ -62,6 +69,7 @@ export async function GET(req: NextRequest) {
   const periode = req.nextUrl.searchParams.get("periode")?.trim();
   const nip = forcedNip ?? req.nextUrl.searchParams.get("nip")?.trim();
   const breakdown = req.nextUrl.searchParams.has("breakdown");
+  const namaGT = req.nextUrl.searchParams.get("namaGT")?.trim();
 
   if (nip) {
     const person = await prisma.user.findUnique({ where: { nip }, select: { nip: true, name: true, role: true } });
@@ -90,8 +98,13 @@ export async function GET(req: NextRequest) {
     })));
   }
 
-  // No nip: one row per GT per periode — namaGT+periode is already unique
-  // (schema.prisma), so no aggregation needed.
+  if (namaGT) {
+    const rows = await getTargetHospitalValueRowsForGTs([namaGT], periode);
+    return NextResponse.json(rows);
+  }
+
+  // No nip, no namaGT: one row per GT per periode — namaGT+periode is
+  // already unique (schema.prisma), so no aggregation needed.
   const where: Record<string, unknown> = {};
   if (periode) where.periode = periode;
 
