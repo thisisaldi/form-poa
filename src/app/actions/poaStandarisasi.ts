@@ -745,8 +745,35 @@ export async function setDokterTtdAction(produkId: string, customerId: string, s
   revalidatePath(`/poa-standarisasi/${produk.pengajuanId}`);
 }
 
-/** Phase 3 → Phase 4. Requires "Sudah TTD" dicentang for every dokter WAJIB di setiap produk. */
-export async function advanceToMenungguMeetingKftAction(id: string): Promise<void> {
+/**
+ * "Jadwal Meeting KFT" — sekarang cuma satu field optional di card kecil
+ * sidebar Approval User/Dokter (2026-09-08, redline kedua user: bukan phase
+ * terpisah lagi, lihat advanceToFinalisasiAction di bawah). Phase-agnostic
+ * (tidak gate ke currentPhase tertentu) — sama seperti field lain yang boleh
+ * diedit kapan saja pengajuan masih editable, bukan cuma di satu step.
+ */
+export async function saveJadwalMeetingKftAction(id: string, jadwalMeetingKft: string | null): Promise<void> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+
+  await prisma.poaStandarisasi.update({
+    where: { id },
+    data: { jadwalMeetingKft: jadwalMeetingKft ? new Date(jadwalMeetingKft) : null },
+  });
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+/**
+ * Phase 3 → Phase 5, langsung (2026-09-08, user request: hapus "Menunggu
+ * Meeting KFT" dari flow — was Phase 3 → Phase 4 → Phase 5, dua actions
+ * terpisah, digabung jadi satu di sini). Requires "Sudah TTD" dicentang untuk
+ * setiap dokter WAJIB di setiap produk, sama seperti sebelumnya. Enum
+ * PoaStandarisasiPhase.MENUNGGU_MEETING_KFT tetap ada di schema (data
+ * historis), tapi tidak pernah di-set lagi mulai sekarang.
+ */
+export async function advanceToFinalisasiAction(id: string): Promise<void> {
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({
     where: { id },
@@ -759,45 +786,6 @@ export async function advanceToMenungguMeetingKftAction(id: string): Promise<voi
     p.dokterApproval.some((d: (typeof p.dokterApproval)[number]) => d.wajib && !d.sudahTtd)
   );
   if (belumTtd) throw new Error("Centang Sudah TTD untuk semua dokter wajib sebelum lanjut.");
-
-  await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "MENUNGGU_MEETING_KFT" } });
-  revalidatePath(`/poa-standarisasi/${id}`);
-}
-
-// ─── Phase 4: Menunggu Meeting KFT ──────────────────────────────────────────
-// Just the meeting schedule + browsing Dokumen Standarisasi NIE/COA/CPOB/Flyer
-// (read-only, diupload dari tempat lain — lihat PoaStandarisasiDokumen).
-// "Permintaan SP Non Sales" (dokumen jenis lain) dan upload "Form Approval
-// Standarisasi" dipindah ke Finalisasi (2026-08-26, user request).
-
-export interface MenungguMeetingKftInput {
-  jadwalMeetingKft: string | null; // ISO datetime
-}
-
-export async function saveMenungguMeetingKftAction(id: string, input: MenungguMeetingKftInput): Promise<void> {
-  const { actor } = await requireActor();
-  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
-  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
-  if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
-  if (pengajuan.currentPhase !== "MENUNGGU_MEETING_KFT") throw new Error("Pengajuan tidak sedang di fase ini.");
-
-  await prisma.poaStandarisasi.update({
-    where: { id },
-    data: { jadwalMeetingKft: input.jadwalMeetingKft ? new Date(input.jadwalMeetingKft) : null },
-  });
-  revalidatePath(`/poa-standarisasi/${id}`);
-}
-
-/** Phase 4 → Phase 5. Requires "Form Approval Standarisasi" uploaded for every produk. */
-export async function advanceToFinalisasiAction(id: string): Promise<void> {
-  const { actor } = await requireActor();
-  const pengajuan = await prisma.poaStandarisasi.findUnique({
-    where: { id },
-    include: { produk: { include: { dokterApproval: true } } },
-  });
-  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
-  if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
-  if (pengajuan.currentPhase !== "MENUNGGU_MEETING_KFT") throw new Error("Pengajuan tidak sedang di fase Menunggu Meeting KFT.");
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Seed PoaStandarisasiDokterUser from every sudahTtd dokter in Phase 3
