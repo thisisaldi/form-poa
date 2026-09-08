@@ -1077,7 +1077,7 @@ export function PlanningPhase(props: {
 
   return (
     <>
-      <RekomendasiSidebar kodePI={kodePI} pengajuanId={pengajuanId} productByKode={productByKode} dokterList={dokterList} />
+      <RekomendasiSidebar kodePI={kodePI} pengajuanId={pengajuanId} productByKode={productByKode} />
       <Card className="mb-4">
         <CardHeader><CardTitle>Planning Standarisasi</CardTitle></CardHeader>
         <div className="max-w-lg mb-4">

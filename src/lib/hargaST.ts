@@ -37,3 +37,17 @@ export function hargaST(product: Product): number {
   const konversi = parseFloat(product.konversiPembagi ?? "1") || 1;
   return hna / konversi;
 }
+
+/**
+ * Display label for `OutletProductKriteria.kategori` (2026-09-08, user
+ * request: "Red Ocean"/"Blue Ocean" terminology retired from every user-
+ * facing surface). The raw DB value stays "Blue Ocean"/"Red Ocean" — it's
+ * imported verbatim from the source master-data Excel and matched against
+ * elsewhere (e.g. RekomendasiSidebar's KRITERIA_SECTIONS) — this only
+ * relabels what the user reads, never the underlying stored/matched string.
+ */
+export function formatKategoriLabel(kategori: string): string {
+  if (kategori === "Blue Ocean") return "Kompetisi Rendah";
+  if (kategori === "Red Ocean") return "Kompetisi Tinggi";
+  return kategori;
+}

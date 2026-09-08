@@ -250,6 +250,44 @@ export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukL
   return result;
 }
 
+export interface StandarisasiDataForDokterProduk {
+  jumlahPasien: number | null;
+  resepPerPasienSt: number | null;
+}
+
+/**
+ * "Tarik Data POA Standarisasi" toggle in POA Estimasi (2026-09-08, atasan
+ * redline) — lets an MR pull Pasien Baru/Hari + Jml Produk ST/Pasien Baru
+ * straight from a POA Standarisasi Finalisasi row for the SAME outlet +
+ * dokter + produk, instead of retyping numbers already entered there. Only
+ * returns a match when that pengajuan has actually reached Finalisasi
+ * (`currentPhase === "FINALISASI"`, which also covers post-submit/Step 5 —
+ * this app never advances currentPhase past FINALISASI) — a match earlier in
+ * the flow (still Planning/Approval) isn't final enough to trust yet.
+ * "Hari Praktek" is NOT included — POA Standarisasi has no equivalent field
+ * per dokter, only the estimasi Pasien/Resep numbers.
+ */
+export async function getStandarisasiDataForDokterProdukAction(
+  kodePI: string,
+  kodeCustomer: string,
+  kodeProduk: string
+): Promise<StandarisasiDataForDokterProduk | null> {
+  if (!kodePI || !kodeCustomer || !kodeProduk) return null;
+  const row = await prisma.poaStandarisasiDokterUser.findFirst({
+    where: {
+      customer: { kodeCustomer },
+      produk: { kodeProduk, pengajuan: { kodePI, currentPhase: "FINALISASI" } },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { jumlahPasien: true, resepPerPasienSt: true },
+  });
+  if (!row) return null;
+  return {
+    jumlahPasien: row.jumlahPasien,
+    resepPerPasienSt: row.resepPerPasienSt != null ? parseFloat(row.resepPerPasienSt.toString()) : null,
+  };
+}
+
 export interface SalesHistoryOutletRow {
   kodeProduk: string;
   namaProduk: string;
@@ -795,11 +833,24 @@ export async function advanceToFinalisasiAction(id: string): Promise<void> {
     // dokter yang sudah TTD di Phase 3") — was never actually done, leaving
     // Finalisasi's dokter list permanently empty. skipDuplicates makes this
     // safe to re-run if the pengajuan ever revisits this transition.
+    // 2026-09-08 bug fix: seed dulu cuma copy {produkId, customerId} — angka
+    // (jumlahPasien/resepPerPasienSt/estimasi*/entertainRp) dibiarkan null,
+    // jadi Finalisasi tampil 0 padahal sudah diisi di Planning. Sekarang
+    // seed langsung bawa angka Planning-nya juga, sama seperti pola diskon
+    // (finalDiscountPct dst. default dari estimasiDiskonPct).
     for (const p of pengajuan.produk) {
-      const ttdCustomerIds = p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd).map((d: (typeof p.dokterApproval)[number]) => d.customerId);
-      if (ttdCustomerIds.length === 0) continue;
+      const ttdDokter = p.dokterApproval.filter((d: (typeof p.dokterApproval)[number]) => d.sudahTtd);
+      if (ttdDokter.length === 0) continue;
       await tx.poaStandarisasiDokterUser.createMany({
-        data: ttdCustomerIds.map((customerId: string) => ({ produkId: p.id, customerId })),
+        data: ttdDokter.map((d: (typeof p.dokterApproval)[number]) => ({
+          produkId: p.id,
+          customerId: d.customerId,
+          jumlahPasien: d.jumlahPasien,
+          resepPerPasienSt: d.resepPerPasienSt,
+          estimasiQtyPerBulan: d.estimasiQtyPerBulan,
+          estimasiSalesRpPerBulan: d.estimasiNilaiRpPerBulan,
+          entertainRp: d.entertainRp,
+        })),
         skipDuplicates: true,
       });
     }

@@ -16,7 +16,7 @@ export type { MockCustomer as Customer };
 // that file's doc comment. Re-exported here so existing server-side callers
 // of `@/lib/masterData` keep working unchanged.
 export type { Product } from "./hargaST";
-export { hargaST } from "./hargaST";
+export { hargaST, formatKategoriLabel } from "./hargaST";
 
 // ─── Outlet queries ───────────────────────────────────────────────────────────
 

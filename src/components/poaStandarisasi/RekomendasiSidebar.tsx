@@ -18,10 +18,10 @@ import {
   getKriteriaByOutlet,
   type SurveyRekomendasiOutletRow,
   type KriteriaByOutlet,
-  type CustomerOption,
 } from "@/app/actions/customer";
 import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
+import { formatKategoriLabel } from "@/lib/hargaST";
 
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
@@ -51,9 +51,8 @@ function pillStyle(color: string, active: boolean): React.CSSProperties {
   };
 }
 
-export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterList }: { kodePI: string; pengajuanId?: string; productByKode: Map<string, Product>; dokterList?: CustomerOption[] }) {
+export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kodePI: string; pengajuanId?: string; productByKode: Map<string, Product> }) {
   const [activeTab, setActiveTab] = useState<Tab | null>(null);
-  const [spesialisasiOpen, setSpesialisasiOpen] = useState(false);
   const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiOutletRow[] | null>(null);
   const [kriteriaRows, setKriteriaRows] = useState<KriteriaByOutlet[] | null>(null);
   const [standarisasiRows, setStandarisasiRows] = useState<StandarisasiProdukOutletRow[] | null>(null);
@@ -113,16 +112,6 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
 
   const standarisasiKode = useMemo(() => new Set(standarisasiMerged.map((r) => r.kodeProduk)), [standarisasiMerged]);
 
-  const spesialisasiCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const d of dokterList ?? []) {
-      const s = d.jabatan?.trim();
-      if (!s) continue;
-      counts.set(s, (counts.get(s) ?? 0) + 1);
-    }
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  }, [dokterList]);
-
   // "Belum" first, "Sudah" last (user request 2026-08-26) — so the products
   // still needing attention aren't buried below ones already standardized.
   function sortByStandarisasi<T extends { kodeProduk: string }>(rows: T[]): T[] {
@@ -174,31 +163,6 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
           ›
         </button>
       </div>
-
-      {spesialisasiCounts.length > 0 && (
-        <div style={{ borderBottom: "1px solid var(--color-border)", flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={() => setSpesialisasiOpen((v) => !v)}
-            className="w-full flex items-center justify-between gap-2"
-            style={{ padding: "6px 14px", cursor: "pointer", background: "transparent", border: "none" }}
-          >
-            <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>
-              Jabatan outlet ({spesialisasiCounts.length})
-            </span>
-            <span style={{ color: "var(--color-text-faint)", fontSize: 10 }}>{spesialisasiOpen ? "▲ tutup" : "▼ lihat"}</span>
-          </button>
-          {spesialisasiOpen && (
-            <div className="flex flex-wrap gap-1" style={{ padding: "0 14px 8px" }}>
-              {spesialisasiCounts.map(([s, n]) => (
-                <span key={s} className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
-                  {s} ({n})
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-3">
         {activeTab === "survey" && <SurveyOutletPanel rows={surveyRows} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
@@ -298,13 +262,13 @@ const KRITERIA_SECTIONS: { key: string; label: string; color: string; match: (r:
   },
   {
     key: "blue-ocean",
-    label: "Produk Rekomendasi PM (Blue Ocean)",
+    label: "Produk Rekomendasi PM (Kompetisi Rendah)",
     color: SIDEBAR_BLUE,
     match: (r) => r.kategori === "Blue Ocean",
   },
   {
     key: "red-ocean",
-    label: "Produk Rekomendasi PM (Red Ocean)",
+    label: "Produk Rekomendasi PM (Kompetisi Tinggi)",
     color: "var(--color-red, #dc2626)",
     match: (r) => r.kategori === "Red Ocean",
   },
@@ -340,7 +304,7 @@ function KriteriaOutletPanel({ rows, productByKode, standarisasiKode, sortByStan
                   <StandarisasiBadge done={standarisasiKode.has(r.kodeProduk)} />
                 </div>
                 <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                  {r.paket} · {r.kriteriaBaru} · <span style={{ color: "var(--color-text-muted)" }}>{r.kategori}</span>
+                  {r.paket} · {r.kriteriaBaru} · <span style={{ color: "var(--color-text-muted)" }}>{formatKategoriLabel(r.kategori)}</span>
                 </div>
               </div>
             ))}

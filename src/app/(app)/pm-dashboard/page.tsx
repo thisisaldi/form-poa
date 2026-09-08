@@ -6,6 +6,7 @@ import { getSubordinateMRNips } from "@/lib/authz";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { spesLabel } from "@/lib/spesialisasi";
 import { formatCurrency as formatRp } from "@/lib/format";
+import { formatKategoriLabel } from "@/lib/hargaST";
 
 export const metadata = { title: "PM Dashboard · Form POA" };
 
@@ -223,7 +224,7 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
                       <p className="font-medium text-xs" style={{ color: "var(--color-text)" }}>{row.namaProduk}</p>
                       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{row.kodeProduk}</p>
                     </td>
-                    <td className="py-2.5 px-2 text-xs" style={{ color: "var(--color-text-muted)" }}>{row.kategori}</td>
+                    <td className="py-2.5 px-2 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatKategoriLabel(row.kategori)}</td>
                     <td className="py-2.5 px-2 text-xs font-medium text-right" style={{ color: "var(--color-text)" }}>
                       {formatRp(row.estimasiSales)}
                     </td>
