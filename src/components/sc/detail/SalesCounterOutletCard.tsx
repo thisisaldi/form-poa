@@ -151,18 +151,8 @@ export function SalesCounterOutletCard({
     else if (draft.status === "APPROVED_BY_NSM") lockLevel = 3;
 
     if (isOwner) {
-      if (userRole === "MR") {
-        return (
-          draft.status === "DRAFT" ||
-          draft.status === "REVISI" ||
-          draft.status === "SUBMITTED_TO_ASM"
-        );
-      }
-      if (
-        draft.status === "DRAFT" ||
-        draft.status === "REVISI" ||
-        draft.status === "SUBMITTED_TO_ASM"
-      ) return true;
+      // Owner (MR) can always click Edit to modify and submit edit request
+      return true;
     }
 
     if (userLevel >= 0 && lockLevel >= 0) {
@@ -854,19 +844,33 @@ export function SalesCounterOutletCard({
 
       {/* Footer Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-        <button
-          type="button"
-          onClick={() => {
-            if (detailOpen && isKompetitorOpen) {
-              onCloseKompetitor?.();
-            }
-            setDetailOpen((v) => !v);
-          }}
-          className="text-xs hover:underline cursor-pointer"
-          style={{ color: "var(--color-text-faint)" }}
-        >
-          Detail Produk {detailOpen ? "▲" : "▼"}
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              if (detailOpen && isKompetitorOpen) {
+                onCloseKompetitor?.();
+              }
+              setDetailOpen((v) => !v);
+            }}
+            className="text-xs hover:underline cursor-pointer"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            Detail Produk {detailOpen ? "▲" : "▼"}
+          </button>
+
+          {draft.updatedAt && (
+            <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+              Terakhir diperbarui: {new Date(draft.updatedAt).toLocaleString("id-ID", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          )}
+        </div>
 
         <div className="flex items-center gap-2 flex-wrap ml-auto">
           <Link

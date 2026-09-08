@@ -259,6 +259,140 @@ export async function getExodusOutletIdByCode(outletCode: string): Promise<numbe
   }
 }
 
+function parseBudgetResponse(json: unknown): number {
+  if (!json) return 0;
+  if (typeof json === "number") return json;
+
+  const data =
+    typeof json === "object" && json !== null && "data" in json
+      ? (json as { data: unknown }).data
+      : json;
+
+  if (typeof data === "number") return data;
+
+  const extractCost = (obj: Record<string, unknown>): number => {
+    // Check inside nested 'cost' object if present
+    const costObj =
+      typeof obj.cost === "object" && obj.cost !== null
+        ? (obj.cost as Record<string, unknown>)
+        : obj;
+
+    return (
+      Number(
+        costObj.total_entertain_base_cost ??
+          costObj.entertain_base_cost ??
+          costObj.total_entertain ??
+          costObj.budget_entertain ??
+          costObj.history_entertain ??
+          costObj.entertain ??
+          costObj.total_discount_base_cost ??
+          costObj.discount_base_cost ??
+          costObj.budget ??
+          costObj.total_budget ??
+          costObj.total ??
+          costObj.value ??
+          costObj.amount ??
+          0
+      ) || 0
+    );
+  };
+
+  if (Array.isArray(data)) {
+    if (data.length === 0) return 0;
+    // Sum across all periods (e.g. 2026-01 through 2026-12)
+    let total = 0;
+    for (const item of data) {
+      if (typeof item === "number") {
+        total += item;
+      } else if (typeof item === "object" && item !== null) {
+        total += extractCost(item as Record<string, unknown>);
+      }
+    }
+    return total;
+  }
+
+  if (typeof data === "object" && data !== null) {
+    return extractCost(data as Record<string, unknown>);
+  }
+
+  return 0;
+}
+
+/**
+ * Fetches budget / history entertain for an outlet from Exodus:
+ * `/analytics/v1/budgets`
+ * Required query parameters:
+ * - structure_period: last date of current month in RFC3339 format (e.g. "2026-09-30T23:59:59Z")
+ * - period: year only (e.g. "2026")
+ * - outlet_ids: numeric Exodus outlet ID from getExodusOutletIdByCode
+ */
+export async function getExodusOutletBudgets(
+  outletCode: string,
+  params?: { structurePeriod?: string; period?: string | number }
+): Promise<number | null> {
+  if (!outletCode) return null;
+
+  const outletId = await getExodusOutletIdByCode(outletCode);
+  if (outletId == null) {
+    console.warn(`[Exodus] Outlet ID not found for code ${outletCode}`);
+    return null;
+  }
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const monthStr = String(month + 1).padStart(2, "0");
+    const lastDay = new Date(year, month + 1, 0).getDate();
+
+    // Period: Tahun saja (misal "2026")
+    let period = params?.period ? String(params.period) : String(year);
+    const mYear = period.match(/^(\d{4})/);
+    if (mYear) {
+      period = mYear[1];
+    }
+
+    let structurePeriod = params?.structurePeriod;
+    if (!structurePeriod) {
+      structurePeriod = `${year}-${monthStr}-${String(lastDay).padStart(2, "0")}T23:59:59Z`;
+    } else if (/^\d{2}-\d{2}-\d{4}$/.test(structurePeriod)) {
+      const [d, m, y] = structurePeriod.split("-");
+      structurePeriod = `${y}-${m}-${d}T23:59:59Z`;
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(structurePeriod)) {
+      structurePeriod = `${structurePeriod}T23:59:59Z`;
+    }
+
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/analytics/v1/budgets`);
+    url.searchParams.set("structure_period", structurePeriod);
+    url.searchParams.set("period", period);
+    url.searchParams.set("outlet_ids", String(outletId));
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      console.error(`[Exodus] /analytics/v1/budgets error status: ${res.status}`);
+      return null;
+    }
+
+    const text = await res.text();
+    if (!text || text.trim() === "") {
+      return 0;
+    }
+
+    const json = JSON.parse(text);
+    return parseBudgetResponse(json);
+  } catch (err) {
+    console.error(`[Exodus] Error in getExodusOutletBudgets for ${outletCode}:`, err);
+    return null;
+  }
+}
+
 // Full outlet_code → Exodus's own numeric outlet id, fetched UNFILTERED in
 // one call (like getLiveProductPricing) instead of per-code (like
 // getExodusOutletIdByCode above) — needed for /api/poa-doctors' outlet_id

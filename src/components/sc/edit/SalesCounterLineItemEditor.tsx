@@ -13,7 +13,7 @@ import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
-import { getScOutletB3SalesAction, postHistorySalesAction } from "@/app/actions/canvasser";
+import { getScOutletB3SalesAction, postHistorySalesAction, getHistoryEntertainAction } from "@/app/actions/canvasser";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
@@ -184,11 +184,11 @@ export function SalesCounterLineItemEditor({
     [savedDrafts, outletId]
   );
 
-  const isReadOnly = activeDraft
-    ? activeDraft.status !== "DRAFT" &&
-      activeDraft.status !== "REVISI" &&
-      activeDraft.status !== "SUBMITTED_TO_ASM"
-    : false;
+  const isReadOnly = false;
+  const isSubmittingEditRequest =
+    activeDraft &&
+    activeDraft.status !== "DRAFT" &&
+    activeDraft.status !== "REVISI";
 
   const currentStatus = activeDraft ? activeDraft.status : "DRAFT";
   const currentVersion = activeDraft ? activeDraft.version : 1;
@@ -244,6 +244,34 @@ export function SalesCounterLineItemEditor({
   const selectedPerson = personId ? personsList.find((p) => p.person_id === personId) : null;
   const totalEstimasi = selectedProducts.reduce((sum, p) => sum + p.rencanaTotalBiaya, 0);
   const totalEntertain = entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
+
+  const [historyEntertain, setHistoryEntertain] = useState<number | null>(null);
+  const [loadingHistoryEntertain, setLoadingHistoryEntertain] = useState(false);
+
+  useEffect(() => {
+    const outletCode = selectedOutlet?.kodePI;
+    if (!outletCode) {
+      setHistoryEntertain(null);
+      return;
+    }
+    let isMounted = true;
+    setLoadingHistoryEntertain(true);
+    getHistoryEntertainAction(outletCode)
+      .then((val) => {
+        if (isMounted) setHistoryEntertain(val ?? 0);
+      })
+      .catch((err) => {
+        console.error("Error fetching history entertain:", err);
+        if (isMounted) setHistoryEntertain(0);
+      })
+      .finally(() => {
+        if (isMounted) setLoadingHistoryEntertain(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedOutlet?.kodePI]);
 
   const monthlyBreakdown = activeMonths.map((m) => {
     let monthlyEstimasiSales = 0;
@@ -405,20 +433,7 @@ export function SalesCounterLineItemEditor({
             </div>
           </div>
 
-          {isReadOnly && (
-            <div
-              className="rounded-md px-4 py-3 text-sm font-medium"
-              style={{
-                background: "var(--color-blue-light, #eff6ff)",
-                color: "var(--color-blue)",
-                border: "1px solid var(--color-blue)",
-              }}
-            >
-              Mode Lihat (Read-Only) — Outlet ini sudah di-<strong>{formatHumanStatus(activeDraft?.status)}</strong> dan sedang dalam proses approval Atasan sehingga tidak dapat diubah oleh MR.
-            </div>
-          )}
-
-          {activeDraft?.status === "SUBMITTED_TO_ASM" && (
+          {isSubmittingEditRequest && (
             <div
               className="rounded-md px-4 py-3 text-sm font-medium"
               style={{
@@ -427,7 +442,7 @@ export function SalesCounterLineItemEditor({
                 border: "1px solid var(--color-warning, #f59e0b)",
               }}
             >
-              Outlet ini sudah di-<strong>Submitted to ASM</strong> (Menunggu Review ASM). Perubahan yang Anda simpan akan memperbarui data pengajuan tersebut.
+              Outlet ini sudah berstatus <strong>{formatHumanStatus(activeDraft?.status)}</strong>. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {activeDraft?.status === "SUBMITTED_TO_NSM" || activeDraft?.status === "APPROVED_BY_SM" || activeDraft?.status === "APPROVED_BY_NSM" ? "SM" : "ASM"}).
             </div>
           )}
 
@@ -763,7 +778,11 @@ export function SalesCounterLineItemEditor({
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
                   <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
-                    History Entertain: Rp 100.000
+                    History Entertain: {loadingHistoryEntertain ? (
+                      <span className="animate-pulse opacity-60">Memuat...</span>
+                    ) : (
+                      `Rp ${Math.round(historyEntertain ?? 0).toLocaleString("id-ID")}`
+                    )}
                   </span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
@@ -1079,8 +1098,12 @@ export function SalesCounterLineItemEditor({
           <Button type="button" variant="ghost" onClick={handleCancel} disabled={isPending}>
             Batal
           </Button>
-          <Button type="submit" disabled={isPending || isReadOnly}>
-            {isReadOnly ? "Terkunci (Sudah Diajukan)" : isPending ? "Menyimpan..." : "Simpan Rencana"}
+          <Button type="submit" disabled={isPending}>
+            {isPending
+              ? "Menyimpan..."
+              : isSubmittingEditRequest
+              ? "Ajukan Edit"
+              : "Simpan Rencana"}
           </Button>
         </div>
       </form>

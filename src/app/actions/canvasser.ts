@@ -162,7 +162,17 @@ export async function getRecommendedProCodesAction(sourceProCodes?: string[]): P
   }
 }
 
+import { getExodusOutletBudgets } from "@/lib/exodusApi";
+
 export async function getBlastInDataAction(outletId: string, year?: number) {
   if (!outletId) return null;
   return await getBlastInData(outletId, year);
+}
+
+export async function getHistoryEntertainAction(
+  outletCode: string,
+  params?: { structurePeriod?: string; period?: string | number }
+): Promise<number | null> {
+  if (!outletCode) return null;
+  return await getExodusOutletBudgets(outletCode, params);
 }

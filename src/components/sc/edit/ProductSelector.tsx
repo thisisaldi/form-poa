@@ -324,15 +324,15 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[30%] min-w-[210px]" : "w-[33%] min-w-[230px]") : (!readOnly ? "w-[25%] min-w-[190px]" : "w-[28%] min-w-[210px]");
-  const colPotensiWidth = isCashbackNotFound ? "w-[9%] min-w-[85px]" : "w-[8%] min-w-[80px]";
+  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[29%] min-w-[230px]" : "w-[33%] min-w-[250px]") : (!readOnly ? "w-[24%] min-w-[210px]" : "w-[28%] min-w-[230px]");
+  const colPotensiWidth = isCashbackNotFound ? "w-[8%] min-w-[80px]" : "w-[7%] min-w-[75px]";
   const colSwitchWidth = isCashbackNotFound ? "w-[15%] min-w-[130px]" : "w-[13%] min-w-[125px]";
-  const colDiskonWidth = "w-[8%] min-w-[65px]";
-  const colEstSalesWidth = isCashbackNotFound ? "w-[18%] min-w-[140px]" : "w-[16%] min-w-[135px]";
-  const colNilaiScWidth = isCashbackNotFound ? "w-[16%] min-w-[135px]" : "w-[14%] min-w-[130px]";
-  const colCashbackWidth = "w-[14%] min-w-[130px]";
-  const colActionWidth = "w-[3%] min-w-[36px]";
-  const tableMinWidth = isCashbackNotFound ? "min-w-[820px]" : "min-w-[910px]";
+  const colDiskonWidth = "w-[7%] min-w-[65px]";
+  const colEstSalesWidth = isCashbackNotFound ? "w-[18%] min-w-[145px]" : "w-[16%] min-w-[140px]";
+  const colNilaiScWidth = isCashbackNotFound ? "w-[17%] min-w-[140px]" : "w-[15%] min-w-[135px]";
+  const colCashbackWidth = "w-[13%] min-w-[125px]";
+  const colActionWidth = "w-[6%] min-w-[56px]";
+  const tableMinWidth = isCashbackNotFound ? "min-w-[880px]" : "min-w-[980px]";
 
   return (
     <div className="space-y-4">
@@ -355,21 +355,21 @@ export function ProductSelector({
       </div>
 
       {/* Main Product Table Container */}
-      <div className="rounded-lg border overflow-x-auto" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+      <div className="rounded-lg border overflow-x-auto shadow-xs" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
         <div className="w-full">
           <table className={`w-full text-left text-xs border-collapse table-fixed ${tableMinWidth}`}>
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-left whitespace-nowrap ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2.5 pl-4 pr-2 font-semibold text-[11px] text-left whitespace-nowrap ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Produk <Req />
                 </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2.5 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Potensi / Bln
                 </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2.5 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Switch / Bln<Req />
                 </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2.5 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   <div>Diskon</div>
                   {diskonPeriode && (
                     <div className="text-[9px] font-normal" style={{ color: "var(--color-text-faint)" }}>
@@ -377,14 +377,14 @@ export function ProductSelector({
                     </div>
                   )}
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2.5 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Sales / Bln
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2.5 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Insentif SC / Bln
                 </th>
                 {!isCashbackNotFound && (
-                  <th className={`py-2 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <th className={`py-2.5 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
                     <div className="inline-flex items-center justify-center gap-1">
                       <span>Est. Cashback / Bln</span>
                       <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
@@ -392,7 +392,7 @@ export function ProductSelector({
                   </th>
                 )}
                 {!readOnly && (
-                  <th className={`py-2 px-1 text-center font-semibold text-[11px] ${colActionWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <th className={`py-2.5 pl-1 pr-3 text-center font-semibold text-[11px] ${colActionWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   </th>
                 )}
               </tr>
@@ -437,7 +437,7 @@ export function ProductSelector({
                   return (
                     <tr key={idx} id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`} className="align-top hover:bg-slate-50/50 transition-colors">
                       {/* Column 1: Product Selection & Competitor */}
-                      <td className="py-2.5 px-2 space-y-2">
+                      <td className="py-2.5 pl-4 pr-2.5 space-y-2">
                         <Combobox
                           name={`product-${idx}`}
                           options={productsOptions.filter((option: any) => {
@@ -645,11 +645,11 @@ export function ProductSelector({
 
                       {/* Column 8: Delete Action */}
                       {!readOnly && (
-                        <td className="py-2 px-1 text-center align-top">
+                        <td className="py-2.5 pl-1 pr-3 text-center align-top">
                           <button
                             type="button"
                             onClick={() => onRemoveRow(idx)}
-                            className="p-1.5 rounded hover:bg-red-50 transition-colors cursor-pointer text-red-500 hover:text-red-700"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-red-50 text-red-500 hover:text-red-700 transition-colors cursor-pointer border border-transparent hover:border-red-200"
                             title="Hapus produk"
                           >
                             <svg
@@ -679,28 +679,28 @@ export function ProductSelector({
             {rows.length > 0 && (
               <tfoot>
                 <tr className="border-t font-semibold" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                  <td className="py-2.5 px-3 text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 pl-4 pr-2 text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Total ({rows.length} produk)
                   </td>
-                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     0
                   </td>
-                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     {grandTotalQtyUb} UB
                   </td>
-                  <td className="py-2.5 px-3"></td>
-                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 px-1"></td>
+                  <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Rp {formatRp(grandTotalEstSalesBln)}
                   </td>
-                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
+                  <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
                     Rp {formatRp(grandTotalNilaiScBln)}
                   </td>
                   {!isCashbackNotFound && (
-                    <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-green, #16a34a)" }}>
+                    <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-green, #16a34a)" }}>
                       Rp {formatRp(cashbackDetails.totalFinalCashbackMonthly)}
                     </td>
                   )}
-                  {!readOnly && <td></td>}
+                  {!readOnly && <td className="py-2.5 pl-1 pr-3"></td>}
                 </tr>
               </tfoot>
             )}

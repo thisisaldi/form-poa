@@ -289,6 +289,8 @@ export async function getSalesCounterDetailData(
         periodeMonth: e.periodeMonth,
         biayaEntertain: Number(e.biayaEntertain.toString()),
       })),
+      updatedAt: d.updatedAt,
+      createdAt: d.createdAt,
     };
   });
 

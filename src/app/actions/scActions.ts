@@ -246,13 +246,70 @@ export async function saveSalesCounterFormAction(
       // Save PoaScForm since there are changes
       let poaSc: any = null;
       if (existing) {
+        // If owner (MR) edits a form that is already in approval flow or approved,
+        // reset status 1 level back (e.g., from NSM back to SM, from SM back to ASM).
+        let targetStatus = existing.status;
+        let targetHolderId = existing.currentHolderId;
+
+        const isApprovalFlowOrApproved =
+          existing.status !== PoaStatus.DRAFT && existing.status !== PoaStatus.REVISI;
+
+        if (session.userId === existing.ownerId && isApprovalFlowOrApproved) {
+          const mrUser = await tx.user.findUnique({
+            where: { nip: session.userId },
+            select: { nipAtasan: true },
+          });
+
+          // Look up ASM (MR's manager)
+          let asmNip = mrUser?.nipAtasan || null;
+          if (!asmNip) {
+            const asm = await tx.user.findFirst({
+              where: { isActive: true, role: { in: ["ASM", "SM", "NSM"] } },
+              select: { nip: true },
+            });
+            asmNip = asm?.nip || null;
+          }
+
+          // Look up SM (ASM's manager)
+          let smNip: string | null = null;
+          if (asmNip) {
+            const asmUser = await tx.user.findUnique({
+              where: { nip: asmNip },
+              select: { nipAtasan: true },
+            });
+            smNip = asmUser?.nipAtasan || null;
+          }
+          if (!smNip) {
+            const sm = await tx.user.findFirst({
+              where: { isActive: true, role: { in: ["SM", "NSM"] } },
+              select: { nip: true },
+            });
+            smNip = sm?.nip || null;
+          }
+
+          if (
+            existing.status === PoaStatus.SUBMITTED_TO_NSM ||
+            existing.status === PoaStatus.APPROVED_BY_SM ||
+            existing.status === PoaStatus.APPROVED_BY_NSM
+          ) {
+            // Step back from NSM -> back to SM review
+            targetStatus = PoaStatus.SUBMITTED_TO_SM;
+            targetHolderId = smNip;
+          } else {
+            // Step back from SM / ASM -> back to ASM review
+            targetStatus = PoaStatus.SUBMITTED_TO_ASM;
+            targetHolderId = asmNip;
+          }
+        }
+
         poaSc = await tx.poaScForm.update({
           where: { id: existing.id },
           data: {
             period,
             periodeAwal,
             lamaPeriode,
-            status: existing.status,
+            status: targetStatus,
+            currentHolderId: targetHolderId,
             version: existing.version + 1,
             namaOutlet: namaOutlet || existing.namaOutlet,
             persenResepDokter,
