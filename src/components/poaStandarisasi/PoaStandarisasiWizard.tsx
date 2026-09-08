@@ -46,16 +46,6 @@ import { type ExodusDiscountPct } from "@/lib/exodusApi";
 
 export { PHASES };
 
-const DOKUMEN_JENIS: { jenis: string; label: string }[] = [
-  { jenis: "NIE", label: "NIE" },
-  { jenis: "COA", label: "COA" },
-  { jenis: "CPOB", label: "CPOB" },
-  { jenis: "FLYER", label: "Flyer" },
-  { jenis: "SP_NON_SALES", label: "Permintaan SP Non Sales" },
-];
-/** Shown at "Finalisasi" (2026-08-26, user request) — bukan dokumen rapat KFT. */
-const DOKUMEN_JENIS_FINALISASI = DOKUMEN_JENIS.filter((d) => d.jenis === "SP_NON_SALES");
-
 /**
  * Every document link in this wizard MUST go through this authenticated
  * proxy — not a raw Drive URL — because these documents are confidential
@@ -115,6 +105,13 @@ function RpInput({
         className="flex items-stretch rounded-md overflow-hidden"
         style={{ border: "1px solid var(--color-border-strong)", background: disabled ? "var(--color-bg-subtle)" : "var(--color-surface, #fff)" }}
       >
+        <span
+          className={dense ? "flex items-center px-1.5 text-[10px] font-medium whitespace-nowrap" : "flex items-center px-2.5 text-xs font-medium whitespace-nowrap"}
+          style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
+        >
+          Rp
+        </span>
+        <span style={{ width: 1, background: "var(--color-border-strong)" }} />
         <input
           type="text"
           inputMode="numeric"
@@ -125,13 +122,6 @@ function RpInput({
           className={dense ? "flex-1 min-w-0 w-0 px-2 py-1 text-xs text-right outline-none" : "flex-1 min-w-0 w-0 px-3 py-2 text-sm text-right outline-none"}
           style={{ background: "transparent", color: "var(--color-text)" }}
         />
-        <span style={{ width: 1, background: "var(--color-border-strong)" }} />
-        <span
-          className={dense ? "flex items-center px-1.5 text-[10px] font-medium whitespace-nowrap" : "flex items-center px-2.5 text-xs font-medium whitespace-nowrap"}
-          style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}
-        >
-          Rp
-        </span>
       </div>
     </div>
   );
@@ -806,7 +796,8 @@ export function PoaStandarisasiWizard({
         />
       )}
 
-      <RingkasanPoa produkList={produkList} productByKode={productByKode} kpdmList={kpdmList} />
+      {/* Step 5 (SP Non Sales & DPL/DPF) bukan konteks estimasi Planning/Finalisasi lagi — sembunyikan (2026-09-08 user request). */}
+      {!showStep5 && <RingkasanPoa produkList={produkList} productByKode={productByKode} kpdmList={kpdmList} />}
 
       <div className="flex justify-between mt-4">
         <div />
@@ -1196,6 +1187,9 @@ export function PlanningPhase(props: {
         const totalQty = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.resepPerPasienSt) || 0), 0);
         const totalSales = totalQty * hst;
         const totalEntertain = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.entertainRp) || 0), 0);
+        // Produk yang sudah dipilih di baris LAIN gak muncul lagi di dropdown baris ini (2026-09-08 user request) — cegah 1 produk dipilih dobel.
+        const kodeDipakaiBarisLain = new Set(produkList.filter((_, i) => i !== idx && produkList[i].kodeProduk).map((pp) => pp.kodeProduk));
+        const rowProductOptions = productComboOptions.filter((o) => !kodeDipakaiBarisLain.has(o.value));
         return (
           <Card key={idx} className="mb-4" style={{ background: "var(--color-bg-subtle)" }}>
             <div className="flex justify-between items-start mb-2">
@@ -1210,7 +1204,7 @@ export function PlanningPhase(props: {
                 <span className="text-xs font-medium block mb-1">Nama Produk *</span>
                 <Combobox
                   name={`produk-${idx}`}
-                  options={productComboOptions}
+                  options={rowProductOptions}
                   value={p.kodeProduk}
                   onChange={(v) => updateProduk(idx, { kodeProduk: v })}
                   disabled={disabled}
@@ -1252,17 +1246,17 @@ export function PlanningPhase(props: {
               ) : (
                 <>
                   <div className="w-32 shrink-0">
-                    <span className="text-xs font-medium block mb-1">Estimasi Diskon (PI)</span>
+                    <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (PI)</span>
                     <UnitCountInput unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
                   </div>
                   <div className="w-32 shrink-0">
-                    <span className="text-xs font-medium block mb-1">Estimasi Diskon Distributor</span>
+                    <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (Dist.)</span>
                     <UnitCountInput unit="%" value={p.estimasiDiskonDistributorPct} onChange={(v) => updateProduk(idx, { estimasiDiskonDistributorPct: v })} disabled={disabled} />
                   </div>
                 </>
               )}
               <div className="w-36 shrink-0">
-                <span className="text-xs font-medium block mb-1">Estimasi Biaya Listing</span>
+                <span className="text-xs font-medium block mb-1 whitespace-nowrap">Estimasi Biaya Listing</span>
                 <RpInput value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
             </div>
@@ -1970,23 +1964,7 @@ function FinalisasiPhase({
             {rawProduk && (
               <>
                 <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: "var(--color-text-faint)" }}>
-                      {DOKUMEN_JENIS_FINALISASI[0]?.label}
-                    </span>
-                    {(() => {
-                      const doc = rawProduk.dokumen.find((dd) => dd.jenis === DOKUMEN_JENIS_FINALISASI[0]?.jenis);
-                      return doc ? (
-                        <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
-                          ↓ {doc.namaFile}
-                        </a>
-                      ) : (
-                        <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum diupload</span>
-                      );
-                    })()}
-                  </div>
-
+                <div className="grid grid-cols-1 gap-3">
                   <div>
                     <span className="text-xs font-bold uppercase tracking-wide block mb-1" style={{ color: "var(--color-text-faint)" }}>
                       Form Approval Standarisasi <span className="normal-case font-normal">(optional)</span>

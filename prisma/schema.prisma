@@ -231,6 +231,16 @@ model PoaDoctorApproval {
   status  PoaStatus @default(SUBMITTED_TO_ASM)
   version Int       @default(1) // bumped every time THIS doctor re-enters REVISI
 
+  // Set when an owner's edit request is GRANTED (never on reject/cancel) —
+  // remembers the role that had most recently approved before the edit was
+  // requested, so the next resubmit routes straight back to that same level
+  // instead of restarting the whole ASM→SM→NSM chain from scratch (2026-09-08
+  // user request: "MR ajukan edit ke SM, SM approve, MR edit ulang & submit —
+  // harusnya langsung ke SM lagi, bukan lewat ASM"). Consumed (cleared back
+  // to null) by the very next submitDoctor() call, whichever transition it
+  // takes — REVISI can only be exited via submit, so this never goes stale.
+  editResumeRole Role?
+
   // Null once fully approved, or while sitting with the owner (DRAFT/REVISI,
   // not yet (re)submitted).
   currentHolderId String?

@@ -11,7 +11,7 @@ import { canEdit,
   canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor } from "@/lib/authz";
 import { sendEditRequestEmail, sendDoctorStatusEmail } from "@/lib/notifications";
 import { PoaStatus, AuditAction } from "@prisma/client";
-import type { PoaForm, PoaDoctorApproval, PoaRejectCategory, User } from "@prisma/client";
+import type { PoaForm, PoaDoctorApproval, PoaRejectCategory, Role, User } from "@prisma/client";
 
 // ─── Transition Map ───────────────────────────────────────────────────────────
 
@@ -222,7 +222,11 @@ async function applyDoctorTransition(
   existing: PoaDoctorApproval | null,
   notes?: string,
   snapshotExtra?: Record<string, unknown>,
-  rejectCategory?: PoaRejectCategory
+  rejectCategory?: PoaRejectCategory,
+  /** Explicit `undefined` = leave editResumeRole untouched. Pass `null` to
+   * clear it (reject/cancel), or a role to set it (granted edit request) —
+   * see the field's own doc comment in schema.prisma. */
+  editResumeRole?: Role | null
 ): Promise<PoaDoctorApproval> {
   const poa = await loadPoaWithHierarchy(poaId);
 
@@ -244,6 +248,7 @@ async function applyDoctorTransition(
             status: transition.toStatus,
             currentHolderId: nextHolderId,
             ...(transition.toStatus === PoaStatus.REVISI ? { version: { increment: 1 } } : {}),
+            ...(editResumeRole !== undefined ? { editResumeRole } : {}),
           },
         })
       : prisma.poaDoctorApproval.create({
@@ -294,14 +299,26 @@ export async function submitDoctor(
   const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
   const fromStatus = existing?.status ?? PoaStatus.DRAFT;
 
+  // Resubmitting after a GRANTED edit request resumes at the level that had
+  // already approved (editResumeRole), skipping the lower levels instead of
+  // restarting the whole ASM→SM→NSM chain — see the field's doc comment in
+  // schema.prisma. A reject/cancel-driven REVISI never sets this, so those
+  // keep restarting from ASM as before.
+  const resumeRole = existing?.editResumeRole as "ASM" | "SM" | "NSM" | undefined;
   const transition = !existing || existing.status === PoaStatus.REVISI
-    ? firstSubmitTransition(poa.owner.role)
+    ? resumeRole
+      ? { toStatus: CHAIN_STATUS[resumeRole], nextHolderRole: resumeRole }
+      : firstSubmitTransition(poa.owner.role)
     : SUBMIT_TRANSITIONS[existing.status];
   if (!transition) {
     throw new Error(`Cannot submit doctor ${namaCust} in status ${fromStatus}`);
   }
 
-  return applyDoctorTransition(poaId, kodePI, namaCust, actingUserId, transition, fromStatus, AuditAction.SUBMIT, existing, notes);
+  return applyDoctorTransition(
+    poaId, kodePI, namaCust, actingUserId, transition, fromStatus, AuditAction.SUBMIT, existing, notes,
+    undefined, undefined,
+    resumeRole ? null : undefined // consume it once used; leave untouched otherwise (nothing to clear)
+  );
 }
 
 /** Doctor-scoped twin of approvePoa. */
@@ -375,7 +392,8 @@ export async function rejectDoctor(
   return applyDoctorTransition(
     poaId, kodePI, namaCust, actingUserId,
     { toStatus: PoaStatus.REVISI, nextHolderRole: null },
-    existing.status, AuditAction.REJECT, existing, reason, undefined, category
+    existing.status, AuditAction.REJECT, existing, reason, undefined, category,
+    null // reject always restarts the full chain, never resumes at the reviewer's level
   );
 }
 
@@ -399,7 +417,8 @@ export async function cancelApprovedByNsmDoctor(
   return applyDoctorTransition(
     poaId, kodePI, namaCust, actingUserId,
     { toStatus: PoaStatus.REVISI, nextHolderRole: null },
-    existing.status, AuditAction.CANCEL, existing, reason
+    existing.status, AuditAction.CANCEL, existing, reason, undefined, undefined,
+    null // cancel always restarts the full chain, never resumes at the reviewer's level
   );
 }
 
@@ -452,11 +471,21 @@ export async function grantEditRequestDoctor(
     throw new Error(`User ${actingUserId} is not authorized to grant an edit request for doctor ${namaCust} on POA ${poaId}`);
   }
 
+  // Remember who this was — the next resubmit routes straight back to this
+  // same level instead of restarting from ASM (2026-09-08 user request). Only
+  // ASM/SM/NSM are valid resume points (matches CHAIN_STATUS); anything else
+  // (shouldn't happen — only chain roles can hold/approve a doctor cycle)
+  // falls back to the normal full-restart behavior.
+  const resumeRole = (["ASM", "SM", "NSM"] as const).includes(lastApprover.role as "ASM" | "SM" | "NSM")
+    ? (lastApprover.role as Role)
+    : null;
+
   return applyDoctorTransition(
     poaId, kodePI, namaCust, actingUserId,
     { toStatus: PoaStatus.REVISI, nextHolderRole: null },
     existing.status, AuditAction.GRANT_EDIT, existing,
-    "Menyetujui permintaan edit dari pemilik POA"
+    "Menyetujui permintaan edit dari pemilik POA",
+    undefined, undefined, resumeRole
   );
 }
 
