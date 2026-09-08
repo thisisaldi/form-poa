@@ -458,6 +458,12 @@ export function PoaStandarisasiWizard({
   const [viewedPhaseId, setViewedPhaseId] = useState<PoaStandarisasiDetail["currentPhase"]>(pengajuan.currentPhase);
   const viewedStepIdx = PHASES.findIndex((p) => p.id === viewedPhaseId);
   const isViewingCurrentPhase = viewedPhaseId === pengajuan.currentPhase;
+  // Step 5 isn't a PoaStandarisasiPhase (viewedPhaseId can never equal it) —
+  // separate toggle so it renders as ITS OWN view instead of stacking below
+  // Finalisasi's content every time (2026-09-08 bug report: looked like Step
+  // 5 lived "inside" Finalisasi). Defaults to showing Step 5 once reached —
+  // that's the thing left to do once Finalisasi is submitted.
+  const [showStep5, setShowStep5] = useState(() => !!pengajuan.submittedAt);
 
   // Clicking "Lanjut ke ..." advances pengajuan.currentPhase server-side and
   // router.refresh()es this same component instance — state (viewedPhaseId)
@@ -696,9 +702,15 @@ export function PoaStandarisasiWizard({
         currentIdx={currentStepIdx}
         viewedIdx={viewedStepIdx}
         onSelect={(idx) => {
-          if (idx <= currentStepIdx) setViewedPhaseId(PHASES[idx].id);
+          if (idx <= currentStepIdx) { setViewedPhaseId(PHASES[idx].id); setShowStep5(false); }
         }}
-        extraStep={{ label: "Step 5", reached: !!pengajuan.submittedAt, done: !!pengajuan.spNonSalesSubmittedAt }}
+        extraStep={{
+          label: "Step 5",
+          reached: !!pengajuan.submittedAt,
+          done: !!pengajuan.spNonSalesSubmittedAt,
+          active: showStep5,
+          onSelect: () => setShowStep5(true),
+        }}
       />
 
       {!isOwner && (
@@ -775,7 +787,7 @@ export function PoaStandarisasiWizard({
         />
       )}
 
-      {viewedPhaseId === "FINALISASI" && (
+      {viewedPhaseId === "FINALISASI" && !showStep5 && (
         <FinalisasiPhase
           canEdit={canEdit && isViewingCurrentPhase}
           pengajuan={pengajuan}
@@ -822,7 +834,7 @@ export function PoaStandarisasiWizard({
         </div>
       </div>
 
-      {pengajuan.submittedAt && (
+      {pengajuan.submittedAt && showStep5 && (
         <Step5SpNonSalesDplDpf
           pengajuan={pengajuan}
           productByKode={productByKode}
@@ -856,10 +868,12 @@ export function Stepper({
   /** Step 5 (Permintaan SP Non Sales & DPL/DPF, 2026-09-08) — not a real
    * PoaStandarisasiPhase/PHASES entry (it lives after submittedAt, outside
    * the phase state machine), so it's bolted onto the timeline visually via
-   * this prop instead of going through the index-driven PHASES.map below. */
-  extraStep?: { label: string; reached: boolean; done: boolean };
+   * this prop instead of going through the index-driven PHASES.map below.
+   * `active` also suppresses the PHASES loop's own active highlight below —
+   * only one circle should look "currently viewed" at a time. */
+  extraStep?: { label: string; reached: boolean; done: boolean; active: boolean; onSelect?: () => void };
 }) {
-  const activeIdx = viewedIdx ?? currentIdx;
+  const activeIdx = extraStep?.active ? -1 : viewedIdx ?? currentIdx;
   return (
     <div className="flex items-start gap-2 mb-6 max-w-3xl">
       {PHASES.map((p, i) => {
@@ -907,23 +921,30 @@ export function Stepper({
             className="absolute h-0.5 top-4"
             style={{ left: "-50%", right: "50%", background: extraStep.reached ? "var(--color-blue)" : "var(--color-border)" }}
           />
-          <div
+          <button
+            type="button"
+            disabled={!extraStep.reached}
+            onClick={extraStep.onSelect}
             className="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-semibold z-10"
             style={{
-              borderColor: extraStep.reached ? "var(--color-blue)" : "var(--color-border)",
+              borderColor: extraStep.done || extraStep.active ? "var(--color-blue)" : "var(--color-border)",
               background: extraStep.done ? "var(--color-blue)" : "#fff",
-              color: extraStep.done ? "#fff" : extraStep.reached ? "var(--color-blue)" : "var(--color-text-faint)",
+              color: extraStep.done ? "#fff" : extraStep.active ? "var(--color-blue)" : "var(--color-text-faint)",
               boxSizing: "border-box",
+              cursor: extraStep.reached ? "pointer" : "default",
             }}
           >
             {extraStep.done ? "✓" : PHASES.length + 1}
-          </div>
-          <span
+          </button>
+          <button
+            type="button"
+            disabled={!extraStep.reached}
+            onClick={extraStep.onSelect}
             className="text-xs font-semibold mt-1.5 text-center max-w-[110px]"
-            style={{ color: extraStep.reached ? "var(--color-text)" : "var(--color-text-faint)" }}
+            style={{ color: extraStep.active ? "var(--color-text)" : "var(--color-text-faint)", cursor: extraStep.reached ? "pointer" : "default", background: "none", border: "none" }}
           >
             {extraStep.label}
-          </span>
+          </button>
         </div>
       )}
     </div>
