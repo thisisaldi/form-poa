@@ -628,18 +628,6 @@ export function useSalesCounterEditor({
     e.preventDefault();
     if (!validate()) return;
 
-    const existingDraft = savedDrafts?.find((d: any) => d.kodePI === outletId);
-    if (
-      existingDraft &&
-      existingDraft.status !== "DRAFT" &&
-      existingDraft.status !== "REVISI" &&
-      existingDraft.status !== "SUBMITTED_TO_ASM"
-    ) {
-      const targetRole = existingDraft.status === "SUBMITTED_TO_SM" ? "SM" : "Atasan";
-      showToast(`Outlet ini sudah di-Submitted to ${targetRole} dan tidak dapat diubah.`, "error");
-      return;
-    }
-
     const matchedOutlet = outlets?.find((o) => o.kodePI === outletId);
 
     startTransition(async () => {

@@ -564,20 +564,9 @@ export function canUserEditScForm(
   const userLevel = roleLevel[userRole] ?? -1;
   const lockLevel = getScEditLockLevel(status);
 
-  // MR (Owner): Can edit directly if DRAFT, REVISI, or SUBMITTED_TO_ASM
+  // MR (Owner): Can always edit / ajukan edit for their own SC form
   if (sessionUserId === ownerId) {
-    if (userRole === "MR") {
-      return (
-        status === PoaStatus.DRAFT ||
-        status === PoaStatus.REVISI ||
-        status === PoaStatus.SUBMITTED_TO_ASM
-      );
-    }
-    if (
-      status === PoaStatus.DRAFT ||
-      status === PoaStatus.REVISI ||
-      status === PoaStatus.SUBMITTED_TO_ASM
-    ) return true;
+    return true;
   }
 
   // Managers (ASM, SM, NSM):

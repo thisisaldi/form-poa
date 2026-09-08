@@ -3,7 +3,6 @@ import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { SalesCounterEditByIdEditor } from "@/components/sc/edit/SalesCounterEditByIdEditor";
 import { getSalesCounterFormById } from "./_services/getSalesCounterFormById";
 
@@ -42,8 +41,6 @@ export default async function EditSalesCounterByIdPage({
             </p>
             <p className="mt-0.5 text-xs flex items-center gap-1.5 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
               <span>Outlet: <strong>{form.kodePI ? `${form.kodePI} · ` : ""}{form.namaOutlet || form.kodePI}</strong></span>
-              {form.is_sc && <InsScBadge />}
-              {form.isBlastIn && <BlastInBadge />}
               {form.persons.length > 0 && (
                 <> · SC: {form.persons.map((p: { personName: string }) => p.personName).join(", ")}</>
               )}
@@ -75,6 +72,7 @@ export default async function EditSalesCounterByIdPage({
           masterProducts={products}
           readOnly={!userCanEdit}
           isOwner={isOwner}
+          status={form.status}
         />
       </Card>
     </div>

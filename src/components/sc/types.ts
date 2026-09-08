@@ -69,6 +69,8 @@ export interface ScDraftFormItem {
   persons: ScPersonItemData[];
   entertainItems: ScEntertainItemData[];
   auditLogs?: any[];
+  updatedAt?: string | Date;
+  createdAt?: string | Date;
 }
 
 export interface SalesFigures {

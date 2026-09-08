@@ -17,6 +17,7 @@ import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
 import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
+import { getHistoryEntertainAction } from "@/app/actions/canvasser";
 import { useScToast } from "../ui/ScToast";
 
 function formatDiskonPct(rawVal: number | string | undefined | null): string {
@@ -139,6 +140,7 @@ interface SalesCounterEditByIdEditorProps {
   masterProducts: Product[];
   readOnly?: boolean;
   isOwner?: boolean;
+  status?: string;
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -183,6 +185,7 @@ export function SalesCounterEditByIdEditor({
   masterProducts,
   readOnly = false,
   isOwner,
+  status,
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
   const { showToast } = useScToast();
@@ -267,6 +270,33 @@ export function SalesCounterEditByIdEditor({
         };
       });
   });
+
+  const [historyEntertain, setHistoryEntertain] = useState<number | null>(null);
+  const [loadingHistoryEntertain, setLoadingHistoryEntertain] = useState(false);
+
+  useEffect(() => {
+    if (!kodePI) {
+      setHistoryEntertain(null);
+      return;
+    }
+    let isMounted = true;
+    setLoadingHistoryEntertain(true);
+    getHistoryEntertainAction(kodePI)
+      .then((val) => {
+        if (isMounted) setHistoryEntertain(val ?? 0);
+      })
+      .catch((err) => {
+        console.error("Error fetching history entertain:", err);
+        if (isMounted) setHistoryEntertain(0);
+      })
+      .finally(() => {
+        if (isMounted) setLoadingHistoryEntertain(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [kodePI]);
 
   const handlePeriodeAwalChange = (newStart: string, q = rowQuarter) => {
     setPeriodeAwal(newStart);
@@ -826,12 +856,16 @@ export function SalesCounterEditByIdEditor({
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl">
-      {readOnly && (
+      {readOnly && isOwner === false && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-          {isOwner === false
-            ? "Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only). Perubahan hanya dapat dilakukan oleh pemilik draf (MR)."
-            : "Mode Lihat (Read-Only) — Form ini tidak dalam status Draft/Revisi sehingga tidak dapat diubah."}
+          Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only). Perubahan hanya dapat dilakukan oleh pemilik draf (MR).
+        </div>
+      )}
+      {!readOnly && status && status !== "DRAFT" && status !== "REVISI" && (
+        <div className="rounded-md px-4 py-3 text-sm font-medium"
+          style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #b45309)", border: "1px solid var(--color-warning, #f59e0b)" }}>
+          Outlet ini sudah dalam tahap approval Atasan. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {status === "SUBMITTED_TO_NSM" || status === "APPROVED_BY_SM" || status === "APPROVED_BY_NSM" ? "SM" : "ASM"}).
         </div>
       )}
       <div className="space-y-6">
@@ -1088,7 +1122,11 @@ export function SalesCounterEditByIdEditor({
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
                 <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
-                  History Entertain: Rp 100.000
+                  History Entertain: {loadingHistoryEntertain ? (
+                    <span className="animate-pulse opacity-60">Memuat...</span>
+                  ) : (
+                    `Rp ${Math.round(historyEntertain ?? 0).toLocaleString("id-ID")}`
+                  )}
                 </span>
               </div>
               <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
@@ -1392,7 +1430,11 @@ export function SalesCounterEditByIdEditor({
               Batal
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Menyimpan..." : "Simpan Perubahan"}
+              {isSubmitting
+                ? "Menyimpan..."
+                : status && status !== "DRAFT" && status !== "REVISI"
+                ? "Ajukan Edit"
+                : "Simpan Perubahan"}
             </Button>
           </>
         )}
