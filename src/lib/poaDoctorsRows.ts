@@ -48,6 +48,7 @@ export const poaDoctorRowsSelect = {
       rencanaTotalBiaya: true,
       persenPsspDokter: true,
       pengaliNilaiR: true,
+      hargaSatuanTerkecil: true,
       periodeAwal: true,
       lamaPeriode: true,
     },
@@ -351,8 +352,20 @@ export function buildDoctorRows(
     const { estimasi, nilaiPssp } = computeEstimasiNilaiPssp(item);
     const pengaliNilaiR = item.pengaliNilaiR != null ? toNum(item.pengaliNilaiR) : 1;
     const productMaster = productMasterByKodeProduk.get(item.kodeProduk);
-    const nilaiR = productMaster?.nilaiR ?? null;
-    const hna = productMaster?.hna ?? null;
+    // hna/nilaiR frozen from THIS line item, not live Product pricing
+    // (2026-09-08 user request) — persenPsspDokter is itself a frozen
+    // snapshot of the product's nilaiRPersen at fill time (see the read-only
+    // "% PSSP User" field, LineItemEditor.tsx), so re-multiplying it against
+    // TODAY's live hna produced a nilaiPssp/qty/nilaiR triple that no longer
+    // reconciled (qty × nilaiR ≠ nilaiPssp) whenever the product's price
+    // changed after this line was filled. hargaSatuanTerkecil is the same
+    // frozen-at-fill-time HNA (÷ konversiPembagi) already used to compute
+    // rencanaTotalBiaya, so deriving both hna and nilaiR from it keeps every
+    // figure in this row internally consistent, old rows included (no
+    // backfill needed — hargaSatuanTerkecil/persenPsspDokter already existed
+    // on every row).
+    const hna = item.hargaSatuanTerkecil != null ? toNum(item.hargaSatuanTerkecil) : null;
+    const nilaiR = hna != null && item.persenPsspDokter != null ? hna * toNum(item.persenPsspDokter) : null;
     const qtyPerBulan = computeQtyPerBulan(item.rencanaTotalBiaya, item.periodeAwal, item.lamaPeriode, hna);
     entry.estimasiTotal += estimasi;
     entry.nilaiPsspTotal += nilaiPssp;
