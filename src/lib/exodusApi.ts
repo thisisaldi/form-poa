@@ -93,6 +93,49 @@ export async function getVisitCountByCustomerOutlet(
   }
 }
 
+interface CountByNipResponse {
+  data?: { actual_visit_by_period?: Record<string, number> };
+  error?: { status: boolean; msg: string; code: number };
+}
+
+/**
+ * Actual visit count (by month) for ONE nip, across [periodeAwal, periodeAkhir]
+ * (both "YYYYMM", inclusive) — feeds KPI Monitoring's Call Activity pillar
+ * (src/lib/sync/kpiCallActivitySync.ts), the "Get Count Visit By NIP"
+ * endpoint referenced but not yet implemented as of docs/TODO.md #38
+ * (2026-09-08: stakeholder supplied the exact URL). Unlike
+ * getVisitCountByCustomerOutlet, this is already scoped to one nip, so the
+ * response has no per-nip array wrapper.
+ */
+export async function getVisitCountByNip(
+  nip: string,
+  periodeAwal: string,
+  periodeAkhir: string
+): Promise<Record<string, number> | null> {
+  if (!isConfigured || !nip) return null;
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/activity/v1/visits/count-by-nip`);
+    url.searchParams.set("nip", nip);
+    url.searchParams.set("periode_awal", periodeAwal);
+    url.searchParams.set("periode_akhir", periodeAkhir);
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as CountByNipResponse;
+    if (body.error?.status) return null;
+
+    return body.data?.actual_visit_by_period ?? {};
+  } catch {
+    return null;
+  }
+}
+
 export interface ExodusCustomer {
   customerCode: string | null;
   name: string;

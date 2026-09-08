@@ -16,6 +16,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { runKpiAbsensiSync, type KpiAbsensiSyncResult } from "@/lib/sync/kpiAbsensiSync";
+import { runKpiCallActivitySync, type KpiCallActivitySyncResult } from "@/lib/sync/kpiCallActivitySync";
 import {
   CALL_ACTIVITY_STANDARD_BY_ROLE,
   computeTotalScore,
@@ -55,6 +56,8 @@ export type KpiPersonnelRow = {
   callActivityStandar: number;
   activityAchievementPct: number | null;
   activityScore: number | null;
+  /** "MANUAL" | "EXODUS_SYNC" — see docs/kpi-monitoring/01-business-rules.md §2b. Null when no entry exists yet. */
+  callActivitySource: string | null;
 
   customerAktifCount: number;
   customerScore: number;
@@ -89,23 +92,31 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
 
   const nips: string[] = personnel.map((p) => p.nip);
   const mrNips: string[] = personnel.filter((p) => p.role === "MR").map((p) => p.nip);
+  const periodeYYYYMM = period.replace("-", "");
 
   type KpiEntryRow = {
     nip: string;
     callActivityRealisasi: number | null;
     callActivityStandar: number | null;
+    callActivitySource: string | null;
     absensiValue: { toString(): string } | null;
     absensiSource: string | null;
   };
 
-  const [entries, poas, assignments] = await Promise.all([
+  // Sales target: TargetHospitalValue is natively monthly (periode YYYYMM,
+  // same granularity as this page's period picker) — no quarter conversion
+  // needed, unlike PoaForm.target which is set once per quarter and would
+  // require mapping this month back to its quarter first. Direct nipMR match
+  // (not GT-name resolution) mirrors resolveTargetHospitalValueFallback's
+  // established pattern (src/lib/targetHospitalValue.ts), same tradeoff.
+  const [entries, targets, assignments] = await Promise.all([
     prisma.kpiMonthlyEntry.findMany({ where: { nip: { in: nips }, period } }) as Promise<KpiEntryRow[]>,
     mrNips.length > 0
-      ? (prisma.poaForm.findMany({
-          where: { ownerId: { in: mrNips }, period, status: { in: ["APPROVED_BY_ASM", "APPROVED_BY_SM", "APPROVED_BY_NSM"] } },
-          select: { ownerId: true, target: true },
-        }) as Promise<{ ownerId: string; target: { toString(): string } | null }[]>)
-      : Promise.resolve([] as { ownerId: string; target: { toString(): string } | null }[]),
+      ? (prisma.targetHospitalValue.findMany({
+          where: { nipMR: { in: mrNips }, periode: periodeYYYYMM },
+          select: { nipMR: true, target: true },
+        }) as Promise<{ nipMR: string | null; target: { toString(): string } }[]>)
+      : Promise.resolve([] as { nipMR: string | null; target: { toString(): string } }[]),
     mrNips.length > 0
       ? (prisma.mrOutletAssignment.findMany({ where: { nipMR: { in: mrNips } }, select: { nipMR: true, kodePI: true } }) as Promise<{ nipMR: string; kodePI: string }[]>)
       : Promise.resolve([] as { nipMR: string; kodePI: string }[]),
@@ -114,13 +125,15 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
   const entryByNip = new Map(entries.map((e) => [e.nip, e]));
 
   const targetByMr = new Map<string, number>();
-  for (const p of poas) targetByMr.set(p.ownerId, (targetByMr.get(p.ownerId) ?? 0) + toNum(p.target));
+  for (const t of targets) {
+    if (!t.nipMR) continue;
+    targetByMr.set(t.nipMR, (targetByMr.get(t.nipMR) ?? 0) + toNum(t.target));
+  }
 
   const outletsByMr = new Map<string, string[]>();
   for (const a of assignments) outletsByMr.set(a.nipMR, [...(outletsByMr.get(a.nipMR) ?? []), a.kodePI]);
   const allOutlets = [...new Set(assignments.map((a) => a.kodePI))];
 
-  const periodeYYYYMM = period.replace("-", "");
   const salesRows = allOutlets.length > 0
     ? ((await prisma.outletSalesValueMonthly.findMany({ where: { kodePI: { in: allOutlets }, periode: periodeYYYYMM }, select: { kodePI: true, valueSales: true } })) as { kodePI: string; valueSales: { toString(): string } }[])
     : [];
@@ -188,6 +201,7 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
       ? (callActivityRealisasi / callActivityStandar) * 100
       : null;
     const activityScore = activityAchievementPct != null ? scoreCallActivity(activityAchievementPct) : null;
+    const callActivitySource = entry?.callActivitySource ?? null;
 
     const absensiValue = entry?.absensiValue != null ? toNum(entry.absensiValue) : null;
     const absensiScore = absensiValue != null ? scoreAbsensi(absensiValue) : null;
@@ -211,6 +225,7 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
       callActivityStandar,
       activityAchievementPct,
       activityScore,
+      callActivitySource,
       customerAktifCount,
       customerScore,
       absensiValue,
@@ -234,13 +249,13 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
 
 /**
  * ADMIN-only: save the manual Call Activity/Absensi inputs for one personil ×
- * month — Call Activity still has no automated data source (see
- * docs/kpi-monitoring/02-data-model.md §2); Absensi can also be filled
- * automatically by the SIPP sync (src/lib/sync/kpiAbsensiSync.ts). Touching
- * absensiValue here always marks absensiSource "MANUAL", so the sync job
- * treats it as an override and skips re-writing it on its next run — same
- * "manual wins" contract documented in kpiAbsensiSync.ts. Only touches fields
- * that were actually passed (undefined = leave as-is).
+ * month — both can also be filled automatically by their respective syncs
+ * (src/lib/sync/kpiCallActivitySync.ts, kpiAbsensiSync.ts). Touching either
+ * field here always marks its *Source "MANUAL", so the sync job treats it as
+ * an override and skips re-writing it on its next run — "manual wins"
+ * contract documented in kpiAbsensiSync.ts, applies the same way to Call
+ * Activity since 2026-09-08. Only touches fields that were actually passed
+ * (undefined = leave as-is).
  */
 export async function saveKpiManualInputAction(input: {
   nip: string;
@@ -261,6 +276,7 @@ export async function saveKpiManualInputAction(input: {
       period: input.period,
       callActivityRealisasi: input.callActivityRealisasi ?? null,
       callActivityStandar,
+      callActivitySource: "MANUAL",
       callActivityInputByNip: input.callActivityRealisasi != null ? session.userId : null,
       callActivityInputAt: input.callActivityRealisasi != null ? now : null,
       absensiValue: input.absensiValue ?? null,
@@ -273,6 +289,7 @@ export async function saveKpiManualInputAction(input: {
         ? {
             callActivityRealisasi: input.callActivityRealisasi,
             callActivityStandar,
+            callActivitySource: "MANUAL",
             callActivityInputByNip: session.userId,
             callActivityInputAt: now,
           }
@@ -301,6 +318,19 @@ export async function saveKpiManualInputAction(input: {
 export async function syncKpiAbsensiAction(period: string): Promise<KpiAbsensiSyncResult> {
   await requireAdmin();
   const result = await runKpiAbsensiSync(period);
+  revalidatePath("/kpi-perpanjangan");
+  return result;
+}
+
+/**
+ * ADMIN-only, manually triggered: pull this period's Call Activity (realized
+ * visit count) from Exodus's "Get Count Visit By NIP" endpoint for every
+ * active MR/ASM/SM (see src/lib/sync/kpiCallActivitySync.ts). Same
+ * manually-triggered, no-schedule pattern as syncKpiAbsensiAction.
+ */
+export async function syncKpiCallActivityAction(period: string): Promise<KpiCallActivitySyncResult> {
+  await requireAdmin();
+  const result = await runKpiCallActivitySync(period);
   revalidatePath("/kpi-perpanjangan");
   return result;
 }

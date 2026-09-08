@@ -161,6 +161,11 @@ export function KpiTable({ rows, period }: { rows: KpiPersonnelRow[]; period: st
                 <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: scoreColor(r.activityScore) }}>
                   {r.activityAchievementPct != null ? `${r.activityAchievementPct.toFixed(1)}%` : "Belum diisi"}
                   {r.activityScore != null && <span className="ml-1" style={{ color: "var(--color-text-faint)" }}>({r.activityScore})</span>}
+                  {r.callActivitySource === "EXODUS_SYNC" && (
+                    <span className="ml-1 text-[10px]" style={{ color: "var(--color-text-faint)" }} title="Disinkronkan otomatis dari Exodus (realisasi kunjungan)">
+                      (sinkron)
+                    </span>
+                  )}
                 </td>
 
                 <td className="py-2 px-3 text-right whitespace-nowrap" style={{ color: scoreColor(r.customerScore) }}>

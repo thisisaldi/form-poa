@@ -9,11 +9,15 @@
 | Sales Achievement | `PoaForm.target` (Rupiah, per periode) dibandingkan `OutletSalesValueMonthly` (real sales, hasil sync DIR10001B) | Logika sama dengan tab "Per MR" di `src/app/(app)/monitoring/page.tsx` — menggunakan ulang `buildOrgMaps()` (`src/lib/targetCalculation.ts`) untuk rollup per role. |
 | Customer Expansion (terkonfirmasi 2026-07-30) | `PsspKontrak` aktif (`prdAkhir >= periode berjalan`) per outlet yang dicakup MR — PSSP yang sudah habis TIDAK dihitung | `getActivePsspByOutlets()` (`src/app/actions/customer.ts`), sudah dipakai halaman Summary untuk `activeCustKeys`. |
 
+⚠️ **Koreksi 2026-09-08**: baris Sales Achievement di atas sudah usang — kode v1 sebenarnya mencocokkan `period` bulanan ("YYYY-MM") langsung ke `PoaForm.period` yang kuartalan ("YYYY-QN"), jadi `salesTargetRp` selalu 0 sejak awal (bug, bukan by-design). Diganti ke `TargetHospitalValue.target` (bulanan asli, tanpa konversi kuartal) — lihat `README.md` update 2026-09-08 dan `01-business-rules.md` §1 untuk detail.
+
 Kedua sumber ini bersifat **read-only, diturunkan (derive) sesuai permintaan (on demand)** — verifikasi 2026-08-05 mengonfirmasi ini masih menjadi cara kerja v1 yang sebenarnya (lihat §"Catatan desain — status implementasi snapshot" di bawah untuk detailnya), bukan hanya rencana. Tidak dibutuhkan tabel snapshot terpisah kecuali performa menjadi masalah (halaman Summary tab "Per Outlet" pernah membutuhkan 58-74 detik untuk scope ADMIN company-wide, lihat `docs/TODO.md` #47 — pola query yang sama harus diwaspadai di sini, terutama apabila KPI Monitoring dibuka company-wide untuk ADMIN/GM). Lihat juga cross-reference eksplisit ke `docs/PERFORMANCE.md` §5, yang menjadikan hal ini constraint wajib begitu akses diperluas melebihi ADMIN-only.
 
 ## 2. Data baru yang perlu dibangun (tidak ada sama sekali di sistem sebelum v1)
 
-Call Activity dan Kepatuhan Absensi **tidak memiliki sumber data apa pun** — bukan sekadar "belum di-expose", melainkan memang tidak ada model/sync yang menyimpannya. Keputusan (hasil klarifikasi pengguna 2026-07-30): **input manual oleh atasan untuk kedua indikator ini, dirancang agar mudah diganti/disambungkan ke sync eksternal nanti** — pola yang sama seperti field manual lain di aplikasi ini yang kelak digantikan sync (contoh: `ProductTargetInput` yang manual, versus `OutletSalesMonthly` yang sudah di-sync — kedua pola ini sudah hidup berdampingan pada kode yang sama, lihat `targetCalculation.ts`).
+Call Activity dan Kepatuhan Absensi **tidak memiliki sumber data apa pun di v1** — bukan sekadar "belum di-expose", melainkan memang tidak ada model/sync yang menyimpannya saat spesifikasi ini ditulis (2026-07-30). Keputusan waktu itu: **input manual oleh atasan untuk kedua indikator ini, dirancang agar mudah diganti/disambungkan ke sync eksternal nanti** — pola yang sama seperti field manual lain di aplikasi ini yang kelak digantikan sync (contoh: `ProductTargetInput` yang manual, versus `OutletSalesMonthly` yang sudah di-sync — kedua pola ini sudah hidup berdampingan pada kode yang sama, lihat `targetCalculation.ts`).
+
+🟢 Sejak itu keduanya sudah punya sync eksternal — Absensi via SIPP (2026-08-24), Call Activity via Exodus (2026-09-08, lihat `01-business-rules.md` §2b) — input manual tetap ada sebagai override (menang atas sync berikutnya), bukan digantikan.
 
 ### Model: `KpiMonthlyEntry`
 
@@ -148,7 +152,7 @@ Catatan desain:
 
 ## 5. Yang sengaja TIDAK dibangun di v1
 
-- Sync otomatis untuk Call Activity — masih menunggu keputusan integrasi eksternal (lihat `01-business-rules.md` §2b — API Exodus Activity relevan tapi endpoint yang cocok belum diimplementasikan/dipakai). `callActivitySource` disiapkan dengan pola yang sama seperti `absensiSource` di bawah, untuk saat integrasi ini akhirnya dikerjakan.
-- Sync otomatis untuk Absensi — **sudah diimplementasikan 2026-08-24** (`src/lib/sync/kpiAbsensiSync.ts`, lihat `01-business-rules.md` §2d), TAPI belum aktif di production sampai kredensial SIPP + `SIPP_DEFAULT_ABS_PT_ID` dikonfirmasi dan diisi (env var kosong = job diam-diam skip, bukan error).
+- Sync otomatis untuk Call Activity — **sudah diimplementasikan 2026-09-08** (`src/lib/sync/kpiCallActivitySync.ts`, endpoint Exodus "Get Count Visit By NIP", lihat `01-business-rules.md` §2b), trigger manual saja (tombol di `/kpi-perpanjangan`), belum dijadwalkan otomatis/cron — pola sama seperti Absensi di bawah.
+- Sync otomatis untuk Absensi — **sudah diimplementasikan 2026-08-24** (`src/lib/sync/kpiAbsensiSync.ts`, lihat `01-business-rules.md` §2d), kredensial staging & production aktif sejak 2026-08-24, trigger manual saja (tombol/CLI), belum dijadwalkan otomatis/cron untuk v1.
 - Perhitungan otomatis tanggal kontrak — lihat catatan `KpiContractEvaluation` di atas.
 - Job bulanan pengisi snapshot `KpiMonthlyEntry` — lihat catatan status implementasi snapshot di §2 di atas; ini bukan keputusan scope yang disengaja, melainkan pekerjaan yang belum sempat dikerjakan pada v1.

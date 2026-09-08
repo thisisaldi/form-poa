@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { KpiTable } from "@/components/kpi/KpiTable";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
 import { SyncAbsensiButton } from "@/components/kpi/SyncAbsensiButton";
+import { SyncCallActivityButton } from "@/components/kpi/SyncCallActivityButton";
 import { KpiDashboardStats } from "@/components/kpi/KpiDashboardStats";
 
 export const metadata = { title: "Monitoring KPI Perpanjangan · Form POA" };
@@ -57,6 +58,7 @@ export default async function KpiPerpanjanganPage({
         </div>
         <div className="flex items-start gap-2">
           <KpiPeriodPicker periods={periods} period={period} />
+          <SyncCallActivityButton period={period} />
           <SyncAbsensiButton period={period} />
         </div>
       </div>
@@ -64,9 +66,9 @@ export default async function KpiPerpanjanganPage({
       <Card>
         <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
           Business Result (Sales, 50%) dan Market Development (Customer Expansion, 15%) dihitung otomatis dari
-          data yang sudah ada. Activity &amp; Coverage (Call Activity, 25%) dan Attitude (Absensi, 10%) masih
-          input manual — belum ada sumber data realisasi kunjungan/absensi di sistem manapun. Beberapa formula
-          masih ASUMSI kerja, belum dikonfirmasi stakeholder — lihat{" "}
+          data yang sudah ada. Activity &amp; Coverage (Call Activity, 25%) dan Attitude (Absensi, 10%) bisa
+          disinkron dari Exodus/SIPP (tombol di atas) atau diisi manual — override manual selalu menang atas
+          hasil sync berikutnya. Beberapa formula masih ASUMSI kerja, belum dikonfirmasi stakeholder — lihat{" "}
           <code className="text-[11px]">docs/kpi-monitoring/01-business-rules.md §7</code>.
         </p>
       </Card>

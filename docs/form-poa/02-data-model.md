@@ -124,7 +124,7 @@ Enum lengkap: `Role`, `PoaStatus`, `AuditAction`, `StatusStandarisasi`, `JenisPs
 | `Product.spesialisasiRekomendasi` | Excel Rekomendasi Paket Produk Per Spesialisasi | `scripts/importProductSpesialisasiRekomendasi.ts` | One-time |
 | `OutletSalesHistory` (12 bln rolling) | MSSQL `DIR10001B` | `scripts/syncSalesHistory.ts` → `runSalesHistorySync`; juga `POST /api/sync/sales-history` | Recurring, cron-triggerable |
 | `OutletSalesMonthly` (qty per produk) | MSSQL `DIR10001B` | `scripts/syncSalesHistoryMonthly.ts`; juga in-process scheduler (`src/instrumentation.ts` → `salesHistoryMonthlyScheduler.ts`, no external cron needed) | Recurring, auto-triggered daily 00:00 WIB |
-| `OutletSalesValueMonthly` (Rupiah level-outlet) | MSSQL `DIR10001B` | `scripts/syncOutletSalesValueMonthly.ts`; juga `POST /api/sync/sales-value-monthly` | Recurring, cron-triggerable |
+| `OutletSalesValueMonthly` (Rupiah level-outlet) | MSSQL `DIR10001B` | `scripts/syncOutletSalesValueMonthly.ts`; juga `POST /api/sync/sales-value-monthly` (masih ada, fallback) DAN in-process scheduler (`src/instrumentation.ts` → `outletSalesValueMonthlyScheduler.ts`, ditambahkan 2026-09-08 setelah cron eksternal-nya diam-diam berhenti jalan — data sempat mandek di periode 202606) | Recurring, auto-triggered daily 00:00 WIB |
 | `PsspKontrak` | Excel snapshot "Pelunasan" (~30k baris, full-replace) | `scripts/importPsspKontrak.ts` | Periodik manual |
 | `PsspHospinetSnapshot` | Excel sumber Hospinet | `scripts/importPsspHospinet.ts` | Periodik manual |
 | `DiskonKontrak` (DPL, sumber utama) | Excel `DPL <bulan tahun>.xlsx` | `scripts/importDpl.ts` | Periodik manual |
