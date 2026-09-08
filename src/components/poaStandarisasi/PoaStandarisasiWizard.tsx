@@ -698,6 +698,7 @@ export function PoaStandarisasiWizard({
         onSelect={(idx) => {
           if (idx <= currentStepIdx) setViewedPhaseId(PHASES[idx].id);
         }}
+        extraStep={{ label: "Step 5", reached: !!pengajuan.submittedAt, done: !!pengajuan.spNonSalesSubmittedAt }}
       />
 
       {!isOwner && (
@@ -843,7 +844,21 @@ export function PoaStandarisasiWizard({
  * review it without changing pengajuan.currentPhase. Defaults to currentIdx
  * for callers (e.g. the "new" create form) that have no navigation concept.
  */
-export function Stepper({ currentIdx, viewedIdx, onSelect }: { currentIdx: number; viewedIdx?: number; onSelect?: (idx: number) => void }) {
+export function Stepper({
+  currentIdx,
+  viewedIdx,
+  onSelect,
+  extraStep,
+}: {
+  currentIdx: number;
+  viewedIdx?: number;
+  onSelect?: (idx: number) => void;
+  /** Step 5 (Permintaan SP Non Sales & DPL/DPF, 2026-09-08) — not a real
+   * PoaStandarisasiPhase/PHASES entry (it lives after submittedAt, outside
+   * the phase state machine), so it's bolted onto the timeline visually via
+   * this prop instead of going through the index-driven PHASES.map below. */
+  extraStep?: { label: string; reached: boolean; done: boolean };
+}) {
   const activeIdx = viewedIdx ?? currentIdx;
   return (
     <div className="flex items-start gap-2 mb-6 max-w-3xl">
@@ -886,6 +901,31 @@ export function Stepper({ currentIdx, viewedIdx, onSelect }: { currentIdx: numbe
           </div>
         );
       })}
+      {extraStep && (
+        <div className="flex-1 flex flex-col items-center relative">
+          <div
+            className="absolute h-0.5 top-4"
+            style={{ left: "-50%", right: "50%", background: extraStep.reached ? "var(--color-blue)" : "var(--color-border)" }}
+          />
+          <div
+            className="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-semibold z-10"
+            style={{
+              borderColor: extraStep.reached ? "var(--color-blue)" : "var(--color-border)",
+              background: extraStep.done ? "var(--color-blue)" : "#fff",
+              color: extraStep.done ? "#fff" : extraStep.reached ? "var(--color-blue)" : "var(--color-text-faint)",
+              boxSizing: "border-box",
+            }}
+          >
+            {extraStep.done ? "✓" : PHASES.length + 1}
+          </div>
+          <span
+            className="text-xs font-semibold mt-1.5 text-center max-w-[110px]"
+            style={{ color: extraStep.reached ? "var(--color-text)" : "var(--color-text-faint)" }}
+          >
+            {extraStep.label}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
