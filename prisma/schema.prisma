@@ -165,6 +165,7 @@ model User {
   // POA Standarisasi (see docs/poa-standarisasi/) — pembuat pengajuan
   poaStandarisasiOwned PoaStandarisasi[]
   poaStandarisasiFileAccessLogs PoaStandarisasiFileAccessLog[]
+  poaStandarisasiDokterReassignLogs PoaStandarisasiDokterReassignLog[]
 
   // ─── Tambahan Relasi Balik untuk Sales Counter ───
   poaScOwned           PoaScForm[]          @relation("PoaScOwner")
@@ -1407,6 +1408,7 @@ model PoaStandarisasiProduk {
   dokterApproval PoaStandarisasiDokterApproval[]
   dokterUser     PoaStandarisasiDokterUser[]
   dokumen        PoaStandarisasiDokumen[]
+  dokterReassignLogs PoaStandarisasiDokterReassignLog[]
 
   @@unique([pengajuanId, kodeProduk])
   @@index([pengajuanId])
@@ -1547,6 +1549,33 @@ model PoaStandarisasiFileAccessLog {
 
   @@index([pengajuanId])
   @@index([driveFileId])
+}
+
+// Audit trail buat "Ganti Dokter" di Approval User/Dokter (2026-09-08, user
+// request — mandatory reason box). Satu row = satu kali ganti (dipanggil dari
+// reassignDokterApprovalAction, yang di baliknya cuma remove+add
+// PoaStandarisasiDokterApproval seperti sebelumnya, plus row log ini).
+// customerId TIDAK di-FK ke Customer (snapshot nama saja, pola sama seperti
+// PoaStandarisasiKpdm.namaSnapshot) — log ini murni riwayat, bukan sumber
+// kebenaran relasional, jadi tidak perlu 2 relasi bernama balik ke Customer.
+model PoaStandarisasiDokterReassignLog {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  oldCustomerId   String
+  oldNamaSnapshot String
+  newCustomerId   String
+  newNamaSnapshot String
+
+  reason String
+
+  actorNip String
+  actor    User   @relation(fields: [actorNip], references: [nip])
+  createdAt DateTime @default(now())
+
+  @@index([produkId])
 }
 
 // ─── Sales Counter (Apotek/Retail) Models ───────────────────────────────────

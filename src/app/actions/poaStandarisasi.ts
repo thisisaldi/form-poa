@@ -248,6 +248,39 @@ export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukL
   return result;
 }
 
+export interface SalesHistoryOutletRow {
+  kodeProduk: string;
+  namaProduk: string;
+  totalSales12Bln: number;
+  periodeFrom: string; // YYYYMM
+  periodeTo: string; // YYYYMM
+}
+
+/**
+ * Widget "Historical Sales per Produk/Outlet" di sidebar Planning
+ * (2026-09-08, user request) — flat 12-bulan rollup per produk untuk outlet
+ * terpilih, sumber sama seperti getMarginWarningBaselineAction/
+ * computeStatusPengajuanMap (`OutletSalesHistory`), tapi di sini ditampilkan
+ * apa adanya (bukan cuma dipakai buat gate warning/status).
+ */
+export async function getSalesHistoryByOutletAction(kodePI: string): Promise<SalesHistoryOutletRow[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.outletSalesHistory.findMany({ where: { kodePI }, orderBy: { totalSales12Bln: "desc" } });
+  if (rows.length === 0) return [];
+  const products = await prisma.product.findMany({
+    where: { kodeProduk: { in: rows.map((r: (typeof rows)[number]) => r.itemKode) } },
+    select: { kodeProduk: true, namaProduk: true },
+  });
+  const namaByKode = new Map(products.map((p: (typeof products)[number]) => [p.kodeProduk, p.namaProduk]));
+  return rows.map((r: (typeof rows)[number]) => ({
+    kodeProduk: r.itemKode,
+    namaProduk: namaByKode.get(r.itemKode) ?? r.itemKode,
+    totalSales12Bln: parseFloat(r.totalSales12Bln.toString()),
+    periodeFrom: r.periodeFrom,
+    periodeTo: r.periodeTo,
+  }));
+}
+
 export interface StandarisasiProdukOutletRow {
   kodeProduk: string;
   namaProduk: string;
@@ -652,6 +685,50 @@ export async function removeDokterApprovalAction(produkId: string, customerId: s
   if (produk.pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase ini.");
 
   await prisma.poaStandarisasiDokterApproval.deleteMany({ where: { produkId, customerId } });
+  revalidatePath(`/poa-standarisasi/${produk.pengajuanId}`);
+}
+
+/**
+ * "Ganti Dokter" di Approval User/Dokter — remove lama + add baru dalam satu
+ * transaksi, PLUS wajib alasan (2026-09-08, user request: mandatory reason
+ * box saat re-assign dokter user di level approval ini) yang dicatat ke
+ * PoaStandarisasiDokterReassignLog buat audit trail (siapa ganti siapa,
+ * kapan, kenapa). `reason` divalidasi non-kosong di server juga — jangan
+ * cuma percaya validasi client.
+ */
+export async function reassignDokterApprovalAction(produkId: string, oldCustomerId: string, newCustomerId: string, reason: string): Promise<void> {
+  const { actor } = await requireActor();
+  if (!reason.trim()) throw new Error("Alasan wajib diisi.");
+  const produk = await prisma.poaStandarisasiProduk.findUnique({ where: { id: produkId }, include: { pengajuan: true } });
+  if (!produk) throw new Error("Produk tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, produk.pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (produk.pengajuan.currentPhase !== "APPROVAL_USER_DOKTER") throw new Error("Pengajuan tidak sedang di fase ini.");
+
+  const [oldCustomer, newCustomer] = await Promise.all([
+    prisma.customer.findUnique({ where: { id: oldCustomerId }, select: { namaCustomer: true } }),
+    prisma.customer.findUnique({ where: { id: newCustomerId }, select: { namaCustomer: true } }),
+  ]);
+  if (!oldCustomer || !newCustomer) throw new Error("Dokter tidak ditemukan.");
+
+  await prisma.$transaction([
+    prisma.poaStandarisasiDokterApproval.deleteMany({ where: { produkId, customerId: oldCustomerId } }),
+    prisma.poaStandarisasiDokterApproval.upsert({
+      where: { produkId_customerId: { produkId, customerId: newCustomerId } },
+      update: {},
+      create: { produkId, customerId: newCustomerId, wajib: true },
+    }),
+    prisma.poaStandarisasiDokterReassignLog.create({
+      data: {
+        produkId,
+        oldCustomerId,
+        oldNamaSnapshot: oldCustomer.namaCustomer,
+        newCustomerId,
+        newNamaSnapshot: newCustomer.namaCustomer,
+        reason: reason.trim(),
+        actorNip: actor.nip,
+      },
+    }),
+  ]);
   revalidatePath(`/poa-standarisasi/${produk.pengajuanId}`);
 }
 

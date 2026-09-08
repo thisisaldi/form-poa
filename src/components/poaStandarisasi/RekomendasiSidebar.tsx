@@ -20,14 +20,15 @@ import {
   type KriteriaByOutlet,
   type CustomerOption,
 } from "@/app/actions/customer";
-import { getStandarisasiProdukByOutletAction, type StandarisasiProdukOutletRow } from "@/app/actions/poaStandarisasi";
+import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
 
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
 const SIDEBAR_BLUE = "var(--color-blue)";
+const SIDEBAR_PURPLE = "var(--color-purple, #7c3aed)";
 
-type Tab = "survey" | "kriteria" | "standarisasi";
+type Tab = "survey" | "kriteria" | "standarisasi" | "sales";
 
 function edgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -56,6 +57,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
   const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiOutletRow[] | null>(null);
   const [kriteriaRows, setKriteriaRows] = useState<KriteriaByOutlet[] | null>(null);
   const [standarisasiRows, setStandarisasiRows] = useState<StandarisasiProdukOutletRow[] | null>(null);
+  const [salesHistoryRows, setSalesHistoryRows] = useState<SalesHistoryOutletRow[] | null>(null);
   const [, startLoad] = useTransition();
 
   useEffect(() => {
@@ -68,16 +70,19 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
       setSurveyRows(null);
       setKriteriaRows(null);
       setStandarisasiRows(null);
+      setSalesHistoryRows(null);
       if (!kodePI) return;
-      const [survey, kriteria, standarisasi] = await Promise.all([
+      const [survey, kriteria, standarisasi, salesHistory] = await Promise.all([
         getSurveyRekomendasiByOutletAggregate(kodePI),
         getKriteriaByOutlet(kodePI),
         getStandarisasiProdukByOutletAction(kodePI, pengajuanId),
+        getSalesHistoryByOutletAction(kodePI),
       ]);
       if (cancelled) return;
       setSurveyRows(survey);
       setKriteriaRows(kriteria);
       setStandarisasiRows(standarisasi);
+      setSalesHistoryRows(salesHistory);
     });
     return () => { cancelled = true; };
   }, [kodePI, pengajuanId]);
@@ -138,6 +143,9 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
         <button type="button" onClick={() => setActiveTab("standarisasi")} style={edgeTabStyle(SIDEBAR_BLUE)}>
           Sudah Standarisasi
         </button>
+        <button type="button" onClick={() => setActiveTab("sales")} style={edgeTabStyle(SIDEBAR_PURPLE)}>
+          Historical Sales
+        </button>
       </div>
     );
   }
@@ -156,6 +164,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
           <button type="button" onClick={() => setActiveTab("survey")} style={pillStyle(SIDEBAR_ORANGE, activeTab === "survey")}>Data Survey</button>
           <button type="button" onClick={() => setActiveTab("kriteria")} style={pillStyle(SIDEBAR_GREEN, activeTab === "kriteria")}>Produk Rekomendasi</button>
           <button type="button" onClick={() => setActiveTab("standarisasi")} style={pillStyle(SIDEBAR_BLUE, activeTab === "standarisasi")}>Sudah Standarisasi</button>
+          <button type="button" onClick={() => setActiveTab("sales")} style={pillStyle(SIDEBAR_PURPLE, activeTab === "sales")}>Historical Sales</button>
         </div>
         <button
           type="button"
@@ -195,6 +204,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode, dokterL
         {activeTab === "survey" && <SurveyOutletPanel rows={surveyRows} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
         {activeTab === "kriteria" && <KriteriaOutletPanel rows={kriteriaRows} productByKode={productByKode} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
         {activeTab === "standarisasi" && <StandarisasiOutletPanel rows={standarisasiRows === null || kriteriaRows === null ? null : standarisasiMerged} />}
+        {activeTab === "sales" && <SalesHistoryOutletPanel rows={salesHistoryRows} />}
       </div>
     </div>
   );
@@ -350,6 +360,39 @@ function StandarisasiOutletPanel({ rows }: { rows: { kodeProduk: string; namaPro
         <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
           <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
           <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{r.detail}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatPeriodeYyyymm(yyyymm: string): string {
+  const y = yyyymm.slice(0, 4);
+  const m = parseInt(yyyymm.slice(4, 6), 10);
+  const bulan = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+  return m >= 1 && m <= 12 ? `${bulan[m - 1]} ${y}` : yyyymm;
+}
+
+/** Widget "Historical Sales per Produk/Outlet" (2026-09-08, user request) —
+ * flat 12-bulan rollup per produk untuk outlet terpilih, sumber sama seperti
+ * warning margin §3a (OutletSalesHistory), ditampilkan apa adanya di sini. */
+function SalesHistoryOutletPanel({ rows }: { rows: SalesHistoryOutletRow[] | null }) {
+  const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada histori sales untuk outlet ini." />;
+  if (!rows || rows.length === 0) return empty;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        {rows.length} produk punya histori sales tercatat di outlet ini (12 bulan terakhir).
+      </p>
+      {rows.map((r) => (
+        <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+          <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
+          <div className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+            {r.totalSales12Bln.toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })}
+          </div>
+          <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+            {formatPeriodeYyyymm(r.periodeFrom)} – {formatPeriodeYyyymm(r.periodeTo)}
+          </div>
         </div>
       ))}
     </div>

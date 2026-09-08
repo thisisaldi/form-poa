@@ -20,6 +20,7 @@ import {
   approvePoaStandarisasiAtasanAction,
   addDokterApprovalAction,
   removeDokterApprovalAction,
+  reassignDokterApprovalAction,
   setDokterTtdAction,
   advanceToMenungguMeetingKftAction,
   saveMenungguMeetingKftAction,
@@ -1424,6 +1425,8 @@ function ApprovalUserDokterPhase({
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [replacingKey, setReplacingKey] = useState<string | null>(null);
+  const [replaceTargetId, setReplaceTargetId] = useState<string>("");
+  const [replaceReason, setReplaceReason] = useState("");
 
   async function handleToggleTtd(produkId: string, customerId: string, sudahTtd: boolean) {
     const key = `${produkId}:${customerId}`;
@@ -1465,16 +1468,23 @@ function ApprovalUserDokterPhase({
     }
   }
 
-  /** "Ganti" = remove old + add new in one action, reusing the same two
-   * server actions Hapus/+Tambah already call — no new backend needed. */
-  async function handleReplaceDokter(oldCustomerId: string, rawId: string) {
-    if (!rawId || !p) return;
+  function openReplace(key: string) {
+    setReplacingKey(replacingKey === key ? null : key);
+    setReplaceTargetId("");
+    setReplaceReason("");
+  }
+
+  /** "Ganti" = reassignDokterApprovalAction (remove old + add new + log
+   * alasan dalam satu transaksi) — alasan wajib diisi (2026-09-08, user
+   * request: mandatory reason box saat re-assign dokter user di level
+   * approval ini), divalidasi di server juga, bukan cuma di sini. */
+  async function handleReplaceDokter(oldCustomerId: string) {
+    if (!replaceTargetId || !replaceReason.trim() || !p) return;
     setBusy(true);
     setLocalError(null);
     try {
-      const realId = await resolveDokterId(rawId);
-      await removeDokterApprovalAction(p.id, oldCustomerId);
-      await addDokterApprovalAction(p.id, realId);
+      const realId = await resolveDokterId(replaceTargetId);
+      await reassignDokterApprovalAction(p.id, oldCustomerId, realId, replaceReason.trim());
       window.location.reload();
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : "Gagal mengganti dokter.");
@@ -1532,7 +1542,7 @@ function ApprovalUserDokterPhase({
                 {togglingKey === key ? "Menyimpan…" : d.sudahTtd ? "✓ Sudah TTD" : "Belum TTD"}
               </label>
               {canEdit && (
-                <button type="button" className="text-xs" style={{ color: "var(--color-blue)" }} disabled={busy} onClick={() => setReplacingKey(replacingKey === key ? null : key)}>
+                <button type="button" className="text-xs" style={{ color: "var(--color-blue)" }} disabled={busy} onClick={() => openReplace(key)}>
                   Ganti Dokter
                 </button>
               )}
@@ -1542,15 +1552,33 @@ function ApprovalUserDokterPhase({
                 </button>
               )}
               {canEdit && replacingKey === key && (
-                <div className="basis-full">
+                <div className="basis-full space-y-2 rounded-lg p-2" style={{ background: "var(--color-bg-subtle)" }}>
                   <Combobox
                     name={`dokterApprovalReplace-${key}`}
                     options={dokterList.filter((o) => !p.dokterApproval.some((da) => da.customerId === o.id)).map((o) => ({ value: o.id, label: o.namaCustomer, sublabel: o.jabatan, tag: o.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
-                    value=""
-                    onChange={(rawId) => { setReplacingKey(null); handleReplaceDokter(d.customerId, rawId); }}
+                    value={replaceTargetId}
+                    onChange={setReplaceTargetId}
                     disabled={busy}
                     placeholder={`Ganti ${d.customer.namaCustomer} dengan…`}
                   />
+                  <div>
+                    <textarea
+                      className="input-field text-xs w-full"
+                      rows={2}
+                      value={replaceReason}
+                      onChange={(e) => setReplaceReason(e.target.value)}
+                      disabled={busy}
+                      placeholder="Alasan ganti dokter (wajib diisi)…"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" size="sm" disabled={busy || !replaceTargetId || !replaceReason.trim()} onClick={() => handleReplaceDokter(d.customerId)}>
+                      Simpan Penggantian
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => setReplacingKey(null)}>
+                      Batal
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
