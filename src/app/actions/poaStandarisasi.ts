@@ -14,7 +14,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
+import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
 import { getDiscountsForOutlet, type ExodusDiscountPct } from "@/lib/exodusApi";
@@ -108,6 +108,7 @@ const detailInclude = {
     },
     orderBy: { createdAt: "asc" as const },
   },
+  spNonSalesDocuments: { include: { uploadedBy: { select: { name: true } } }, orderBy: { uploadedAt: "desc" as const } },
 };
 
 type RawDetail = Prisma.PoaStandarisasiGetPayload<{ include: typeof detailInclude }>;
@@ -142,6 +143,7 @@ function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct>
       finalDiscountPct: discounts ? discounts.get(prod.product.kodeProduk)?.principalPct ?? null : d(prod.finalDiscountPct),
       diskonDistributorPct: discounts ? discounts.get(prod.product.kodeProduk)?.distributorPct ?? null : d(prod.diskonDistributorPct),
       finalBiayaListingRp: d(prod.finalBiayaListingRp),
+      spNonSalesJumlahBox: d(prod.spNonSalesJumlahBox),
       product: {
         ...prod.product,
         hna: prod.product.hna.toString(),
@@ -1002,6 +1004,115 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
 
   revalidatePath(`/poa-standarisasi/${pengajuanId}`);
   return { driveFileId, namaFile };
+}
+
+// ─── Step 5: Permintaan SP Non Sales & DPL/DPF ──────────────────────────────
+// Muncul otomatis setelah pengajuan.submittedAt terisi (Finalisasi selesai) —
+// bukan phase di PoaStandarisasiPhase, gate-nya pakai canEditPoaStandarisasiStep5
+// (kebalikan dari canEditPoaStandarisasi: butuh submittedAt SUDAH terisi,
+// bukan belum). Tab "Request DPL/DPF" cuma nampilin data existing (Beban
+// Discount PI/Distributor = finalDiscountPct/diskonDistributorPct yang sudah
+// ada, Distributor = field `distributors` yang sama) — "+ Buat DPL/DPF"
+// tetap placeholder di v1 (§6 non-goals, belum ada integrasi sistem
+// eksternal), tidak ada action baru untuk itu.
+
+export interface SpNonSalesJumlahInput {
+  produkId: string;
+  jumlahBox: number | string | null;
+}
+
+/** Jumlah SP Non Sales per produk — disimpan lepas dari "Ajukan" supaya MR bisa isi bertahap sebelum submit akhir. */
+export async function saveSpNonSalesJumlahAction(id: string, lines: SpNonSalesJumlahInput[]): Promise<void> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (pengajuan.spNonSalesSubmittedAt) throw new Error("Permintaan SP Non Sales sudah diajukan, tidak bisa diubah lagi.");
+
+  await prisma.$transaction(
+    lines.map((l) => prisma.poaStandarisasiProduk.update({ where: { id: l.produkId }, data: { spNonSalesJumlahBox: toNum(l.jumlahBox) } }))
+  );
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+/** "Ajukan Permintaan SP Non Sales" — locks the quantities, doesn't validate a minimum (lenient, matches this feature's other optional-first fields). */
+export async function submitSpNonSalesRequestAction(id: string): Promise<void> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (pengajuan.spNonSalesSubmittedAt) throw new Error("Sudah diajukan sebelumnya.");
+
+  await prisma.poaStandarisasi.update({ where: { id }, data: { spNonSalesSubmittedAt: new Date() } });
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+/** Distributor terpilih di tab "Request DPL/DPF" — reuse field `distributors` yang sama dipakai Finalisasi, tapi diedit lagi di sini (phase-agnostic, submittedAt Finalisasi sudah lewat). */
+export async function updateSpNonSalesDistributorsAction(id: string, distributors: string[]): Promise<void> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+
+  const filtered = distributors.filter((d): d is (typeof DISTRIBUTOR_PILIHAN)[number] => (DISTRIBUTOR_PILIHAN as readonly string[]).includes(d));
+  await prisma.poaStandarisasi.update({ where: { id }, data: { distributors: filtered } });
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+/** Uploads a "Permintaan SP Non Sales" document — multiple files allowed per pengajuan (shared, not per produk), own admin-settable Drive folder. */
+export async function uploadSpNonSalesDocumentAction(formData: FormData): Promise<{ driveFileId: string; fileName: string }> {
+  if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
+  const { session, actor } = await requireActor();
+  if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
+
+  const file = formData.get("file");
+  const pengajuanId = (formData.get("pengajuanId") as string | null) ?? "";
+  if (!(file instanceof File)) throw new Error("File wajib diisi.");
+  if (!pengajuanId) throw new Error("Pengajuan tidak valid.");
+
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id: pengajuanId } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (pengajuan.spNonSalesSubmittedAt) throw new Error("Permintaan SP Non Sales sudah diajukan, tidak bisa upload dokumen baru lagi.");
+
+  const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+  if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("File harus berformat PDF atau JPG/PNG.");
+  if (file.size === 0) throw new Error("File kosong.");
+  if (file.size > MAX_FILE_SIZE_BYTES) throw new Error("Ukuran file maksimum 10MB.");
+
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const fileName = `${timestamp} - Permintaan SP Non Sales - POA Standarisasi ${sanitizeForFileName(pengajuan.kodePI)} oleh ${sanitizeForFileName(session.name)}`;
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const mimeType = MIME_BY_EXT[ext] ?? "application/octet-stream";
+  let driveFileId: string;
+  try {
+    ({ driveFileId } = await uploadFileToPoaStandarisasiDrive("spNonSales", fileName, mimeType, buffer));
+  } catch (err) {
+    const diag = describeGoogleDriveConfig();
+    console.error("[poaStandarisasi/uploadSpNonSales] Google Drive upload failed:", err, diag);
+    throw new Error(`Upload ke Google Drive gagal, coba lagi. (${JSON.stringify(diag)})`);
+  }
+
+  await prisma.poaStandarisasiSpNonSalesDocument.create({
+    data: { pengajuanId, fileName, driveFileId, uploadedByNip: actor.nip },
+  });
+
+  revalidatePath(`/poa-standarisasi/${pengajuanId}`);
+  return { driveFileId, fileName };
+}
+
+export async function deleteSpNonSalesDocumentAction(documentId: string): Promise<void> {
+  const { actor } = await requireActor();
+  const doc = await prisma.poaStandarisasiSpNonSalesDocument.findUnique({ where: { id: documentId }, include: { pengajuan: true } });
+  if (!doc) throw new Error("Dokumen tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, doc.pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (doc.pengajuan.spNonSalesSubmittedAt) throw new Error("Permintaan SP Non Sales sudah diajukan, tidak bisa hapus dokumen lagi.");
+
+  await prisma.poaStandarisasiSpNonSalesDocument.delete({ where: { id: documentId } });
+  revalidatePath(`/poa-standarisasi/${doc.pengajuanId}`);
 }
 
 // ─── Confidential file download (authenticated proxy + access log) ────────

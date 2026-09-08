@@ -264,9 +264,12 @@ async function getSurveyFolderId(): Promise<string | null> {
  * their own admin-settable folder (2026-09-07, user request — jangan campur
  * sama folder data survey, dan jangan sama-sama juga satu sama lain).
  */
-async function getPoaStandarisasiFolderId(kind: "kftApproval" | "formApproval"): Promise<string | null> {
+async function getPoaStandarisasiFolderId(kind: "kftApproval" | "formApproval" | "spNonSales"): Promise<string | null> {
   const row = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
-  return (kind === "kftApproval" ? row?.kftApprovalFolderId : row?.formApprovalFolderId) || null;
+  if (!row) return null;
+  if (kind === "kftApproval") return row.kftApprovalFolderId || null;
+  if (kind === "formApproval") return row.formApprovalFolderId || null;
+  return row.spNonSalesFolderId || null;
 }
 
 /**
@@ -295,9 +298,9 @@ export async function uploadFileToSurveyDrive(
   return uploadFileToFolder(fileName, mimeType, buffer, folderId);
 }
 
-/** Uploads Surat Approval Standarisasi KFT / Form Approval Standarisasi to their own admin-settable folder — never the survey folder. */
+/** Uploads Surat Approval Standarisasi KFT / Form Approval Standarisasi / Permintaan SP Non Sales to their own admin-settable folder — never the survey folder. */
 export async function uploadFileToPoaStandarisasiDrive(
-  kind: "kftApproval" | "formApproval",
+  kind: "kftApproval" | "formApproval" | "spNonSales",
   fileName: string,
   mimeType: string,
   buffer: Buffer

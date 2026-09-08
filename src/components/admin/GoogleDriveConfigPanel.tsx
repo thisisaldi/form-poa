@@ -15,13 +15,14 @@ import {
  * PoaDoctorsApiCredentialPanel's password), so the current value is shown
  * and pre-filled, not hidden.
  */
-const EMPTY_STATE: GoogleDriveConfigState = { surveyFolderId: null, kftApprovalFolderId: null, formApprovalFolderId: null, updatedAt: null };
+const EMPTY_STATE: GoogleDriveConfigState = { surveyFolderId: null, kftApprovalFolderId: null, formApprovalFolderId: null, spNonSalesFolderId: null, updatedAt: null };
 
 export function GoogleDriveConfigPanel() {
   const [state, setState] = useState<GoogleDriveConfigState | null>(null);
   const [surveyFolderId, setSurveyFolderId] = useState("");
   const [kftApprovalFolderId, setKftApprovalFolderId] = useState("");
   const [formApprovalFolderId, setFormApprovalFolderId] = useState("");
+  const [spNonSalesFolderId, setSpNonSalesFolderId] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -32,6 +33,7 @@ export function GoogleDriveConfigPanel() {
       setSurveyFolderId(s.surveyFolderId ?? "");
       setKftApprovalFolderId(s.kftApprovalFolderId ?? "");
       setFormApprovalFolderId(s.formApprovalFolderId ?? "");
+      setSpNonSalesFolderId(s.spNonSalesFolderId ?? "");
     }).catch(() => setState(EMPTY_STATE));
   }, []);
 
@@ -46,6 +48,7 @@ export function GoogleDriveConfigPanel() {
       formData.set("surveyFolderId", surveyFolderId.trim());
       formData.set("kftApprovalFolderId", kftApprovalFolderId.trim());
       formData.set("formApprovalFolderId", formApprovalFolderId.trim());
+      formData.set("spNonSalesFolderId", spNonSalesFolderId.trim());
       const res = await setGoogleDriveFolderIdAction(formData);
       if (!res.ok) { setError(res.error ?? "Gagal menyimpan."); return; }
       setSavedAt(Date.now());
@@ -60,7 +63,7 @@ export function GoogleDriveConfigPanel() {
       <div>
         <p className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>Folder Google Drive — Upload Dokumen</p>
         <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-          Tiga folder tujuan upload terpisah — Input Data Survey, Surat Approval Standarisasi KFT, dan Form Approval Standarisasi.
+          Empat folder tujuan upload terpisah — Input Data Survey, Surat Approval Standarisasi KFT, Form Approval Standarisasi, dan Permintaan SP Non Sales.
           Ambil ID dari URL folder-nya di Google Drive (bagian setelah <code>/folders/</code>).
         </p>
       </div>
@@ -99,6 +102,17 @@ export function GoogleDriveConfigPanel() {
           type="text"
           value={formApprovalFolderId}
           onChange={(e) => setFormApprovalFolderId(e.target.value)}
+          placeholder="Folder ID Google Drive"
+          className="input-field text-sm w-full"
+        />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Permintaan SP Non Sales</label>
+        <input
+          type="text"
+          value={spNonSalesFolderId}
+          onChange={(e) => setSpNonSalesFolderId(e.target.value)}
           placeholder="Folder ID Google Drive"
           className="input-field text-sm w-full"
         />

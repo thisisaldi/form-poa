@@ -845,6 +845,7 @@ export interface GoogleDriveConfigState {
   surveyFolderId: string | null;
   kftApprovalFolderId: string | null;
   formApprovalFolderId: string | null;
+  spNonSalesFolderId: string | null;
   updatedAt: string | null;
 }
 
@@ -852,6 +853,7 @@ const EMPTY_GOOGLE_DRIVE_CONFIG_STATE: GoogleDriveConfigState = {
   surveyFolderId: null,
   kftApprovalFolderId: null,
   formApprovalFolderId: null,
+  spNonSalesFolderId: null,
   updatedAt: null,
 };
 
@@ -864,11 +866,12 @@ export async function getGoogleDriveConfigStateAction(): Promise<GoogleDriveConf
     surveyFolderId: row?.surveyFolderId ?? null,
     kftApprovalFolderId: row?.kftApprovalFolderId ?? null,
     formApprovalFolderId: row?.formApprovalFolderId ?? null,
+    spNonSalesFolderId: row?.spNonSalesFolderId ?? null,
     updatedAt: row?.updatedAt.toISOString() ?? null,
   };
 }
 
-/** Sets/changes the shared Drive folders — "Input Data Survey", Surat Approval Standarisasi KFT, and Form Approval Standarisasi each have their own, independently settable. */
+/** Sets/changes the shared Drive folders — "Input Data Survey", Surat Approval Standarisasi KFT, Form Approval Standarisasi, and Permintaan SP Non Sales each have their own, independently settable. */
 export async function setGoogleDriveFolderIdAction(formData: FormData): Promise<AdminActionResult> {
   const authCheck = await requireAdmin();
   if (!authCheck.ok) return authCheck;
@@ -878,11 +881,12 @@ export async function setGoogleDriveFolderIdAction(formData: FormData): Promise<
   if (!surveyFolderId) return { ok: false, error: "Folder ID Data Survey wajib diisi." };
   const kftApprovalFolderId = str(formData, "kftApprovalFolderId") || null;
   const formApprovalFolderId = str(formData, "formApprovalFolderId") || null;
+  const spNonSalesFolderId = str(formData, "spNonSalesFolderId") || null;
 
   await prisma.googleDriveConfig.upsert({
     where: { id: 1 },
-    update: { surveyFolderId, kftApprovalFolderId, formApprovalFolderId, updatedByNip: session?.userId },
-    create: { id: 1, surveyFolderId, kftApprovalFolderId, formApprovalFolderId, updatedByNip: session?.userId },
+    update: { surveyFolderId, kftApprovalFolderId, formApprovalFolderId, spNonSalesFolderId, updatedByNip: session?.userId },
+    create: { id: 1, surveyFolderId, kftApprovalFolderId, formApprovalFolderId, spNonSalesFolderId, updatedByNip: session?.userId },
   });
   return { ok: true };
 }

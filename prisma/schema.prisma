@@ -166,6 +166,7 @@ model User {
   poaStandarisasiOwned PoaStandarisasi[]
   poaStandarisasiFileAccessLogs PoaStandarisasiFileAccessLog[]
   poaStandarisasiDokterReassignLogs PoaStandarisasiDokterReassignLog[]
+  poaStandarisasiSpNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
 
   // ─── Tambahan Relasi Balik untuk Sales Counter ───
   poaScOwned           PoaScForm[]          @relation("PoaScOwner")
@@ -1213,6 +1214,9 @@ model GoogleDriveConfig {
   // fitur upload tetap optional kalau admin belum set folder-nya.
   kftApprovalFolderId  String?
   formApprovalFolderId String?
+  // Permintaan SP Non Sales (Step 5 tab 1, 2026-09-08) — folder sendiri lagi,
+  // sama pola dengan 2 di atas.
+  spNonSalesFolderId String?
   updatedByNip   String?
   updatedAt      DateTime @updatedAt
 }
@@ -1351,8 +1355,16 @@ model PoaStandarisasi {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // "Ajukan Permintaan SP Non Sales" (Step 5, tab 1) — muncul cuma setelah
+  // submittedAt terisi. Distributor terpilih di Step 5 tab "Request DPL/DPF"
+  // REUSE field `distributors` di atas (bukan field baru) — diedit lagi di
+  // sana lewat updateSpNonSalesDistributorsAction (phase-agnostic, sama pola
+  // seperti jadwalMeetingKft).
+  spNonSalesSubmittedAt DateTime?
+
   produk PoaStandarisasiProduk[]
   fileAccessLogs PoaStandarisasiFileAccessLog[]
+  spNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
 
   @@index([ownerId])
   @@index([kodePI])
@@ -1401,6 +1413,15 @@ model PoaStandarisasiProduk {
 
   formApprovalFilePath    String?
   formApprovalDriveFileId String?
+
+  // ── Step 5: Permintaan SP Non Sales & DPL/DPF (2026-09-08) ──────────────
+  // Muncul setelah pengajuan.submittedAt terisi (Finalisasi selesai). Jumlah
+  // SP Non Sales per produk, satuan besar (product.satuan) — dokumennya
+  // sendiri (bisa lebih dari satu file, shared per pengajuan bukan per
+  // produk) ada di PoaStandarisasiSpNonSalesDocument. Beban Discount PI/
+  // Distributor di tab "Request DPL/DPF" REUSE finalDiscountPct/
+  // diskonDistributorPct di atas — tidak field baru.
+  spNonSalesJumlahBox Decimal? @db.Decimal(18, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1549,6 +1570,26 @@ model PoaStandarisasiFileAccessLog {
 
   @@index([pengajuanId])
   @@index([driveFileId])
+}
+
+// Dokumen "Permintaan SP Non Sales" (Step 5 tab 1, 2026-09-08) — bisa lebih
+// dari satu file per pengajuan (shared, bukan per produk), diupload/dihapus
+// bebas sebelum "Ajukan" ditekan. Folder Drive-nya sendiri, admin-settable
+// (GoogleDriveConfig.spNonSalesFolderId), sama pola dengan KFT/Form Approval.
+model PoaStandarisasiSpNonSalesDocument {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasi @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  fileName    String
+  driveFileId String
+
+  uploadedByNip String
+  uploadedBy    User     @relation(fields: [uploadedByNip], references: [nip])
+  uploadedAt    DateTime @default(now())
+
+  @@index([pengajuanId])
 }
 
 // Audit trail buat "Ganti Dokter" di Approval User/Dokter (2026-09-08, user

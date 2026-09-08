@@ -30,6 +30,11 @@ import {
   getStatusPengajuanPreviewAction,
   getEstimasiDiskonPreviewAction,
   getMarginWarningBaselineAction,
+  saveSpNonSalesJumlahAction,
+  submitSpNonSalesRequestAction,
+  updateSpNonSalesDistributorsAction,
+  uploadSpNonSalesDocumentAction,
+  deleteSpNonSalesDocumentAction,
 } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import {
@@ -805,9 +810,6 @@ export function PoaStandarisasiWizard({
           {isViewingCurrentPhase && pengajuan.currentPhase === "FINALISASI" && canEdit && !pengajuan.submittedAt && (
             <>
               <Button variant="secondary" disabled={pending} onClick={handleSaveFinalisasi}>Simpan</Button>
-              {/* Placeholder only (docs/poa-standarisasi/01-business-rules.md §7 Q7) — no
-                  real DPL/DPF system integration in v1, not wired to anything yet. */}
-              <Button variant="secondary" disabled title="Belum tersedia — integrasi sistem DPL/DPF belum ada di v1">+ Buat DPL/DPF baru</Button>
               <Button disabled={pending} onClick={handleSubmit}>Submit untuk Approval Standarisasi</Button>
             </>
           )}
@@ -818,6 +820,16 @@ export function PoaStandarisasiWizard({
           )}
         </div>
       </div>
+
+      {pengajuan.submittedAt && (
+        <Step5SpNonSalesDplDpf
+          pengajuan={pengajuan}
+          productByKode={productByKode}
+          distributors={distributors}
+          setDistributors={setDistributors}
+          canEdit={isOwner}
+        />
+      )}
     </div>
   );
 }
@@ -1955,6 +1967,300 @@ function FinalisasiPhase({
           </div>
         );
       })}
+    </Card>
+  );
+}
+
+// ─── Step 5: Permintaan SP Non Sales & DPL/DPF ──────────────────────────────
+// Muncul cuma setelah pengajuan.submittedAt terisi (Finalisasi selesai) —
+// bukan bagian dari PoaStandarisasiPhase/Stepper, jadi tidak muncul di
+// Stepper di atas. Judul sengaja masih "Step 5" placeholder (2026-09-08,
+// user: nama tahapan resminya belum diputuskan). 2 tab: "Permintaan SP Non
+// Sales" (jumlah per produk + upload dokumen + submit) dan "Request DPL/DPF"
+// (read-only Beban Discount PI/Distributor per produk dari data Finalisasi,
+// Distributor editable, tombol "+ Buat DPL/DPF" tetap placeholder — belum
+// ada integrasi sistem eksternal di v1, §6 non-goals).
+
+function formatRelativeDays(iso: string | Date): string {
+  const then = typeof iso === "string" ? new Date(iso) : iso;
+  const days = Math.floor((Date.now() - then.getTime()) / (1000 * 60 * 60 * 24));
+  if (days <= 0) return "hari ini";
+  if (days === 1) return "1 hari lalu";
+  return `${days} hari lalu`;
+}
+
+function Step5SpNonSalesDplDpf({
+  pengajuan,
+  productByKode,
+  distributors,
+  setDistributors,
+  canEdit,
+}: {
+  pengajuan: PoaStandarisasiDetail;
+  productByKode: Map<string, Product>;
+  distributors: string[];
+  setDistributors: (v: string[]) => void;
+  canEdit: boolean;
+}) {
+  const [activeTab, setActiveTab] = useState<"spNonSales" | "dplDpf">("spNonSales");
+  const [jumlahByProdukId, setJumlahByProdukId] = useState<Record<string, string>>(() =>
+    Object.fromEntries(pengajuan.produk.map((p) => [p.id, p.spNonSalesJumlahBox != null ? String(p.spNonSalesJumlahBox) : ""]))
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const locked = !!pengajuan.spNonSalesSubmittedAt;
+  const editable = canEdit && !locked;
+
+  async function handleSaveJumlah() {
+    setBusy(true);
+    setError(null);
+    try {
+      await saveSpNonSalesJumlahAction(
+        pengajuan.id,
+        pengajuan.produk.map((p) => ({ produkId: p.id, jumlahBox: jumlahByProdukId[p.id] || null }))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal menyimpan.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAjukan() {
+    setBusy(true);
+    setError(null);
+    try {
+      await saveSpNonSalesJumlahAction(
+        pengajuan.id,
+        pengajuan.produk.map((p) => ({ produkId: p.id, jumlahBox: jumlahByProdukId[p.id] || null }))
+      );
+      await submitSpNonSalesRequestAction(pengajuan.id);
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal mengajukan.");
+      setBusy(false);
+    }
+  }
+
+  async function handleUploadDocument(file: File) {
+    setUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("pengajuanId", pengajuan.id);
+      await uploadSpNonSalesDocumentAction(fd);
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload gagal.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteDocument(documentId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteSpNonSalesDocumentAction(documentId);
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal menghapus.");
+      setBusy(false);
+    }
+  }
+
+  async function handleDistributorChange(next: string[]) {
+    setDistributors(next);
+    if (!editable) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateSpNonSalesDistributorsAction(pengajuan.id, next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal menyimpan distributor.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const remainingDistributorOptions = DISTRIBUTOR_OPTIONS.filter((d) => !distributors.includes(d));
+
+  return (
+    <Card className="mt-4">
+      <CardHeader><CardTitle>Step 5 — Permintaan SP Non Sales & DPL/DPF</CardTitle></CardHeader>
+
+      {error && (
+        <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
+          {error}
+        </p>
+      )}
+      <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
+        Muncul otomatis setelah status Finalisasi = selesai. Daftar produk ditarik dari produk yang sudah di-plan pada RS &amp; Dokter ini.
+      </p>
+
+      <div className="flex gap-4 mb-4" style={{ borderBottom: "1px solid var(--color-border)" }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab("spNonSales")}
+          className="text-sm font-semibold pb-2"
+          style={{
+            color: activeTab === "spNonSales" ? "var(--color-blue)" : "var(--color-text-faint)",
+            borderBottom: activeTab === "spNonSales" ? "2px solid var(--color-blue)" : "2px solid transparent",
+          }}
+        >
+          Permintaan SP Non Sales
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("dplDpf")}
+          className="text-sm font-semibold pb-2"
+          style={{
+            color: activeTab === "dplDpf" ? "var(--color-blue)" : "var(--color-text-faint)",
+            borderBottom: activeTab === "dplDpf" ? "2px solid var(--color-blue)" : "2px solid transparent",
+          }}
+        >
+          Request DPL/DPF
+        </button>
+      </div>
+
+      {activeTab === "spNonSales" && (
+        <div>
+          {locked && (
+            <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-status-approved-bg, #E6F5EC)", color: "var(--color-status-approved, #008f42)" }}>
+              ✓ Sudah diajukan {pengajuan.spNonSalesSubmittedAt && new Date(pengajuan.spNonSalesSubmittedAt).toLocaleDateString("id-ID")}
+            </p>
+          )}
+
+          <table className="w-full text-xs mb-4">
+            <thead>
+              <tr style={{ color: "var(--color-text-faint)" }}>
+                <th className="text-left py-1 pr-3">Produk</th>
+                <th className="text-right py-1" style={{ minWidth: 160 }}>Jumlah SP Non Sales (untuk outlet)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pengajuan.produk.map((p) => {
+                const product = productByKode.get(p.kodeProduk);
+                return (
+                  <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <td className="py-2 pr-3 font-semibold" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</td>
+                    <td className="py-2">
+                      <UnitCountInput
+                        unit={product?.satuan ?? "BOX"}
+                        value={jumlahByProdukId[p.id] ?? ""}
+                        onChange={(v) => setJumlahByProdukId((prev) => ({ ...prev, [p.id]: v }))}
+                        disabled={!editable}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="text-xs italic mb-4" style={{ color: "var(--color-text-faint)" }}>Baris berulang otomatis untuk setiap produk yang ada di POA (Planning) ini.</p>
+
+          <span className="text-sm font-medium block mb-2">Dokumen Terupload</span>
+          {pengajuan.spNonSalesDocuments.length === 0 ? (
+            <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>Belum ada dokumen diupload.</p>
+          ) : (
+            <div className="space-y-2 mb-3">
+              {pengajuan.spNonSalesDocuments.map((doc) => (
+                <div key={doc.id} className="flex items-center gap-3 rounded-lg px-3 py-2" style={{ border: "1px solid var(--color-border)" }}>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{doc.fileName}</div>
+                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Diupload {formatRelativeDays(doc.uploadedAt)} oleh {doc.uploadedBy.name}</div>
+                  </div>
+                  <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>Lihat</a>
+                  {editable && (
+                    <button type="button" className="text-xs font-medium" style={{ color: "var(--color-error)" }} disabled={busy} onClick={() => handleDeleteDocument(doc.id)}>Hapus</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {editable && (
+            <div className="mb-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadDocument(f); }}
+              />
+              <Button type="button" size="sm" variant="secondary" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+                {uploading ? "Mengupload…" : "+ Upload dokumen baru"}
+              </Button>
+            </div>
+          )}
+
+          {editable && (
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" disabled={busy} onClick={handleSaveJumlah}>Simpan</Button>
+              <Button type="button" disabled={busy} onClick={handleAjukan}>Ajukan Permintaan SP Non Sales</Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === "dplDpf" && (
+        <div>
+          <span className="text-sm font-medium block mb-2">Distributor</span>
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            {distributors.map((d) => (
+              <span key={d} className="text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
+                {d}
+                {editable && (
+                  <button type="button" onClick={() => handleDistributorChange(distributors.filter((x) => x !== d))} style={{ color: "var(--color-blue)" }}>✕</button>
+                )}
+              </span>
+            ))}
+            {editable && remainingDistributorOptions.length > 0 && (
+              <div className="w-40">
+                <Combobox
+                  name="dplDpfDistributorAdd"
+                  options={remainingDistributorOptions.map((d) => ({ value: d, label: d }))}
+                  value=""
+                  onChange={(v) => handleDistributorChange([...distributors, v])}
+                  disabled={busy}
+                  placeholder="+ Tambah distributor…"
+                />
+              </div>
+            )}
+          </div>
+
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ color: "var(--color-text-faint)" }}>
+                <th className="text-left py-1 pr-3">Produk</th>
+                <th className="text-right py-1 px-2">Beban Discount PI</th>
+                <th className="text-right py-1 px-2">Beban Discount Distributor</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {pengajuan.produk.map((p) => {
+                const product = productByKode.get(p.kodeProduk);
+                return (
+                  <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <td className="py-2 pr-3 font-semibold" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</td>
+                    <td className="py-2 px-2 text-right">{p.finalDiscountPct != null ? `${p.finalDiscountPct}%` : "-"}</td>
+                    <td className="py-2 px-2 text-right">{p.diskonDistributorPct != null ? `${p.diskonDistributorPct}%` : "-"}</td>
+                    <td className="py-2 pl-3">
+                      {/* Placeholder only (§6 non-goals) — no real DPL/DPF system integration in v1. */}
+                      <Button size="sm" variant="secondary" disabled title="Belum tersedia — integrasi sistem DPL/DPF belum ada di v1">+ Buat DPL/DPF</Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="text-xs mt-2" style={{ color: "var(--color-text-faint)" }}>Beban Discount PI/Distributor melekat per produk, mengikuti data Finalisasi produk masing-masing — read-only, bukan input ulang.</p>
+        </div>
+      )}
     </Card>
   );
 }

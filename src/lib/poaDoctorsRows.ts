@@ -456,27 +456,35 @@ export function buildDoctorRows(
         customerId: dokter.kodeCust ? customerCodeExodusByKodeCust.get(dokter.kodeCust) ?? null : null,
       },
       estimasi: dokter.estimasiTotal,
-      nilaiPssp: dokter.nilaiPsspTotal,
+      nilaiPssp: Math.round(dokter.nilaiPsspTotal),
       estimasiAktif: aktifStats?.estBarisTercacah ?? 0,
       nilaiPsspAktif: aktifStats?.nilaiTercacah ?? 0,
-      produk: dokter.produk.map((p) => ({
-        kodeProduk: p.kodeProduk,
-        namaProduk: p.namaProduk,
-        estimasi: p.estimasi,
-        nilaiPssp: p.nilaiPssp,
-        pengaliNilaiR: p.pengaliNilaiR,
-        nilaiR: p.nilaiR, // Rupiah amount (Exodus r_value), not a ratio — see ProductMaster above
-        hna: p.hna,
-        // Full periodeAwal..periodeAwal+lamaPeriode-1 range, sorted — no
-        // longer clipped to the queried quarter (see computeQtyPerBulan).
-        qtyPerBulan: [...p.qtyPerBulan.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([bulan, qty]) => ({ bulan, qty })),
-        qtyTotal: [...p.qtyPerBulan.values()].reduce((s, v) => s + v, 0),
-        productId: p.productId,
-        principalId: p.principalId,
-        principalName: p.principalName,
-        principalCode: p.principalCode,
-        categoryProduct: p.categoryProduct,
-      })),
+      produk: dokter.produk.map((p) => {
+        // Rounded to nearest integer (2026-09-08 request) — internal qty math
+        // stays fractional (evenly split rencanaTotalBiaya per month ÷ hna),
+        // only the response value is rounded. qtyTotal sums the ROUNDED
+        // per-month values (not the raw total, then rounded once) so it
+        // always matches what qtyPerBulan's own entries add up to.
+        const qtyPerBulan = [...p.qtyPerBulan.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([bulan, qty]) => ({ bulan, qty: Math.round(qty) }));
+        return {
+          kodeProduk: p.kodeProduk,
+          namaProduk: p.namaProduk,
+          estimasi: p.estimasi,
+          nilaiPssp: Math.round(p.nilaiPssp),
+          pengaliNilaiR: p.pengaliNilaiR,
+          nilaiR: p.nilaiR, // Rupiah amount (Exodus r_value), not a ratio — see ProductMaster above
+          hna: p.hna,
+          // Full periodeAwal..periodeAwal+lamaPeriode-1 range — no longer
+          // clipped to the queried quarter (see computeQtyPerBulan).
+          qtyPerBulan,
+          qtyTotal: qtyPerBulan.reduce((s, v) => s + v.qty, 0),
+          productId: p.productId,
+          principalId: p.principalId,
+          principalName: p.principalName,
+          principalCode: p.principalCode,
+          categoryProduct: p.categoryProduct,
+        };
+      }),
     }];
   });
 }

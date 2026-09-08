@@ -105,8 +105,15 @@ Metrik §3a sekarang menghitung margin gabungan PI+Distributor, baik sisi lama m
 - Tidak ada resubmit/reject-per-baris granular seperti `PoaDoctorApproval` reguler — approval dokter di sini murni checklist "sudah TTD" (tanda tangan fisik), bukan approve/reject in-app oleh dokter itu sendiri.
 - Tidak ada notifikasi otomatis (email/in-app) saat status Approval Atasan berubah di v1 — ASM/SM harus membuka pengajuannya sendiri untuk melihat & bertindak (approval-nya sendiri tetap blocking, lihat §2/§7 Q2 — ini hanya soal notifikasi).
 - Tidak ada halaman approval terpisah untuk ASM/SM — approval terjadi sebagai satu step di wizard yang sama, bukan route baru (dikonfirmasi eksplisit di dokumen sumber sebagai desain yang disengaja).
-- Link "+ Buat DPL/DPF baru" tetap placeholder di v1 (lihat §7 Q7) — bukan integrasi nyata ke sistem DPL/DPF eksternal.
+- Tombol "+ Buat DPL/DPF" (Step 5 tab "Request DPL/DPF", per produk sejak 2026-09-08 — sebelumnya satu link global di footer Finalisasi) tetap placeholder di v1 (lihat §7 Q7) — bukan integrasi nyata ke sistem DPL/DPF eksternal.
 - Sync otomatis `Outlet.jumlahBed` dari sumber eksternal — v1 hanya field manual/snapshot (lihat §7 Q8).
+
+### §6a. Step 5 — Permintaan SP Non Sales & DPL/DPF (2026-09-08)
+
+Tahapan baru SETELAH `submittedAt` terisi (bukan phase di `PoaStandarisasiPhase`/Stepper — muncul otomatis begitu Finalisasi selesai submit, gate-nya `canEditPoaStandarisasiStep5` di `authz.ts`, kebalikan dari `canEditPoaStandarisasi` yang butuh submittedAt BELUM terisi). Judul UI sengaja masih "Step 5" placeholder, nama resminya belum diputuskan user. 2 tab:
+
+- **Permintaan SP Non Sales**: baris otomatis per produk yang ada di pengajuan (dari Planning), field jumlah (`PoaStandarisasiProduk.spNonSalesJumlahBox`, satuan `product.satuan`). Dokumen bisa lebih dari satu file per pengajuan (`PoaStandarisasiSpNonSalesDocument`, shared bukan per produk), folder Drive sendiri admin-settable (`GoogleDriveConfig.spNonSalesFolderId`). "Ajukan Permintaan SP Non Sales" (`submitSpNonSalesRequestAction`) mengunci tab ini (`spNonSalesSubmittedAt`) — tidak ada validasi jumlah minimum, lenient sama seperti field optional lain di fitur ini.
+- **Request DPL/DPF**: Distributor (reuse field `distributors` yang sama dipakai Finalisasi, diedit lagi lewat `updateSpNonSalesDistributorsAction` — phase-agnostic). Tabel Beban Discount PI/Distributor per produk = REUSE `finalDiscountPct`/`diskonDistributorPct` dari Finalisasi, read-only, tidak ada input ulang. Tombol "+ Buat DPL/DPF" per produk tetap placeholder (lihat §6).
 
 ## §7. Open questions — status & assumptions dipakai untuk v1
 

@@ -872,6 +872,13 @@ export function canEditPoaStandarisasi(user: User, pengajuan: { ownerId: string;
   return pengajuan.ownerId === user.nip && !pengajuan.submittedAt;
 }
 
+/** Step 5 (Permintaan SP Non Sales & DPL/DPF, 2026-09-08) only exists AFTER
+ * final submit — deliberately the inverse submittedAt check of
+ * canEditPoaStandarisasi above, same owner-only rule otherwise. */
+export function canEditPoaStandarisasiStep5(user: User, pengajuan: { ownerId: string; submittedAt: Date | null }): boolean {
+  return pengajuan.ownerId === user.nip && !!pengajuan.submittedAt;
+}
+
 /**
  * Can this user approve/reject the given Phase 2 level right now? Sequential —
  * SM can only act after ASM has approved, NSM only after SM has approved
