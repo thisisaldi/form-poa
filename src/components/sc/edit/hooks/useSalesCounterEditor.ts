@@ -143,22 +143,27 @@ export function useSalesCounterEditor({
   const [diskonList, setDiskonList] = useState<{ proCode: string; diskon: number }[]>([]);
   const [diskonPeriode, setDiskonPeriode] = useState<string>("");
 
+  const effectiveDiskonPeriod = useMemo(
+    () => periodeAwal || resolvePeriodForQuarter(poaPeriod),
+    [periodeAwal, poaPeriod]
+  );
+
   useEffect(() => {
-    if (!periodeAwal) {
+    if (!effectiveDiskonPeriod) {
       setDiskonList([]);
       setDiskonPeriode("");
       return;
     }
-    getDiskonDplDpfByPeriodeAction(periodeAwal).then((res) => {
+    getDiskonDplDpfByPeriodeAction(effectiveDiskonPeriod).then((res) => {
       if (Array.isArray(res)) {
         setDiskonList(res);
-        setDiskonPeriode(periodeAwal);
+        setDiskonPeriode(effectiveDiskonPeriod);
       } else {
         setDiskonList(res?.list || []);
-        setDiskonPeriode(res?.diskonPeriode || periodeAwal);
+        setDiskonPeriode(res?.diskonPeriode || effectiveDiskonPeriod);
       }
     });
-  }, [periodeAwal]);
+  }, [effectiveDiskonPeriod]);
 
   useEffect(() => {
     if (diskonList.length === 0) return;

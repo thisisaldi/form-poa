@@ -61,6 +61,7 @@ export default async function EditSalesCounterByIdPage({
           namaOutlet={form.namaOutlet}
           is_sc={form.is_sc}
           isBlastIn={form.isBlastIn}
+          isOnline={form.isOnline}
           persons={form.persons}
           initialProducts={form.products}
           initialEntertainItems={form.entertainItems}

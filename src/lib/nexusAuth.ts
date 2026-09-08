@@ -20,3 +20,30 @@ export function nexusAuthHeaders(): Record<string, string> {
   const token = Buffer.from(`${user}:${pass}`).toString("base64");
   return { Authorization: `Basic ${token}` };
 }
+
+export function nexusAuthV2Headers(): Record<string, string> {
+  let user = process.env.NEXUS_API_USERNAME_V2;
+  let pass = process.env.NEXUS_API_PASSWORD_V2;
+
+  if (!user || !pass) {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      for (const filename of [".env.local", ".env"]) {
+        const envPath = path.resolve(process.cwd(), filename);
+        if (fs.existsSync(envPath)) {
+          const content = fs.readFileSync(envPath, "utf-8");
+          const userMatch = content.match(/^NEXUS_API_USERNAME_V2\s*=\s*["']?([^"'\r\n]+)["']?/m);
+          const passMatch = content.match(/^NEXUS_API_PASSWORD_V2\s*=\s*["']?([^"'\r\n]+)["']?/m);
+          if (userMatch && !user) user = userMatch[1].trim();
+          if (passMatch && !pass) pass = passMatch[1].trim();
+        }
+      }
+    } catch {}
+  }
+
+  if (!user || !pass) return {};
+  const token = Buffer.from(`${user}:${pass}`).toString("base64");
+  return { Authorization: `Basic ${token}` };
+}
+

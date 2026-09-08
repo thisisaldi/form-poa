@@ -10,9 +10,11 @@ import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa
 import { getScOutletB3Sales } from "@/app/(app)/sc/[id]/_services/getScOutletB3Sales";
 import { getRekomendasiProduk } from "@/app/(app)/sc/[id]/_services/getRekomendasiProduk";
 import { getHistorySales } from "@/app/(app)/sc/[id]/_services/getHistorySales";
+import { postHistorySales } from "@/app/(app)/sc/[id]/_services/postHistorySales";
 import { getSalesOnline } from "@/app/(app)/sc/[id]/_services/getSalesOnline";
 import { getSalesApotekOnline } from "@/app/(app)/sc/[id]/_services/getSalesApotekOnline";
 import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
+import { getBlastInData } from "@/app/(app)/sc/[id]/_services/getBlastInData";
 import { prisma } from "@/lib/prisma";
 
 export async function getSalesCountersAction(piCode: string) {
@@ -63,6 +65,21 @@ export async function getHistorySalesAction(piCode: string, agg: boolean = true)
   if (!piCode) return { data: [] };
   const res = await getHistorySales(piCode, agg);
   return res || { data: [] };
+}
+
+export async function postHistorySalesAction(
+  piCodes: string[],
+  period?: (number | string)[],
+  proCodes?: string[]
+) {
+  if (!piCodes || piCodes.length === 0) return { data: null };
+  const res = await postHistorySales({
+    piCodes,
+    period,
+    agg: true,
+    proCodes,
+  });
+  return res || { data: null };
 }
 
 export async function getSalesOnlineAction(piCode: string) {
@@ -143,4 +160,9 @@ export async function getRecommendedProCodesAction(sourceProCodes?: string[]): P
     console.error("Error fetching recommended pro codes from DB:", err);
     return [];
   }
+}
+
+export async function getBlastInDataAction(outletId: string, year?: number) {
+  if (!outletId) return null;
+  return await getBlastInData(outletId, year);
 }

@@ -6,9 +6,11 @@ import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { getSalesCounterProduct } from "./getSalesCounterProduct";
 import { getHistorySales } from "./getHistorySales";
+import { postHistorySales } from "./postHistorySales";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { getB3ByQuarter } from "@/lib/b3Utils";
+import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 
 interface MasterProductItem {
   kodeProduk: string;
@@ -139,7 +141,9 @@ export async function getSalesCounterDetailData(
   }
 
   const isOwner = poa.ownerId === sessionUserId;
-  const userCanEdit = isOwner && (poa.status === "DRAFT" || poa.status === "REVISI" || poa.status === "SUBMITTED_TO_ASM");
+  // Owner can always add new outlets and manage their DRAFT/REVISI outlets.
+  // Each outlet card enforces individual lock status (DRAFT/REVISI vs APPROVED).
+  const userCanEdit = isOwner || sessionRole === "ADMIN";
 
   // Collect all product codes across drafts to fetch master Product information
   const allProductCodes = Array.from(
@@ -171,28 +175,37 @@ export async function getSalesCounterDetailData(
   const b3Info = getB3ByQuarter(targetPeriod);
   const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
 
-  const [blastInSet, rawOutlets] = await Promise.all([
+  const [blastInSet, rawOutlets, batchHistoryRes] = await Promise.all([
     getBlastInOutletSet(),
     getSalesCounterOutletsDirect(actor.nip),
-    Promise.all(
-      outletCodes.map(async (kodePI: string) => {
-        try {
-          const [scProductRes, historyRes] = await Promise.all([
-            getSalesCounterProduct(kodePI).catch(() => null),
-            getHistorySales(kodePI, false).catch(() => null),
-          ]);
-          if (scProductRes?.data) {
-            const scCodes = new Set<string>();
-            for (const cp of scProductRes.data) {
-              canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
-                sales_counter_value: cp.sales_counter_value || 0,
-                sales_counter_minimum: cp.sales_counter_minimum || 0,
-              });
-              if (cp.pro_code) scCodes.add(cp.pro_code);
-            }
-            outletScProductCodesMap.set(kodePI, scCodes);
-            outletScTotalCountMap.set(kodePI, scProductRes.data.length);
+    outletCodes.length > 0
+      ? postHistorySales({ piCodes: outletCodes, period: b3Info.targetPeriods, agg: true }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  await Promise.all(
+    outletCodes.map(async (kodePI: string) => {
+      try {
+        const scProductRes = await getSalesCounterProduct(kodePI).catch(() => null);
+        if (scProductRes?.data) {
+          const scCodes = new Set<string>();
+          for (const cp of scProductRes.data) {
+            canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
+              sales_counter_value: cp.sales_counter_value || 0,
+              sales_counter_minimum: cp.sales_counter_minimum || 0,
+            });
+            if (cp.pro_code) scCodes.add(cp.pro_code);
           }
+          outletScProductCodesMap.set(kodePI, scCodes);
+          outletScTotalCountMap.set(kodePI, scProductRes.data.length);
+        }
+
+        const parsedBatch = parseOutletHistorySales(batchHistoryRes, kodePI);
+        if (parsedBatch.totalSales > 0) {
+          outletHistorySalesQuarterMap.set(kodePI, parsedBatch.totalSales);
+        } else {
+          // Fallback to legacy getHistorySales if batch yielded no sales
+          const historyRes = await getHistorySales(kodePI, false).catch(() => null);
           if (historyRes?.data && Array.isArray(historyRes.data)) {
             let totalValSum = 0;
             for (const it of historyRes.data) {
@@ -202,14 +215,16 @@ export async function getSalesCounterDetailData(
                 totalValSum += salesVal;
               }
             }
-            outletHistorySalesQuarterMap.set(kodePI, totalValSum);
+            if (totalValSum > 0) {
+              outletHistorySalesQuarterMap.set(kodePI, totalValSum);
+            }
           }
-        } catch (err) {
-          console.error(`Error fetching SC data for ${kodePI}:`, err);
         }
-      })
-    ),
-  ]);
+      } catch (err) {
+        console.error(`Error fetching SC data for ${kodePI}:`, err);
+      }
+    })
+  );
 
   const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));
   const totalCoverageScOutlets = rawOutlets.filter((o) => !!o.is_sc).length;

@@ -6,12 +6,14 @@ export function SalesCounterChecklistHeader({
   poaId,
   canEditNow,
   selectable,
+  canApprove,
   allChecked,
   onToggleAll,
 }: {
   poaId?: string;
   canEditNow: boolean;
   selectable: boolean;
+  canApprove?: boolean;
   allChecked: boolean;
   onToggleAll: () => void;
 }) {
@@ -22,7 +24,9 @@ export function SalesCounterChecklistHeader({
           Daftar Outlet SC
         </p>
         <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-          {selectable
+          {canApprove
+            ? "Pilih outlet untuk disetujui atau minta revisi secara massal"
+            : selectable
             ? "Centang outlet SC yang ingin dihitung statistiknya"
             : "Ringkasan seluruh rencana SC"}
         </p>

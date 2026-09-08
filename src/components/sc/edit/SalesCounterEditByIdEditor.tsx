@@ -52,12 +52,14 @@ import {
   getPrincodeProductsAction,
   getScCashbackPoaAction,
   getScOutletB3SalesAction,
+  postHistorySalesAction,
   getRekomendasiProdukAction,
   getHistorySalesAction,
   getSalesOnlineAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
+import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
 
 function formatCashbackPct(rawVal: number | string | undefined | null): string {
@@ -113,6 +115,7 @@ interface SalesCounterEditByIdEditorProps {
   is_sc?: boolean;
   isBlastIn?: boolean;
   isPosm?: boolean;
+  isOnline?: boolean;
   persons: Person[];
   initialProducts: {
     id: string;
@@ -166,6 +169,7 @@ export function SalesCounterEditByIdEditor({
   is_sc,
   isBlastIn,
   isPosm,
+  isOnline,
   persons,
   initialProducts,
   initialEntertainItems,
@@ -333,26 +337,32 @@ export function SalesCounterEditByIdEditor({
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
+  const [outletTotalAvgB3Sales, setOutletTotalAvgB3Sales] = useState<number>(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [diskonList, setDiskonList] = useState<{ proCode: string; diskon: number }[]>([]);
   const [diskonPeriode, setDiskonPeriode] = useState<string>("");
 
+  const effectiveDiskonPeriod = useMemo(
+    () => periodeAwal || resolvePeriodForQuarter(poaPeriod),
+    [periodeAwal, poaPeriod]
+  );
+
   useEffect(() => {
-    if (!periodeAwal) {
+    if (!effectiveDiskonPeriod) {
       setDiskonList([]);
       setDiskonPeriode("");
       return;
     }
-    getDiskonDplDpfByPeriodeAction(periodeAwal).then((res) => {
+    getDiskonDplDpfByPeriodeAction(effectiveDiskonPeriod).then((res) => {
       if (Array.isArray(res)) {
         setDiskonList(res);
-        setDiskonPeriode(periodeAwal);
+        setDiskonPeriode(effectiveDiskonPeriod);
       } else {
         setDiskonList(res?.list || []);
-        setDiskonPeriode(res?.diskonPeriode || periodeAwal);
+        setDiskonPeriode(res?.diskonPeriode || effectiveDiskonPeriod);
       }
     });
-  }, [periodeAwal]);
+  }, [effectiveDiskonPeriod]);
 
   useEffect(() => {
     if (diskonList.length === 0) return;
@@ -368,22 +378,32 @@ export function SalesCounterEditByIdEditor({
 
   useEffect(() => {
     if (!kodePI) return;
-    const selectedCodes = products.map((p) => p.kodeProduk).filter(Boolean);
-    if (selectedCodes.length === 0) return;
-
     const b3Info = getB3PeriodInfo(effectivePoaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
-    getScOutletB3SalesAction(b3Info.period, kodePI, selectedCodes).then((res) => {
-      const map = new Map<string, number>();
-      if (res?.data && Array.isArray(res.data)) {
-        for (const item of res.data) {
-          if (item.pro_code) {
-            map.set(item.pro_code, item.average_sales || 0);
-          }
+    postHistorySalesAction([kodePI], b3Info.targetPeriods).then((res) => {
+      const parsed = parseOutletHistorySales(res, kodePI);
+      if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
+        setB3SalesMap(parsed.productSalesMap);
+        setOutletTotalAvgB3Sales(parsed.averageSales);
+      } else {
+        const selectedCodes = products.map((p) => p.kodeProduk).filter(Boolean);
+        if (selectedCodes.length > 0) {
+          getScOutletB3SalesAction(b3Info.period, kodePI, selectedCodes).then((fallbackRes) => {
+            const map = new Map<string, number>();
+            if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
+              for (const item of fallbackRes.data) {
+                if (item.pro_code) {
+                  map.set(item.pro_code, item.average_sales || 0);
+                }
+              }
+            }
+            if (map.size > 0) {
+              setB3SalesMap(map);
+            }
+          });
         }
       }
-      setB3SalesMap(map);
     });
   }, [kodePI, products, effectivePoaPeriod]);
 
@@ -622,19 +642,22 @@ export function SalesCounterEditByIdEditor({
   const totalEstimasiBudget = totalNilaiSc + totalCashbackVal + totalEntertainVal + totalDiskonVal;
   const costRatio = totalEstimasiSales > 0 ? (totalEstimasiBudget / totalEstimasiSales) * 100 : 0;
 
-  let totalAvgB3Bln = 0;
-  let hasB3Data = false;
+  let totalSelectedProductsAvgB3Bln = 0;
   for (const row of products) {
     if (!row.kodeProduk) continue;
     const avgSales = b3SalesMap.get(row.kodeProduk);
     if (avgSales != null && avgSales > 0) {
-      totalAvgB3Bln += avgSales;
-      hasB3Data = true;
+      totalSelectedProductsAvgB3Bln += avgSales;
     }
   }
+
+  // Baseline histori penjualan seluruh produk di outlet (post-history-sales)
+  const effectiveOutletAvgB3Bln =
+    outletTotalAvgB3Sales > 0 ? outletTotalAvgB3Sales : totalSelectedProductsAvgB3Bln;
+  const hasB3Data = effectiveOutletAvgB3Bln > 0;
   const totalEstSalesBln = totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1);
-  const totalGrowthPct = hasB3Data && totalAvgB3Bln > 0
-    ? ((totalEstSalesBln - totalAvgB3Bln) / totalAvgB3Bln) * 100
+  const totalGrowthPct = hasB3Data
+    ? ((totalEstSalesBln - effectiveOutletAvgB3Bln) / effectiveOutletAvgB3Bln) * 100
     : null;
 
   const monthlyMonths = useMemo(() => {
@@ -827,6 +850,20 @@ export function SalesCounterEditByIdEditor({
                   {kodePI ? `${kodePI} · ` : ""}{namaOutlet || kodePI}
                 </span>
               </div>
+              {(() => {
+                const statusItems: string[] = [];
+                if (is_sc) statusItems.push("Ins-SC");
+                if (isBlastIn) statusItems.push("Blast-In");
+                if (isOnline) statusItems.push("Online");
+                if (isPosm) statusItems.push("POSM");
+                if (statusItems.length === 0) return null;
+
+                return (
+                  <p className="text-[11px] font-medium mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                    {statusItems.join(", ")}
+                  </p>
+                );
+              })()}
             </div>
             <span className="text-xs px-2 py-0.5 rounded font-medium shrink-0"
               style={{ background: "var(--color-bg)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
@@ -834,11 +871,14 @@ export function SalesCounterEditByIdEditor({
             </span>
           </div>
 
-          <OnlineApotekSalesWidget
-            poaPeriod={poaPeriod}
-            outletCode={kodePI}
-            outletName={namaOutlet}
-          />
+          {isOnline && (
+            <OnlineApotekSalesWidget
+              poaPeriod={poaPeriod}
+              outletCode={kodePI}
+              outletName={namaOutlet}
+              isOnline={isOnline}
+            />
+          )}
 
           {/* PERSONS — LOCKED */}
           {persons.length > 0 && (
@@ -1085,7 +1125,14 @@ export function SalesCounterEditByIdEditor({
           )}
 
           {/* Tabel BLAST-IN & POSM (Autofill data) */}
-          {isBlastIn && <BlastInTable poaPeriod={effectivePoaPeriod} quarter={rowQuarter} />}
+          {isBlastIn && (
+            <BlastInTable
+              poaPeriod={effectivePoaPeriod}
+              quarter={rowQuarter}
+              outletId={kodePI}
+              estimasiSales={totalEstimasiSales}
+            />
+          )}
           {(isPosm || kodePI === "F4002441") && <PosmTable />}
         </div>
 
@@ -1140,7 +1187,7 @@ export function SalesCounterEditByIdEditor({
                     {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
                   </div>
                   <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    History Sales Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")} / Bln
+                    History Sales Rp {Math.round(effectiveOutletAvgB3Bln).toLocaleString("id-ID")} / Bln
                   </div>
                   {b3RangeLabel && (
                     <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>

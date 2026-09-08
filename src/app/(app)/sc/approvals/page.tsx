@@ -7,6 +7,7 @@ import { displayRole } from "@/lib/role";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { SalesCounterApprovalsChecklist, type MrApprovalGroup } from "@/components/sc/SalesCounterApprovalsChecklist";
+import { ScToastProvider } from "@/components/sc/ui/ScToast";
 import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
@@ -230,11 +231,13 @@ export default async function SalesCounterApprovalsPage() {
           </div>
         </Card>
       ) : (
-        <SalesCounterApprovalsChecklist
-          mrGroups={mrGroups}
-          scDrafts={scDrafts}
-          dominantPeriod={dominantPeriod}
-        />
+        <ScToastProvider>
+          <SalesCounterApprovalsChecklist
+            mrGroups={mrGroups}
+            scDrafts={scDrafts}
+            dominantPeriod={dominantPeriod}
+          />
+        </ScToastProvider>
       )}
     </div>
   );

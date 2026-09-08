@@ -13,7 +13,8 @@ import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
-import { getScOutletB3SalesAction } from "@/app/actions/canvasser";
+import { getScOutletB3SalesAction, postHistorySalesAction } from "@/app/actions/canvasser";
+import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
@@ -25,7 +26,7 @@ interface SalesCounterLineItemEditorProps {
   poaId: string;
   poaPeriod: string;
   ownerName?: string;
-  outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null; is_sc?: boolean; jumlah_sc?: number | null; isBlastIn?: boolean; isPosm?: boolean }[];
+  outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null; is_sc?: boolean; jumlah_sc?: number | null; isBlastIn?: boolean; isPosm?: boolean; isOnline?: boolean }[];
   products: Product[];
   savedDrafts?: any[];
 }
@@ -194,27 +195,39 @@ export function SalesCounterLineItemEditor({
 
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
+  const [outletTotalAvgB3Sales, setOutletTotalAvgB3Sales] = useState<number>(0);
 
   useEffect(() => {
     if (!outletId) return;
-    const selectedCodes = selectedProducts.map((p) => p.kodeProduk).filter(Boolean);
-    if (selectedCodes.length === 0) return;
-
     const b3Info = getB3PeriodInfo(poaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
-    getScOutletB3SalesAction(b3Info.period, outletId, selectedCodes).then((res) => {
-      const map = new Map<string, number>();
-      if (res?.data && Array.isArray(res.data)) {
-        for (const item of res.data) {
-          if (item.pro_code) {
-            map.set(item.pro_code, item.average_sales || 0);
-          }
+    postHistorySalesAction([outletId], b3Info.targetPeriods).then((res) => {
+      const parsed = parseOutletHistorySales(res, outletId);
+      if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
+        setB3SalesMap(parsed.productSalesMap);
+        setOutletTotalAvgB3Sales(parsed.averageSales);
+      } else {
+        // Fallback to selected codes with getScOutletB3SalesAction if postHistorySales has no data
+        const selectedCodes = selectedProducts.map((p) => p.kodeProduk).filter(Boolean);
+        if (selectedCodes.length > 0) {
+          getScOutletB3SalesAction(b3Info.period, outletId, selectedCodes).then((fallbackRes) => {
+            const map = new Map<string, number>();
+            if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
+              for (const item of fallbackRes.data) {
+                if (item.pro_code) {
+                  map.set(item.pro_code, item.average_sales || 0);
+                }
+              }
+            }
+            if (map.size > 0) {
+              setB3SalesMap(map);
+            }
+          });
         }
       }
-      setB3SalesMap(map);
     });
-  }, [outletId, selectedProducts, poaPeriod]);
+  }, [outletId, poaPeriod, selectedProducts]);
 
   const productOptions = useMemo(() => {
     return buildScProductOptions({
@@ -330,19 +343,22 @@ export function SalesCounterLineItemEditor({
   const totalEstimasiBudget = totalNilaiSc + totalCashbackVal + totalEntertainVal + totalDiskonVal;
   const costRatio = totalEstimasiSales > 0 ? (totalEstimasiBudget / totalEstimasiSales) * 100 : 0;
 
-  let totalAvgB3Bln = 0;
-  let hasB3Data = false;
+  let totalSelectedProductsAvgB3Bln = 0;
   for (const row of selectedProducts) {
     if (!row.kodeProduk) continue;
     const avgSales = b3SalesMap.get(row.kodeProduk);
     if (avgSales != null && avgSales > 0) {
-      totalAvgB3Bln += avgSales;
-      hasB3Data = true;
+      totalSelectedProductsAvgB3Bln += avgSales;
     }
   }
+
+  // Baseline histori penjualan seluruh produk di outlet (post-history-sales)
+  const effectiveOutletAvgB3Bln =
+    outletTotalAvgB3Sales > 0 ? outletTotalAvgB3Sales : totalSelectedProductsAvgB3Bln;
+  const hasB3Data = effectiveOutletAvgB3Bln > 0;
   const totalEstSalesBln = totalEstimasiSales / (lamaPeriode > 0 ? lamaPeriode : 1);
-  const totalGrowthPct = hasB3Data && totalAvgB3Bln > 0
-    ? ((totalEstSalesBln - totalAvgB3Bln) / totalAvgB3Bln) * 100
+  const totalGrowthPct = hasB3Data
+    ? ((totalEstSalesBln - effectiveOutletAvgB3Bln) / effectiveOutletAvgB3Bln) * 100
     : null;
 
   return (
@@ -485,6 +501,20 @@ export function SalesCounterLineItemEditor({
                   />
                 </div>
                 {errors.outletId && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.outletId}</span>}
+                {outletId && selectedOutlet && (() => {
+                  const statusItems: string[] = [];
+                  if ((selectedOutlet as any).is_sc) statusItems.push("Ins-SC");
+                  if ((selectedOutlet as any).isBlastIn) statusItems.push("Blast-In");
+                  if ((selectedOutlet as any).isOnline) statusItems.push("Online");
+                  if ((selectedOutlet as any).isPosm) statusItems.push("POSM");
+                  if (statusItems.length === 0) return null;
+
+                  return (
+                    <div className="text-[11px] font-medium mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                      {statusItems.join(", ")}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex flex-col gap-1">
@@ -506,11 +536,12 @@ export function SalesCounterLineItemEditor({
               </div>
             </div>
 
-            {outletId && (
+            {outletId && !!selectedOutlet?.isOnline && (
               <OnlineApotekSalesWidget
                 poaPeriod={poaPeriod}
                 outletCode={outletId}
                 outletName={selectedOutlet?.namaOutlet}
+                isOnline={selectedOutlet?.isOnline}
               />
             )}
 
@@ -774,7 +805,14 @@ export function SalesCounterLineItemEditor({
             )}
 
             {/* Tabel BLAST-IN & POSM (Autofill data - ditempatkan di bawah Rencana Entertain) */}
-            {selectedOutlet?.isBlastIn && <BlastInTable poaPeriod={poaPeriod} quarter={rowQuarter} />}
+            {selectedOutlet?.isBlastIn && (
+              <BlastInTable
+                poaPeriod={poaPeriod}
+                quarter={rowQuarter}
+                outletId={selectedOutlet.kodePI}
+                estimasiSales={totalEstimasiSales}
+              />
+            )}
             {(selectedOutlet?.isPosm || selectedOutlet?.kodePI === "F4002441") && <PosmTable />}
           </div>
 
@@ -830,7 +868,7 @@ export function SalesCounterLineItemEditor({
                         {totalGrowthPct >= 0 ? "+" : ""}{totalGrowthPct.toFixed(1)}%
                       </div>
                       <div className="text-xs mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                        History Sales Rp {Math.round(totalAvgB3Bln).toLocaleString("id-ID")} / Bln
+                        History Sales Rp {Math.round(effectiveOutletAvgB3Bln).toLocaleString("id-ID")} / Bln
                       </div>
                       {b3RangeLabel && (
                         <div className="text-[11px] mt-0.5 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>

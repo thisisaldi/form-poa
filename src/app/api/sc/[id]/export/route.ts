@@ -10,6 +10,7 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
+import { getScSubordinateIdsUnder } from "@/lib/authz";
 import { getSalesCounterProduct } from "../../../../(app)/sc/[id]/_services/getSalesCounterProduct";
 
 interface MasterProductItem {
@@ -31,24 +32,78 @@ export async function GET(
   }
 
   const { id } = await params;
+  const ownerIdParam = _req.nextUrl.searchParams.get("ownerId");
 
-  const [drafts, actor] = await Promise.all([
-    prisma.poaScForm.findMany({
-      where: { ownerId: session.userId, period: id },
-      include: {
-        owner: true,
-        currentHolder: true,
-        products: true,
-        persons: true,
-        entertainItems: true,
-        auditLogs: {
-          include: { actor: true },
-          orderBy: { createdAt: "asc" },
+  let targetOwnerId = ownerIdParam || session.userId;
+  let targetPeriod = id;
+
+  // Check if id is a specific PoaScForm.id (UUID)
+  const formById = await prisma.poaScForm.findUnique({
+    where: { id },
+    select: { ownerId: true, period: true, status: true, currentHolderId: true },
+  });
+
+  if (formById) {
+    targetOwnerId = formById.ownerId;
+    targetPeriod = formById.period;
+  }
+
+  // Authorization check
+  const isSelf = targetOwnerId === session.userId;
+  const isSpecialRole = (["ADMIN", "GM", "SFE", "VIEWER"] as string[]).includes(session.role);
+
+  let hasAccess = false;
+  if (isSelf || isSpecialRole) {
+    hasAccess = true;
+  } else {
+    const depthByRole: Record<string, number> = { ASM: 1, SM: 2, NSM: 3 };
+    const depth = depthByRole[session.role] ?? 1;
+    const subIds = await getScSubordinateIdsUnder(session.userId, depth);
+    if (subIds.includes(targetOwnerId)) {
+      const submittedCount = await prisma.poaScForm.count({
+        where: {
+          ownerId: targetOwnerId,
+          period: targetPeriod,
+          status: { not: PoaStatus.DRAFT },
         },
+      });
+      hasAccess = submittedCount > 0;
+    } else {
+      const holderCount = await prisma.poaScForm.count({
+        where: {
+          ownerId: targetOwnerId,
+          period: targetPeriod,
+          currentHolderId: session.userId,
+          status: { not: PoaStatus.DRAFT },
+        },
+      });
+      hasAccess = holderCount > 0;
+    }
+  }
+
+  if (!hasAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const draftsWhere: any = { ownerId: targetOwnerId, period: targetPeriod };
+  if (!isSelf && !isSpecialRole) {
+    draftsWhere.status = { not: PoaStatus.DRAFT };
+  }
+
+  const drafts = await prisma.poaScForm.findMany({
+    where: draftsWhere,
+    include: {
+      owner: true,
+      currentHolder: true,
+      products: true,
+      persons: true,
+      entertainItems: true,
+      auditLogs: {
+        include: { actor: true },
+        orderBy: { createdAt: "asc" },
       },
-    }),
-    prisma.user.findUniqueOrThrow({ where: { nip: session.userId } }),
-  ]);
+    },
+  });
 
   if (drafts.length === 0) {
     return NextResponse.json({ error: "No SC POA drafts found for this period" }, { status: 404 });
@@ -56,22 +111,6 @@ export async function GET(
 
   const first = drafts[0];
   const owner = first.owner;
-
-  // Authorization check
-  const isOwner = owner.nip === session.userId;
-  const isSpecialRole = (["ADMIN", "GM", "SFE", "VIEWER"] as string[]).includes(session.role);
-  const isSuperior = (["ASM", "SM", "NSM"] as string[]).includes(session.role);
-
-  let hasAccess = false;
-  if (isOwner || isSpecialRole) {
-    hasAccess = true;
-  } else if (isSuperior) {
-    hasAccess = first.status !== PoaStatus.DRAFT;
-  }
-
-  if (!hasAccess) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   // Fetch product master details for all products in drafts
   const allProductCodes = Array.from(
@@ -280,7 +319,7 @@ export async function GET(
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="POA_SC_${id}_${owner.nip}.xlsx"`,
+      "Content-Disposition": `attachment; filename="POA_SC_${targetPeriod}_${owner.nip}.xlsx"`,
     },
   });
 }

@@ -10,8 +10,8 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  /** Colors the icon + confirm button. "warning" for state-resetting actions, "danger" for destructive ones. */
-  tone?: "warning" | "danger";
+  /** Colors the icon + confirm button. "warning" for state-resetting actions, "danger" for destructive ones, "success" for approvals. */
+  tone?: "warning" | "danger" | "success";
   /** Disables + shows a spinner on the confirm button — e.g. while the action is in flight. */
   confirmPending?: boolean;
   onConfirm: () => void;
@@ -19,6 +19,7 @@ interface ConfirmDialogProps {
 }
 
 const TONE = {
+  success: { fg: "var(--color-green, #16a34a)", bg: "var(--color-green-light, #dcfce7)", icon: "✓" },
   warning: { fg: "var(--color-warning, #f59e0b)", bg: "var(--color-warning-bg, #fef3c7)", icon: "⚠" },
   danger: { fg: "var(--color-red, #dc2626)", bg: "var(--color-red-light, #fee2e2)", icon: "🗑" },
 } as const;
@@ -70,7 +71,11 @@ export function ConfirmDialog({
             size="sm"
             onClick={onConfirm}
             loading={confirmPending}
-            style={tone === "warning" ? { background: t.fg, color: "#fff" } : undefined}
+            style={
+              tone === "warning" || tone === "success"
+                ? { background: t.fg, color: "#fff", borderColor: t.fg }
+                : undefined
+            }
             variant={tone === "danger" ? "danger" : "primary"}
           >
             {confirmLabel}

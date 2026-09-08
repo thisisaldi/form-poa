@@ -2,17 +2,24 @@ import { useState, useMemo, useEffect, useTransition } from "react";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { getB3ByQuarter } from "@/lib/b3Utils";
 import type { ScDraftFormItem } from "../types";
-import { getScCashbackPoaAction, getHistorySalesAction } from "@/app/actions/canvasser";
+import { getScCashbackPoaAction, getHistorySalesAction, postHistorySalesAction } from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
+import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 
 export function useSalesCounterDetail({
   scDrafts = [],
   poaPeriod,
   showSubmit,
+  userRole,
+  canApprove,
+  canFastTrack,
 }: {
   scDrafts?: ScDraftFormItem[];
   poaPeriod: string;
   showSubmit?: boolean;
+  userRole?: string;
+  canApprove?: boolean;
+  canFastTrack?: boolean;
 }) {
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
   const [cashbackData, setCashbackData] = useState<any>(null);
@@ -32,41 +39,91 @@ export function useSalesCounterDetail({
 
   useEffect(() => {
     if (!b3Info) return;
-    const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
     const missingDrafts = safeScDrafts.filter(
       (d) => d.kodePI && d.historySalesQuarter == null && !historySalesMap.has(d.kodePI)
     );
     if (missingDrafts.length === 0) return;
 
-    missingDrafts.forEach((d) => {
-      getHistorySalesAction(d.kodePI, false).then((res) => {
-        if (res?.data && Array.isArray(res.data)) {
-          let total = 0;
-          for (const it of res.data) {
-            const itemPeriod = Number(it.period);
-            const salesVal = Number(it.sales_value) || 0;
-            if (targetPeriodsSet.has(itemPeriod) && salesVal > 0) {
-              total += salesVal;
-            }
-          }
-          setHistorySalesMap((prev) => new Map(prev).set(d.kodePI, total));
+    const piCodes = missingDrafts.map((d) => d.kodePI).filter(Boolean);
+    if (piCodes.length === 0) return;
+
+    postHistorySalesAction(piCodes, b3Info.targetPeriods).then((res) => {
+      const updatedMap = new Map(historySalesMap);
+      let hasUpdates = false;
+
+      for (const draft of missingDrafts) {
+        if (!draft.kodePI) continue;
+        const parsed = parseOutletHistorySales(res, draft.kodePI);
+        if (parsed.totalSales > 0) {
+          updatedMap.set(draft.kodePI, parsed.totalSales);
+          hasUpdates = true;
         }
-      });
+      }
+
+      if (hasUpdates) {
+        setHistorySalesMap(updatedMap);
+      } else {
+        // Fallback to legacy getHistorySalesAction if batch post-history-sales yielded no data
+        const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
+        missingDrafts.forEach((d) => {
+          getHistorySalesAction(d.kodePI, false).then((legacyRes) => {
+            if (legacyRes?.data && Array.isArray(legacyRes.data)) {
+              let total = 0;
+              for (const it of legacyRes.data) {
+                const itemPeriod = Number(it.period);
+                const salesVal = Number(it.sales_value) || 0;
+                if (targetPeriodsSet.has(itemPeriod) && salesVal > 0) {
+                  total += salesVal;
+                }
+              }
+              if (total > 0) {
+                setHistorySalesMap((prev) => new Map(prev).set(d.kodePI, total));
+              }
+            }
+          });
+        });
+      }
     });
   }, [safeScDrafts, b3Info, historySalesMap]);
 
-  const submittableIds = useMemo(() => {
+  const actionableIds = useMemo(() => {
     if (showSubmit) {
       return safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id);
     }
+    if (canApprove) {
+      return safeScDrafts
+        .filter((d) => {
+          if (d.status === "DRAFT" || d.status === "REVISI" || d.status === "APPROVED_BY_NSM") {
+            return false;
+          }
+          if (userRole === "ADMIN") {
+            return ["SUBMITTED_TO_ASM", "SUBMITTED_TO_SM", "SUBMITTED_TO_NSM"].includes(d.status);
+          }
+          if (userRole === "ASM") {
+            return d.status === "SUBMITTED_TO_ASM";
+          }
+          if (userRole === "SM") {
+            return d.status === "SUBMITTED_TO_SM" || (canFastTrack && d.status === "SUBMITTED_TO_ASM");
+          }
+          if (userRole === "NSM") {
+            return d.status === "SUBMITTED_TO_NSM";
+          }
+          return ["SUBMITTED_TO_ASM", "SUBMITTED_TO_SM", "SUBMITTED_TO_NSM"].includes(d.status);
+        })
+        .map((d) => d.id);
+    }
     return safeScDrafts.map((d) => d.id);
-  }, [safeScDrafts, showSubmit]);
+  }, [safeScDrafts, showSubmit, canApprove, userRole, canFastTrack]);
 
-  const [checked, setChecked] = useState<Set<string>>(() => new Set(submittableIds));
+  const [checked, setChecked] = useState<Set<string>>(() =>
+    canApprove && !showSubmit ? new Set() : new Set(actionableIds)
+  );
 
   useEffect(() => {
-    setChecked(new Set(submittableIds));
-  }, [submittableIds]);
+    if (!canApprove || showSubmit) {
+      setChecked(new Set(actionableIds));
+    }
+  }, [actionableIds, canApprove, showSubmit]);
 
   function toggle(id: string) {
     setChecked((prev) => {
@@ -78,7 +135,19 @@ export function useSalesCounterDetail({
   }
 
   function toggleAll() {
-    setChecked(checked.size === submittableIds.length ? new Set() : new Set(submittableIds));
+    setChecked((prev) => {
+      const allActionableChecked =
+        actionableIds.length > 0 && actionableIds.every((id) => prev.has(id));
+      if (allActionableChecked) {
+        const next = new Set(prev);
+        for (const id of actionableIds) next.delete(id);
+        return next;
+      } else {
+        const next = new Set(prev);
+        for (const id of actionableIds) next.add(id);
+        return next;
+      }
+    });
   }
 
   const quarterMonths = useMemo(() => {
@@ -236,7 +305,10 @@ export function useSalesCounterDetail({
     checked,
     toggle,
     toggleAll,
-    allSelected: submittableIds.length > 0 && checked.size === submittableIds.length,
+    allSelected: actionableIds.length > 0 && actionableIds.every((id) => checked.has(id)),
+    actionableIds,
+    actionableCount: actionableIds.length,
+    selectedActionableCount: actionableIds.filter((id) => checked.has(id)).length,
     selectedDrafts,
     quarterMonths,
     metrics,

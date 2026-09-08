@@ -24,8 +24,10 @@ import {
   getSalesCounterProductsAction,
   getScInsentifHistoryAction,
   getHistorySalesAction,
+  postHistorySalesAction,
   getSalesOnlineAction,
 } from "@/app/actions/canvasser";
+import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
 import { useScToast } from "../ui/ScToast";
 import { BlastInTable } from "../edit/BlastInTable";
@@ -118,6 +120,16 @@ export function SalesCounterOutletCard({
     }
     return false;
   }, [userRole, draft.status, parentCanFastTrack]);
+
+  const isSelectableForThisUser = useMemo(() => {
+    if (isOwner) {
+      return draft.status === "DRAFT" || draft.status === "REVISI";
+    }
+    if (parentCanApprove) {
+      return canApproveOutlet;
+    }
+    return true;
+  }, [isOwner, parentCanApprove, canApproveOutlet, draft.status]);
 
   const canEditThisDraft = useMemo(() => {
     if (userRole === "ADMIN") return true;
@@ -378,41 +390,49 @@ export function SalesCounterOutletCard({
 
   useEffect(() => {
     if (!draft.kodePI) return;
-    getHistorySalesAction(draft.kodePI, false).then((res) => {
-      if (res?.data && Array.isArray(res.data)) {
-        const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
-        const uniqueCodes = new Set<string>();
-        const productSalesSum = new Map<string, number>();
+    postHistorySalesAction([draft.kodePI], b3Info.targetPeriods).then((res) => {
+      const parsed = parseOutletHistorySales(res, draft.kodePI);
+      if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
+        setB3SalesMap(parsed.productSalesMap);
+        setB3TotalOutletSalesPerMonth(parsed.averageSales);
+        setB3TotalCount(parsed.productCount);
+      } else {
+        // Fallback to legacy getHistorySalesAction if postHistorySales has no data
+        getHistorySalesAction(draft.kodePI, false).then((legacyRes) => {
+          if (legacyRes?.data && Array.isArray(legacyRes.data)) {
+            const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
+            const uniqueCodes = new Set<string>();
+            const productSalesSum = new Map<string, number>();
 
-        for (const it of res.data) {
-          const itemPeriod = Number(it.period);
-          const historyQty = Number(it.history_sales) || 0;
-          const salesVal = Number(it.sales_value) || 0;
+            for (const it of legacyRes.data) {
+              const itemPeriod = Number(it.period);
+              const historyQty = Number(it.history_sales) || 0;
+              const salesVal = Number(it.sales_value) || 0;
 
-          // Cek apakah data penjualan berada pada kuartal periode B-3
-          if (targetPeriodsSet.has(itemPeriod) && (historyQty > 0 || salesVal > 0)) {
-            if (it.code) {
-              uniqueCodes.add(it.code);
-              const cur = productSalesSum.get(it.code) || 0;
-              productSalesSum.set(it.code, cur + salesVal);
+              if (targetPeriodsSet.has(itemPeriod) && (historyQty > 0 || salesVal > 0)) {
+                if (it.code) {
+                  uniqueCodes.add(it.code);
+                  const cur = productSalesSum.get(it.code) || 0;
+                  productSalesSum.set(it.code, cur + salesVal);
+                }
+              }
+            }
+
+            setB3TotalCount(uniqueCodes.size);
+
+            let totalValSum = 0;
+            const avgMap = new Map<string, number>();
+            for (const [code, sumVal] of productSalesSum.entries()) {
+              avgMap.set(code, sumVal / 3);
+              totalValSum += sumVal;
+            }
+
+            if (totalValSum > 0) {
+              setB3SalesMap(avgMap);
+              setB3TotalOutletSalesPerMonth(totalValSum / 3);
             }
           }
-        }
-
-        setB3TotalCount(uniqueCodes.size);
-
-        // Rata-rata sales per bulan (total kuartal B-3 dibagi 3)
-        let totalValSum = 0;
-        const avgMap = new Map<string, number>();
-        for (const [code, sumVal] of productSalesSum.entries()) {
-          avgMap.set(code, sumVal / 3);
-          totalValSum += sumVal;
-        }
-
-        if (totalValSum > 0) {
-          setB3SalesMap(avgMap);
-          setB3TotalOutletSalesPerMonth(totalValSum / 3);
-        }
+        });
       }
     });
   }, [draft.kodePI, b3Info.period, b3Info.targetPeriods]);
@@ -717,7 +737,10 @@ export function SalesCounterOutletCard({
   return (
     <div
       className="py-3 px-3.5 rounded-lg space-y-2.5"
-      style={{ opacity: checked ? 1 : 0.5, border: "1px solid var(--color-border)" }}
+      style={{
+        opacity: checked || !selectable || !isSelectableForThisUser ? 1 : 0.65,
+        border: "1px solid var(--color-border)",
+      }}
     >
       {/* Top Section: Checkbox + Outlet Name & Status */}
       <div className="flex items-start gap-3 justify-between">
@@ -726,9 +749,25 @@ export function SalesCounterOutletCard({
             <input
               type="checkbox"
               checked={checked}
-              onChange={onToggle}
-              className="h-4 w-4 shrink-0 rounded mt-0.5"
+              disabled={!isSelectableForThisUser}
+              onChange={() => {
+                if (isSelectableForThisUser) {
+                  onToggle();
+                }
+              }}
+              className={`h-4 w-4 shrink-0 rounded mt-0.5 ${
+                !isSelectableForThisUser ? "opacity-30 cursor-not-allowed" : "cursor-pointer"
+              }`}
               style={{ accentColor: "var(--color-blue)" }}
+              title={
+                !isSelectableForThisUser
+                  ? draft.status === "REVISI"
+                    ? "Outlet ini dalam status Revisi (diperbaiki oleh MR)"
+                    : draft.status === "APPROVED_BY_NSM"
+                    ? "Outlet ini sudah disetujui penuh (Approved by NSM)"
+                    : "Outlet ini tidak menunggu persetujuan pada tingkat wewenang Anda"
+                  : "Pilih outlet"
+              }
             />
           )}
 
@@ -1489,7 +1528,13 @@ export function SalesCounterOutletCard({
           )}
 
           {/* Tabel BLAST-IN & POSM (Autofill data) */}
-          {draft.isBlastIn && <BlastInTable poaPeriod={draft.period} />}
+          {draft.isBlastIn && (
+            <BlastInTable
+              poaPeriod={draft.period || poaId}
+              outletId={draft.kodePI}
+              estimasiSales={outletEstSales}
+            />
+          )}
           {(draft.isPosm || draft.kodePI === "F4002441") && <PosmTable />}
         </div>
       )}

@@ -290,7 +290,11 @@ export function ProductSelector({
 
   rows.forEach((row) => {
     const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
-    const canvasserProduct = canvasserProducts.find((p) => p.pro_code === row.kodeProduk);
+    const canvasserProduct = canvasserProducts.find(
+      (p) =>
+        p.pro_code === row.kodeProduk ||
+        p.pro_code?.replace(/^0+/, "") === row.kodeProduk?.replace(/^0+/, "")
+    );
     const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
     const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
     const qtyUb = parseFloat(row.qtyPerBulan) || 0;
@@ -320,15 +324,15 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[32%] min-w-[220px]" : "w-[35%] min-w-[240px]") : (!readOnly ? "w-[26%] min-w-[200px]" : "w-[29%] min-w-[220px]");
+  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[30%] min-w-[210px]" : "w-[33%] min-w-[230px]") : (!readOnly ? "w-[25%] min-w-[190px]" : "w-[28%] min-w-[210px]");
   const colPotensiWidth = isCashbackNotFound ? "w-[9%] min-w-[85px]" : "w-[8%] min-w-[80px]";
   const colSwitchWidth = isCashbackNotFound ? "w-[15%] min-w-[130px]" : "w-[13%] min-w-[125px]";
   const colDiskonWidth = "w-[8%] min-w-[65px]";
-  const colEstSalesWidth = isCashbackNotFound ? "w-[16%] min-w-[125px]" : "w-[14%] min-w-[120px]";
-  const colNilaiScWidth = isCashbackNotFound ? "w-[17%] min-w-[140px]" : "w-[14%] min-w-[130px]";
+  const colEstSalesWidth = isCashbackNotFound ? "w-[18%] min-w-[140px]" : "w-[16%] min-w-[135px]";
+  const colNilaiScWidth = isCashbackNotFound ? "w-[16%] min-w-[135px]" : "w-[14%] min-w-[130px]";
   const colCashbackWidth = "w-[14%] min-w-[130px]";
   const colActionWidth = "w-[3%] min-w-[36px]";
-  const tableMinWidth = isCashbackNotFound ? "min-w-[800px]" : "min-w-[890px]";
+  const tableMinWidth = isCashbackNotFound ? "min-w-[820px]" : "min-w-[910px]";
 
   return (
     <div className="space-y-4">
@@ -366,17 +370,22 @@ export function ProductSelector({
                   Est. Switch / Bln<Req />
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Diskon
+                  <div>Diskon</div>
+                  {diskonPeriode && (
+                    <div className="text-[9px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+                      ({diskonPeriode})
+                    </div>
+                  )}
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Sales / Bln
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Est. Insentif SC / Bln
                 </th>
                 {!isCashbackNotFound && (
-                  <th className={`py-2 px-1.5 font-semibold text-[11px] text-right whitespace-nowrap ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                    <div className="inline-flex items-center justify-end gap-1">
+                  <th className={`py-2 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                    <div className="inline-flex items-center justify-center gap-1">
                       <span>Est. Cashback / Bln</span>
                       <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
                     </div>
@@ -398,7 +407,11 @@ export function ProductSelector({
               ) : (
                 rows.map((row, idx) => {
                   const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
-                  const canvasserProduct = canvasserProducts.find((p) => p.pro_code === row.kodeProduk);
+                  const canvasserProduct = canvasserProducts.find(
+                    (p) =>
+                      p.pro_code === row.kodeProduk ||
+                      p.pro_code?.replace(/^0+/, "") === row.kodeProduk?.replace(/^0+/, "")
+                  );
 
                   const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
                   const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
@@ -409,7 +422,8 @@ export function ProductSelector({
                   const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
                   const scVal = canvasserProduct?.sales_counter_value;
-                  const scMin = canvasserProduct?.sales_counter_minimum || 0;
+                  const scMin = canvasserProduct?.sales_counter_minimum != null ? Number(canvasserProduct.sales_counter_minimum) : 0;
+                  const targetSellInBln = scMin * hnaSJ;
 
                   let nilaiScBln = 0;
                   if (scVal != null && scVal > 0) {
@@ -466,7 +480,7 @@ export function ProductSelector({
                         <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
                           0
                         </div>
-                        <div className="text-[10px] space-y-0.5 mt-1 text-left" style={{ color: "var(--color-text-faint)" }}>
+                        <div className="text-[10px] space-y-0.5 mt-1 text-center" style={{ color: "var(--color-text-faint)" }}>
                           <div>produk A: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
                           <div>produk B: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
                           <div>produk C: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
@@ -542,7 +556,7 @@ export function ProductSelector({
                       </td>
 
                       {/* Column 5: Est Sales / Bln */}
-                      <td className="py-2 px-1.5 text-right align-top">
+                      <td className="py-2 px-1.5 text-center align-top">
                         <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
                           Rp {formatRp(estSalesBln)}
                         </div>
@@ -551,10 +565,22 @@ export function ProductSelector({
                             3 Bln: Rp {formatRp(estSalesBln * 3)}
                           </div>
                         )}
+                        {row.kodeProduk && (
+                          <div className="text-[10px] mt-1 space-y-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
+                            <div>Target Sell-in Ins SC / bln :</div>
+                            <div
+                              className="font-semibold"
+                              style={{ color: "var(--color-text-muted)" }}
+                              title={scMin > 0 ? `${scMin} UB × Rp ${formatRp(hnaSJ)} = Rp ${formatRp(targetSellInBln)}` : undefined}
+                            >
+                              {targetSellInBln > 0 ? `Rp ${formatRp(targetSellInBln)}` : (canvasserProduct ? "Rp 0" : "-")}
+                            </div>
+                          </div>
+                        )}
                       </td>
 
                       {/* Column 6: Nilai SC / Bln */}
-                      <td className="py-2 px-1.5 text-right align-top">
+                      <td className="py-2 px-1.5 text-center align-top">
                         <div className="font-semibold text-[11px]" style={{ color: "var(--color-blue, #2563eb)" }}>
                           Rp {formatRp(nilaiScBln)}
                         </div>
@@ -589,7 +615,7 @@ export function ProductSelector({
 
                       {/* Column 7: Nilai Cashback / Bln */}
                       {!isCashbackNotFound && (
-                        <td className="py-2 px-1.5 text-right align-top">
+                        <td className="py-2 px-1.5 text-center align-top">
                           {isCashbackNotFound ? (
                             <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
                               0
@@ -663,14 +689,14 @@ export function ProductSelector({
                     {grandTotalQtyUb} UB
                   </td>
                   <td className="py-2.5 px-3"></td>
-                  <td className="py-2.5 px-3 text-right text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Rp {formatRp(grandTotalEstSalesBln)}
                   </td>
-                  <td className="py-2.5 px-3 text-right text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
+                  <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
                     Rp {formatRp(grandTotalNilaiScBln)}
                   </td>
                   {!isCashbackNotFound && (
-                    <td className="py-2.5 px-3 text-right text-xs whitespace-nowrap" style={{ color: "var(--color-green, #16a34a)" }}>
+                    <td className="py-2.5 px-3 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-green, #16a34a)" }}>
                       Rp {formatRp(cashbackDetails.totalFinalCashbackMonthly)}
                     </td>
                   )}
@@ -693,7 +719,7 @@ export function ProductSelector({
                 color: "var(--color-text-muted)",
               }}
             >
-              <span className="text-sm font-bold" style={{ color: "var(--color-blue)" }}>+</span> Tambah produk user...
+              <span className="text-sm font-bold" style={{ color: "var(--color-blue)" }}>+</span> Tambah Produk
             </button>
           </div>
         )}

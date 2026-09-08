@@ -1,4 +1,5 @@
 import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { prisma } from "@/lib/prisma";
 
 export interface ApotekOnlineResponse {
   data?: string[] | null;
@@ -8,18 +9,40 @@ export interface ApotekOnlineResponse {
 
 export async function getApotekOnline(
   nip: string,
-  position: string = "MR"
+  position?: string
 ): Promise<string[]> {
   if (!nip) return [];
   try {
     let targetNip = nip.trim();
+    let targetPosition = position;
+
+    // Check dummy user mappings
     if (targetNip === "SCMR123456") {
       targetNip = "P250091";
+      targetPosition = targetPosition || "MR";
+    } else if (targetNip === "SCASM123456") {
+      targetNip = "L260437";
+      targetPosition = targetPosition || "ASM";
+    } else if (targetNip === "SCSM123456") {
+      targetNip = "P230219";
+      targetPosition = targetPosition || "SM";
+    } else if (targetNip === "SCNSM123456") {
+      targetNip = "P080855";
+      targetPosition = targetPosition || "NSM";
+    }
+
+    // If position not explicitly provided, look up from User table
+    if (!targetPosition) {
+      const user = await prisma.user.findUnique({
+        where: { nip: nip.trim() },
+        select: { role: true },
+      });
+      targetPosition = user?.role || "MR";
     }
 
     const url = `${CANVASSER_API_BASE_URL}/api/get-apotek-online?nip=${encodeURIComponent(
       targetNip
-    )}&position=${encodeURIComponent(position || "MR")}`;
+    )}&position=${encodeURIComponent(targetPosition || "MR")}`;
 
     const res = await fetch(url, {
       method: "GET",

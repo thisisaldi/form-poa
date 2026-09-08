@@ -2,6 +2,7 @@ import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
 
 export interface SalesApotekOnlineItem {
   FlagServicedBy: string;
+  type?: string;
   total: number;
 }
 
@@ -32,6 +33,9 @@ export async function getSalesApotekOnline(
     });
 
     if (!res.ok) {
+      if (res.status === 404) {
+        return { data: [], pi_code: cleanPiCode, message: "No History Found" };
+      }
       return null;
     }
 
