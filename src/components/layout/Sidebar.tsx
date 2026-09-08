@@ -163,7 +163,7 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
       // Hanya tampilkan Dashboard (/dashboard -> /sc/dashboard), New POA Sales Counter (/sc/new),
       // Approvals (/sc/approvals), dan FAQ (/faq).
       // Menu lain seperti Input Data Survey, Summary, dsb dihilangkan.
-      const allowedOmegaHrefs = ["/dashboard", "/sc/new", "/sc/approvals", "/faq"];
+      const allowedOmegaHrefs = ["/dashboard", "/sc/new", "/sc/approvals"];
       return allowedOmegaHrefs.includes(item.href);
     }
     // Untuk project non-OMEGA:
