@@ -227,14 +227,35 @@ import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {
   let targetUserId = userId;
   if (userId === "SCMR123456") targetUserId = "P250091";
+  else if (userId === "SCASM123456") targetUserId = "L260437";
+  else if (userId === "SCSM123456") targetUserId = "P230219";
+  else if (userId === "SCNSM123456") targetUserId = "P080855";
+
+  const { prisma } = await import("@/lib/prisma");
+  const user = await prisma.user.findUnique({
+    where: { nip: userId },
+    select: { role: true },
+  });
+  const position = user?.role || "MR";
 
   try {
+    const [blastInSet, onlineCodes] = await Promise.all([
+      getBlastInOutletSet(),
+      getApotekOnline(targetUserId, position).catch(() => []),
+    ]);
+    const onlineSet = new Set(onlineCodes);
+
     const url = `${CANVASSER_API_BASE_URL}/api/get-sc-poa-outlet-by-nip?nip=${encodeURIComponent(targetUserId)}`;
     const res = await fetch(url, {
       next: { revalidate: 0 },
     });
     if (!res.ok) {
-      return getOutletsByUser(userId);
+      const fallback = await getOutletsByUser(userId);
+      return fallback.map((o) => ({
+        ...o,
+        isBlastIn: blastInSet.has(o.kodeCust),
+        isOnline: onlineSet.has(o.kodeCust),
+      }));
     }
     const json = await res.json();
     const rawOutlets = Array.isArray(json?.data)
@@ -243,13 +264,13 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
       ? json.data.outlets
       : [];
     if (!Array.isArray(rawOutlets) || rawOutlets.length === 0) {
-      return getOutletsByUser(userId);
+      const fallback = await getOutletsByUser(userId);
+      return fallback.map((o) => ({
+        ...o,
+        isBlastIn: blastInSet.has(o.kodeCust),
+        isOnline: onlineSet.has(o.kodeCust),
+      }));
     }
-    const [blastInSet, onlineCodes] = await Promise.all([
-      getBlastInOutletSet(),
-      getApotekOnline(targetUserId, "MR").catch(() => []),
-    ]);
-    const onlineSet = new Set(onlineCodes);
 
     return rawOutlets.map((o: any) => ({
       kodeRequest: o.code,

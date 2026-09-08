@@ -89,6 +89,17 @@ export async function submitSalesCounterFormAction(
   }
 }
 
+const POA_STATUS_RANK: Record<PoaStatus, number> = {
+  DRAFT: 0,
+  REVISI: 0,
+  SUBMITTED_TO_ASM: 1,
+  APPROVED_BY_ASM: 2,
+  SUBMITTED_TO_SM: 2,
+  APPROVED_BY_SM: 3,
+  SUBMITTED_TO_NSM: 3,
+  APPROVED_BY_NSM: 4,
+};
+
 function buildApprovalWhereClause(actorRole: string, actorNip: string, poaScIds: string[]) {
   const baseWhere: any = { id: { in: poaScIds } };
 
@@ -96,36 +107,27 @@ function buildApprovalWhereClause(actorRole: string, actorNip: string, poaScIds:
     baseWhere.status = {
       in: [
         PoaStatus.SUBMITTED_TO_ASM,
-        PoaStatus.APPROVED_BY_ASM,
         PoaStatus.SUBMITTED_TO_SM,
-        PoaStatus.APPROVED_BY_SM,
         PoaStatus.SUBMITTED_TO_NSM,
       ],
     };
   } else if (actorRole === "SM") {
-    baseWhere.OR = [
-      { currentHolderId: actorNip },
-      {
-        status: {
-          in: [
-            PoaStatus.SUBMITTED_TO_ASM,
-            PoaStatus.APPROVED_BY_ASM,
-            PoaStatus.SUBMITTED_TO_SM,
-            PoaStatus.APPROVED_BY_SM,
-          ],
-        },
-      },
-    ];
+    baseWhere.status = {
+      in: [
+        PoaStatus.SUBMITTED_TO_ASM,
+        PoaStatus.SUBMITTED_TO_SM,
+      ],
+    };
   } else if (actorRole === "ASM") {
-    baseWhere.OR = [
-      { currentHolderId: actorNip },
-      { status: PoaStatus.SUBMITTED_TO_ASM },
-    ];
+    baseWhere.status = PoaStatus.SUBMITTED_TO_ASM;
   } else {
-    baseWhere.OR = [
-      { currentHolderId: actorNip },
-      { ownerId: actorNip },
-    ];
+    baseWhere.status = {
+      in: [
+        PoaStatus.SUBMITTED_TO_ASM,
+        PoaStatus.SUBMITTED_TO_SM,
+        PoaStatus.SUBMITTED_TO_NSM,
+      ],
+    };
   }
 
   return baseWhere;
@@ -134,7 +136,7 @@ function buildApprovalWhereClause(actorRole: string, actorNip: string, poaScIds:
 export async function approveSalesCounterFormAction(
   poaScIds: string[],
   notes?: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; count?: number }> {
   const session = await requireSession();
 
   if (!poaScIds || poaScIds.length === 0) {
@@ -148,6 +150,8 @@ export async function approveSalesCounterFormAction(
     });
 
     if (!actor) return { ok: false, error: "User tidak ditemukan." };
+
+    let totalApproved = 0;
 
     await prisma.$transaction(async (tx: any) => {
       const whereClause = buildApprovalWhereClause(actor.role, session.userId, poaScIds);
@@ -188,6 +192,21 @@ export async function approveSalesCounterFormAction(
           nextHolderId = null;
         }
 
+        // STRICT MONOTONIC CHECK:
+        // 1. Next status rank must be strictly higher than current status rank (no status downgrade)
+        if (POA_STATUS_RANK[nextStatus] <= POA_STATUS_RANK[form.status as PoaStatus]) {
+          continue;
+        }
+
+        // 2. Invariant guard: Never approve forms in DRAFT, REVISI, or already APPROVED_BY_NSM
+        if (
+          form.status === PoaStatus.DRAFT ||
+          form.status === PoaStatus.REVISI ||
+          form.status === PoaStatus.APPROVED_BY_NSM
+        ) {
+          continue;
+        }
+
         await tx.poaScForm.update({
           where: { id: form.id },
           data: {
@@ -206,12 +225,18 @@ export async function approveSalesCounterFormAction(
             snapshot: { notes: notes || "" },
           },
         });
+
+        totalApproved++;
+      }
+
+      if (totalApproved === 0) {
+        throw new Error("Tidak ada outlet yang valid untuk disetujui pada tingkat wewenang Anda.");
       }
     });
 
     revalidatePath("/sc/dashboard");
     revalidatePath("/sc/approvals");
-    return { ok: true };
+    return { ok: true, count: totalApproved };
   } catch (error: any) {
     console.error("Failed to approve Sales Counter POA:", error);
     return { ok: false, error: error?.message || "Gagal menyetujui POA Sales Counter." };

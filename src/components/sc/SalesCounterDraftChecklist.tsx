@@ -9,6 +9,7 @@ import { SalesCounterStatsPanel } from "./detail/SalesCounterStatsPanel";
 import { SalesCounterOutletCard } from "./detail/SalesCounterOutletCard";
 import { SalesCounterChecklistHeader } from "./detail/SalesCounterChecklistHeader";
 import { SalesCounterSubmitPanel } from "./detail/SalesCounterSubmitPanel";
+import { SalesCounterApprovePanel } from "./detail/SalesCounterApprovePanel";
 import type { ScDraftFormItem, SalesFigures } from "./types";
 
 import { submitSalesCounterFormAction } from "@/app/actions/scApprovalActions";
@@ -57,9 +58,16 @@ export function SalesCounterDraftChecklist({
     quarterMonths,
     submitNotes,
     setSubmitNotes,
+    actionableIds,
+    actionableCount,
+    selectedActionableCount,
   } = useSalesCounterDetail({
     scDrafts: safeScDrafts,
     poaPeriod,
+    showSubmit,
+    userRole,
+    canApprove,
+    canFastTrack,
   });
 
   const canEditNow = userCanEdit ?? false;
@@ -153,6 +161,7 @@ export function SalesCounterDraftChecklist({
             poaId={poaId}
             canEditNow={canEditNow}
             selectable={selectable}
+            canApprove={canApprove}
             allChecked={allSelected}
             onToggleAll={toggleAll}
           />
@@ -189,6 +198,16 @@ export function SalesCounterDraftChecklist({
             setSubmitNotes={setSubmitNotes}
             isSubmitting={isSubmittingState}
             onSubmit={handleSubmitAction}
+          />
+        )}
+
+        {!showSubmit && canApprove && poaId && (
+          <SalesCounterApprovePanel
+            selectedCount={selectedActionableCount}
+            actionableCount={actionableCount}
+            totalCount={safeScDrafts.length}
+            selectedIds={actionableIds.filter((id) => checked.has(id))}
+            onActionComplete={() => router.refresh()}
           />
         )}
       </div>

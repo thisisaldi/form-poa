@@ -37,7 +37,7 @@ export async function getSalesCounterFormById(
   const [products, isBlastIn, rawOutlets, canvasserPersonsData] = await Promise.all([
     getScProducts().catch(() => []),
     isOutletBlastIn(form.kodePI).catch(() => false),
-    getSalesCounterOutletsDirect(sessionUserId).catch(() => []),
+    getSalesCounterOutletsDirect(form.owner.nip || form.ownerId || sessionUserId).catch(() => []),
     getSalesCountersByOutlet(form.kodePI).catch(() => ({ data: [] })),
   ]);
 
@@ -55,6 +55,7 @@ export async function getSalesCounterFormById(
     is_sc: !!targetOutlet?.is_sc,
     jumlah_sc: targetOutlet?.jumlah_sc ?? null,
     isBlastIn,
+    isOnline: !!targetOutlet?.isOnline,
     periodeAwal: form.periodeAwal,
     lamaPeriode: form.lamaPeriode,
     persenResepDokter: form.persenResepDokter,

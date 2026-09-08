@@ -1,5 +1,6 @@
 import type { Product } from "@/lib/masterData";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
+import { aggregateHistorySales } from "@/lib/historySalesUtils";
 
 export interface BuildProductOptionsParams {
   canvasserProducts: SalesCounterProduct[];
@@ -37,9 +38,35 @@ export function buildScProductOptions({
     }
   }
 
-  // 2. Build history sales map
+  // 2. Build history sales map & period range string
+  let periodRangeStr = "";
+  if (Array.isArray(historySalesData?.period) && historySalesData.period.length > 0) {
+    const validPeriods = [...historySalesData.period]
+      .map(String)
+      .filter((p) => p.length === 6)
+      .sort();
+    if (validPeriods.length > 0) {
+      const minP = validPeriods[0];
+      const maxP = validPeriods[validPeriods.length - 1];
+      periodRangeStr = `${minP} - ${maxP}`;
+    }
+  }
+
+  const formatHistoryLabel = (qty: number) => {
+    const formattedQty = qty % 1 === 0 ? qty.toString() : (Math.round(qty * 10) / 10).toString();
+    return periodRangeStr
+      ? `History: ${formattedQty} UB / Bulan, Periode: ${periodRangeStr}`
+      : `History: ${formattedQty} UB / Bulan`;
+  };
+
+  const aggHistoryMap = historySalesData ? aggregateHistorySales(historySalesData) : new Map<string, any>();
   const historySalesMap = new Map<string, number>();
-  if (historySalesData) {
+  if (aggHistoryMap.size > 0) {
+    for (const [code, agg] of aggHistoryMap.entries()) {
+      historySalesMap.set(code, agg.avgQty);
+      historySalesMap.set(code.replace(/^0+/, ""), agg.avgQty);
+    }
+  } else if (historySalesData) {
     const items = Array.isArray(historySalesData?.data)
       ? historySalesData.data
       : Array.isArray(historySalesData)
@@ -93,7 +120,7 @@ export function buildScProductOptions({
       groupSurvey.push({
         value: code,
         label: p.pro_name || masterP?.namaProduk || surveyInfo.namaProdukRekomendasi || code,
-        sublabel: `${code} · ${brandStr}${zatStr}${surveyInfo.totalPotensiBulan ? ` · Potensi: ${Math.floor(surveyInfo.totalPotensiBulan)} UB/bln` : ""}`,
+        sublabel: `${code} · ${brandStr}${zatStr}${surveyInfo.totalPotensiBulan ? ` · Potensi: ${Math.floor(surveyInfo.totalPotensiBulan)} UB/bln` : ""}${salesQty > 0 ? ` · ${formatHistoryLabel(salesQty)}` : ""}`,
         group: "PRODUK SURVEY (NEXUS)",
         tag: "Produk Survey",
         tagColor: "purple",
@@ -107,7 +134,7 @@ export function buildScProductOptions({
       groupPernahOrder.push({
         value: code,
         label: p.pro_name || masterP?.namaProduk || code,
-        sublabel: `${code} · ${brandStr}${zatStr} · History: ${Math.floor(salesQty)} UB`,
+        sublabel: `${code} · ${brandStr}${zatStr} · ${formatHistoryLabel(salesQty)}`,
         group: "PERNAH ORDER",
         tag: "Pernah Order",
         tagColor: "blue",
@@ -162,7 +189,7 @@ export function buildScProductOptions({
       groupSurvey.push({
         value: code,
         label: s.namaProdukRekomendasi || masterP?.namaProduk || code,
-        sublabel: `${code} · ${masterP?.namaGroupBrand || "Data Survey"}${potensiNum > 0 ? ` · Potensi: ${Math.floor(potensiNum)} UB/bln` : ""}`,
+        sublabel: `${code} · ${masterP?.namaGroupBrand || "Data Survey"}${potensiNum > 0 ? ` · Potensi: ${Math.floor(potensiNum)} UB/bln` : ""}${salesQty > 0 ? ` · ${formatHistoryLabel(salesQty)}` : ""}`,
         group: "PRODUK SURVEY (NEXUS)",
         tag: "Produk Survey",
         tagColor: "purple",
@@ -191,7 +218,7 @@ export function buildScProductOptions({
       groupPernahOrder.push({
         value: code,
         label: p.name || masterP?.namaProduk || code,
-        sublabel: `${code} · ${masterP?.namaGroupBrand || "Master Produk"} · History: ${Math.floor(salesQty)} UB`,
+        sublabel: `${code} · ${masterP?.namaGroupBrand || "Master Produk"} · ${formatHistoryLabel(salesQty)}`,
         group: "PERNAH ORDER",
         tag: "Pernah Order",
         tagColor: "blue",

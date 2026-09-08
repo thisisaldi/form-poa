@@ -845,14 +845,50 @@ export function ScSidebar({
                           const hna = getHnaForProduct(entry.code, masterProducts) || parseFloat(String(entry.item?.hna || entry.item?.pro_hna || 0)) || 0;
                           const salesVal = entry.salesVal > 0 ? entry.salesVal : entry.salesQty * hna;
                           const formattedQty = entry.salesQty % 1 === 0 ? entry.salesQty.toString() : (Math.round(entry.salesQty * 10) / 10).toString();
+                          const minTarget = entry.item?.sales_counter_minimum != null ? Number(entry.item.sales_counter_minimum) : null;
+                          const baseInsentif = entry.item?.sales_counter_value != null ? Number(entry.item.sales_counter_value) : null;
+                          const multiplier = minTarget != null && !isNaN(minTarget) && minTarget > 0 ? minTarget : 1;
+                          const totalInsentif = baseInsentif != null ? baseInsentif * multiplier : null;
+
                           return (
-                            <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
-                              <span
-                                className="font-medium px-1.5 py-0.5 rounded"
-                                style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
-                              >
-                                Average History Per Bulan: {salesVal > 0 ? `Rp ${Math.round(salesVal).toLocaleString("id-ID")} (${formattedQty} UB)` : `${formattedQty} UB`}
-                              </span>
+                            <div className="space-y-1 pt-0.5 text-[9.5px]">
+                              <div className="flex items-center">
+                                <span
+                                  className="font-medium px-1.5 py-0.5 rounded"
+                                  style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}
+                                >
+                                  Average History Per Bulan: {salesVal > 0 ? `Rp ${Math.round(salesVal).toLocaleString("id-ID")} (${formattedQty} UB)` : `${formattedQty} UB`}
+                                </span>
+                              </div>
+                              {minTarget != null && !isNaN(minTarget) && minTarget > 0 && (
+                                <div className="flex items-center">
+                                  <span
+                                    className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                    style={{
+                                      background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                      color: "var(--color-success, #16a34a)",
+                                      border: "1px solid rgba(22, 163, 74, 0.25)",
+                                    }}
+                                  >
+                                    Target: {minTarget} UB
+                                  </span>
+                                </div>
+                              )}
+                              {totalInsentif != null && !isNaN(totalInsentif) && (
+                                <div className="flex items-center">
+                                  <span
+                                    className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                    title={minTarget && minTarget > 1 && baseInsentif ? `${formatRp(baseInsentif)} x ${minTarget} UB = ${formatRp(totalInsentif)}` : undefined}
+                                    style={{
+                                      background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                      color: "var(--color-success, #16a34a)",
+                                      border: "1px solid rgba(22, 163, 74, 0.25)",
+                                    }}
+                                  >
+                                    Nilai Insentif SC: {formatRp(totalInsentif)}
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
@@ -879,6 +915,7 @@ export function ScSidebar({
                     const name = item.pro_name || item.namaProduk || item.name || targetCode;
                     const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
                     const insentif = item.sales_counter_value != null ? Number(item.sales_counter_value) : null;
+                    const minTarget = item.sales_counter_minimum != null ? Number(item.sales_counter_minimum) : null;
 
                     return (
                       <div
@@ -908,16 +945,36 @@ export function ScSidebar({
                           )}
                         </div>
 
-                        {insentif != null && !isNaN(insentif) && (
-                          <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
-                            <span
-                              className="font-medium px-1.5 py-0.5 rounded"
-                              style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
-                            >
-                              Insentif: {formatRp(insentif)}
-                            </span>
-                          </div>
-                        )}
+                        <div className="space-y-1 pt-0.5 text-[9.5px]">
+                          {minTarget != null && !isNaN(minTarget) && minTarget > 0 && (
+                            <div className="flex items-center">
+                              <span
+                                className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                style={{
+                                  background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                  color: "var(--color-success, #16a34a)",
+                                  border: "1px solid rgba(22, 163, 74, 0.25)",
+                                }}
+                              >
+                                Target: {minTarget} UB
+                              </span>
+                            </div>
+                          )}
+                          {insentif != null && !isNaN(insentif) && (
+                            <div className="flex items-center">
+                              <span
+                                className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                style={{
+                                  background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                  color: "var(--color-success, #16a34a)",
+                                  border: "1px solid rgba(22, 163, 74, 0.25)",
+                                }}
+                              >
+                                Nilai Insentif SC: {formatRp(insentif)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -941,6 +998,7 @@ export function ScSidebar({
                     const name = item.pro_name || item.namaProduk || item.name || targetCode;
                     const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
                     const insentif = item.sales_counter_value != null ? Number(item.sales_counter_value) : null;
+                    const minTarget = item.sales_counter_minimum != null ? Number(item.sales_counter_minimum) : null;
 
                     return (
                       <div
@@ -970,16 +1028,36 @@ export function ScSidebar({
                           )}
                         </div>
 
-                        {insentif != null && !isNaN(insentif) && (
-                          <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
-                            <span
-                              className="font-medium px-1.5 py-0.5 rounded"
-                              style={{ background: "var(--color-success-bg, #dcfce7)", color: "var(--color-success, #16a34a)" }}
-                            >
-                              Insentif: {formatRp(insentif)}
-                            </span>
-                          </div>
-                        )}
+                        <div className="space-y-1 pt-0.5 text-[9.5px]">
+                          {minTarget != null && !isNaN(minTarget) && minTarget > 0 && (
+                            <div className="flex items-center">
+                              <span
+                                className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                style={{
+                                  background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                  color: "var(--color-success, #16a34a)",
+                                  border: "1px solid rgba(22, 163, 74, 0.25)",
+                                }}
+                              >
+                                Target: {minTarget} UB
+                              </span>
+                            </div>
+                          )}
+                          {insentif != null && !isNaN(insentif) && (
+                            <div className="flex items-center">
+                              <span
+                                className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                style={{
+                                  background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                  color: "var(--color-success, #16a34a)",
+                                  border: "1px solid rgba(22, 163, 74, 0.25)",
+                                }}
+                              >
+                                Nilai Insentif SC: {formatRp(insentif)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

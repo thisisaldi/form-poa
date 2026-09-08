@@ -57,9 +57,18 @@ export function getB3PeriodInfo(poaPeriod: string) {
 
   const rangeLabel = `${startInfo.name} ${startInfo.year} - ${endInfo.name} ${endInfo.year}`;
 
+  const targetPeriods: number[] = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(chosenYear, chosenMonth - 1 - i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    targetPeriods.push(y * 100 + m);
+  }
+
   return {
     period: chosenPeriodNum,
     rangeLabel,
+    targetPeriods,
   };
 }
 

@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { getPreviousQuarterInfo } from "@/lib/quarterUtils";
+import { getSalesApotekOnlineAction } from "@/app/actions/canvasser";
+import type { SalesApotekOnlineItem } from "@/app/(app)/sc/[id]/_services/getSalesApotekOnline";
 
 interface OnlineApotekSalesWidgetProps {
   poaPeriod?: string | null;
   outletCode?: string | null;
   outletName?: string | null;
+  isOnline?: boolean;
   className?: string;
 }
 
@@ -14,71 +17,135 @@ function formatRp(val: number): string {
   return "Rp " + Math.round(val || 0).toLocaleString("id-ID");
 }
 
+function resolveApotekOnlinePeriod(poaPeriod?: string | null): {
+  periodParam: string;
+  prevQuarterInfo: {
+    quarter: string;
+    year: number;
+    label: string;
+    shortLabel: string;
+  };
+} {
+  const prevQuarterInfo = getPreviousQuarterInfo(poaPeriod);
+  const qNum = parseInt(prevQuarterInfo.quarter.replace(/[^0-9]/g, ""), 10) || 1;
+  const lastMonth = qNum * 3;
+  const periodParam = `${prevQuarterInfo.year}${String(lastMonth).padStart(2, "0")}`;
+  return { periodParam, prevQuarterInfo };
+}
+
 export function OnlineApotekSalesWidget({
   poaPeriod,
   outletCode = "",
   outletName = "",
+  isOnline,
   className = "",
 }: OnlineApotekSalesWidgetProps) {
-  const prevQuarter = useMemo(() => {
-    return getPreviousQuarterInfo(poaPeriod);
+  if (isOnline === false) {
+    return null;
+  }
+
+  const { periodParam, prevQuarterInfo } = useMemo(() => {
+    return resolveApotekOnlinePeriod(poaPeriod);
   }, [poaPeriod]);
 
-  // Deterministic dummy values based on outletCode/outletName matching the screenshot
-  const salesData = useMemo(() => {
-    const seedStr = `${outletCode || ""}_${outletName || ""}`;
-    let hash = 0;
-    for (let i = 0; i < seedStr.length; i++) {
-      hash = (hash << 5) - hash + seedStr.charCodeAt(i);
-      hash |= 0;
+  const [loading, setLoading] = useState(false);
+  const [salesItems, setSalesItems] = useState<SalesApotekOnlineItem[] | null>(null);
+
+  useEffect(() => {
+    if (!outletCode) {
+      setSalesItems(null);
+      return;
     }
-    const abs = Math.abs(hash);
+    let isMounted = true;
+    setLoading(true);
 
-    const shopeePi = 17900000;
-    const shopeeNonPi = 4850000;
+    getSalesApotekOnlineAction(periodParam, outletCode)
+      .then((res) => {
+        if (isMounted) {
+          setSalesItems(res?.data || []);
+        }
+      })
+      .catch((err) => {
+        console.error("Error fetching sales apotek online:", err);
+        if (isMounted) setSalesItems([]);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
 
-    const tiktokPi = 13250000;
-    const tiktokNonPi = 3250000;
-
-    const tokopediaPi = 15800000;
-    const tokopediaNonPi = 9200000;
-
-    const total =
-      shopeePi + shopeeNonPi + tiktokPi + tiktokNonPi + tokopediaPi + tokopediaNonPi;
-
-    return {
-      total,
-      platforms: [
-        {
-          id: "shopee",
-          name: "SHOPEE",
-          total: shopeePi + shopeeNonPi,
-          items: [
-            { label: "Shopee PI", value: shopeePi },
-            { label: "Shopee Non PI", value: shopeeNonPi },
-          ],
-        },
-        {
-          id: "tiktok",
-          name: "TIKTOK",
-          total: tiktokPi + tiktokNonPi,
-          items: [
-            { label: "TikTok PI", value: tiktokPi },
-            { label: "TikTok Non PI", value: tiktokNonPi },
-          ],
-        },
-        {
-          id: "tokopedia",
-          name: "TOKOPEDIA",
-          total: tokopediaPi + tokopediaNonPi,
-          items: [
-            { label: "Tokopedia PI", value: tokopediaPi },
-            { label: "Tokopedia Non PI", value: tokopediaNonPi },
-          ],
-        },
-      ],
+    return () => {
+      isMounted = false;
     };
-  }, [outletCode, outletName]);
+  }, [outletCode, periodParam]);
+
+function formatPlatformName(platform: string): { key: string; name: string; labelPrefix: string } {
+  const upper = platform.trim().toUpperCase();
+  let labelPrefix = upper.charAt(0) + upper.slice(1).toLowerCase();
+  if (upper === "SHOPEE") labelPrefix = "Shopee";
+  else if (upper === "TIKTOK") labelPrefix = "Tiktok";
+  else if (upper === "TOKOPEDIA") labelPrefix = "Tokopedia";
+  return { key: upper, name: upper, labelPrefix };
+}
+
+  const { platforms, totalPiSales, totalAllSales } = useMemo(() => {
+    if (!salesItems || salesItems.length === 0) {
+      return { platforms: [], totalPiSales: 0, totalAllSales: 0 };
+    }
+
+    const platformMap = new Map<string, { pi: number; nonPi: number }>();
+
+    for (const item of salesItems) {
+      const rawPlatform = (item.FlagServicedBy || "").trim().toUpperCase();
+      if (!rawPlatform) continue;
+
+      if (!platformMap.has(rawPlatform)) {
+        platformMap.set(rawPlatform, { pi: 0, nonPi: 0 });
+      }
+
+      const current = platformMap.get(rawPlatform)!;
+      const isNonPi = (item.type || "").trim().toUpperCase() === "NON_PI";
+      const val = Number(item.total) || 0;
+
+      if (isNonPi) {
+        current.nonPi += val;
+      } else {
+        current.pi += val;
+      }
+    }
+
+    let sumPi = 0;
+    let sumAll = 0;
+
+    const STANDARD_ORDER = ["SHOPEE", "TIKTOK", "TOKOPEDIA"];
+
+    const list = Array.from(platformMap.entries())
+      .map(([key, data]) => {
+        const { name, labelPrefix } = formatPlatformName(key);
+        const total = data.pi + data.nonPi;
+        sumPi += data.pi;
+        sumAll += total;
+
+        return {
+          id: key,
+          name,
+          labelPrefix,
+          pi: data.pi,
+          nonPi: data.nonPi,
+          total,
+        };
+      })
+      .filter((p) => p.total > 0)
+      .sort((a, b) => {
+        const idxA = STANDARD_ORDER.indexOf(a.name);
+        const idxB = STANDARD_ORDER.indexOf(b.name);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+    return { platforms: list, totalPiSales: sumPi, totalAllSales: sumAll };
+  }, [salesItems]);
 
   return (
     <div
@@ -101,16 +168,6 @@ export function OnlineApotekSalesWidget({
             Sales Apotek Online
           </span>
           <span
-            className="text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide"
-            style={{
-              background: "rgba(245, 158, 11, 0.12)",
-              color: "#d97706",
-              border: "1px solid rgba(245, 158, 11, 0.3)",
-            }}
-          >
-            (DUMMY)
-          </span>
-          <span
             className="text-[11px] font-medium px-2 py-0.5 rounded border"
             style={{
               background: "var(--color-bg-subtle)",
@@ -118,75 +175,125 @@ export function OnlineApotekSalesWidget({
               color: "var(--color-text-muted)",
             }}
           >
-            Periode: {prevQuarter.label}
+            Periode: {prevQuarterInfo.label}
           </span>
+          {loading && (
+            <span className="text-[10px] animate-pulse" style={{ color: "var(--color-text-faint)" }}>
+              Memuat data...
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-1.5 text-xs">
-          <span style={{ color: "var(--color-text-muted)" }}>Total PI Online:</span>
-          <span className="font-bold" style={{ color: "var(--color-text)" }}>
-            {formatRp(salesData.total)}
-          </span>
+        <div className="flex items-center gap-3 text-xs flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span style={{ color: "var(--color-text-muted)" }}>Total All (B2B + PI) / Bln:</span>
+            <span className="font-bold" style={{ color: "var(--color-text)" }}>
+              {formatRp(totalAllSales)}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span style={{ color: "var(--color-text-muted)" }}>Total PI / Bln:</span>
+            <span className="font-bold" style={{ color: "var(--color-text)" }}>
+              {formatRp(totalPiSales)}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* 3 Columns matching form font & styling */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-        {salesData.platforms.map((platform) => (
-          <div
-            key={platform.id}
-            className="rounded-md border overflow-hidden"
-            style={{
-              borderColor: "var(--color-border)",
-              background: "var(--color-bg-subtle)",
-            }}
-          >
-            {/* Platform Header */}
+      {/* Loading indicator */}
+      {loading && !salesItems && (
+        <div className="text-center py-4 text-xs" style={{ color: "var(--color-text-faint)" }}>
+          Mengambil data sales apotek online...
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && (!salesItems || salesItems.length === 0) && (
+        <div
+          className="rounded-md border p-3 text-center text-xs"
+          style={{ borderColor: "var(--color-border)", color: "var(--color-text-faint)" }}
+        >
+          Tidak ada data penjualan apotek online untuk outlet ini pada periode {prevQuarterInfo.shortLabel}.
+        </div>
+      )}
+
+      {/* Platform Cards: hanya muncul platform yang memiliki data */}
+      {platforms.length > 0 && (
+        <div
+          className={`grid gap-2.5 ${
+            platforms.length === 1
+              ? "grid-cols-1 max-w-sm"
+              : platforms.length === 2
+              ? "grid-cols-1 md:grid-cols-2"
+              : "grid-cols-1 md:grid-cols-3"
+          }`}
+        >
+          {platforms.map((platform) => (
             <div
-              className="px-2.5 py-1.5 border-b flex items-center justify-between"
+              key={platform.id}
+              className="rounded-md border overflow-hidden"
               style={{
                 borderColor: "var(--color-border)",
-                background: "rgba(0,0,0,0.02)",
+                background: "var(--color-bg-subtle)",
               }}
             >
-              <span
-                className="text-xs font-semibold uppercase tracking-wider"
-                style={{ color: "var(--color-text)" }}
+              {/* Platform Header */}
+              <div
+                className="px-2.5 py-1.5 border-b flex items-center justify-between"
+                style={{
+                  borderColor: "var(--color-border)",
+                  background: "rgba(0,0,0,0.02)",
+                }}
               >
-                {platform.name}
-              </span>
-              <span
-                className="text-xs font-bold"
-                style={{ color: "var(--color-text-muted)" }}
-              >
-                {formatRp(platform.total)}
-              </span>
-            </div>
-
-            {/* Platform Rows */}
-            <div className="p-2 space-y-1.5 text-xs">
-              {platform.items.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between py-0.5"
+                <span
+                  className="text-xs font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--color-text)" }}
                 >
+                  {platform.name}
+                </span>
+                <span
+                  className="text-xs font-bold"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {formatRp(platform.total)}
+                </span>
+              </div>
+
+              {/* Platform Rows: PI & Non PI */}
+              <div className="p-2 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between py-0.5">
                   <span
                     className="text-xs font-medium"
                     style={{ color: "var(--color-text-muted)" }}
                   >
-                    {item.label}
+                    {platform.labelPrefix} PI
                   </span>
                   <span
                     className="text-xs font-bold"
                     style={{ color: "var(--color-text)" }}
                   >
-                    {formatRp(item.value)}
+                    {formatRp(platform.pi)}
                   </span>
                 </div>
-              ))}
+
+                <div className="flex items-center justify-between py-0.5">
+                  <span
+                    className="text-xs font-medium"
+                    style={{ color: "var(--color-text-muted)" }}
+                  >
+                    {platform.labelPrefix} Non PI
+                  </span>
+                  <span
+                    className="text-xs font-bold"
+                    style={{ color: "var(--color-text)" }}
+                  >
+                    {formatRp(platform.nonPi)}
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

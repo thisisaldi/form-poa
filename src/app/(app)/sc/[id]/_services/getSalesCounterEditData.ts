@@ -92,7 +92,11 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
     })),
   }));
 
-  const userCanEdit = canUserEditScForm(sessionRole || "MR", sessionUserId, targetOwnerId, poa.status);
+  // Owner (isSelf) can always access the editor to add new outlets or edit unapproved drafts.
+  // Existing approved outlets are guarded as read-only per-outlet inside the editor.
+  const userCanEdit = isSelf
+    ? true
+    : canUserEditScForm(sessionRole || "MR", sessionUserId, targetOwnerId, poa.status);
 
   return {
     userCanEdit,

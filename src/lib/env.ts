@@ -53,6 +53,8 @@ const envSchema = z.object({
   // try/catch — never a hard failure), not an env validation error.
   NEXUS_API_USERNAME: z.string().optional(),
   NEXUS_API_PASSWORD: z.string().optional(),
+  NEXUS_API_USERNAME_V2: z.string().optional(),
+  NEXUS_API_PASSWORD_V2: z.string().optional(),
   // Optional — SIPP (Trade Marketing) external API, HR attendance/leave data
   // (see "API - Trade Marketing Documentation.pdf", API Doc. Ver. 1.0.2026;
   // src/lib/sippApi.ts). Feeds the Kepatuhan Absensi pillar of KPI Monitoring
@@ -102,6 +104,8 @@ function validateEnv(): Env {
         GOOGLE_SERVICE_ACCOUNT_KEY: undefined,
         NEXUS_API_USERNAME: undefined,
         NEXUS_API_PASSWORD: undefined,
+        NEXUS_API_USERNAME_V2: undefined,
+        NEXUS_API_PASSWORD_V2: undefined,
         SIPP_BASE_URL: undefined,
         SIPP_CLIENT_ID: undefined,
         SIPP_CLIENT_SECRET: undefined,

@@ -90,3 +90,62 @@ export function aggregateHistorySales(rawResponse: any): Map<string, AggregatedP
 
   return map;
 }
+
+export interface ParsedOutletHistorySales {
+  totalSales: number;
+  averageSales: number;
+  productCount: number;
+  productSalesMap: Map<string, number>;
+  productQtyMap: Map<string, number>;
+}
+
+/**
+ * Parses the response of post-history-sales API for a specific outlet.
+ * Returns total sales, monthly average sales (across all products), and per-product maps.
+ */
+export function parseOutletHistorySales(
+  response: any,
+  piCode: string
+): ParsedOutletHistorySales {
+  const result: ParsedOutletHistorySales = {
+    totalSales: 0,
+    averageSales: 0,
+    productCount: 0,
+    productSalesMap: new Map(),
+    productQtyMap: new Map(),
+  };
+
+  if (!response?.data || typeof response.data !== "object") return result;
+
+  const rawPi = String(piCode || "").trim();
+  const outletData =
+    response.data[rawPi] ||
+    response.data[rawPi.toUpperCase()] ||
+    response.data[rawPi.toLowerCase()] ||
+    Object.values(response.data)[0];
+
+  if (!outletData || typeof outletData !== "object") return result;
+
+  result.totalSales = Number(outletData.total_sales) || 0;
+  result.averageSales = Number(outletData.average_sales) || 0;
+
+  for (const [key, val] of Object.entries(outletData)) {
+    if (key === "total_sales" || key === "average_sales") continue;
+    if (val && typeof val === "object") {
+      const item = val as any;
+      const salesAvg = Number(item.sales_value_avg) || 0;
+      const qtyAvg = Number(item.history_sales_avg) || 0;
+
+      result.productSalesMap.set(key, salesAvg);
+      result.productSalesMap.set(key.replace(/^0+/, ""), salesAvg);
+
+      result.productQtyMap.set(key, qtyAvg);
+      result.productQtyMap.set(key.replace(/^0+/, ""), qtyAvg);
+
+      result.productCount++;
+    }
+  }
+
+  return result;
+}
+

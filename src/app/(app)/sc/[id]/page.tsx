@@ -37,21 +37,26 @@ export default async function SalesCounterDetailPage({
     historyQuarterLabel,
   } = data;
 
-  const isDraft = poa.status === "DRAFT";
-  const isRevisi = poa.status === "REVISI";
-  const isFullyApproved = poa.status === "APPROVED_BY_NSM";
-  const isHolder = poa.currentHolderId === session.userId;
-  let canApprove = false;
-  if (isHolder) {
-    if (session.role === "ASM" && poa.status === "SUBMITTED_TO_ASM") canApprove = true;
-    else if (session.role === "SM" && poa.status === "SUBMITTED_TO_SM") canApprove = true;
-    else if (session.role === "NSM" && poa.status === "SUBMITTED_TO_NSM") canApprove = true;
-    else if (session.role === "ADMIN") canApprove = true;
-  }
+  const hasSubmittableOutlets = scDrafts.some((d) => d.status === "DRAFT" || d.status === "REVISI");
+  const canEditQuarter = userCanEdit && isOwner && (scDrafts.length === 0 || scDrafts.every((d) => d.status === "DRAFT" || d.status === "REVISI"));
+  const isFullyApproved = scDrafts.length > 0 && scDrafts.every((d) => d.status === "APPROVED_BY_NSM");
+  const isApproverRole = ["ASM", "SM", "NSM", "ADMIN"].includes(session.role);
+  const canApprove =
+    isApproverRole &&
+    scDrafts.some((d) => {
+      if (d.status === "DRAFT" || d.status === "REVISI" || d.status === "APPROVED_BY_NSM") return false;
+      if (session.role === "ADMIN") return true;
+      if (session.role === "ASM") return d.status === "SUBMITTED_TO_ASM";
+      if (session.role === "SM") return d.status === "SUBMITTED_TO_SM" || d.status === "SUBMITTED_TO_ASM";
+      if (session.role === "NSM") return ["SUBMITTED_TO_NSM", "SUBMITTED_TO_SM", "SUBMITTED_TO_ASM"].includes(d.status);
+      return false;
+    });
 
   const canFastTrack =
     (session.role === "NSM" || session.role === "ADMIN") &&
-    ["SUBMITTED_TO_ASM", "APPROVED_BY_ASM", "SUBMITTED_TO_SM", "APPROVED_BY_SM", "SUBMITTED_TO_NSM"].includes(poa.status);
+    scDrafts.some((d) =>
+      ["SUBMITTED_TO_ASM", "APPROVED_BY_ASM", "SUBMITTED_TO_SM", "APPROVED_BY_SM", "SUBMITTED_TO_NSM"].includes(d.status)
+    );
 
   return (
     <div className="space-y-5">
@@ -59,7 +64,7 @@ export default async function SalesCounterDetailPage({
         <div className="min-w-0">
           <h1>Detail POA Sales Counter</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {userCanEdit && (isDraft || isRevisi)
+            {canEditQuarter
               ? <EditQuarterControl poaId={poa.id} period={poa.period} isSc={true} />
               : `Periode ${poa.period}`}
             {" "}· {poa.owner.name} ({poa.owner.nip})
@@ -89,12 +94,12 @@ export default async function SalesCounterDetailPage({
         poaPeriod={poa.period}
         poaStatus={poa.status}
         poaVersion={poa.version}
-        showSubmit={userCanEdit && isOwner && (isDraft || isRevisi)}
+        showSubmit={isOwner && hasSubmittableOutlets}
         userCanEdit={userCanEdit}
         canApprove={canApprove}
         canFastTrack={canFastTrack}
         userRole={session.role}
-        selectable={isOwner}
+        selectable={isOwner || canApprove}
         salesSummary={salesSummary}
         targetArea={targetValueFromGT ?? undefined}
         totalCoverageScOutlets={totalCoverageScOutlets}
