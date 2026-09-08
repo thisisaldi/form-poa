@@ -305,8 +305,10 @@ export interface ProdukFormState {
   // Baru vs Perpanjangan — per produk (2026-08-27: dipindah dari level
   // pengajuan, status standarisasi memang berbeda per produk).
   statusPengajuan: "BARU" | "PERPANJANGAN";
+  skemaPembayaran: "DISKON" | "DP";
   estimasiDiskonPct: string;
   estimasiDiskonDistributorPct: string;
+  estimasiValueDpRp: string;
   estimasiBiayaListingRp: string;
   dokterKlinis: DokterKlinisFormState[];
   finalDiscountPct: string;
@@ -319,8 +321,10 @@ export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
   return {
     kodeProduk: "",
     statusPengajuan: inherit?.statusPengajuan ?? "BARU",
+    skemaPembayaran: inherit?.skemaPembayaran ?? "DISKON",
     estimasiDiskonPct: "",
     estimasiDiskonDistributorPct: "",
+    estimasiValueDpRp: "",
     estimasiBiayaListingRp: "",
     // New product inherits WHICH dokter to consider, not their estimate figures.
     dokterKlinis: inherit
@@ -338,8 +342,10 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
     id: p.id,
     kodeProduk: p.kodeProduk,
     statusPengajuan: p.statusPengajuan,
+    skemaPembayaran: p.skemaPembayaran,
     estimasiDiskonPct: p.estimasiDiskonPct != null ? String(p.estimasiDiskonPct) : "",
     estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct != null ? String(p.estimasiDiskonDistributorPct) : "",
+    estimasiValueDpRp: p.estimasiValueDpRp != null ? String(p.estimasiValueDpRp) : "",
     estimasiBiayaListingRp: p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
     dokterKlinis: p.dokterApproval.map((d) => ({
       customerId: d.customerId,
@@ -517,8 +523,10 @@ export function PoaStandarisasiWizard({
           (p): PlanningProdukInput => ({
             id: p.id,
             kodeProduk: p.kodeProduk,
+            skemaPembayaran: p.skemaPembayaran,
             estimasiDiskonPct: p.estimasiDiskonPct || null,
             estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct || null,
+            estimasiValueDpRp: p.estimasiValueDpRp || null,
             estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
             dokterKlinis: p.dokterKlinis.map((dk) => ({
               customerId: dk.customerId,
@@ -1141,17 +1149,39 @@ export function PlanningPhase(props: {
                   {p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"}
                 </div>
               </div>
-              <div className="w-32 shrink-0">
-                <UnitCountInput label="Estimasi Diskon (PI)" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
+              <div className="w-40 shrink-0">
+                <span className="text-xs font-medium block mb-1">Skema</span>
+                <Combobox
+                  name={`skemaPembayaran-${idx}`}
+                  options={[
+                    { value: "DISKON", label: "Diskon" },
+                    { value: "DP", label: "DP" },
+                  ]}
+                  value={p.skemaPembayaran}
+                  onChange={(v) => updateProduk(idx, { skemaPembayaran: v as "DISKON" | "DP" })}
+                  disabled={disabled}
+                />
               </div>
-              <div className="w-32 shrink-0">
-                <UnitCountInput label="Estimasi Diskon Distributor" unit="%" value={p.estimasiDiskonDistributorPct} onChange={(v) => updateProduk(idx, { estimasiDiskonDistributorPct: v })} disabled={disabled} />
-              </div>
+              {p.skemaPembayaran === "DP" ? (
+                <div className="w-36 shrink-0">
+                  <RpInput label="Value DP" value={p.estimasiValueDpRp} onChange={(v) => updateProduk(idx, { estimasiValueDpRp: v })} disabled={disabled} />
+                </div>
+              ) : (
+                <>
+                  <div className="w-32 shrink-0">
+                    <UnitCountInput label="Estimasi Diskon (PI)" unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
+                  </div>
+                  <div className="w-32 shrink-0">
+                    <UnitCountInput label="Estimasi Diskon Distributor" unit="%" value={p.estimasiDiskonDistributorPct} onChange={(v) => updateProduk(idx, { estimasiDiskonDistributorPct: v })} disabled={disabled} />
+                  </div>
+                </>
+              )}
               <div className="w-36 shrink-0">
                 <RpInput label="Estimasi Biaya Listing" value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
             </div>
             {(() => {
+              if (p.skemaPembayaran !== "DISKON") return null; // % margin math below doesn't apply to a flat DP value
               const salesLama12Bln = p.kodeProduk ? marginBaseline[p.kodeProduk] : undefined;
               if (salesLama12Bln === undefined) return null; // no live Exodus discount for this produk — nothing to warn against
               const biayaDiskonBaru = totalSales * ((parseFloat(p.estimasiDiskonPct) || 0) / 100);
@@ -1164,7 +1194,7 @@ export function PlanningPhase(props: {
               );
             })()}
             {/* Informational only (docs/TODO.md #7) — growth vs sales histori + margin (PI+Distributor) vs target GM 20% pakai diskon terdahulu, buat pembanding pengisi saat perpanjangan DPL/DPF. Tidak nge-block submit. */}
-            {p.statusPengajuan === "PERPANJANGAN" && p.kodeProduk && marginBaseline[p.kodeProduk] !== undefined && (() => {
+            {p.skemaPembayaran === "DISKON" && p.statusPengajuan === "PERPANJANGAN" && p.kodeProduk && marginBaseline[p.kodeProduk] !== undefined && (() => {
               const salesLamaPerBulan = marginBaseline[p.kodeProduk] / 12;
               const growthPct = salesLamaPerBulan > 0 ? ((totalSales - salesLamaPerBulan) / salesLamaPerBulan) * 100 : null;
               const lama = diskonLamaMap[p.kodeProduk];

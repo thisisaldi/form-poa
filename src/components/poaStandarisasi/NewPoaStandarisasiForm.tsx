@@ -147,8 +147,10 @@ export function NewPoaStandarisasiForm({
               (p): PlanningProdukInput => ({
                 id: p.id,
                 kodeProduk: p.kodeProduk,
+                skemaPembayaran: p.skemaPembayaran,
                 estimasiDiskonPct: p.estimasiDiskonPct || null,
                 estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct || null,
+                estimasiValueDpRp: p.estimasiValueDpRp || null,
                 estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
                 dokterKlinis: p.dokterKlinis.map((dk) => ({
                   customerId: dk.customerId,

@@ -1268,6 +1268,14 @@ enum StatusPengajuanStandarisasi {
   PERPANJANGAN
 }
 
+// Toggle di Planning per produk (2026-09-08) — Diskon (% PI + % Distributor)
+// atau DP (satu nilai Rupiah flat). Mutually exclusive di UI: hanya field
+// yang relevan ke skema terpilih yang ditampilkan/diisi.
+enum SkemaPembayaranStandarisasi {
+  DISKON
+  DP
+}
+
 enum StatusApprovalAtasan {
   MENUNGGU
   DISETUJUI
@@ -1373,6 +1381,13 @@ model PoaStandarisasiProduk {
   // level dokter (PoaStandarisasiDokterApproval, sama pola dengan Finalisasi's
   // PoaStandarisasiDokterUser) karena estimasinya memang berbeda per dokter,
   // bukan satu angka gabungan per produk.
+  // Skema pembayaran per produk (2026-09-08, user request): MR pilih salah
+  // satu — DISKON pakai dua field % di atas, DP pakai satu field Rupiah
+  // (estimasiValueDpRp) sebagai gantinya. Default DISKON biar baris existing
+  // tidak perlu backfill manual.
+  skemaPembayaran   SkemaPembayaranStandarisasi @default(DISKON)
+  estimasiValueDpRp Decimal?                    @db.Decimal(18, 2)
+
   estimasiDiskonPct            Decimal? @db.Decimal(10, 4)
   estimasiDiskonDistributorPct Decimal? @db.Decimal(10, 4)
   estimasiBiayaListingRp       Decimal? @db.Decimal(18, 2)

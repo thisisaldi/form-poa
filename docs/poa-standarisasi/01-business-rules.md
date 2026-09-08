@@ -71,6 +71,8 @@ Informational only, tidak nge-block submit (beda dari warning margin budget §3 
 
 Metrik §3a sekarang menghitung margin gabungan PI+Distributor, baik sisi lama maupun baru — kedua sisi sudah punya nilai sejak Planning.
 
+**Skema Diskon vs DP (2026-09-08):** tiap produk di Planning sekarang punya toggle `skemaPembayaran` (`DISKON` default, atau `DP`) — dropdown "Skema" di kartu produk. `DISKON` menampilkan dua field % seperti di atas (Estimasi Diskon PI/Distributor). `DP` menyembunyikan keduanya, diganti satu field Rupiah flat `estimasiValueDpRp` ("Value DP"). Mutually exclusive di UI (bukan diisi keduanya) — field yang tidak relevan ke skema terpilih tidak ditampilkan sama sekali, tapi datanya tidak dihapus dari DB kalau MR gonta-ganti skema bolak-balik. Warning margin §3/§3a (yang berbasis %) di-gate hanya muncul untuk skema `DISKON` — tidak berlaku untuk DP (nilai flat, bukan persentase dari sales). ⚠️ Belum diperhitungkan ke `RingkasanPoa`'s `totalBudgetPct` (masih murni dari `estimasiDiskonPct`) — produk skema DP akan tampak underestimate di ringkasan sampai ini di-follow-up.
+
 ⚠️ Open question non-blocking: margin "100% − diskon PI% − diskon Distributor%" adalah proxy, bukan gross margin sesungguhnya (butuh HPP/harga beli riil yang belum ada di data model ini).
 
 ## §4. Enum yang diusulkan

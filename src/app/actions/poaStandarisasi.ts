@@ -137,6 +137,7 @@ function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct>
       ...prod,
       estimasiDiskonPct: d(prod.estimasiDiskonPct),
       estimasiDiskonDistributorPct: d(prod.estimasiDiskonDistributorPct),
+      estimasiValueDpRp: d(prod.estimasiValueDpRp),
       estimasiBiayaListingRp: d(prod.estimasiBiayaListingRp),
       finalDiscountPct: discounts ? discounts.get(prod.product.kodeProduk)?.principalPct ?? null : d(prod.finalDiscountPct),
       diskonDistributorPct: discounts ? discounts.get(prod.product.kodeProduk)?.distributorPct ?? null : d(prod.diskonDistributorPct),
@@ -308,8 +309,10 @@ export interface PlanningDokterKlinisInput {
 export interface PlanningProdukInput {
   id?: string;
   kodeProduk: string;
+  skemaPembayaran: "DISKON" | "DP";
   estimasiDiskonPct: number | string | null;
   estimasiDiskonDistributorPct: number | string | null;
+  estimasiValueDpRp: number | string | null;
   estimasiBiayaListingRp: number | string | null;
   dokterKlinis: PlanningDokterKlinisInput[];
 }
@@ -493,8 +496,10 @@ async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: st
     const data = {
       kodeProduk: p.kodeProduk,
       statusPengajuan: statusMap.get(p.kodeProduk) ?? "BARU",
+      skemaPembayaran: p.skemaPembayaran,
       estimasiDiskonPct: toNum(p.estimasiDiskonPct),
       estimasiDiskonDistributorPct: toNum(p.estimasiDiskonDistributorPct),
+      estimasiValueDpRp: toNum(p.estimasiValueDpRp),
       estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
     };
 
