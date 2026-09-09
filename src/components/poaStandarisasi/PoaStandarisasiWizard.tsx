@@ -715,7 +715,7 @@ export function PoaStandarisasiWizard({
           if (idx <= currentStepIdx) { setViewedPhaseId(PHASES[idx].id); setShowStep5(false); }
         }}
         extraStep={{
-          label: "Step 5",
+          label: "SP Non Sales & DPL / DPF",
           reached: !!pengajuan.submittedAt,
           done: !!pengajuan.spNonSalesSubmittedAt,
           active: showStep5,
@@ -2003,8 +2003,8 @@ function FinalisasiPhase({
 // ─── Step 5: Permintaan SP Non Sales & DPL/DPF ──────────────────────────────
 // Muncul cuma setelah pengajuan.submittedAt terisi (Finalisasi selesai) —
 // bukan bagian dari PoaStandarisasiPhase/Stepper, jadi tidak muncul di
-// Stepper di atas. Judul sengaja masih "Step 5" placeholder (2026-09-08,
-// user: nama tahapan resminya belum diputuskan). 2 tab: "Permintaan SP Non
+// Stepper di atas. Judul "SP Non Sales & DPL / DPF" (2026-09-09, diganti
+// dari placeholder "Step 5"). 2 tab: "Permintaan SP Non
 // Sales" (jumlah per produk + upload dokumen + submit) dan "Request DPL/DPF"
 // (read-only Beban Discount PI/Distributor per produk dari data Finalisasi,
 // Distributor editable, tombol "+ Buat DPL/DPF" tetap placeholder — belum

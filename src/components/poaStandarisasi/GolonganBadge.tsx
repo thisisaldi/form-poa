@@ -38,7 +38,7 @@ export function GolonganBadge({ kodeCustomer, kodePI, kodeProduk }: { kodeCustom
     return <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Gagal memuat data survey.</span>;
   }
   if (kompetitor.length === 0) {
-    return <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada data survey untuk dokter ini.</span>;
+    return null;
   }
   return (
     <span className="flex flex-wrap gap-1">

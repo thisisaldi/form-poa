@@ -178,7 +178,7 @@ export function NewPoaStandarisasiForm({
       </div>
 
       {/* extraStep cuma buat nampilin bulatan ke-5 di progress bar (2026-09-09 user request — belum kelihatan sama sekali saat bikin pengajuan baru) — belum ada pengajuan (belum submittedAt), jadi reached/done/active semua false, gak bisa diklik. */}
-      <Stepper currentIdx={0} extraStep={{ label: "Step 5", reached: false, done: false, active: false }} />
+      <Stepper currentIdx={0} extraStep={{ label: "SP Non Sales & DPL / DPF", reached: false, done: false, active: false }} />
 
       {error && (
         <div className="mb-4 rounded px-3 py-2 text-sm" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
