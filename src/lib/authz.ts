@@ -804,13 +804,14 @@ export async function canRespondEditRequestDoctor(user: User, doctor: PoaDoctorA
 // coveredByRole (same vacant-team mechanism canCreatePoa uses) when a level
 // in that chain is missing.
 
-interface PoaStandarisasiApprovers {
+export interface PoaStandarisasiApprovers {
   asmNip: string | null;
   smNip: string | null;
   nsmNip: string | null;
 }
 
-async function getPoaStandarisasiApprovers(ownerNip: string, kodePI: string): Promise<PoaStandarisasiApprovers> {
+/** Exported for the Excel export routes (Nama ASM/SM/NSM columns, 2026-09-09) — same resolution canViewPoaStandarisasi already relies on. */
+export async function getPoaStandarisasiApprovers(ownerNip: string, kodePI: string): Promise<PoaStandarisasiApprovers> {
   const owner = await prisma.user.findUnique({ where: { nip: ownerNip }, select: { nipAtasan: true } });
   let asmNip = owner?.nipAtasan ?? null;
   let smNip: string | null = null;

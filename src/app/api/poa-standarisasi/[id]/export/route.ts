@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { canViewPoaStandarisasi } from "@/lib/authz";
+import { canViewPoaStandarisasi, getPoaStandarisasiApprovers } from "@/lib/authz";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 
 const STATUS_PENGAJUAN_LABELS: Record<string, string> = { BARU: "Baru", PERPANJANGAN: "Perpanjangan" };
@@ -50,6 +50,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       where: { id },
       include: {
         outlet: { select: { namaOutlet: true } },
+        owner: { select: { name: true } },
         produk: {
           include: {
             product: { select: { kodeProduk: true, namaProduk: true } },
@@ -72,6 +73,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const RP_FMT = "#,##0";
 
   sheet.columns = [
+    { header: "Nama MR", key: "namaMr", width: 24 },
+    { header: "Nama ASM", key: "namaAsm", width: 24 },
+    { header: "Nama SM", key: "namaSm", width: 24 },
+    { header: "Nama NSM", key: "namaNsm", width: 24 },
     { header: "Outlet", key: "outlet", width: 28 },
     { header: "Tipe Standarisasi", key: "tipe", width: 14 },
     { header: "Tahap", key: "tahap", width: 16 },
@@ -95,6 +100,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0063A0" } };
   sheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
+
+  const { asmNip, smNip, nsmNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
+  const approverUsers = await prisma.user.findMany({
+    where: { nip: { in: [asmNip, smNip, nsmNip].filter((n): n is string => !!n) } },
+    select: { nip: true, name: true },
+  });
+  const approverNameByNip = new Map(approverUsers.map((u: (typeof approverUsers)[number]) => [u.nip, u.name]));
+  const namaMr = pengajuan.owner.name;
+  const namaAsm = asmNip ? approverNameByNip.get(asmNip) ?? "-" : "-";
+  const namaSm = smNip ? approverNameByNip.get(smNip) ?? "-" : "-";
+  const namaNsm = nsmNip ? approverNameByNip.get(nsmNip) ?? "-" : "-";
 
   const outletLabel = pengajuan.outlet.namaOutlet;
   const tipeLabel = pengajuan.tipeStandarisasi === "PERIODIC" ? "Periodic" : pengajuan.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic";
@@ -135,6 +151,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     if (dokterRows.length === 0) {
       sheet.addRow({
+        namaMr, namaAsm, namaSm, namaNsm,
         outlet: outletLabel, tipe: tipeLabel, tahap: tahapLabel, distributors: distributorsLabel,
         produk: produkLabel, statusProduk: STATUS_PENGAJUAN_LABELS[prod.statusPengajuan] ?? prod.statusPengajuan,
         skema: SKEMA_LABELS[skema] ?? skema, diskonPi: skema === "DISKON" ? diskonPi : null,
@@ -146,6 +163,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     for (const d of dokterRows) {
       const row = sheet.addRow({
+        namaMr,
+        namaAsm,
+        namaSm,
+        namaNsm,
         outlet: outletLabel,
         tipe: tipeLabel,
         tahap: tahapLabel,

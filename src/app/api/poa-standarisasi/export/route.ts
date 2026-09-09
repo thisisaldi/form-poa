@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { getPoaStandarisasiApprovers } from "@/lib/authz";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 
 function phaseLabel(phase: string): string {
@@ -57,12 +58,25 @@ export async function GET(_req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  const owner = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId }, select: { name: true } });
+  // Approver chain can differ per pengajuan (different outlet territory / vacant-team fallback), so resolve per pengajuan — bounded by this MR's own pengajuan count, not company-wide.
+  const approversByPengajuanId = new Map<string, Awaited<ReturnType<typeof getPoaStandarisasiApprovers>>>(
+    await Promise.all(rows.map(async (p: (typeof rows)[number]) => [p.id, await getPoaStandarisasiApprovers(p.ownerId, p.kodePI)] as const))
+  );
+  const approverNips = [...new Set([...approversByPengajuanId.values()].flatMap((a) => [a.asmNip, a.smNip, a.nsmNip]).filter((n): n is string => !!n))];
+  const approverUsers = await prisma.user.findMany({ where: { nip: { in: approverNips } }, select: { nip: true, name: true } });
+  const approverNameByNip = new Map(approverUsers.map((u: (typeof approverUsers)[number]) => [u.nip, u.name]));
+
   const wb = new ExcelJS.Workbook();
 
   const detail = wb.addWorksheet("Detail Produk & Dokter");
   const PCT_FMT = "0.00%";
   const RP_FMT = "#,##0";
   detail.columns = [
+    { header: "Nama MR", key: "namaMr", width: 24 },
+    { header: "Nama ASM", key: "namaAsm", width: 24 },
+    { header: "Nama SM", key: "namaSm", width: 24 },
+    { header: "Nama NSM", key: "namaNsm", width: 24 },
     { header: "Kode Outlet", key: "kodeOutlet", width: 12 },
     { header: "Outlet", key: "outlet", width: 26 },
     { header: "Tipe", key: "tipe", width: 12 },
@@ -85,7 +99,12 @@ export async function GET(_req: NextRequest) {
   detail.getRow(1).alignment = { wrapText: true, vertical: "middle" };
 
   for (const p of rows) {
+    const approvers = approversByPengajuanId.get(p.id)!;
     const shared = {
+      namaMr: owner.name,
+      namaAsm: approvers.asmNip ? approverNameByNip.get(approvers.asmNip) ?? "-" : "-",
+      namaSm: approvers.smNip ? approverNameByNip.get(approvers.smNip) ?? "-" : "-",
+      namaNsm: approvers.nsmNip ? approverNameByNip.get(approvers.nsmNip) ?? "-" : "-",
       kodeOutlet: p.kodePI,
       outlet: p.outlet.namaOutlet,
       tipe: p.tipeStandarisasi === "PERIODIC" ? "Periodic" : p.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic",
