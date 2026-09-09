@@ -20,67 +20,16 @@ import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/Sc
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
-import { calculateCashbackDetails, type CashbackData } from "./useSalesCounterCashback";
+import { calculateCashbackDetails } from "./useSalesCounterCashback";
 import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
 import { useScToast } from "../../ui/ScToast";
+import { formatDiskonPct, formatCashbackPct } from "../utils/formatEditUtils";
+import { findDiskonItem, findCashbackItem } from "../utils/productMatcherUtils";
+import type { SelectedProductRow } from "../types/productRow";
+import type { EntertainRow } from "../types/entertain";
+import type { CashbackData } from "../types/cashback";
 
-function formatDiskonPct(rawVal: number | string | undefined | null): string {
-  if (rawVal == null) return "0";
-  const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
-  if (isNaN(num)) return "0";
-  const pct = num > 0 && num <= 1 ? num * 100 : num;
-  return String(Number(pct.toFixed(2)));
-}
-
-function findDiskonItem(list: any[], targetCode: string) {
-  if (!targetCode || !Array.isArray(list)) return null;
-  const cleanTarget = String(targetCode).trim();
-  const strippedTarget = cleanTarget.replace(/^0+/, "");
-
-  return list.find((d: any) => {
-    const codeStr = String(d.proCode || d.pro_code || d.kodeProduk || "").trim();
-    if (codeStr === cleanTarget) return true;
-    if (codeStr.replace(/^0+/, "") === strippedTarget) return true;
-    return false;
-  });
-}
-
-function formatCashbackPct(rawVal: number | string | undefined | null): string {
-  if (rawVal == null) return "0";
-  const num = typeof rawVal === "number" ? rawVal : parseFloat(String(rawVal));
-  if (isNaN(num)) return "0";
-  const pct = num > 0 && num <= 1 ? num * 100 : num;
-  return String(Number(pct.toFixed(2)));
-}
-
-function findCashbackItem(matrix: any[], targetCode: string) {
-  if (!targetCode || !Array.isArray(matrix)) return null;
-  const cleanTarget = String(targetCode).trim();
-  const strippedTarget = cleanTarget.replace(/^0+/, "");
-
-  return matrix.find((m: any) => {
-    const codeStr = String(m.code || m.pro_code || "").trim();
-    if (codeStr === cleanTarget) return true;
-    if (codeStr.replace(/^0+/, "") === strippedTarget) return true;
-    return false;
-  });
-}
-
-export interface SelectedProductRow {
-  kodeProduk: string;
-  produkKompetitor: string;
-  qtyPerBulan: string;
-  persenMatriksSc: string;
-  persenDiskon: string;
-  persenCashback: string;
-  rencanaTotalBiaya: number; // monthly estimate * duration
-}
-
-export interface EntertainRow {
-  month: string;      // YYYYMM
-  label: string;      // e.g. "Juli 2026"
-  value: string;      // input value in Rp
-}
+export type { SelectedProductRow, EntertainRow };
 
 export function useSalesCounterEditor({
   poaPeriod,
@@ -206,39 +155,51 @@ export function useSalesCounterEditor({
   const [canvasserProducts, setCanvasserProducts] = useState<SalesCounterProduct[]>([]);
   const [personsList, setPersonsList] = useState<SalesCounterPersonModel[]>([]);
   const [loadingPersons, setLoadingPersons] = useState(false);
+  const [loadingOutletData, setLoadingOutletData] = useState(false);
 
   // Errors state
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Fetch products and persons when outlet changes
   useEffect(() => {
+    // Immediately clear previous outlet data to avoid state tearing / stale calculations
+    setCanvasserProducts([]);
+    setCashbackData(null);
+    setCashbackMatrix([]);
+    setProductsMenang([]);
+    setProductsInsentif([]);
+    setHistorySalesData(null);
+    setSalesOnlineData(null);
+    setSurveyData([]);
+    setRekomendasiProduk([]);
+
     if (!outletId) {
-      setCanvasserProducts([]);
       setPrincodeProducts([]);
       setPersonsList([]);
       setInsentifHistory(null);
-      setProductsMenang([]);
-      setProductsInsentif([]);
-      setRekomendasiProduk([]);
-      setSurveyData([]);
-      setSalesOnlineData(null);
-      setCashbackData(null);
-      setCashbackMatrix([]);
+      setLoadingOutletData(false);
       return;
     }
 
+    let isCancelled = false;
+    setLoadingOutletData(true);
     setLoadingPersons(true);
+
     getSalesCountersAction(outletId)
       .then((res) => {
+        if (isCancelled) return;
         if (res?.data) {
           setPersonsList(res.data);
         } else {
           setPersonsList([]);
         }
       })
-      .finally(() => setLoadingPersons(false));
+      .finally(() => {
+        if (!isCancelled) setLoadingPersons(false);
+      });
 
-    getSalesCounterProductsAction(outletId).then((res) => {
+    const pCanvasser = getSalesCounterProductsAction(outletId).then((res) => {
+      if (isCancelled) return;
       if (res?.data) {
         setCanvasserProducts(res.data);
         const validCodes = new Set(res.data.map((cp: any) => cp.pro_code));
@@ -256,6 +217,7 @@ export function useSalesCounterEditor({
     });
 
     getPrincodeProductsAction().then((res) => {
+      if (isCancelled) return;
       if (res?.data) {
         setPrincodeProducts(res.data);
       } else {
@@ -263,12 +225,24 @@ export function useSalesCounterEditor({
       }
     });
 
-    getScProductMenangAction(outletId).then((res) => setProductsMenang(res?.data || []));
-    getScProductWithInsentifAction(outletId).then((res) => setProductsInsentif(res?.data || []));
-    getHistorySalesAction(outletId, false).then((res) => setHistorySalesData(res || null));
-    getSalesOnlineAction(outletId).then((res) => setSalesOnlineData(res || null));
-    getSurveyRekomendasiByOutletAggregate(outletId).then((res) => setSurveyData(res || []));
-    getScCashbackPoaAction(outletId).then((res) => {
+    getScProductMenangAction(outletId).then((res) => {
+      if (!isCancelled) setProductsMenang(res?.data || []);
+    });
+    getScProductWithInsentifAction(outletId).then((res) => {
+      if (!isCancelled) setProductsInsentif(res?.data || []);
+    });
+    getHistorySalesAction(outletId, false).then((res) => {
+      if (!isCancelled) setHistorySalesData(res || null);
+    });
+    getSalesOnlineAction(outletId).then((res) => {
+      if (!isCancelled) setSalesOnlineData(res || null);
+    });
+    getSurveyRekomendasiByOutletAggregate(outletId).then((res) => {
+      if (!isCancelled) setSurveyData(res || []);
+    });
+
+    const pCashback = getScCashbackPoaAction(outletId).then((res) => {
+      if (isCancelled) return;
       setCashbackData(res || null);
       const array = Array.isArray(res?.matrix)
         ? res.matrix
@@ -281,7 +255,9 @@ export function useSalesCounterEditor({
         : [];
       setCashbackMatrix(array);
     });
+
     getRekomendasiProdukAction(outletId).then((res) => {
+      if (isCancelled) return;
       if (!res?.data) {
         setRekomendasiProduk([]);
         return;
@@ -298,6 +274,16 @@ export function useSalesCounterEditor({
       }
       setRekomendasiProduk(prods);
     });
+
+    Promise.allSettled([pCanvasser, pCashback]).finally(() => {
+      if (!isCancelled) {
+        setLoadingOutletData(false);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [outletId]);
 
   // Period-aware SC insentif history
@@ -710,6 +696,7 @@ export function useSalesCounterEditor({
     princodeProducts,
     personsList,
     loadingPersons,
+    loadingOutletData,
     productsMenang,
     productsInsentif,
     insentifHistory,

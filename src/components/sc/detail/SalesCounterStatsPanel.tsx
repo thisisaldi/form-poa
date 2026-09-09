@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/format";
 import type { SalesFigures } from "../types";
+import { formatMonthLabel } from "./utils/formatDateUtils";
 
 export const formatRp = formatCurrency;
 
@@ -10,13 +11,6 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
       {children}
     </p>
   );
-}
-
-function formatPeriode(periode: string) {
-  if (periode.length !== 6) return periode;
-  const year = periode.slice(0, 4);
-  const month = parseInt(periode.slice(4, 6), 10) - 1;
-  return new Date(parseInt(year), month).toLocaleString("id-ID", { month: "short", year: "numeric" });
 }
 
 export function SalesCounterStatsPanel({
@@ -111,7 +105,7 @@ export function SalesCounterStatsPanel({
                   const v = metrics.monthlyBreakdownMap.get(m)!;
                   return (
                     <tr key={m} style={{ borderTop: `1px solid ${BORDER}` }}>
-                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: MUTED }}>{formatPeriode(m)}</td>
+                      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ color: MUTED }}>{formatMonthLabel(m)}</td>
                       <td className="text-right px-2 py-1.5 tabular-nums whitespace-nowrap" style={{ color: TEXT }}>{v.estimasiSales > 0 ? formatRp(v.estimasiSales) : "-"}</td>
                       <td className="text-right px-2.5 py-1.5 font-semibold tabular-nums whitespace-nowrap" style={{ color: PRIMARY }}>{v.nilaiSc > 0 ? formatRp(v.nilaiSc) : "-"}</td>
                     </tr>

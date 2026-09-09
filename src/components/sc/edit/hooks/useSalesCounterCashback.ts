@@ -1,15 +1,6 @@
-  export interface CashbackData {
-  matrix?: Array<{ code?: string; pro_code?: string; cashback_percentage?: number; cashback_percent?: number }>;
-  pi?: Array<{ total_expenditure_pi?: number; min_sales?: number; multiplier?: number }>;
-  variant?: Array<{ variant?: number; multiplier?: number }>;
-  limit?: Array<{ limit?: number }>;
-  date?: string;
-  period?: string;
-  message?: string;
-  data?: any;
-  status?: boolean;
-  success?: boolean;
-}
+import type { CashbackData } from "../types/cashback";
+
+export type { CashbackData };
 
 export function calculateCashbackDetails({
   cashbackData,
@@ -34,7 +25,15 @@ export function calculateCashbackDetails({
 
   const items = selectedProducts.map((p) => {
     if (!p.kodeProduk) {
-      return { kodeProduk: "", estimasiSales: 0, rawCashbackPct: 0, eligible: false, rawCashbackVal: 0, finalCashbackVal: 0 };
+      return {
+        kodeProduk: "",
+        estimasiSalesMonthly: 0,
+        estimasiSales: 0,
+        rawCashbackPct: 0,
+        eligible: false,
+        rawCashbackValMonthly: 0,
+        finalCashbackVal: 0,
+      };
     }
 
     const master = masterProducts.find((mp) => mp.kodeProduk === p.kodeProduk);

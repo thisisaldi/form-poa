@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import type { Product } from "@/lib/masterData";
 import { useSalesCounterEditor } from "./hooks/useSalesCounterEditor";
 import { ProductSelector } from "./ProductSelector";
-import { buildScProductOptions } from "./productOptionUtils";
+import { buildScProductOptions } from "./utils/productOptionBuilder";
 import { UnitInput } from "./UnitInput";
 import { ScSidebar } from "./ScSidebar";
 import { Button } from "@/components/ui/Button";
@@ -20,65 +19,12 @@ import { PerincianBudgetModal } from "./PerincianBudgetModal";
 import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
-interface SalesCounterLineItemEditorProps {
-  poaId: string;
-  poaPeriod: string;
-  ownerName?: string;
-  outlets: { kodePI: string; namaOutlet: string; groupRS: string | null; sector?: string | null; subSektor?: string | null; is_sc?: boolean; jumlah_sc?: number | null; isBlastIn?: boolean; isPosm?: boolean; isOnline?: boolean }[];
-  products: Product[];
-  savedDrafts?: any[];
-}
-
-function satuanLabel(product: Product | null | undefined): string {
-  const s = product?.satuan?.trim();
-  return s && !/^[-—–]$/.test(s) ? s : "SJ";
-}
-
-function formatMonthLabel(m: string) {
-  const year = m.slice(0, 4);
-  const monthIndex = parseInt(m.slice(4)) - 1;
-  return new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "short", year: "numeric" });
-}
-
-function formatRp(val: number): string {
-  return new Intl.NumberFormat("id-ID").format(Math.round(val || 0));
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-xs font-semibold uppercase tracking-wider mb-2"
-      style={{ color: "var(--color-text-faint)" }}>{children}</p>
-  );
-}
-
-function Req() {
-  return <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>;
-}
-
-function formatHumanStatus(status?: string): string {
-  if (!status) return "";
-  switch (status) {
-    case "SUBMITTED_TO_ASM":
-      return "Submitted to ASM";
-    case "SUBMITTED_TO_SM":
-      return "Submitted to SM";
-    case "SUBMITTED_TO_NSM":
-      return "Submitted to NSM";
-    case "APPROVED_BY_ASM":
-      return "Disetujui ASM";
-    case "APPROVED_BY_SM":
-      return "Disetujui SM";
-    case "APPROVED_BY_NSM":
-    case "APPROVED":
-      return "Disetujui (Approved)";
-    case "REVISI":
-      return "Revisi";
-    default:
-      return status.replace(/_/g, " ");
-  }
-}
-
-const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
+import type { SalesCounterLineItemEditorProps } from "./types/editorProps";
+import { formatHumanStatus, formatRpNumber as formatRp } from "./utils/formatEditUtils";
+import { satuanLabel } from "./utils/productMatcherUtils";
+import { formatMonthLabel } from "./utils/periodUtils";
+import { Req, SectionLabel } from "./ui";
+import { ERR_RING } from "./constants/uiConstants";
 
 export function SalesCounterLineItemEditor({
   poaId,
@@ -119,6 +65,7 @@ export function SalesCounterLineItemEditor({
     princodeProducts,
     personsList,
     loadingPersons,
+    loadingOutletData,
     productsMenang,
     productsInsentif,
     insentifHistory,
@@ -193,14 +140,18 @@ export function SalesCounterLineItemEditor({
   const [outletTotalAvgB3Sales, setOutletTotalAvgB3Sales] = useState<number>(0);
 
   useEffect(() => {
-    if (!outletId) return;
+    setB3SalesMap(new Map());
+    setOutletTotalAvgB3Sales(0);
+
+    if (!outletId) {
+      setB3RangeLabel("");
+      return;
+    }
     const b3Info = getB3PeriodInfo(poaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
     const scProCodes = Array.from(new Set(canvasserProducts.map((cp) => cp.pro_code).filter(Boolean)));
     if (scProCodes.length === 0) {
-      setB3SalesMap(new Map());
-      setOutletTotalAvgB3Sales(0);
       return;
     }
 
@@ -766,6 +717,7 @@ export function SalesCounterLineItemEditor({
                 cashbackPeriode={cashbackPeriode}
                 cashbackData={cashbackData}
                 hideCashback={isCashbackNotFound}
+                isLoading={loadingOutletData}
                 error={errors.products}
                 b3SalesMap={b3SalesMap}
                 b3RangeLabel={b3RangeLabel}
@@ -932,7 +884,7 @@ export function SalesCounterLineItemEditor({
                   Estimasi &amp; Insentif SC Per Produk
                 </p>
                 <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}>
-                  <table className="w-full text-xs text-left min-w-[580px]" style={{ borderCollapse: "collapse" }}>
+                  <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
                         <th className="px-3 py-2 font-medium whitespace-nowrap min-w-[160px]">Produk</th>
@@ -998,12 +950,23 @@ export function SalesCounterLineItemEditor({
                               </td>
                             )}
                             <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
-                              {salesHistorical > 0 ? (
+                              {loadingOutletData ? (
+                                <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                              ) : salesHistorical > 0 ? (
                                 <span className={growthPct > 0 ? "text-emerald-600 font-semibold" : growthPct < 0 ? "text-rose-600 font-semibold" : ""}>
                                   {growthPct > 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
                                 </span>
                               ) : (
-                                "0%"
+                                <span
+                                  className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded border"
+                                  style={{
+                                    background: "rgba(22, 163, 74, 0.12)",
+                                    color: "#16a34a",
+                                    borderColor: "rgba(22, 163, 74, 0.3)",
+                                  }}
+                                >
+                                  Baru
+                                </span>
                               )}
                             </td>
                           </tr>

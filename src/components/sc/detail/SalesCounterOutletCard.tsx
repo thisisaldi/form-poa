@@ -1,67 +1,17 @@
-import { useState, useTransition, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { displayRole } from "@/lib/role";
-import { deleteSalesCounterFormAction } from "@/app/actions/scActions";
-import {
-  submitSalesCounterFormAction,
-  approveSalesCounterFormAction,
-  rejectSalesCounterFormAction,
-  requestEditSalesCounterFormAction,
-  grantEditSalesCounterFormAction,
-  declineEditSalesCounterFormAction,
-} from "@/app/actions/scApprovalActions";
 import { formatRp } from "./SalesCounterStatsPanel";
-import type { ScDraftFormItem } from "../types";
-import { getB3ByQuarter } from "@/lib/b3Utils";
-import {
-  getScOutletB3SalesAction,
-  getScCashbackPoaAction,
-  getSalesCounterProductsAction,
-  getScInsentifHistoryAction,
-  getHistorySalesAction,
-  postHistorySalesAction,
-  getSalesOnlineAction,
-} from "@/app/actions/canvasser";
-import { parseOutletHistorySales } from "@/lib/historySalesUtils";
-import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
-import { useScToast } from "../ui/ScToast";
 import { BlastInTable } from "../edit/BlastInTable";
 import { PosmTable } from "../edit/PosmTable";
 import { ProdukKompetitorSidebar } from "./ProdukKompetitorSidebar";
 import { InfoTooltip } from "../edit/ProductSelector";
-
-
-
-function formatMonthLabel(m: string) {
-  if (m.length !== 6) return m;
-  const year = m.slice(0, 4);
-  const monthIndex = parseInt(m.slice(4, 6), 10) - 1;
-  return new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "short", year: "numeric" });
-}
-
-function formatMonthKey(key: string) {
-  if (!key || key.length !== 6) return key;
-  const year = key.slice(0, 4);
-  const month = parseInt(key.slice(4, 6), 10);
-  const MONTH_NAMES = [
-    "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
-    "Jul", "Agu", "Sep", "Okt", "Nov", "Des"
-  ];
-  return `${MONTH_NAMES[month - 1]} ${year}`;
-}
-
-const REJECT_CATEGORY_LABELS: Record<string, string> = {
-  PRODUK: "Produk",
-  OUTLET: "Outlet",
-  USER: "User / SC",
-  PERIODE: "Periode",
-  KALKULASI_PSSP: "Kalkulasi Sales Counter",
-  ALASAN_LAIN: "Alasan Lain",
-};
+import { REJECT_CATEGORY_LABELS, REJECT_CATEGORY_OPTIONS } from "./constants/rejectCategories";
+import { useSalesCounterOutletActions } from "./hooks/useSalesCounterOutletActions";
+import { useSalesCounterOutletData } from "./hooks/useSalesCounterOutletData";
+import { formatMonthLabel } from "./utils/formatDateUtils";
+import type { SalesCounterOutletCardProps } from "./types";
 
 export function SalesCounterOutletCard({
   draft,
@@ -77,691 +27,84 @@ export function SalesCounterOutletCard({
   isKompetitorOpen = false,
   onToggleKompetitor,
   onCloseKompetitor,
-}: {
-  draft: ScDraftFormItem;
-  checked: boolean;
-  onToggle: () => void;
-  selectable?: boolean;
-  poaId: string;
-  userCanEdit?: boolean;
-  isOwner?: boolean;
-  canApprove?: boolean;
-  canFastTrack?: boolean;
-  userRole?: string;
-  isKompetitorOpen?: boolean;
-  onToggleKompetitor?: () => void;
-  onCloseKompetitor?: () => void;
-}) {
-  const router = useRouter();
-  const { showToast } = useScToast();
-
-  const canApproveOutlet = useMemo(() => {
-    if (draft.status === "DRAFT" || draft.status === "REVISI" || draft.status === "APPROVED_BY_NSM") {
-      return false;
-    }
-    if (userRole === "ADMIN") {
-      return ["SUBMITTED_TO_ASM", "SUBMITTED_TO_SM", "SUBMITTED_TO_NSM"].includes(draft.status);
-    }
-    if (userRole === "ASM") {
-      return draft.status === "SUBMITTED_TO_ASM";
-    }
-    if (userRole === "SM") {
-      return draft.status === "SUBMITTED_TO_SM";
-    }
-    if (userRole === "NSM") {
-      return draft.status === "SUBMITTED_TO_NSM";
-    }
-    if (parentCanApprove) {
-      if (draft.status === "SUBMITTED_TO_ASM" || draft.status === "SUBMITTED_TO_SM" || draft.status === "SUBMITTED_TO_NSM") {
-        return true;
-      }
-    }
-    return false;
-  }, [userRole, draft.status, parentCanApprove]);
-
-  const canFastTrackOutlet = useMemo(() => {
-    if (draft.status === "DRAFT" || draft.status === "REVISI" || draft.status === "APPROVED_BY_NSM") {
-      return false;
-    }
-    if (userRole === "NSM" || userRole === "ADMIN" || parentCanFastTrack) {
-      return ["SUBMITTED_TO_ASM", "APPROVED_BY_ASM", "SUBMITTED_TO_SM", "APPROVED_BY_SM"].includes(draft.status);
-    }
-    return false;
-  }, [userRole, draft.status, parentCanFastTrack]);
-
-  const isSelectableForThisUser = useMemo(() => {
-    if (isOwner) {
-      return draft.status === "DRAFT" || draft.status === "REVISI";
-    }
-    if (parentCanApprove) {
-      return canApproveOutlet;
-    }
-    return true;
-  }, [isOwner, parentCanApprove, canApproveOutlet, draft.status]);
-
-
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [atasanPanelOpen, setAtasanPanelOpen] = useState(false);
-  const [submitBoxOpen, setSubmitBoxOpen] = useState(false);
-  const [requestEditBoxOpen, setRequestEditBoxOpen] = useState(false);
-  const [requestEditReason, setRequestEditReason] = useState("");
-  const [isRequestingEdit, setIsRequestingEdit] = useState(false);
-  const [submitNotes, setSubmitNotes] = useState("");
-  const [actionNotes, setActionNotes] = useState("");
-  const [rejectCategory, setRejectCategory] = useState("");
-  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
-  const [isSubmittingOutlet, setIsSubmittingOutlet] = useState(false);
-
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
-
-  const [isDeleting, startDelete] = useTransition();
-
-  const lastLog = draft.auditLogs && draft.auditLogs.length > 0 ? draft.auditLogs[draft.auditLogs.length - 1] : null;
-  const hasPendingEditRequest = lastLog?.action === "REQUEST_EDIT";
-  const pendingEditRequestNotes = hasPendingEditRequest ? (() => {
-    let snap = lastLog?.snapshot;
-    if (typeof snap === "string") {
-      try { snap = JSON.parse(snap); } catch { return snap; }
-    }
-    return snap?.notes || snap?.reason || "";
-  })() : "";
-
-  const lastRevisionLog = useMemo(() => {
-    if (!draft.auditLogs || draft.auditLogs.length === 0) return null;
-    return [...draft.auditLogs].reverse().find(
-      (log) =>
-        log.action === "REVISE" ||
-        log.action === "REJECT" ||
-        log.action === "GRANT_EDIT" ||
-        log.toStatus === "REVISI"
-    ) || null;
-  }, [draft.auditLogs]);
-
-  const revisionInfo = useMemo(() => {
-    if (!lastRevisionLog) return null;
-    let snapshot = lastRevisionLog.snapshot;
-    if (typeof snapshot === "string") {
-      try {
-        snapshot = JSON.parse(snapshot);
-      } catch {
-        snapshot = { notes: snapshot };
-      }
-    }
-    const notes = snapshot?.notes || snapshot?.reason || "";
-    const category = snapshot?.category || "";
-    const actorLabel = lastRevisionLog.actor
-      ? `${lastRevisionLog.actor.name} (${displayRole(lastRevisionLog.actor.role)})`
-      : null;
-
-    let requestEditReasonText: string | null = null;
-    if (lastRevisionLog.action === "GRANT_EDIT" && draft.auditLogs) {
-      const reqLog = [...draft.auditLogs].reverse().find((l) => l.action === "REQUEST_EDIT");
-      if (reqLog) {
-        let reqSnap = reqLog.snapshot;
-        if (typeof reqSnap === "string") {
-          try { reqSnap = JSON.parse(reqSnap); } catch { reqSnap = { notes: reqSnap }; }
-        }
-        requestEditReasonText = reqSnap?.notes || reqSnap?.reason || null;
-      }
-    }
-
-    return {
-      action: lastRevisionLog.action,
-      notes,
-      category,
-      actorLabel,
-      requestEditReasonText,
-    };
-  }, [lastRevisionLog, draft.auditLogs]);
-
-  async function handleRequestEditSubmit() {
-    if (isRequestingEdit) return;
-    setIsRequestingEdit(true);
-    try {
-      const res = await requestEditSalesCounterFormAction([draft.id], requestEditReason);
-      if (res.ok) {
-        showToast("Permohonan edit berhasil dikirim ke Atasan.", "success");
-        setRequestEditBoxOpen(false);
-        router.refresh();
-      } else {
-        showToast(res.error || "Gagal mengajukan permohonan edit.", "error");
-      }
-    } catch (err: any) {
-      showToast(err?.message || "Terjadi kesalahan saat mengajukan permohonan edit.", "error");
-    } finally {
-      setIsRequestingEdit(false);
-    }
-  }
-
-  async function handleGrantEdit() {
-    if (isSubmittingAction) return;
-    setIsSubmittingAction(true);
-    try {
-      const res = await grantEditSalesCounterFormAction([draft.id], actionNotes);
-      if (res.ok) {
-        showToast("Permohonan edit disetujui. Dokumen dikembalikan ke status Revisi.", "success");
-        setAtasanPanelOpen(false);
-        router.refresh();
-      } else {
-        showToast(res.error || "Gagal menyetujui izin edit.", "error");
-      }
-    } catch (err: any) {
-      showToast(err?.message || "Terjadi kesalahan.", "error");
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  }
-
-  async function handleDeclineEdit() {
-    if (isSubmittingAction) return;
-    if (!actionNotes.trim()) {
-      showToast("Harap isi alasan penolakan permohonan edit.", "error");
-      return;
-    }
-    setIsSubmittingAction(true);
-    try {
-      const res = await declineEditSalesCounterFormAction([draft.id], actionNotes);
-      if (res.ok) {
-        showToast("Permohonan edit ditolak.", "info");
-        setAtasanPanelOpen(false);
-        router.refresh();
-      } else {
-        showToast(res.error || "Gagal menolak izin edit.", "error");
-      }
-    } catch (err: any) {
-      showToast(err?.message || "Terjadi kesalahan.", "error");
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  }
-
-  async function handleSubmitOutlet() {
-    if (isSubmittingOutlet) return;
-    setIsSubmittingOutlet(true);
-    try {
-      const res = await submitSalesCounterFormAction([draft.id], submitNotes);
-      if (res.ok) {
-        showToast(`Sales Counter ${draft.namaOutlet} telah berhasil diajukan!`, "success");
-        setSubmitBoxOpen(false);
-        router.refresh();
-      } else {
-        showToast(res.error || "Gagal mengajukan Sales Counter.", "error");
-      }
-    } catch (err: any) {
-      showToast(err?.message || "Terjadi kesalahan saat mengajukan.", "error");
-    } finally {
-      setIsSubmittingOutlet(false);
-    }
-  }
-
-  async function handleApprove() {
-    if (isSubmittingAction) return;
-    setIsSubmittingAction(true);
-    try {
-      const res = await approveSalesCounterFormAction([draft.id], actionNotes);
-      if (res.ok) {
-        showToast(`Sales Counter ${draft.namaOutlet} telah berhasil disetujui!`, "success");
-        setAtasanPanelOpen(false);
-        router.refresh();
-      } else {
-        showToast(res.error || "Gagal menyetujui Sales Counter.", "error");
-      }
-    } catch (err: any) {
-      showToast(err?.message || "Terjadi kesalahan saat menyetujui.", "error");
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  }
-
-  function handleReject() {
-    if (isSubmittingAction) return;
-    setRejectConfirmOpen(true);
-  }
-
-  async function executeReject() {
-    setIsSubmittingAction(true);
-    try {
-      const res = await rejectSalesCounterFormAction([draft.id], actionNotes, rejectCategory);
-      setRejectConfirmOpen(false);
-      if (res.ok) {
-        showToast(`Sales Counter ${draft.namaOutlet} telah ditolak.`, "error");
-        setAtasanPanelOpen(false);
-        router.refresh();
-      } else {
-        showToast(res.error || "Gagal menolak.", "error");
-      }
-    } catch (err: any) {
-      setRejectConfirmOpen(false);
-      showToast(err?.message || "Terjadi kesalahan saat menolak.", "error");
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  }
-
-  const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
-  const [cashbackData, setCashbackData] = useState<any>(null);
-  const [clientScData, setClientScData] = useState<{ codes: Set<string>; total: number } | null>(null);
-
-  useEffect(() => {
-    if (draft.kodePI) {
-      getScCashbackPoaAction(draft.kodePI).then((res) => setCashbackData(res));
-    }
-  }, [draft.kodePI]);
-
-  const [allScProducts, setAllScProducts] = useState<any[]>([]);
-  const [b3TotalCount, setB3TotalCount] = useState<number | null>(null);
-  const [b3TotalOutletSalesPerMonth, setB3TotalOutletSalesPerMonth] = useState<number>(0);
-
-  const b3Info = useMemo(() => {
-    return getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
-  }, [draft.period, draft.periodeAwal, poaId]);
-  const b3RangeLabel = b3Info.rangeLabel;
-
-  useEffect(() => {
-    if (!draft.kodePI) return;
-
-    let isMounted = true;
-    getSalesCounterProductsAction(draft.kodePI).then((res) => {
-      if (!isMounted) return;
-      const products = res?.data && Array.isArray(res.data) ? res.data : [];
-      setAllScProducts(products);
-      const scCodes = new Set<string>(products.map((cp: any) => cp.pro_code).filter(Boolean));
-      setClientScData({ codes: scCodes, total: products.length });
-
-      const scProCodes = Array.from(scCodes);
-      if (scProCodes.length === 0) {
-        setB3SalesMap(new Map());
-        setB3TotalOutletSalesPerMonth(0);
-        setB3TotalCount(0);
-        return;
-      }
-
-      postHistorySalesAction([draft.kodePI], b3Info.targetPeriods, scProCodes).then((historyRes) => {
-        if (!isMounted) return;
-        const parsed = parseOutletHistorySales(historyRes, draft.kodePI);
-        if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
-          setB3SalesMap(parsed.productSalesMap);
-          setB3TotalOutletSalesPerMonth(parsed.averageSales);
-          setB3TotalCount(parsed.productCount);
-        } else {
-          // Fallback 1: getScOutletB3SalesAction for all SC products in outlet
-          getScOutletB3SalesAction(b3Info.period, draft.kodePI, scProCodes).then((b3Res) => {
-            if (!isMounted) return;
-            const items = Array.isArray(b3Res?.data) ? b3Res.data : [];
-            const activeItems = items.filter((it: any) => (Number(it.average_sales) || 0) > 0 || (Number(it.average_qty) || 0) > 0);
-            if (activeItems.length > 0) {
-              const map = new Map<string, number>();
-              let sumAvg = 0;
-              for (const it of activeItems) {
-                if (it.pro_code) {
-                  const val = Number(it.average_sales) || 0;
-                  map.set(it.pro_code, val);
-                  map.set(it.pro_code.replace(/^0+/, ""), val);
-                  sumAvg += val;
-                }
-              }
-              setB3SalesMap(map);
-              setB3TotalOutletSalesPerMonth(sumAvg);
-              setB3TotalCount(activeItems.length);
-              return;
-            }
-
-            // Fallback 2: legacy getHistorySalesAction strictly filtered by SC codes
-            getHistorySalesAction(draft.kodePI, false).then((legacyRes) => {
-              if (!isMounted) return;
-              if (legacyRes?.data && Array.isArray(legacyRes.data)) {
-                const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
-                const uniqueCodes = new Set<string>();
-                const productSalesSum = new Map<string, number>();
-
-                for (const it of legacyRes.data) {
-                  const itemPeriod = Number(it.period);
-                  const historyQty = Number(it.history_sales) || 0;
-                  const salesVal = Number(it.sales_value) || 0;
-
-                  if (targetPeriodsSet.has(itemPeriod) && (historyQty > 0 || salesVal > 0)) {
-                    if (it.code && scCodes.has(it.code)) {
-                      uniqueCodes.add(it.code);
-                      const cur = productSalesSum.get(it.code) || 0;
-                      productSalesSum.set(it.code, cur + salesVal);
-                    }
-                  }
-                }
-
-                setB3TotalCount(uniqueCodes.size);
-
-                let totalValSum = 0;
-                const avgMap = new Map<string, number>();
-                for (const [code, sumVal] of productSalesSum.entries()) {
-                  avgMap.set(code, sumVal / 3);
-                  totalValSum += sumVal;
-                }
-
-                if (totalValSum > 0) {
-                  setB3SalesMap(avgMap);
-                  setB3TotalOutletSalesPerMonth(totalValSum / 3);
-                }
-              } else {
-                setB3TotalCount(0);
-                setB3TotalOutletSalesPerMonth(0);
-              }
-            });
-          });
-        }
-      });
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [draft.kodePI, b3Info.period, b3Info.targetPeriods]);
-
-  // Filter products to strictly SC products only (from get-sales-counter-product)
-  const scProducts = useMemo(() => {
-    if (clientScData && clientScData.codes.size > 0) {
-      return draft.products.filter(
-        (p) =>
-          clientScData.codes.has(p.kodeProduk) ||
-          clientScData.codes.has(String(p.kodeProduk || "").replace(/^0+/, ""))
-      );
-    }
-    if (draft.products.some((p) => p.isScProduct !== undefined)) {
-      return draft.products.filter((p) => p.isScProduct !== false);
-    }
-    return draft.products;
-  }, [draft.products, clientScData]);
-
-  const totalScCount = draft.totalScProducts ?? clientScData?.total ?? 0;
-  const validScCount = scProducts.length;
-
-  const isExpanded = detailOpen;
-
-  useEffect(() => {
-    if (!isExpanded || !draft.kodePI) return;
-    // Jika b3SalesMap sudah terisi dari get-history-sales, tidak perlu fallback
-    if (b3SalesMap.size > 0) return;
-
-    const proCodes = draft.products.map((p) => p.kodeProduk).filter(Boolean);
-    if (proCodes.length === 0) return;
-
-    getScOutletB3SalesAction(b3Info.period, draft.kodePI, proCodes).then((res) => {
-      const map = new Map<string, number>();
-      if (res?.data && Array.isArray(res.data)) {
-        for (const item of res.data) {
-          if (item.pro_code) map.set(item.pro_code, item.average_sales || 0);
-        }
-      }
-      if (map.size > 0) {
-        setB3SalesMap(map);
-      }
-    });
-  }, [isExpanded, draft.kodePI, draft.products, b3Info.period, b3SalesMap.size]);
-
-  const [insentifHistoryData, setInsentifHistoryData] = useState<any>(null);
-  const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
-  const [isLoadingSalesOnline, setIsLoadingSalesOnline] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (!draft.kodePI) return;
-    setIsLoadingSalesOnline(true);
-    getScInsentifHistoryAction(draft.kodePI).then((res) => {
-      setInsentifHistoryData(res?.data || null);
-    });
-    getSalesOnlineAction(draft.kodePI)
-      .then((res) => {
-        setSalesOnlineData(res || null);
-      })
-      .catch(() => {
-        setSalesOnlineData(null);
-      })
-      .finally(() => {
-        setIsLoadingSalesOnline(false);
-      });
-  }, [draft.kodePI]);
-
-  const selectedProductCodes = useMemo(() => {
-    return new Set(scProducts.map((p) => p.kodeProduk).filter(Boolean));
-  }, [scProducts]);
-
-  const lama = draft.lamaPeriode || 3;
-
-  const cbDetails = useMemo(() => {
-    return calculateCashbackDetails({
-      cashbackData,
-      selectedProducts: scProducts.map((p) => ({
-        kodeProduk: p.kodeProduk,
-        qtyPerBulan: String(p.qtyPerBulan || 0),
-        persenCashback: String(p.persenCashback || 0),
-      })),
-      masterProducts: scProducts.map((p) => ({
-        kodeProduk: p.kodeProduk,
-        hna: String(p.hnaSJ || 0),
-        konversiPembagi: String(p.konversiPembagi || 1),
-      })),
-      lamaPeriode: draft.lamaPeriode,
-    });
-  }, [cashbackData, draft.lamaPeriode, scProducts]);
-
-  const isCashbackNotFound =
-    !cashbackData ||
-    cashbackData?.message === "Gudang Tidak Ditemukan" ||
-    (typeof cashbackData?.message === "string" &&
-      (cashbackData.message.toLowerCase().includes("tidak ditemukan") ||
-        cashbackData.message.toLowerCase().includes("gudang"))) ||
-    (typeof cashbackData?.data?.message === "string" &&
-      (cashbackData.data.message.toLowerCase().includes("tidak ditemukan") ||
-        cashbackData.data.message.toLowerCase().includes("gudang"))) ||
-    cashbackData?.status === false ||
-    cashbackData?.success === false;
-
-  // Compute stats per outlet draft
-  let outletEstSales = 0;
-  let outletNilaiSc = 0;
-
-  for (const p of scProducts) {
-    const hnaSJ = p.hnaSJ || 0;
-    const qty = p.qtyPerBulan || 0;
-
-    const estMonth = qty * hnaSJ;
-    const estFull = estMonth * lama;
-
-    const scVal = p.salesCounterValue;
-    const scMin = p.salesCounterMinimum || 0;
-
-    let valScPerMonth = 0;
-    if (scVal != null && scVal > 0) {
-      valScPerMonth = qty >= scMin ? qty * scVal : 0;
-    } else {
-      valScPerMonth = estMonth * ((p.persenMatriksSc || 0) / 100);
-    }
-    const valScFull = valScPerMonth * lama;
-
-    outletEstSales += estFull;
-    outletNilaiSc += valScFull;
-  }
-
-  const totalEntertain = draft.entertainItems.reduce((s, e) => s + (e.biayaEntertain || 0), 0);
-  const canvasserNames = draft.persons.map((p) => `${p.personName} (${p.positionName})`).join(", ");
-
-  const historyInsentifInfo = useMemo(() => {
-    if (!insentifHistoryData || typeof insentifHistoryData !== "object") return null;
-    const allKeys = Object.keys(insentifHistoryData).sort();
-    if (allKeys.length === 0) return null;
-
-    // Get B3 period info (quarter sebelumnya)
-    const b3Info = getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
-    const yr = Math.floor(b3Info.period / 100);
-    const mo = b3Info.period % 100;
-
-    // Target 3 months for B-3 (closed months before POA period)
-    const targetB3Keys: string[] = [];
-    for (let i = 2; i >= 0; i--) {
-      const d = new Date(yr, mo - 1 - i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      targetB3Keys.push(`${y}${m}`);
-    }
-
-    const matchedKeys = targetB3Keys.filter((k) => Boolean(insentifHistoryData[k]));
-    const usedKeys = matchedKeys.length > 0 ? matchedKeys : allKeys.slice(-3);
-
-    let sumB3Insentif = 0;
-    for (const k of usedKeys) {
-      const items = Array.isArray(insentifHistoryData[k]) ? insentifHistoryData[k] : [];
-      sumB3Insentif += items.reduce(
-        (sum: number, it: any) => sum + (parseFloat(it.total_insentif ?? it.insentif ?? 0) || 0),
-        0
-      );
-    }
-
-    const avgB3Insentif = usedKeys.length > 0 ? sumB3Insentif / usedKeys.length : 0;
-
-    let rangeLabel = "";
-    if (matchedKeys.length > 0 && b3Info.rangeLabel) {
-      rangeLabel = b3Info.rangeLabel;
-    } else if (usedKeys.length === 1) {
-      rangeLabel = formatMonthKey(usedKeys[0]);
-    } else if (usedKeys.length > 1) {
-      rangeLabel = `${formatMonthKey(usedKeys[0])} - ${formatMonthKey(usedKeys[usedKeys.length - 1])}`;
-    }
-
-    return {
-      usedKeys,
-      avgB3Insentif,
-      sumB3Insentif,
-      rangeLabel,
-      totalMonths: usedKeys.length,
-    };
-  }, [insentifHistoryData, draft.periodeAwal, draft.period, poaId]);
-
-  const productDetailRows = useMemo(() => {
-    let sumEstSales = 0;
-    let sumEstSalesPerMonth = 0;
-    let sumNilaiSc = 0;
-    let sumNilaiScPerMonth = 0;
-    let sumCashback = 0;
-    let sumSalesHistorical = 0;
-    let sumSalesHistoricalPerMonth = 0;
-    let sumQtyPerBulan = 0;
-    let repeatCount = 0;
-    let newCount = 0;
-
-    const rows = scProducts.map((p) => {
-      const hnaSJ = p.hnaSJ || 0;
-      const qty = p.qtyPerBulan || 0;
-      sumQtyPerBulan += qty;
-
-      const estSalesMonth = qty * hnaSJ;
-      sumEstSalesPerMonth += estSalesMonth;
-
-      const estSalesFull = estSalesMonth * lama;
-      sumEstSales += estSalesFull;
-
-      const scVal = p.salesCounterValue;
-      const scMin = p.salesCounterMinimum || 0;
-      let nilaiScPerMonth = 0;
-      if (scVal != null && scVal > 0) {
-        nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
-      } else {
-        nilaiScPerMonth = (qty * hnaSJ) * ((p.persenMatriksSc || 0) / 100);
-      }
-      sumNilaiScPerMonth += nilaiScPerMonth;
-
-      const nilaiScFull = nilaiScPerMonth * lama;
-      sumNilaiSc += nilaiScFull;
-
-      const valCashbackFull = cashbackData
-        ? (cbDetails.resultMap.get(p.kodeProduk) ?? 0)
-        : estSalesFull * ((p.persenCashback || 0) / 100);
-      sumCashback += valCashbackFull;
-
-      const avgSales = b3SalesMap.get(p.kodeProduk) ?? 0;
-      sumSalesHistoricalPerMonth += avgSales;
-      const salesHistorical = avgSales * lama;
-      sumSalesHistorical += salesHistorical;
-
-      if (salesHistorical > 0) {
-        repeatCount++;
-      } else {
-        newCount++;
-      }
-
-      let growthPct = 0;
-      if (salesHistorical > 0 && estSalesFull > 0) {
-        growthPct = ((estSalesFull - salesHistorical) / salesHistorical) * 100;
-      }
-
-      return {
-        product: p,
-        qty,
-        estSalesMonth,
-        estSalesFull,
-        nilaiScPerMonth,
-        nilaiScFull,
-        valCashbackFull,
-        salesHistorical,
-        growthPct,
-      };
-    });
-
-    const effectiveOutletSalesPerMonth =
-      b3TotalOutletSalesPerMonth > 0 ? b3TotalOutletSalesPerMonth : sumSalesHistoricalPerMonth;
-    const effectiveOutletSalesFull = effectiveOutletSalesPerMonth * lama;
-
-    const overallGrowthPct =
-      effectiveOutletSalesFull > 0 && sumEstSales > 0
-        ? ((sumEstSales - effectiveOutletSalesFull) / effectiveOutletSalesFull) * 100
-        : 0;
-
-    return {
-      rows,
-      sumQtyPerBulan,
-      sumEstSales,
-      sumEstSalesPerMonth,
-      sumNilaiSc,
-      sumNilaiScPerMonth,
-      sumCashback,
-      sumSalesHistorical,
-      sumSalesHistoricalPerMonth,
-      effectiveOutletSalesPerMonth,
-      effectiveOutletSalesFull,
-      overallGrowthPct,
-      repeatCount,
-      newCount,
-    };
-  }, [scProducts, lama, cashbackData, cbDetails, b3SalesMap, b3TotalOutletSalesPerMonth]);
-
-  const insentifGrowthPct = useMemo(() => {
-    if (!historyInsentifInfo || historyInsentifInfo.avgB3Insentif <= 0) return null;
-    return (
-      ((productDetailRows.sumNilaiScPerMonth - historyInsentifInfo.avgB3Insentif) /
-        historyInsentifInfo.avgB3Insentif) *
-      100
-    );
-  }, [productDetailRows.sumNilaiScPerMonth, historyInsentifInfo]);
-
-  function handleDelete() {
-    setDeleteConfirmOpen(true);
-  }
-
-  async function executeDelete() {
-    startDelete(async () => {
-      try {
-        const res = await deleteSalesCounterFormAction(draft.id);
-        setDeleteConfirmOpen(false);
-        if (res && !res.ok) {
-          showToast(res.error || "Gagal menghapus data.", "error");
-        } else {
-          showToast(`Rencana POA SC untuk ${draft.namaOutlet} berhasil dihapus.`, "success");
-          router.refresh();
-        }
-      } catch (err: any) {
-        setDeleteConfirmOpen(false);
-        showToast(err?.message || "Terjadi kesalahan saat menghapus.", "error");
-      }
-    });
-  }
+}: SalesCounterOutletCardProps) {
+  const actions = useSalesCounterOutletActions({
+    draft,
+    userRole,
+    isOwner,
+    parentCanApprove,
+    parentCanFastTrack,
+  });
+
+  const {
+    canApproveOutlet,
+    canFastTrackOutlet,
+    isSelectableForThisUser,
+    detailOpen,
+    setDetailOpen,
+    atasanPanelOpen,
+    setAtasanPanelOpen,
+    submitBoxOpen,
+    setSubmitBoxOpen,
+    requestEditBoxOpen,
+    setRequestEditBoxOpen,
+    requestEditReason,
+    setRequestEditReason,
+    isRequestingEdit,
+    submitNotes,
+    setSubmitNotes,
+    actionNotes,
+    setActionNotes,
+    rejectCategory,
+    setRejectCategory,
+    isSubmittingAction,
+    isSubmittingOutlet,
+    deleteConfirmOpen,
+    setDeleteConfirmOpen,
+    rejectConfirmOpen,
+    setRejectConfirmOpen,
+    isDeleting,
+    hasPendingEditRequest,
+    pendingEditRequestNotes,
+    revisionInfo,
+    handleRequestEditSubmit,
+    handleGrantEdit,
+    handleDeclineEdit,
+    handleSubmitOutlet,
+    handleApproveOutlet,
+    handleFastTrackOutlet,
+    handleRejectSubmit,
+    handleDelete,
+    executeDelete,
+  } = actions;
+
+  const outletData = useSalesCounterOutletData({
+    draft,
+    poaId,
+    isExpanded: detailOpen,
+  });
+
+  const {
+    allScProducts,
+    scProducts,
+    selectedProductCodes,
+    totalScCount,
+    validScCount,
+    lama,
+    b3RangeLabel,
+    b3TotalCount,
+    isLoadingB3,
+    isCashbackNotFound,
+    outletEstSales,
+    outletNilaiSc,
+    totalEntertain,
+    canvasserNames,
+    historyInsentifInfo,
+    insentifGrowthPct,
+    salesOnlineData,
+    isLoadingSalesOnline,
+    productDetailRows,
+  } = outletData;
 
   return (
     <div
@@ -1140,7 +483,7 @@ export function SalesCounterOutletCard({
                 size="sm"
                 variant="secondary"
                 disabled={isSubmittingAction}
-                onClick={handleApprove}
+                onClick={handleFastTrackOutlet}
                 style={{ borderColor: "var(--color-warning, #C99A3D)", color: "var(--color-warning, #C99A3D)" }}
               >
                 {isSubmittingAction ? "Memproses…" : "Approve Langsung (Lewati ASM/SM)"}
@@ -1150,7 +493,7 @@ export function SalesCounterOutletCard({
                 type="button"
                 size="sm"
                 disabled={isSubmittingAction}
-                onClick={handleApprove}
+                onClick={handleApproveOutlet}
                 style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}
               >
                 {isSubmittingAction ? "Memproses…" : "Approve & Teruskan"}
@@ -1174,12 +517,11 @@ export function SalesCounterOutletCard({
                 style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
               >
                 <option value="">Pilih kategori…</option>
-                <option value="PRODUK">Produk</option>
-                <option value="OUTLET">Outlet</option>
-                <option value="USER">User / SC</option>
-                <option value="PERIODE">Periode</option>
-                <option value="KALKULASI_PSSP">Kalkulasi Sales Counter</option>
-                <option value="ALASAN_LAIN">Alasan Lain</option>
+                {REJECT_CATEGORY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -1200,7 +542,7 @@ export function SalesCounterOutletCard({
               size="sm"
               variant="danger"
               disabled={isSubmittingAction}
-              onClick={handleReject}
+              onClick={() => setRejectConfirmOpen(true)}
             >
               {isSubmittingAction ? "Memproses…" : "Tolak Outlet Ini (kembali ke Revisi)"}
             </Button>
@@ -1287,27 +629,31 @@ export function SalesCounterOutletCard({
                 <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
                   Sales &amp; Growth Total
                 </span>
-                <span
-                  className="text-[9px] font-bold px-1.5 py-0.2 rounded"
-                  style={{
-                    background:
-                      productDetailRows.effectiveOutletSalesFull > 0
-                        ? productDetailRows.overallGrowthPct >= 0
-                          ? "var(--color-success-bg, #dcfce7)"
-                          : "#fee2e2"
-                        : "var(--color-bg-subtle)",
-                    color:
-                      productDetailRows.effectiveOutletSalesFull > 0
-                        ? productDetailRows.overallGrowthPct >= 0
-                          ? "var(--color-success, #16a34a)"
-                          : "#dc2626"
-                        : "var(--color-text-faint)",
-                  }}
-                >
-                  {productDetailRows.effectiveOutletSalesFull > 0
-                    ? `${productDetailRows.overallGrowthPct >= 0 ? "+" : ""}${productDetailRows.overallGrowthPct.toFixed(1)}% Growth`
-                    : "Produk Baru"}
-                </span>
+                {isLoadingB3 ? (
+                  <span className="inline-block h-4 w-16 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                ) : (
+                  <span
+                    className="text-[9px] font-bold px-1.5 py-0.2 rounded"
+                    style={{
+                      background:
+                        productDetailRows.effectiveOutletSalesFull > 0
+                          ? productDetailRows.overallGrowthPct >= 0
+                            ? "var(--color-success-bg, #dcfce7)"
+                            : "#fee2e2"
+                          : "var(--color-bg-subtle)",
+                      color:
+                        productDetailRows.effectiveOutletSalesFull > 0
+                          ? productDetailRows.overallGrowthPct >= 0
+                            ? "var(--color-success, #16a34a)"
+                            : "#dc2626"
+                          : "var(--color-text-faint)",
+                    }}
+                  >
+                    {productDetailRows.effectiveOutletSalesFull > 0
+                      ? `${productDetailRows.overallGrowthPct >= 0 ? "+" : ""}${productDetailRows.overallGrowthPct.toFixed(1)}% Growth`
+                      : "Produk Baru"}
+                  </span>
+                )}
               </div>
               <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>
                 {productDetailRows.sumEstSalesPerMonth > 0 ? (
@@ -1329,7 +675,9 @@ export function SalesCounterOutletCard({
                   Histori Sales (B-3):
                 </div>
                 <div className="font-semibold text-xs" style={{ color: "var(--color-text)" }}>
-                  {productDetailRows.effectiveOutletSalesPerMonth > 0 ? (
+                  {isLoadingB3 ? (
+                    <span className="inline-block h-3.5 w-24 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse mt-0.5" />
+                  ) : productDetailRows.effectiveOutletSalesPerMonth > 0 ? (
                     <>
                       {formatRp(productDetailRows.effectiveOutletSalesPerMonth)}
                       <span className="font-normal text-[11px] ml-1" style={{ color: "var(--color-text-muted)" }}>
@@ -1369,7 +717,11 @@ export function SalesCounterOutletCard({
                 <div className="flex items-center justify-between">
                   <span style={{ color: "var(--color-text-muted)" }}>Komposisi:</span>
                   <span className="font-semibold" style={{ color: "var(--color-text)" }}>
-                    {productDetailRows.repeatCount} Repeat · {productDetailRows.newCount} Baru
+                    {isLoadingB3 ? (
+                      <span className="inline-block h-3.5 w-20 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                    ) : (
+                      `${productDetailRows.repeatCount} Repeat · ${productDetailRows.newCount} Baru`
+                    )}
                   </span>
                 </div>
                 <div className="space-y-0.5">
@@ -1377,11 +729,17 @@ export function SalesCounterOutletCard({
                     Total Variasi B-3 Outlet:
                   </div>
                   <div className="font-semibold text-xs" style={{ color: "var(--color-text)" }}>
-                    {b3TotalCount != null ? `${b3TotalCount} Produk` : "-"}
-                    {b3RangeLabel && (
-                      <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
-                        ({b3RangeLabel})
-                      </span>
+                    {isLoadingB3 ? (
+                      <span className="inline-block h-3.5 w-16 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse mt-0.5" />
+                    ) : (
+                      <>
+                        {b3TotalCount != null ? `${b3TotalCount} Produk` : "-"}
+                        {b3RangeLabel && (
+                          <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                            ({b3RangeLabel})
+                          </span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -1416,29 +774,40 @@ export function SalesCounterOutletCard({
           {/* Products table container */}
           <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[620px]">
+              <table className="w-full text-xs">
                 <thead>
                   <tr style={{ background: "var(--color-bg-subtle)" }}>
-                    <th className="text-left px-2.5 py-2 font-medium whitespace-nowrap sticky left-0 z-10 border-r" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Produk SC</th>
-                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Qty ST / Bln</th>
-                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</th>
-                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Insentif SC</th>
+                    <th className="text-left px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Produk SC</th>
+                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      <div className="leading-tight">
+                        <div>Qty ST</div>
+                        <div className="text-[10px] font-normal opacity-75">/ Bln</div>
+                      </div>
+                    </th>
+                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      <div className="leading-tight">
+                        <div>Estimasi</div>
+                        <div>Sales</div>
+                      </div>
+                    </th>
+                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      <div className="leading-tight">
+                        <div>Insentif</div>
+                        <div>SC</div>
+                      </div>
+                    </th>
                     {!isCashbackNotFound && (
-                      <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                      <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                         <div className="inline-flex items-center justify-end gap-1">
-                          <span>Value Cashback</span>
+                          <div className="leading-tight text-right">
+                            <div>Value</div>
+                            <div>Cashback</div>
+                          </div>
                           <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
                         </div>
                       </th>
                     )}
-                    <th className="text-right px-2.5 py-2 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                      <div>Growth Sebelumnya (B-3)</div>
-                      {b3RangeLabel && (
-                        <div className="text-[10px] font-normal normal-case opacity-75">
-                          ({b3RangeLabel})
-                        </div>
-                      )}
-                    </th>
+                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Growth</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1484,12 +853,23 @@ export function SalesCounterOutletCard({
                         </td>
                       )}
                       <td className="px-2.5 py-2 text-right whitespace-nowrap">
-                        {salesHistorical > 0 ? (
+                        {isLoadingB3 ? (
+                          <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                        ) : salesHistorical > 0 ? (
                           <span className={growthPct >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>
                             {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
                           </span>
                         ) : (
-                          <span style={{ color: "var(--color-text-faint)" }}>-</span>
+                          <span
+                            className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded border"
+                            style={{
+                              background: "rgba(22, 163, 74, 0.12)",
+                              color: "#16a34a",
+                              borderColor: "rgba(22, 163, 74, 0.3)",
+                            }}
+                          >
+                            Baru
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -1533,12 +913,23 @@ export function SalesCounterOutletCard({
                       </td>
                     )}
                     <td className="px-2.5 py-2 text-right whitespace-nowrap">
-                      {productDetailRows.sumSalesHistorical > 0 ? (
+                      {isLoadingB3 ? (
+                        <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                      ) : productDetailRows.sumSalesHistorical > 0 ? (
                         <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
                           {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
                         </span>
                       ) : (
-                        <span style={{ color: "var(--color-text-faint)" }}>0%</span>
+                        <span
+                          className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded border"
+                          style={{
+                            background: "rgba(22, 163, 74, 0.12)",
+                            color: "#16a34a",
+                            borderColor: "rgba(22, 163, 74, 0.3)",
+                          }}
+                        >
+                          Baru
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -1614,7 +1005,7 @@ export function SalesCounterOutletCard({
         confirmLabel="Tolak"
         cancelLabel="Batal"
         confirmPending={isSubmittingAction}
-        onConfirm={executeReject}
+        onConfirm={handleRejectSubmit}
         onCancel={() => setRejectConfirmOpen(false)}
       />
     </div>

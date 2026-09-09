@@ -1,0 +1,19 @@
+export const ROLE_ACTIONABLE_STATUSES: Record<string, string[]> = {
+  ADMIN: ["SUBMITTED_TO_ASM", "SUBMITTED_TO_SM", "SUBMITTED_TO_NSM"],
+  ASM: ["SUBMITTED_TO_ASM"],
+  SM: ["SUBMITTED_TO_SM"],
+  NSM: ["SUBMITTED_TO_NSM"],
+};
+
+export const FAST_TRACK_STATUSES: string[] = [
+  "SUBMITTED_TO_ASM",
+  "APPROVED_BY_ASM",
+  "SUBMITTED_TO_SM",
+  "APPROVED_BY_SM",
+];
+
+export const NON_ACTIONABLE_STATUSES: string[] = [
+  "DRAFT",
+  "REVISI",
+  "APPROVED_BY_NSM",
+];

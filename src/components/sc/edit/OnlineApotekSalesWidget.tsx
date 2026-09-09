@@ -5,33 +5,9 @@ import { getPreviousQuarterInfo } from "@/lib/quarterUtils";
 import { getSalesApotekOnlineAction } from "@/app/actions/canvasser";
 import type { SalesApotekOnlineItem } from "@/app/(app)/sc/[id]/_services/getSalesApotekOnline";
 
-interface OnlineApotekSalesWidgetProps {
-  poaPeriod?: string | null;
-  outletCode?: string | null;
-  outletName?: string | null;
-  isOnline?: boolean;
-  className?: string;
-}
-
-function formatRp(val: number): string {
-  return "Rp " + Math.round(val || 0).toLocaleString("id-ID");
-}
-
-function resolveApotekOnlinePeriod(poaPeriod?: string | null): {
-  periodParam: string;
-  prevQuarterInfo: {
-    quarter: string;
-    year: number;
-    label: string;
-    shortLabel: string;
-  };
-} {
-  const prevQuarterInfo = getPreviousQuarterInfo(poaPeriod);
-  const qNum = parseInt(prevQuarterInfo.quarter.replace(/[^0-9]/g, ""), 10) || 1;
-  const lastMonth = qNum * 3;
-  const periodParam = `${prevQuarterInfo.year}${String(lastMonth).padStart(2, "0")}`;
-  return { periodParam, prevQuarterInfo };
-}
+import type { OnlineApotekSalesWidgetProps } from "./types/widgetTypes";
+import { formatRp } from "./utils/formatEditUtils";
+import { resolveApotekOnlinePeriod } from "./utils/periodUtils";
 
 export function OnlineApotekSalesWidget({
   poaPeriod,

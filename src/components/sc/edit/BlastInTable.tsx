@@ -4,12 +4,8 @@ import React, { useState, useEffect } from "react";
 import { getBlastInDataAction } from "@/app/actions/canvasser";
 import type { BlastInResponse } from "@/app/(app)/sc/[id]/_services/getBlastInData";
 
-interface BlastInTableProps {
-  poaPeriod?: string;
-  quarter?: number;
-  outletId?: string;
-  estimasiSales?: number;
-}
+import type { BlastInTableProps } from "./types/widgetTypes";
+import { parseBlastInPeriod } from "./utils/periodUtils";
 
 export function BlastInTable({
   poaPeriod = "2026-Q3",
@@ -17,32 +13,7 @@ export function BlastInTable({
   outletId,
   estimasiSales = 0,
 }: BlastInTableProps) {
-  let qNum = quarter;
-  let yearNum = new Date().getFullYear();
-
-  if (poaPeriod) {
-    const m = poaPeriod.match(/^(\d{4})-?Q([1-4])$/i);
-    if (m) {
-      yearNum = parseInt(m[1], 10);
-      if (!qNum) {
-        qNum = parseInt(m[2], 10);
-      }
-    } else {
-      const mYear = poaPeriod.match(/^(\d{4})/);
-      if (mYear) yearNum = parseInt(mYear[1], 10);
-      const mQ = poaPeriod.match(/Q([1-4])/i);
-      if (mQ && !qNum) {
-        qNum = parseInt(mQ[1], 10);
-      } else {
-        const mYM = poaPeriod.match(/^\d{4}(\d{2})$/);
-        if (mYM && !qNum) {
-          const monthNum = parseInt(mYM[1], 10);
-          qNum = Math.ceil(monthNum / 3);
-        }
-      }
-    }
-  }
-  if (!qNum) qNum = 3;
+  const { qNum, yearNum } = parseBlastInPeriod(poaPeriod, quarter);
 
   const [loading, setLoading] = useState(false);
   const [blastInData, setBlastInData] = useState<BlastInResponse | null>(null);
@@ -71,19 +42,44 @@ export function BlastInTable({
     };
   }, [outletId, yearNum]);
 
-  const actualHeader =
-    qNum === 1
-      ? "ACTUAL SALES"
-      : qNum === 2
-      ? "ACTUAL SALES (Q1)"
-      : qNum === 3
-      ? "ACTUAL SALES (Q1-Q2)"
-      : "ACTUAL SALES (Q1-Q3)";
+  const actualHeader = (
+    <div className="leading-tight">
+      <div>Actual Sales</div>
+      {qNum > 1 && (
+        <div className="text-[10px] font-normal opacity-75">
+          {qNum === 2 ? "(Q1)" : qNum === 3 ? "(Q1-Q2)" : "(Q1-Q3)"}
+        </div>
+      )}
+    </div>
+  );
 
-  const estimasiHeader = `ESTIMASI Q${qNum}`;
-  const sumHeader = `ACTUAL + ESTIMASI Q${qNum}`;
-  const targetHeader = `TARGET BLAST-IN Q${qNum}`;
-  const hadiahHeader = `HADIAH Q${qNum}`;
+  const estimasiHeader = (
+    <div className="leading-tight">
+      <div>Estimasi</div>
+      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+    </div>
+  );
+
+  const sumHeader = (
+    <div className="leading-tight">
+      <div>Actual + Estimasi</div>
+      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+    </div>
+  );
+
+  const targetHeader = (
+    <div className="leading-tight">
+      <div>Target Blast-In</div>
+      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+    </div>
+  );
+
+  const hadiahHeader = (
+    <div className="leading-tight">
+      <div>Hadiah</div>
+      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+    </div>
+  );
 
   const registrant = blastInData?.data?.registrants?.[0] || null;
   const quarters = registrant?.quarters || [];
@@ -163,72 +159,72 @@ export function BlastInTable({
 
       {(loading || registrant || !outletId) && (
         <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-          <table className="w-full text-xs text-center border-collapse min-w-[500px]">
+          <table className="w-full text-xs text-center border-collapse">
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                   {actualHeader}
                 </th>
-                <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                   {estimasiHeader}
                 </th>
-                <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                   {sumHeader}
                 </th>
-                <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                   {targetHeader}
                 </th>
-                <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "20%" }}>
+                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                   {hadiahHeader}
                 </th>
               </tr>
             </thead>
             <tbody>
               <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-                <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>
+                <td className="px-2 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
                   {loading ? (
                     <span className="animate-pulse opacity-50">...</span>
                   ) : actualSales > 0 ? (
-                    `Rp ${Math.round(actualSales).toLocaleString("id-ID")}`
+                    <span className="whitespace-nowrap">{`Rp ${Math.round(actualSales).toLocaleString("id-ID")}`}</span>
                   ) : (
                     "-"
                   )}
                 </td>
-                <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>
+                <td className="px-2 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
                   {loading ? (
                     <span className="animate-pulse opacity-50">...</span>
                   ) : estimasiQ > 0 ? (
-                    `Rp ${Math.round(estimasiQ).toLocaleString("id-ID")}`
+                    <span className="whitespace-nowrap">{`Rp ${Math.round(estimasiQ).toLocaleString("id-ID")}`}</span>
                   ) : (
                     "-"
                   )}
                 </td>
                 <td
-                  className="px-4 py-3 text-center font-semibold"
+                  className="px-2 py-2.5 text-center font-semibold"
                   style={{ color: isAchieved ? "#16a34a" : "var(--color-text)" }}
                 >
                   {loading ? (
                     <span className="animate-pulse opacity-50">...</span>
                   ) : totalProjected > 0 ? (
-                    `Rp ${Math.round(totalProjected).toLocaleString("id-ID")}`
+                    <span className="whitespace-nowrap">{`Rp ${Math.round(totalProjected).toLocaleString("id-ID")}`}</span>
                   ) : (
                     "-"
                   )}
                 </td>
-                <td className="px-4 py-3 text-center font-medium" style={{ color: "var(--color-text)" }}>
+                <td className="px-2 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
                   {loading ? (
                     <span className="animate-pulse opacity-50">...</span>
                   ) : targetSales > 0 ? (
-                    `Rp ${Math.round(targetSales).toLocaleString("id-ID")}`
+                    <span className="whitespace-nowrap">{`Rp ${Math.round(targetSales).toLocaleString("id-ID")}`}</span>
                   ) : (
                     "-"
                   )}
                 </td>
-                <td className="px-4 py-3 text-center font-semibold" style={{ color: "#2563eb" }}>
+                <td className="px-2 py-2.5 text-center font-semibold" style={{ color: "#2563eb" }}>
                   {loading ? (
                     <span className="animate-pulse opacity-50">...</span>
                   ) : hadiah > 0 ? (
-                    `Rp ${Math.round(hadiah).toLocaleString("id-ID")}`
+                    <span className="whitespace-nowrap">{`Rp ${Math.round(hadiah).toLocaleString("id-ID")}`}</span>
                   ) : (
                     "-"
                   )}

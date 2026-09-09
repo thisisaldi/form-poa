@@ -2,24 +2,8 @@
 
 import React from "react";
 
-function formatRp(val: number): string {
-  return new Intl.NumberFormat("id-ID").format(Math.round(val || 0));
-}
-
-interface PerincianBudgetModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  totalEstimasiBudget?: number;
-  totalNilaiSc: number;
-  totalDiskonVal: number;
-  totalEntertainVal: number;
-  totalCashbackVal: number;
-  totalBlastInVal?: number;
-  totalPosmVal?: number;
-  showCashback?: boolean;
-  showBlastIn?: boolean;
-  showPosm?: boolean;
-}
+import type { PerincianBudgetModalProps } from "./types/widgetTypes";
+import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
 
 export function PerincianBudgetModal({
   isOpen,
