@@ -188,11 +188,29 @@ export async function getPoaStandarisasiDetail(id: string): Promise<PoaStandaris
 
 export async function listMyPoaStandarisasiAction() {
   const session = await requireSession();
-  return prisma.poaStandarisasi.findMany({
+  const rows = await prisma.poaStandarisasi.findMany({
     where: { ownerId: session.userId },
-    include: { outlet: { select: { namaOutlet: true } }, produk: { select: { id: true } } },
+    include: {
+      outlet: { select: { namaOutlet: true } },
+      produk: {
+        select: {
+          id: true,
+          product: { select: { namaProduk: true } },
+          dokterApproval: { select: { entertainRp: true } },
+        },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
+  // Entertain per produk = SUM dokterApproval.entertainRp (Planning) — sama basis dengan RingkasanPoa's "Total Biaya Entertain" per produk (2026-09-09, redline list page).
+  return rows.map((p: (typeof rows)[number]) => ({
+    ...p,
+    produk: p.produk.map((prod: (typeof p.produk)[number]) => ({
+      id: prod.id,
+      namaProduk: prod.product.namaProduk,
+      entertainRp: prod.dokterApproval.reduce((s: number, d: (typeof prod.dokterApproval)[number]) => s + (d.entertainRp ? parseFloat(d.entertainRp.toString()) : 0), 0),
+    })),
+  }));
 }
 
 /** "Golongan yang Dipakai Saat Ini" per dokter — resolved Q1, reuses the exact

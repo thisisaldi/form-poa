@@ -5,6 +5,11 @@ import { listMyPoaStandarisasiAction } from "@/app/actions/poaStandarisasi";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { formatRp } from "@/lib/utils";
+
+function formatTanggal(d: Date | string | null): string {
+  return d ? new Date(d).toLocaleDateString("id-ID") : "—";
+}
 
 export const metadata = { title: "POA Standarisasi · Form POA" };
 
@@ -55,7 +60,8 @@ export default async function PoaStandarisasiListPage() {
                   <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tipe</th>
                   <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tahap</th>
                   <th className="pb-3 pr-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Produk</th>
-                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Dibuat</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Target Penyelesaian</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tanggal KFT</th>
                   <th className="pb-3" />
                 </tr>
               </thead>
@@ -77,10 +83,39 @@ export default async function PoaStandarisasiListPage() {
                         {p.submittedAt ? "Sudah Disubmit" : phaseLabel(p.currentPhase)}
                       </span>
                     </td>
-                    <td className="py-3 pr-3 text-right text-xs" style={{ color: "var(--color-text-muted)" }}>{p.produk.length}</td>
-                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
-                      {new Date(p.createdAt).toLocaleDateString("id-ID")}
+                    {/* Popover pakai <details> native (redline: kolom Produk clickable) — zero-JS, tapi absolutely-positioned di dalam wrapper overflow-x-auto tabel, jadi bisa kepotong kalau tabelnya sendiri lagi di-scroll horizontal. Cukup buat kasus normal (gak scroll), upgrade ke Popover berbasis portal kalau itu jadi masalah nyata. */}
+                    <td className="py-3 pr-3 text-right text-xs" style={{ position: "relative", color: "var(--color-text-muted)" }}>
+                      {p.produk.length === 0 ? (
+                        0
+                      ) : (
+                        <details className="inline-block text-left">
+                          <summary
+                            className="inline-block cursor-pointer list-none text-right font-medium underline decoration-dotted [&::-webkit-details-marker]:hidden"
+                            style={{ color: "var(--color-blue)" }}
+                          >
+                            {p.produk.length}
+                          </summary>
+                          <div
+                            className="absolute right-0 z-10 mt-1 w-64 rounded-md p-3 text-xs shadow-lg"
+                            style={{ background: "var(--color-surface, #fff)", border: "1px solid var(--color-border)" }}
+                          >
+                            <div className="mb-2 font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-faint)", fontSize: 10 }}>
+                              {p.produk.length} Produk di Pengajuan Ini
+                            </div>
+                            <div className="space-y-1.5">
+                              {p.produk.map((prod: (typeof p.produk)[number]) => (
+                                <div key={prod.id} className="flex items-center justify-between gap-2">
+                                  <span style={{ color: "var(--color-text)" }}>{prod.namaProduk}</span>
+                                  <span className="shrink-0" style={{ color: "var(--color-text-muted)" }}>Ent. Rp{formatRp(prod.entertainRp)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </details>
+                      )}
                     </td>
+                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.estimasiTimelineSelesai)}</td>
+                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.jadwalMeetingKft)}</td>
                     <td className="py-3 text-right">
                       <Link href={`/poa-standarisasi/${p.id}`} className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
                         Detail
