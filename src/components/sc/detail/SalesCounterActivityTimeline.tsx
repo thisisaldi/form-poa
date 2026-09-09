@@ -1,108 +1,27 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import type { PoaStatus, User } from "@prisma/client";
+import { AUDIT_ACTION_LABELS } from "./constants/auditActionLabels";
+import { formatMonthKey } from "./utils/formatDateUtils";
+import { formatRp } from "./SalesCounterStatsPanel";
+import { parseSnapshot } from "./utils/auditLogUtils";
+import { useActivityTimeline } from "./hooks/useActivityTimeline";
+import type {
+  SalesCounterAuditLogItem,
+  SalesCounterActivityTimelineProps,
+} from "./types/timeline";
 
-export interface SalesCounterAuditLogItem {
-  id: string;
-  actorId: string;
-  actor: User;
-  action: string;
-  fromStatus?: PoaStatus | string | null;
-  toStatus?: PoaStatus | string | null;
-  namaOutlet?: string | null;
-  kodePI?: string | null;
-  snapshot?: any;
-  createdAt: Date | string;
-}
-
-interface SalesCounterActivityTimelineProps {
-  auditLogs: SalesCounterAuditLogItem[];
-  outlets?: Array<{ kodePI: string; namaOutlet?: string | null }>;
-}
-
-const AUDIT_ACTION_LABELS: Record<string, string> = {
-  CREATE: "membuat draft SC",
-  UPDATE: "mengedit SC",
-  SUBMIT: "mengajukan SC",
-  APPROVE: "menyetujui SC",
-  REVISE: "mengedit SC (kembali ke Revisi)",
-  REJECT: "menolak SC",
-  CANCEL: "membatalkan approval SC",
-  REQUEST_EDIT: "mengajukan permohonan edit",
-  GRANT_EDIT: "menyetujui permohonan edit",
-  DECLINE_EDIT: "menolak permohonan edit",
-};
-
-function formatMonth(ymStr?: string | null) {
-  if (!ymStr || ymStr.length !== 6) return ymStr || "-";
-  const year = ymStr.slice(0, 4);
-  const monthNum = parseInt(ymStr.slice(4, 6), 10);
-  const names = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
-  return `${names[monthNum - 1] ?? monthNum} ${year}`;
-}
-
-function formatRupiah(val?: number | null) {
-  return `Rp ${Math.round(val || 0).toLocaleString("id-ID")}`;
-}
-
-function parseSnapshot(raw: any): any {
-  if (!raw) return null;
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-  if (typeof raw === "object") return raw;
-  return null;
-}
+export type { SalesCounterAuditLogItem };
 
 export function SalesCounterActivityTimeline({
   auditLogs = [],
   outlets = [],
 }: SalesCounterActivityTimelineProps) {
-  const [selectedOutlet, setSelectedOutlet] = useState<string>("ALL");
-
-  const availableOutlets = useMemo(() => {
-    const map = new Map<string, { kodePI: string; namaOutlet: string; count: number }>();
-
-    // Daftarkan outlet dari data drafts jika ada
-    for (const o of outlets) {
-      if (o.kodePI) {
-        map.set(o.kodePI, {
-          kodePI: o.kodePI,
-          namaOutlet: o.namaOutlet || o.kodePI,
-          count: 0,
-        });
-      }
-    }
-
-    // Hitung kemunculan log per outlet
-    for (const log of auditLogs) {
-      const k = log.kodePI || "UNKNOWN";
-      if (!map.has(k)) {
-        map.set(k, {
-          kodePI: k,
-          namaOutlet: log.namaOutlet || (k === "UNKNOWN" ? "Umum / Tanpa Outlet" : k),
-          count: 0,
-        });
-      }
-      const item = map.get(k)!;
-      item.count += 1;
-      if (log.namaOutlet && item.namaOutlet === k) {
-        item.namaOutlet = log.namaOutlet;
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => a.namaOutlet.localeCompare(b.namaOutlet));
-  }, [auditLogs, outlets]);
-
-  const filteredLogs = useMemo(() => {
-    if (selectedOutlet === "ALL") return auditLogs;
-    return auditLogs.filter((log) => (log.kodePI || "UNKNOWN") === selectedOutlet);
-  }, [auditLogs, selectedOutlet]);
+  const {
+    selectedOutlet,
+    setSelectedOutlet,
+    availableOutlets,
+    filteredLogs,
+  } = useActivityTimeline({ auditLogs, outlets });
 
   if (auditLogs.length === 0) {
     return (
@@ -337,24 +256,24 @@ export function SalesCounterActivityTimeline({
                       </span>
                       <ul className="list-disc list-inside space-y-0.5 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
                         {snap.entertain.map((e: any, eIdx: number) => {
-                          const monthLabel = formatMonth(e.periodeMonth);
+                          const monthLabel = formatMonthKey(e.periodeMonth);
                           return (
                             <li key={eIdx}>
                               {e.type === "add" && (
                                 <span className="text-emerald-600 font-medium">
-                                  Tambah: {monthLabel} ({formatRupiah(e.biayaEntertain)})
+                                  Tambah: {monthLabel} ({formatRp(e.biayaEntertain)})
                                 </span>
                               )}
                               {e.type === "delete" && (
                                 <span className="text-rose-600 font-medium">
-                                  Hapus: {monthLabel} (sebelumnya {formatRupiah(e.biayaEntertain)})
+                                  Hapus: {monthLabel} (sebelumnya {formatRp(e.biayaEntertain)})
                                 </span>
                               )}
                               {e.type === "update" && (
                                 <span>
-                                  Ubah: {monthLabel} · {formatRupiah(e.old_biayaEntertain)} &rarr;{" "}
+                                  Ubah: {monthLabel} · {formatRp(e.old_biayaEntertain)} &rarr;{" "}
                                   <span className="font-medium" style={{ color: "var(--color-text)" }}>
-                                    {formatRupiah(e.new_biayaEntertain)}
+                                    {formatRp(e.new_biayaEntertain)}
                                   </span>
                                 </span>
                               )}

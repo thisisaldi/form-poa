@@ -62,20 +62,6 @@ export const DUMMY_KOMPETITOR_DATA: DummyKompetitorItem[] = [
   },
 ];
 
-export const FALLBACK_PRODUCT_NAMES: Record<string, string> = {
-  "0110492": "PRORIS FORTE 200MG SUSP 50ML",
-  "0201478": "PRORIS SUSP 60 ML RASA JERUK",
-  "0202672": "PRORIS IBUPROFEN 10 KAPLET",
-  "0201784": "POLYSILANE SUSPENSI 100 ML",
-  "0200850": "POLYSILANE SUSPENSI 180 ML",
-  "0200851": "POLYSILANE MAX TABLET",
-  "0202144": "MICROLAX 3 X 5 ML",
-  "0203638": "MICROLAXTAB BISACODYL 5MG",
-  "0302259": "NOURISH SKIN 30 TABLET",
-  "0110168": "GLICOLON 5MG TAB 100`S",
-  "0110515": "ARCOLASE 20MG TAB 30`S",
-};
-
 export function formatQtySales(qty: number): string {
   if (qty == null || isNaN(qty)) return "0";
   const rounded = Math.round(qty * 10) / 10;
@@ -126,8 +112,6 @@ export function getProductPotensiDetail(
     product.namaProduk ||
     product.pro_name ||
     product.name ||
-    FALLBACK_PRODUCT_NAMES[code] ||
-    FALLBACK_PRODUCT_NAMES[strippedCode] ||
     code ||
     "Produk"
   ).trim();
@@ -212,8 +196,6 @@ export function getProductPotensiDetail(
           it.namaProduk ||
           it.pro_name ||
           it.name ||
-          FALLBACK_PRODUCT_NAMES[itCode] ||
-          FALLBACK_PRODUCT_NAMES[itStripped] ||
           (itCode ? `Produk ${itCode}` : "Produk B2B");
 
         matchingB2bItems.push({

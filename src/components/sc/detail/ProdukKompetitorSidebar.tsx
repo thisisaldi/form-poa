@@ -1,11 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import {
-  getProductPotensiDetail,
-  formatQtySales,
-  type ProductPotensiDetail,
-} from "../utils/competitorAnalysisUtils";
+import { formatQtySales } from "../utils/competitorAnalysisUtils";
+import { useCompetitorAnalysis } from "./hooks/useCompetitorAnalysis";
+import { COMPETITOR_FILTER_TABS } from "./constants/competitorFilterTabs";
 
 interface ProdukKompetitorSidebarProps {
   isOpen: boolean;
@@ -28,89 +25,21 @@ export function ProdukKompetitorSidebar({
   isLoadingSalesOnline = false,
   periodLabel,
 }: ProdukKompetitorSidebarProps) {
-  const [kompetitorFilter, setKompetitorFilter] = useState<string>("semua");
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [page, setPage] = useState<number>(1);
-
-  const salesOnlineItems = useMemo(() => {
-    if (Array.isArray(salesOnlineData?.data)) return salesOnlineData.data;
-    if (Array.isArray(salesOnlineData)) return salesOnlineData;
-    return [];
-  }, [salesOnlineData]);
-
-  // Build card details for all products (from get-sales-counter-product)
-  const cards: Array<
-    ProductPotensiDetail & {
-      subtitel: string;
-      surveyDisplay: string;
-      hasSurvey: boolean;
-      hasHealthyOne: boolean;
-      hasB2b: boolean;
-      isSelected: boolean;
-    }
-  > = useMemo(() => {
-    return products.map((p) => {
-      const detail = getProductPotensiDetail(p, salesOnlineItems);
-      const code = detail.kodeProduk;
-      const stripped = code.replace(/^0+/, "");
-      const isSelected = selectedCodes.has(code) || selectedCodes.has(stripped);
-      const subtitel = `${code} · ${detail.zatAktif || detail.namaProduk}`;
-      const surveyDisplay = `${detail.surveyQty} UB`;
-      return {
-        ...detail,
-        subtitel,
-        surveyDisplay,
-        hasSurvey: Boolean(detail.surveyName),
-        hasHealthyOne: detail.healthyOneUb > 0,
-        hasB2b: detail.b2bProducts.length > 0,
-        isSelected,
-      };
-    });
-  }, [products, salesOnlineItems, selectedCodes]);
-
-  // Filter cards by pill tabs and search query
-  const filteredCards = useMemo(() => {
-    let list = cards;
-    if (kompetitorFilter === "survey") {
-      list = list.filter((c) => c.hasSurvey);
-    } else if (kompetitorFilter === "healthyone") {
-      list = list.filter((c) => c.hasHealthyOne);
-    } else if (kompetitorFilter === "b2b") {
-      list = list.filter((c) => c.hasB2b);
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      list = list.filter(
-        (c) =>
-          c.namaProduk.toLowerCase().includes(q) ||
-          c.kodeProduk.toLowerCase().includes(q) ||
-          c.zatAktif.toLowerCase().includes(q) ||
-          (c.surveyName || "").toLowerCase().includes(q)
-      );
-    }
-
-    return list;
-  }, [cards, kompetitorFilter, searchQuery]);
-
-  const counts = useMemo(() => {
-    let survey = 0;
-    let healthyone = 0;
-    let b2b = 0;
-    for (const c of cards) {
-      if (c.hasSurvey) survey++;
-      if (c.hasHealthyOne) healthyone++;
-      if (c.hasB2b) b2b++;
-    }
-    return { semua: cards.length, survey, healthyone, b2b };
-  }, [cards]);
-
-  const ITEMS_PER_PAGE = 4;
-  const totalPages = Math.max(1, Math.ceil(filteredCards.length / ITEMS_PER_PAGE));
-  const paginatedCards = useMemo(() => {
-    const start = (page - 1) * ITEMS_PER_PAGE;
-    return filteredCards.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredCards, page]);
+  const {
+    kompetitorFilter,
+    setKompetitorFilter,
+    searchQuery,
+    setSearchQuery,
+    page,
+    setPage,
+    paginatedCards,
+    totalPages,
+    counts,
+  } = useCompetitorAnalysis({
+    products,
+    salesOnlineData,
+    selectedCodes,
+  });
 
   if (!isOpen) return null;
 
@@ -153,9 +82,14 @@ export function ProdukKompetitorSidebar({
                 {outletName}
               </p>
             )}
-            <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--color-text-muted)" }}>
-              Sumber: Survey, HealthyOne &amp; B2B {periodLabel ? `· Periode: ${periodLabel}` : ""}
+            <p className="text-[10px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+              Sumber: Survey, HealthyOne &amp; B2B
             </p>
+            {periodLabel && (
+              <p className="text-[10px] mt-0.5 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                Periode: {periodLabel}
+              </p>
+            )}
           </div>
 
           <button
@@ -214,49 +148,9 @@ export function ProdukKompetitorSidebar({
 
           {/* Pill Filter Tabs */}
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 text-[11px] no-scrollbar">
-            {[
-              {
-                id: "semua",
-                label: "Semua",
-                count: counts.semua,
-                activeBg: "#7c3aed",
-                activeText: "#ffffff",
-                activeBorder: "#7c3aed",
-                inactiveText: "#7c3aed",
-                inactiveBorder: "#ddd6fe",
-              },
-              {
-                id: "survey",
-                label: "Survey",
-                count: counts.survey,
-                activeBg: "#dc2626",
-                activeText: "#ffffff",
-                activeBorder: "#dc2626",
-                inactiveText: "#dc2626",
-                inactiveBorder: "#fca5a5",
-              },
-              {
-                id: "healthyone",
-                label: "HealthyOne",
-                count: counts.healthyone,
-                activeBg: "#026D77",
-                activeText: "#ffffff",
-                activeBorder: "#026D77",
-                inactiveText: "#026D77",
-                inactiveBorder: "#80ced4",
-              },
-              {
-                id: "b2b",
-                label: "B2B",
-                count: isLoadingSalesOnline ? "..." : counts.b2b,
-                activeBg: "#028CD5",
-                activeText: "#ffffff",
-                activeBorder: "#028CD5",
-                inactiveText: "#028CD5",
-                inactiveBorder: "#7dd3fc",
-              },
-            ].map((f) => {
+            {COMPETITOR_FILTER_TABS.map((f) => {
               const isActive = kompetitorFilter === f.id;
+              const count = f.id === "b2b" && isLoadingSalesOnline ? "..." : counts[f.id];
               return (
                 <button
                   key={f.id}
@@ -281,7 +175,7 @@ export function ProdukKompetitorSidebar({
                       color: isActive ? "#ffffff" : f.inactiveText,
                     }}
                   >
-                    {f.count}
+                    {count}
                   </span>
                 </button>
               );

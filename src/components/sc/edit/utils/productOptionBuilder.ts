@@ -1,16 +1,6 @@
-import type { Product } from "@/lib/masterData";
-import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
+import type { BuildProductOptionsParams, ScProductOptionItem } from "../types/productOptions";
+import { PROMILAN_KEYWORDS } from "../constants/promilanKeywords";
 import { aggregateHistorySales } from "@/lib/historySalesUtils";
-
-export interface BuildProductOptionsParams {
-  canvasserProducts: SalesCounterProduct[];
-  princodeProducts: any[];
-  productsMenang?: any[];
-  productsInsentif?: any[];
-  masterProducts: Product[];
-  historySalesData?: any;
-  surveyData?: any[];
-}
 
 export function buildScProductOptions({
   canvasserProducts = [],
@@ -19,7 +9,7 @@ export function buildScProductOptions({
   masterProducts = [],
   historySalesData,
   surveyData = [],
-}: BuildProductOptionsParams) {
+}: BuildProductOptionsParams): ScProductOptionItem[] {
   // 1. Build survey map (Nexus survey data)
   const surveyMap = new Map<string, { totalPotensiBulan: number | null; jumlahDokter: number; namaProdukRekomendasi: string }>();
   if (Array.isArray(surveyData)) {
@@ -86,12 +76,10 @@ export function buildScProductOptions({
     ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
   ].filter(Boolean));
 
-  const promilanKeywords = ["PRORIS", "MICROLAX", "POLYSILANE"];
-
-  const groupSurvey: any[] = [];
-  const groupPernahOrder: any[] = [];
-  const groupPromilan: any[] = [];
-  const groupProdukSc: any[] = [];
+  const groupSurvey: ScProductOptionItem[] = [];
+  const groupPernahOrder: ScProductOptionItem[] = [];
+  const groupPromilan: ScProductOptionItem[] = [];
+  const groupProdukSc: ScProductOptionItem[] = [];
 
   const processedCodes = new Set<string>();
 
@@ -108,7 +96,7 @@ export function buildScProductOptions({
     const salesQty = historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0;
     const surveyInfo = surveyMap.get(code) ?? surveyMap.get(strippedCode);
     const nameUpper = String(p.pro_name || masterP?.namaProduk || "").toUpperCase();
-    const isPromilan = promilanKeywords.some((kw) => nameUpper.includes(kw));
+    const isPromilan = PROMILAN_KEYWORDS.some((kw) => nameUpper.includes(kw));
 
     const brandStr = masterP?.namaGroupBrand || "Produk SC";
     const zatStr = masterP?.zatAktif ? ` · ${masterP.zatAktif}` : "";
@@ -169,13 +157,12 @@ export function buildScProductOptions({
     }
   }
 
-  // Sort PERNAH ORDER descending by salesQty ("pastikan order dari label terbanyak")
-  groupPernahOrder.sort((a, b) => b._salesQty - a._salesQty);
+  // Sort PERNAH ORDER descending by salesQty
+  groupPernahOrder.sort((a, b) => (b._salesQty || 0) - (a._salesQty || 0));
 
   // Sort SURVEY descending by potensi
   groupSurvey.sort((a, b) => (b._potensi || 0) - (a._potensi || 0));
 
-  // Only return SC products (from canvasserProducts / get-sales-counter-product)
   return [
     ...groupSurvey,
     ...groupPernahOrder,

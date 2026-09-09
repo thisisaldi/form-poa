@@ -1,0 +1,17 @@
+export type SidebarTab = "rekomendasi" | "loss_sales" | "history" | "analisis_kompetitor";
+
+export interface ScSidebarProps {
+  poaPeriod?: string | null;
+  doctorName?: string;
+  productsMenang?: any[];
+  productsInsentif?: any[];
+  insentifHistory?: any;
+  historySalesData?: any;
+  salesOnlineData?: any;
+  surveyData?: any[];
+  rekomendasiProduk?: any[];
+  masterProducts?: any[];
+  canvasserProducts?: any[];
+  selectedProductCodes?: Set<string>;
+  onSelectProduct?: (code: string) => void;
+}

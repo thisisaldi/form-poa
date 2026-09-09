@@ -37,7 +37,7 @@ export default async function EditSalesCounterByIdPage({
           <div>
             <h1>{userCanEdit ? "Edit Rencana POA Sales Counter" : "Detail Rencana POA Sales Counter"}</h1>
             <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-              Periode {form.period} · v{form.version ?? 1} · {form.owner.name}
+              Periode {form.period} · {form.owner.name}
             </p>
             <p className="mt-0.5 text-xs flex items-center gap-1.5 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
               <span>Outlet: <strong>{form.kodePI ? `${form.kodePI} · ` : ""}{form.namaOutlet || form.kodePI}</strong></span>

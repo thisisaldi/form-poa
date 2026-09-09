@@ -1,93 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
-import type { SelectedProductRow } from "./hooks/useSalesCounterEditor";
+import type { ProductSelectorProps } from "./types/editorProps";
+import { Req, InfoTooltip } from "./ui";
+import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
+import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
-import type { Product } from "@/lib/masterData";
 import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction } from "@/app/actions/canvasser";
 import { aggregateHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 
-interface ProductSelectorProps {
-  rows: SelectedProductRow[];
-  onAddRow: () => void;
-  onRemoveRow: (index: number) => void;
-  onUpdateRow: (index: number, fields: Partial<SelectedProductRow>) => void;
-  productsOptions: any[];
-  canvasserProducts: SalesCounterProduct[];
-  masterProducts: Product[];
-  lamaPeriode: number;
-  periodeAwal?: string;
-  diskonPeriode?: string;
-  cashbackPeriode?: string;
-  cashbackData?: any;
-  hideCashback?: boolean;
-  error?: string;
-  readOnly?: boolean;
-  b3SalesMap?: Map<string, number>;
-  b3QtyMap?: Map<string, number>;
-  b3RangeLabel?: string;
-  kodePI?: string;
-}
-
-function Req() {
-  return <span style={{ color: "var(--color-red)", marginLeft: 2 }}>*</span>;
-}
-
-function formatRp(val: string | number | null | undefined) {
-  if (val == null) return "-";
-  const n = typeof val === "number" ? val : parseFloat(val.toString());
-  if (isNaN(n)) return "-";
-  return Math.round(n).toLocaleString("id-ID");
-}
-
-function satuanLabel(product: Product | null | undefined): string {
-  const s = product?.satuan?.trim();
-  return s && !/^[-—–]$/.test(s) ? s : "SJ";
-}
-
-export function InfoTooltip({ text, size = "sm" }: { text: string; size?: "sm" | "md" }) {
-  const [open, setOpen] = useState(false);
-  const sizeClasses = size === "sm" ? "w-3.5 h-3.5 text-[9px]" : "w-4 h-4 text-[10px]";
-
-  return (
-    <span className="relative inline-flex items-center text-left">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((prev) => !prev);
-        }}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        className={`inline-flex items-center justify-center rounded-full font-bold border transition-colors cursor-pointer ${sizeClasses}`}
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-bg)",
-          color: "var(--color-text-muted)",
-        }}
-        aria-label="Informasi"
-      >
-        i
-      </button>
-      {open && (
-        <span
-          className="absolute right-0 top-full mt-1.5 z-50 w-64 max-w-[260px] p-2.5 rounded-lg shadow-2xl text-xs font-normal normal-case text-left bg-slate-900 text-slate-100 border border-slate-700 leading-relaxed animate-fade-in pointer-events-none whitespace-normal break-words"
-        >
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
-
-function formatHnaLabel(product: Product | null | undefined): string {
-  const s = satuanLabel(product);
-  if (s.startsWith("(") && s.endsWith(")")) return `HNA ${s}`;
-  return `HNA (${s})`;
-}
+export { InfoTooltip };
 
 export function ProductSelector({
   rows,
@@ -102,6 +26,7 @@ export function ProductSelector({
   diskonPeriode,
   cashbackData,
   hideCashback = false,
+  isLoading = false,
   error,
   readOnly = false,
   b3SalesMap,
@@ -280,15 +205,15 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = isCashbackNotFound ? (!readOnly ? "w-[29%] min-w-[230px]" : "w-[33%] min-w-[250px]") : (!readOnly ? "w-[24%] min-w-[210px]" : "w-[28%] min-w-[230px]");
-  const colPotensiWidth = isCashbackNotFound ? "w-[8%] min-w-[80px]" : "w-[7%] min-w-[75px]";
-  const colSwitchWidth = isCashbackNotFound ? "w-[15%] min-w-[130px]" : "w-[13%] min-w-[125px]";
-  const colDiskonWidth = "w-[7%] min-w-[65px]";
-  const colEstSalesWidth = isCashbackNotFound ? "w-[18%] min-w-[145px]" : "w-[16%] min-w-[140px]";
-  const colNilaiScWidth = isCashbackNotFound ? "w-[17%] min-w-[140px]" : "w-[15%] min-w-[135px]";
-  const colCashbackWidth = "w-[13%] min-w-[125px]";
-  const colActionWidth = "w-[6%] min-w-[56px]";
-  const tableMinWidth = isCashbackNotFound ? "min-w-[880px]" : "min-w-[980px]";
+  const colProdukWidth = !readOnly ? "w-[21%] min-w-[170px]" : "w-[24%] min-w-[185px]";
+  const colPotensiWidth = "w-[6%] min-w-[55px]";
+  const colSwitchWidth = "w-[12%] min-w-[105px]";
+  const colDiskonWidth = "w-[5%] min-w-[45px]";
+  const colEstSalesWidth = "w-[15%] min-w-[120px]";
+  const colNilaiScWidth = "w-[15%] min-w-[120px]";
+  const colCashbackWidth = "w-[13%] min-w-[115px]";
+  const colActionWidth = "w-[5%] min-w-[40px]";
+  const tableMinWidth = "min-w-[770px]";
 
   return (
     <div className="space-y-4">
@@ -316,48 +241,97 @@ export function ProductSelector({
           <table className={`w-full text-left text-xs border-collapse table-fixed ${tableMinWidth}`}>
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                <th className={`py-2.5 pl-4 pr-2 font-semibold text-[11px] text-left whitespace-nowrap ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 pl-3 pr-2 font-semibold text-[11px] text-left ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Produk <Req />
                 </th>
-                <th className={`py-2.5 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Potensi / Bln
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="leading-tight">
+                    <div>Potensi</div>
+                    <div className="text-[9px] font-normal opacity-75">/ Bln</div>
+                  </div>
                 </th>
-                <th className={`py-2.5 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Est. Switch / Bln<Req />
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="leading-tight">
+                    <div>Est. Switch<Req /></div>
+                    <div className="text-[9px] font-normal opacity-75">/ Bln</div>
+                  </div>
                 </th>
-                <th className={`py-2.5 px-1 font-semibold text-[11px] text-center whitespace-nowrap ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div>Diskon</div>
-                  {diskonPeriode && (
-                    <div className="text-[9px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                      ({diskonPeriode})
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="leading-tight">
+                    <div>Diskon</div>
+                    {diskonPeriode && (
+                      <div className="text-[9px] font-normal opacity-75">
+                        ({diskonPeriode})
+                      </div>
+                    )}
+                  </div>
+                </th>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="leading-tight">
+                    <div>Est. Sales</div>
+                    <div className="text-[9px] font-normal opacity-75">/ Bln</div>
+                  </div>
+                </th>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="leading-tight">
+                    <div>Est. Insentif</div>
+                    <div className="text-[9px] font-normal opacity-75">SC / Bln</div>
+                  </div>
+                </th>
+                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="inline-flex items-center justify-center gap-1">
+                    <div className="leading-tight text-center">
+                      <div>Est. Cashback</div>
+                      <div className="text-[9px] font-normal opacity-75">/ Bln</div>
                     </div>
-                  )}
+                    <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
+                  </div>
                 </th>
-                <th className={`py-2.5 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Est. Sales / Bln
-                </th>
-                <th className={`py-2.5 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  Est. Insentif SC / Bln
-                </th>
-                {!isCashbackNotFound && (
-                  <th className={`py-2.5 px-1.5 font-semibold text-[11px] text-center whitespace-nowrap ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                    <div className="inline-flex items-center justify-center gap-1">
-                      <span>Est. Cashback / Bln</span>
-                      <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
-                    </div>
-                  </th>
-                )}
                 {!readOnly && (
-                  <th className={`py-2.5 px-2 text-center font-semibold text-[11px] whitespace-nowrap ${colActionWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <th className={`py-2 px-1 text-center font-semibold text-[11px] ${colActionWidth}`} style={{ color: "var(--color-text-muted)" }}>
                     Aksi
                   </th>
                 )}
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-              {rows.length === 0 ? (
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, sIdx) => (
+                  <tr key={`skeleton-${sIdx}`} className="animate-pulse">
+                    <td className="py-3 pl-4 pr-2.5">
+                      <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded w-full mb-1.5" />
+                      <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-2/3" />
+                    </td>
+                    <td className="py-3 px-1 text-center">
+                      <div className="h-6 bg-slate-200 dark:bg-slate-700/50 rounded w-full" />
+                    </td>
+                    <td className="py-3 px-1 text-center">
+                      <div className="h-6 bg-slate-200 dark:bg-slate-700/50 rounded w-full" />
+                    </td>
+                    <td className="py-3 px-1 text-center">
+                      <div className="h-5 bg-slate-200 dark:bg-slate-700/50 rounded w-3/4 mx-auto" />
+                    </td>
+                    <td className="py-3 px-1.5 text-center">
+                      <div className="h-5 bg-slate-200 dark:bg-slate-700/50 rounded w-4/5 mx-auto mb-1" />
+                      <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-1/2 mx-auto" />
+                    </td>
+                    <td className="py-3 px-1.5 text-center">
+                      <div className="h-5 bg-slate-200 dark:bg-slate-700/50 rounded w-4/5 mx-auto mb-1" />
+                      <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-3/5 mx-auto" />
+                    </td>
+                    <td className="py-3 px-1.5 text-center">
+                      <div className="h-5 bg-slate-200 dark:bg-slate-700/50 rounded w-3/4 mx-auto" />
+                    </td>
+                    {!readOnly && (
+                      <td className="py-3 px-2 text-center">
+                        <div className="h-6 w-6 bg-slate-200 dark:bg-slate-700/50 rounded mx-auto" />
+                      </td>
+                    )}
+                  </tr>
+                ))
+              ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={isCashbackNotFound ? (readOnly ? 6 : 7) : (readOnly ? 7 : 8)} className="py-6 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  <td colSpan={readOnly ? 7 : 8} className="py-6 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
                     Belum ada produk yang ditambahkan. Klik tombol <strong>+ Tambah Produk</strong> di bawah untuk memilih produk.
                   </td>
                 </tr>
@@ -558,7 +532,19 @@ export function ProductSelector({
                                   Growth: {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
                                 </div>
                               ) : (
-                                <div>Growth: 0%</div>
+                                <div className="flex items-center justify-center gap-1">
+                                  <span>Growth:</span>
+                                  <span
+                                    className="inline-block text-[9px] font-semibold px-1 py-0.2 rounded border leading-none"
+                                    style={{
+                                      background: "rgba(22, 163, 74, 0.12)",
+                                      color: "#16a34a",
+                                      borderColor: "rgba(22, 163, 74, 0.3)",
+                                    }}
+                                  >
+                                    Baru
+                                  </span>
+                                </div>
                               )}
                             </div>
                           );
@@ -566,34 +552,32 @@ export function ProductSelector({
                       </td>
 
                       {/* Column 7: Nilai Cashback / Bln */}
-                      {!isCashbackNotFound && (
-                        <td className="py-2 px-1.5 text-center align-top">
-                          {isCashbackNotFound ? (
-                            <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
-                              0
-                            </div>
-                          ) : (
-                            (() => {
-                              const cbMonthly = cashbackDetails.monthlyResultMap.get(row.kodeProduk) ?? 0;
-                              const isEligible = cashbackDetails.itemEligibilityMap?.get(row.kodeProduk) ?? false;
-                              const displayPct = isEligible && cbMonthly > 0 ? (row.persenCashback || 0) : 0;
-                              return (
-                                <>
-                                  <div className="font-semibold text-[11px]" style={{ color: "var(--color-green, #16a34a)" }}>
-                                    Rp {formatRp(cbMonthly)}
-                                  </div>
-                                  <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-green, #16a34a)" }}>
-                                    <div>Cashback: <strong style={{ color: "var(--color-green, #16a34a)" }}>{displayPct}%</strong></div>
-                                    {cbMonthly > 0 && (
-                                      <div>3 Bln: Rp {formatRp(cbMonthly * 3)}</div>
-                                    )}
-                                  </div>
-                                </>
-                              );
-                            })()
-                          )}
-                        </td>
-                      )}
+                      <td className="py-2 px-1.5 text-center align-top">
+                        {isCashbackNotFound ? (
+                          <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
+                            -
+                          </div>
+                        ) : (
+                          (() => {
+                            const cbMonthly = cashbackDetails.monthlyResultMap.get(row.kodeProduk) ?? 0;
+                            const isEligible = cashbackDetails.itemEligibilityMap?.get(row.kodeProduk) ?? false;
+                            const displayPct = isEligible && cbMonthly > 0 ? (row.persenCashback || 0) : 0;
+                            return (
+                              <>
+                                <div className="font-semibold text-[11px]" style={{ color: "var(--color-green, #16a34a)" }}>
+                                  Rp {formatRp(cbMonthly)}
+                                </div>
+                                <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-green, #16a34a)" }}>
+                                  <div>Cashback: <strong style={{ color: "var(--color-green, #16a34a)" }}>{displayPct}%</strong></div>
+                                  {cbMonthly > 0 && (
+                                    <div>3 Bln: Rp {formatRp(cbMonthly * 3)}</div>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })()
+                        )}
+                      </td>
 
                       {/* Column 8: Delete Action */}
                       {!readOnly && (
@@ -647,11 +631,9 @@ export function ProductSelector({
                   <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
                     Rp {formatRp(grandTotalNilaiScBln)}
                   </td>
-                  {!isCashbackNotFound && (
-                    <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-green, #16a34a)" }}>
-                      Rp {formatRp(cashbackDetails.totalFinalCashbackMonthly)}
-                    </td>
-                  )}
+                  <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-faint)" : "var(--color-green, #16a34a)" }}>
+                    {isCashbackNotFound ? "-" : `Rp ${formatRp(cashbackDetails.totalFinalCashbackMonthly)}`}
+                  </td>
                   {!readOnly && <td className="py-2.5 px-2 text-center"></td>}
                 </tr>
               </tfoot>
@@ -665,7 +647,8 @@ export function ProductSelector({
             <button
               type="button"
               onClick={onAddRow}
-              className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-md border border-dashed hover:bg-white text-xs font-medium transition-all cursor-pointer"
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-1.5 py-2 px-4 rounded-md border border-dashed hover:bg-white text-xs font-medium transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 borderColor: "var(--color-border-strong)",
                 color: "var(--color-text-muted)",
