@@ -5,6 +5,7 @@ import { listMyPoaStandarisasiAction } from "@/app/actions/poaStandarisasi";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { DeletePoaStandarisasiButton } from "@/components/poaStandarisasi/DeletePoaStandarisasiButton";
 
 function formatTanggal(d: Date | string | null): string {
   return d ? new Date(d).toLocaleDateString("id-ID") : "—";
@@ -140,9 +141,14 @@ export default async function PoaStandarisasiListPage() {
                     <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.estimasiTimelineSelesai)}</td>
                     <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.jadwalMeetingKft)}</td>
                     <td className="py-3 text-right">
-                      <Link href={`/poa-standarisasi/${p.id}`} className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
-                        Detail
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        {p.currentPhase === "PLANNING" && (
+                          <DeletePoaStandarisasiButton pengajuanId={p.id} namaOutlet={p.outlet.namaOutlet} />
+                        )}
+                        <Link href={`/poa-standarisasi/${p.id}`} className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+                          Detail
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                   );

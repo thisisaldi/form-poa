@@ -188,6 +188,27 @@ export async function getPoaStandarisasiDetail(id: string): Promise<PoaStandaris
   return serializeDetail(pengajuan, discounts);
 }
 
+/**
+ * Delete a pengajuan (2026-09-09 user request: "tambahin button hapus juga
+ * di page /poa-standarisasi sama kayak yang poa estimasi"). Restricted to
+ * Phase 1 (PLANNING) only — same DRAFT-only spirit as POA Estimasi's
+ * deletePoaAction (poa.ts), before ASM/SM or any dokter has acted on it.
+ * Every child row (produk, dokter, kpdm, dokumen, reassign logs) cascades
+ * via `onDelete: Cascade` in schema.prisma — no manual cleanup needed here,
+ * unlike PoaForm's separate poaAuditLog table.
+ */
+export async function deletePoaStandarisasiAction(id: string): Promise<{ error?: string }> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) return { error: "Pengajuan tidak ditemukan." };
+  if (!canEditPoaStandarisasi(actor, pengajuan)) return { error: "Tidak punya akses." };
+  if (pengajuan.currentPhase !== "PLANNING") return { error: "Hanya pengajuan di tahap Planning yang bisa dihapus." };
+
+  await prisma.poaStandarisasi.delete({ where: { id } });
+  revalidatePath("/poa-standarisasi");
+  return {};
+}
+
 export async function listMyPoaStandarisasiAction() {
   const session = await requireSession();
   const rows = await prisma.poaStandarisasi.findMany({
