@@ -9,7 +9,6 @@ import { UnitInput } from "./UnitInput";
 import { ScSidebar } from "./ScSidebar";
 import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
-import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getB3PeriodInfo } from "@/lib/b3Utils";
@@ -20,7 +19,6 @@ import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
 import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { useScToast } from "../ui/ScToast";
 
 interface SalesCounterLineItemEditorProps {
   poaId: string;
@@ -105,8 +103,6 @@ export function SalesCounterLineItemEditor({
     setRowQuarter,
     entertainList,
     updateEntertainValue,
-    persenResepDokter,
-    setPersenResepDokter,
     jumlahKaryawan,
     setJumlahKaryawan,
     jumlahPasien,
@@ -184,7 +180,6 @@ export function SalesCounterLineItemEditor({
     [savedDrafts, outletId]
   );
 
-  const isReadOnly = false;
   const isSubmittingEditRequest =
     activeDraft &&
     activeDraft.status !== "DRAFT" &&
@@ -202,32 +197,41 @@ export function SalesCounterLineItemEditor({
     const b3Info = getB3PeriodInfo(poaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
-    postHistorySalesAction([outletId], b3Info.targetPeriods).then((res) => {
+    const scProCodes = Array.from(new Set(canvasserProducts.map((cp) => cp.pro_code).filter(Boolean)));
+    if (scProCodes.length === 0) {
+      setB3SalesMap(new Map());
+      setOutletTotalAvgB3Sales(0);
+      return;
+    }
+
+    postHistorySalesAction([outletId], b3Info.targetPeriods, scProCodes).then((res) => {
       const parsed = parseOutletHistorySales(res, outletId);
       if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
         setB3SalesMap(parsed.productSalesMap);
         setOutletTotalAvgB3Sales(parsed.averageSales);
       } else {
-        // Fallback to selected codes with getScOutletB3SalesAction if postHistorySales has no data
-        const selectedCodes = selectedProducts.map((p) => p.kodeProduk).filter(Boolean);
-        if (selectedCodes.length > 0) {
-          getScOutletB3SalesAction(b3Info.period, outletId, selectedCodes).then((fallbackRes) => {
-            const map = new Map<string, number>();
-            if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
-              for (const item of fallbackRes.data) {
-                if (item.pro_code) {
-                  map.set(item.pro_code, item.average_sales || 0);
-                }
+        // Fallback to getScOutletB3SalesAction for all SC products
+        getScOutletB3SalesAction(b3Info.period, outletId, scProCodes).then((fallbackRes) => {
+          const map = new Map<string, number>();
+          let totalVal = 0;
+          if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
+            for (const item of fallbackRes.data) {
+              if (item.pro_code) {
+                const val = Number(item.average_sales) || 0;
+                map.set(item.pro_code, val);
+                map.set(item.pro_code.replace(/^0+/, ""), val);
+                totalVal += val;
               }
             }
-            if (map.size > 0) {
-              setB3SalesMap(map);
-            }
-          });
-        }
+          }
+          if (map.size > 0) {
+            setB3SalesMap(map);
+            setOutletTotalAvgB3Sales(totalVal);
+          }
+        });
       }
     });
-  }, [outletId, poaPeriod, selectedProducts]);
+  }, [outletId, poaPeriod, canvasserProducts]);
 
   const productOptions = useMemo(() => {
     return buildScProductOptions({
@@ -240,10 +244,6 @@ export function SalesCounterLineItemEditor({
       surveyData,
     });
   }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products, historySalesData, surveyData]);
-
-  const selectedPerson = personId ? personsList.find((p) => p.person_id === personId) : null;
-  const totalEstimasi = selectedProducts.reduce((sum, p) => sum + p.rencanaTotalBiaya, 0);
-  const totalEntertain = entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0);
 
   const [historyEntertain, setHistoryEntertain] = useState<number | null>(null);
   const [loadingHistoryEntertain, setLoadingHistoryEntertain] = useState(false);
@@ -442,7 +442,7 @@ export function SalesCounterLineItemEditor({
                 border: "1px solid var(--color-warning, #f59e0b)",
               }}
             >
-              Outlet ini sudah berstatus <strong>{formatHumanStatus(activeDraft?.status)}</strong>. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {activeDraft?.status === "SUBMITTED_TO_NSM" || activeDraft?.status === "APPROVED_BY_SM" || activeDraft?.status === "APPROVED_BY_NSM" ? "SM" : "ASM"}).
+              Outlet ini sudah berstatus <strong>{formatHumanStatus(activeDraft?.status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {activeDraft?.status === "SUBMITTED_TO_NSM" || activeDraft?.status === "APPROVED_BY_NSM" ? "NSM" : activeDraft?.status === "SUBMITTED_TO_SM" || activeDraft?.status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
             </div>
           )}
 

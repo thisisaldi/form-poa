@@ -135,18 +135,22 @@ export async function GET(
 
   const outletCodes = Array.from(new Set(drafts.map((d: any) => d.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
+  const outletScProductCodesMap = new Map<string, Set<string>>();
 
   await Promise.all(
     outletCodes.map(async (kodePI: string) => {
       try {
         const res = await getSalesCounterProduct(kodePI);
         if (res?.data) {
+          const scSet = new Set<string>();
           for (const cp of res.data) {
             canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
               sales_counter_value: cp.sales_counter_value || 0,
               sales_counter_minimum: cp.sales_counter_minimum || 0,
             });
+            if (cp.pro_code) scSet.add(cp.pro_code);
           }
+          outletScProductCodesMap.set(kodePI, scSet);
         }
       } catch (err) {
         console.error(`Error fetching SC products for ${kodePI}:`, err);
@@ -204,8 +208,12 @@ export async function GET(
     const scPersonStr = draft.persons.map((p: any) => `${p.personName} (${p.positionName})`).join(", ") || "-";
     const draftEntertain = draft.entertainItems.reduce((s: number, e: any) => s + (parseFloat(e.biayaEntertain.toString()) || 0), 0);
 
+    const scCodes = outletScProductCodesMap.get(draft.kodePI);
     for (const p of draft.products) {
       if (!p.kodeProduk) continue;
+      if (scCodes && scCodes.size > 0 && !scCodes.has(p.kodeProduk) && !scCodes.has(p.kodeProduk.replace(/^0+/, ""))) {
+        continue;
+      }
 
       const mp = masterMap.get(p.kodeProduk);
       const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;

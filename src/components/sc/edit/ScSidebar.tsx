@@ -51,10 +51,8 @@ function formatHistoryPeriodRange(periodArr?: string[]): string {
   }
 }
 
-const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_BLUE = "var(--color-blue, #0063a0)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
-const SIDEBAR_PURPLE = "#7c3aed";
 const SIDEBAR_RED = "#e11d48";
 
 function formatQtySales(qty: number): string {
@@ -237,8 +235,6 @@ function getHnaForProduct(code: string, masterProducts: any[]): number {
 export function ScSidebar({
   poaPeriod,
   doctorName,
-  productsMenang = [],
-  productsInsentif = [],
   insentifHistory,
   historySalesData,
   salesOnlineData,
@@ -272,9 +268,28 @@ export function ScSidebar({
     return getPreviousQuarterInfo(poaPeriod);
   }, [poaPeriod]);
 
+  const canvasserScCodes = useMemo(() => {
+    const set = new Set<string>();
+    if (Array.isArray(canvasserProducts)) {
+      for (const cp of canvasserProducts) {
+        const code = String(cp.pro_code || cp.kode_item || cp.kodeProduk || "").trim();
+        if (code) {
+          set.add(code);
+          set.add(code.replace(/^0+/, ""));
+        }
+      }
+    }
+    return set;
+  }, [canvasserProducts]);
+
   const effectiveSurveyData = useMemo(() => {
-    return Array.isArray(surveyData) ? surveyData : [];
-  }, [surveyData]);
+    const raw = Array.isArray(surveyData) ? surveyData : [];
+    if (canvasserScCodes.size === 0) return [];
+    return raw.filter((s: any) => {
+      const c = String(s.kodeProduk || "").trim();
+      return canvasserScCodes.has(c) || canvasserScCodes.has(c.replace(/^0+/, ""));
+    });
+  }, [surveyData, canvasserScCodes]);
 
   const historyPeriodSubtext = useMemo(() => {
     return formatHistoryPeriodRange(historySalesData?.period);
@@ -558,69 +573,14 @@ export function ScSidebar({
     });
   }, [noSalesScProducts]);
 
-  const recommendationList = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        code: string;
-        name: string;
-        insentifValue?: number;
-        avgInsentif?: number;
-        avgSellout?: number;
-        totalSellout?: number;
-        activePeriods?: number[];
-        pct?: string;
-        period?: string;
-      }
-    >();
-
-    const processItem = (item: any) => {
-      if (!item) return;
-      const code = typeof item === "string"
-        ? item
-        : String(item.pro_code || item.kode_item || item.kodeProduk || item.code || "").trim();
-      const name = typeof item === "string"
-        ? item
-        : (item.pro_name || item.namaProduk || item.nama_produk || item.name || code);
-      const insentif = typeof item === "object"
-        ? (item.total_insentif ?? item.insentif ?? item.sales_counter_value)
-        : undefined;
-      const avgInsentif = typeof item === "object" ? item.average_insentif : undefined;
-      const avgSellout = typeof item === "object" ? item.average_sellout : undefined;
-      const totalSellout = typeof item === "object" ? item.total_sellout : undefined;
-      const activePeriods = typeof item === "object" ? item.active_periods : undefined;
-      const pct = typeof item === "object" ? (item.pct || item.pelunasan) : undefined;
-      const period = typeof item === "object" ? (item.period || item.periode) : undefined;
-
-      const key = code || name;
-      if (key && !map.has(key)) {
-        map.set(key, {
-          code,
-          name,
-          insentifValue: insentif != null ? Number(insentif) : undefined,
-          avgInsentif: avgInsentif != null ? Number(avgInsentif) : undefined,
-          avgSellout: avgSellout != null ? Number(avgSellout) : undefined,
-          totalSellout: totalSellout != null ? Number(totalSellout) : undefined,
-          activePeriods: Array.isArray(activePeriods) ? activePeriods : undefined,
-          pct,
-          period,
-        });
-      }
-    };
-
-    for (const item of productsMenang) {
-      processItem(item);
-    }
-    for (const item of productsInsentif) {
-      processItem(item);
-    }
-
-    return Array.from(map.values());
-  }, [productsMenang, productsInsentif]);
-
   const sortedLossSalesProducts = useMemo(() => {
     if (!Array.isArray(rekomendasiProduk)) return [];
     return [...rekomendasiProduk]
+      .filter((item) => {
+        if (canvasserScCodes.size === 0) return false;
+        const code = String(item.product_code || item.code || "").trim();
+        return canvasserScCodes.has(code) || canvasserScCodes.has(code.replace(/^0+/, ""));
+      })
       .map((item) => {
         const code = String(item.product_code || item.code || "").trim();
         const hna = getHnaForProduct(code, masterProducts);

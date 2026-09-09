@@ -8,7 +8,6 @@ import { displayRole } from "@/lib/role";
 import { EditQuarterControl } from "@/components/poa/EditQuarterControl";
 import { getSalesCounterDetailData } from "./_services/getSalesCounterDetailData";
 import { SalesCounterActivityTimeline } from "@/components/sc/detail/SalesCounterActivityTimeline";
-import type { PoaAuditLog, User } from "@prisma/client";
 
 export const metadata = { title: "Detail POA Sales Counter · Form POA" };
 

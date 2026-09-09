@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
 import type { SelectedProductRow } from "./hooks/useSalesCounterEditor";
-import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
 import type { Product } from "@/lib/masterData";
-import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction, getScOutletB3SalesAction } from "@/app/actions/canvasser";
+import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction } from "@/app/actions/canvasser";
 import { aggregateHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 
@@ -47,18 +46,6 @@ function formatRp(val: string | number | null | undefined) {
 function satuanLabel(product: Product | null | undefined): string {
   const s = product?.satuan?.trim();
   return s && !/^[-—–]$/.test(s) ? s : "SJ";
-}
-
-function formatPeriodeDiskonLabel(p?: string) {
-  if (!p || p.length !== 6) return null;
-  const year = p.slice(0, 4);
-  const monthIdx = parseInt(p.slice(4, 6), 10) - 1;
-  const MONTH_NAMES = [
-    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
-  ];
-  if (isNaN(monthIdx) || monthIdx < 0 || monthIdx > 11) return p;
-  return `${p} (${MONTH_NAMES[monthIdx]} ${year})`;
 }
 
 export function InfoTooltip({ text, size = "sm" }: { text: string; size?: "sm" | "md" }) {
@@ -113,18 +100,15 @@ export function ProductSelector({
   lamaPeriode,
   periodeAwal,
   diskonPeriode,
-  cashbackPeriode,
   cashbackData,
   hideCashback = false,
   error,
   readOnly = false,
   b3SalesMap,
-  b3QtyMap,
   b3RangeLabel,
   kodePI,
 }: ProductSelectorProps) {
   const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
-  const [internalB3QtyMap, setInternalB3QtyMap] = useState<Map<string, number>>(new Map());
   const [historySalesMap, setHistorySalesMap] = useState<
     Map<string, {
       history_sales: number;
@@ -136,11 +120,6 @@ export function ProductSelector({
 
   const [historyPeriodRange, setHistoryPeriodRange] = useState<string>("");
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
-  const selectedProductCodes = useMemo(
-    () => new Set(rows.map((row) => row.kodeProduk).filter(Boolean)),
-    [rows]
-  );
-
 
   useEffect(() => {
     if (!kodePI) {
@@ -182,25 +161,6 @@ export function ProductSelector({
     });
   }, [kodePI]);
 
-  useEffect(() => {
-    if (!kodePI || !periodeAwal) return;
-    const cleanPeriod = periodeAwal.replace(/[^0-9]/g, "");
-    const periodInt = parseInt(cleanPeriod.slice(0, 6), 10);
-    const selectedCodes = rows.map((r) => r.kodeProduk).filter(Boolean);
-    if (!periodInt || isNaN(periodInt) || selectedCodes.length === 0) return;
-
-    getScOutletB3SalesAction(periodInt, kodePI, selectedCodes).then((res) => {
-      const qMap = new Map<string, number>();
-      if (res?.data && Array.isArray(res.data)) {
-        for (const item of res.data) {
-          if (item.pro_code) {
-            qMap.set(item.pro_code, item.average_qty || 0);
-          }
-        }
-      }
-      setInternalB3QtyMap(qMap);
-    });
-  }, [kodePI, periodeAwal, rows]);
 
   useEffect(() => {
     if (!kodePI || !periodeAwal) {
@@ -224,7 +184,7 @@ export function ProductSelector({
 
     const availableOptionCodes = new Set([
       ...(productsOptions || []).map((p: any) => p.value || p.kodeProduk),
-      ...(masterProducts || []).map((p: any) => p.kodeProduk),
+      ...(canvasserProducts || []).map((p: any) => p.pro_code),
     ].filter(Boolean));
 
     getRecommendedProCodesAction(selectedSourceCodes)
@@ -284,7 +244,6 @@ export function ProductSelector({
 
   // Calculate grand totals for table footer
   let grandTotalQtyUb = 0;
-  let grandTotalQtySt = 0;
   let grandTotalEstSalesBln = 0;
   let grandTotalNilaiScBln = 0;
 
@@ -296,9 +255,7 @@ export function ProductSelector({
         p.pro_code?.replace(/^0+/, "") === row.kodeProduk?.replace(/^0+/, "")
     );
     const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
-    const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
     const qtyUb = parseFloat(row.qtyPerBulan) || 0;
-    const qtyST = qtyUb * konv;
     const estSalesBln = qtyUb * hnaSJ;
     const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
     const scVal = canvasserProduct?.sales_counter_value;
@@ -312,7 +269,6 @@ export function ProductSelector({
     }
 
     grandTotalQtyUb += qtyUb;
-    grandTotalQtySt += qtyST;
     grandTotalEstSalesBln += estSalesBln;
     grandTotalNilaiScBln += nilaiScBln;
   });
@@ -355,8 +311,8 @@ export function ProductSelector({
       </div>
 
       {/* Main Product Table Container */}
-      <div className="rounded-lg border overflow-x-auto shadow-xs" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
-        <div className="w-full">
+      <div className="rounded-lg border shadow-xs overflow-hidden" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+        <div className="overflow-x-auto w-full">
           <table className={`w-full text-left text-xs border-collapse table-fixed ${tableMinWidth}`}>
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
@@ -392,7 +348,8 @@ export function ProductSelector({
                   </th>
                 )}
                 {!readOnly && (
-                  <th className={`py-2.5 pl-1 pr-3 text-center font-semibold text-[11px] ${colActionWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <th className={`py-2.5 px-2 text-center font-semibold text-[11px] whitespace-nowrap ${colActionWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                    Aksi
                   </th>
                 )}
               </tr>
@@ -414,10 +371,7 @@ export function ProductSelector({
                   );
 
                   const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
-                  const konv = masterProduct ? (parseInt(masterProduct.konversiPembagi || "1", 10) || 1) : 1;
-                  const hnaST = hnaSJ / konv;
                   const qtyUb = parseFloat(row.qtyPerBulan) || 0;
-                  const qtyST = qtyUb * konv;
                   const estSalesBln = qtyUb * hnaSJ;
                   const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
@@ -431,8 +385,6 @@ export function ProductSelector({
                   } else {
                     nilaiScBln = estSalesBln * (pctMatriks / 100);
                   }
-
-                  const isExpanded = expandedRows[idx] ?? false;
 
                   return (
                     <tr key={idx} id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`} className="align-top hover:bg-slate-50/50 transition-colors">
@@ -645,11 +597,11 @@ export function ProductSelector({
 
                       {/* Column 8: Delete Action */}
                       {!readOnly && (
-                        <td className="py-2.5 pl-1 pr-3 text-center align-top">
+                        <td className="py-2 px-2 text-center align-middle">
                           <button
                             type="button"
                             onClick={() => onRemoveRow(idx)}
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-red-50 text-red-500 hover:text-red-700 transition-colors cursor-pointer border border-transparent hover:border-red-200"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-red-500 hover:text-red-700 bg-red-50/70 hover:bg-red-100 border border-red-200/70 hover:border-red-300 transition-all cursor-pointer shadow-2xs"
                             title="Hapus produk"
                           >
                             <svg
@@ -700,7 +652,7 @@ export function ProductSelector({
                       Rp {formatRp(cashbackDetails.totalFinalCashbackMonthly)}
                     </td>
                   )}
-                  {!readOnly && <td className="py-2.5 pl-1 pr-3"></td>}
+                  {!readOnly && <td className="py-2.5 px-2 text-center"></td>}
                 </tr>
               </tfoot>
             )}

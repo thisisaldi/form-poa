@@ -36,7 +36,6 @@ function resolveApotekOnlinePeriod(poaPeriod?: string | null): {
 export function OnlineApotekSalesWidget({
   poaPeriod,
   outletCode = "",
-  outletName = "",
   isOnline,
   className = "",
 }: OnlineApotekSalesWidgetProps) {

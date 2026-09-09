@@ -12,13 +12,12 @@ import {
 export function SalesCounterApprovePanel({
   selectedCount,
   actionableCount,
-  totalCount,
   selectedIds,
   onActionComplete,
 }: {
   selectedCount: number;
   actionableCount: number;
-  totalCount: number;
+  totalCount?: number;
   selectedIds: string[];
   onActionComplete?: () => void;
 }) {

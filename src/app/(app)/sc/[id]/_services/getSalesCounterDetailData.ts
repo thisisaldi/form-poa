@@ -7,6 +7,7 @@ import type { ScDraftFormItem } from "@/components/sc/types";
 import { getSalesCounterProduct } from "./getSalesCounterProduct";
 import { getHistorySales } from "./getHistorySales";
 import { postHistorySales } from "./postHistorySales";
+import { getScOutletB3Sales } from "./getScOutletB3Sales";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { getB3ByQuarter } from "@/lib/b3Utils";
@@ -175,20 +176,17 @@ export async function getSalesCounterDetailData(
   const b3Info = getB3ByQuarter(targetPeriod);
   const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
 
-  const [blastInSet, rawOutlets, batchHistoryRes] = await Promise.all([
+  const [blastInSet, rawOutlets] = await Promise.all([
     getBlastInOutletSet(),
     getSalesCounterOutletsDirect(actor.nip),
-    outletCodes.length > 0
-      ? postHistorySales({ piCodes: outletCodes, period: b3Info.targetPeriods, agg: true }).catch(() => null)
-      : Promise.resolve(null),
   ]);
 
   await Promise.all(
     outletCodes.map(async (kodePI: string) => {
       try {
         const scProductRes = await getSalesCounterProduct(kodePI).catch(() => null);
+        const scCodes = new Set<string>();
         if (scProductRes?.data) {
-          const scCodes = new Set<string>();
           for (const cp of scProductRes.data) {
             canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
               sales_counter_value: cp.sales_counter_value || 0,
@@ -200,25 +198,47 @@ export async function getSalesCounterDetailData(
           outletScTotalCountMap.set(kodePI, scProductRes.data.length);
         }
 
-        const parsedBatch = parseOutletHistorySales(batchHistoryRes, kodePI);
-        if (parsedBatch.totalSales > 0) {
-          outletHistorySalesQuarterMap.set(kodePI, parsedBatch.totalSales);
-        } else {
-          // Fallback to legacy getHistorySales if batch yielded no sales
-          const historyRes = await getHistorySales(kodePI, false).catch(() => null);
-          if (historyRes?.data && Array.isArray(historyRes.data)) {
-            let totalValSum = 0;
-            for (const it of historyRes.data) {
-              const itemPeriod = Number(it.period);
-              const salesVal = Number(it.sales_value) || 0;
-              if (targetPeriodsSet.has(itemPeriod) && salesVal > 0) {
-                totalValSum += salesVal;
+        const scProCodes = Array.from(scCodes);
+        if (scProCodes.length > 0) {
+          const histRes = await postHistorySales({
+            piCodes: [kodePI],
+            period: b3Info.targetPeriods,
+            agg: true,
+            proCodes: scProCodes,
+          }).catch(() => null);
+
+          const parsed = parseOutletHistorySales(histRes, kodePI);
+          if (parsed.totalSales > 0) {
+            outletHistorySalesQuarterMap.set(kodePI, parsed.totalSales);
+          } else {
+            // Fallback 1: getScOutletB3Sales for SC products
+            const b3Items = await getScOutletB3Sales(b3Info.period, kodePI, scProCodes).catch(() => []);
+            const activeB3 = (b3Items || []).filter((it: any) => (Number(it.average_sales) || 0) > 0 || (Number(it.average_qty) || 0) > 0);
+            if (activeB3.length > 0) {
+              const totalB3Val = activeB3.reduce((sum, it) => sum + (Number(it.average_sales) || 0), 0) * 3;
+              if (totalB3Val > 0) {
+                outletHistorySalesQuarterMap.set(kodePI, totalB3Val);
+              }
+            } else {
+              // Fallback 2: legacy getHistorySales strictly filtered by SC codes
+              const historyRes = await getHistorySales(kodePI, false).catch(() => null);
+              if (historyRes?.data && Array.isArray(historyRes.data)) {
+                let totalValSum = 0;
+                for (const it of historyRes.data) {
+                  const itemPeriod = Number(it.period);
+                  const salesVal = Number(it.sales_value) || 0;
+                  if (targetPeriodsSet.has(itemPeriod) && salesVal > 0 && it.code && scCodes.has(it.code)) {
+                    totalValSum += salesVal;
+                  }
+                }
+                if (totalValSum > 0) {
+                  outletHistorySalesQuarterMap.set(kodePI, totalValSum);
+                }
               }
             }
-            if (totalValSum > 0) {
-              outletHistorySalesQuarterMap.set(kodePI, totalValSum);
-            }
           }
+        } else {
+          outletHistorySalesQuarterMap.set(kodePI, 0);
         }
       } catch (err) {
         console.error(`Error fetching SC data for ${kodePI}:`, err);
@@ -233,7 +253,10 @@ export async function getSalesCounterDetailData(
   const scDrafts: ScDraftFormItem[] = drafts.map((d: any) => {
     const scCodes = outletScProductCodesMap.get(d.kodePI) || new Set<string>();
     const totalScProducts = outletScTotalCountMap.get(d.kodePI) ?? 0;
-    const validScProductsCount = d.products.filter((p: any) => scCodes.has(p.kodeProduk)).length;
+    const scOnlyProducts = scCodes.size > 0
+      ? d.products.filter((p: any) => scCodes.has(p.kodeProduk) || scCodes.has(String(p.kodeProduk || "").replace(/^0+/, "")))
+      : d.products;
+    const validScProductsCount = scOnlyProducts.length;
 
     return {
       id: d.id,
@@ -261,7 +284,7 @@ export async function getSalesCounterDetailData(
         personName: p.personName,
         positionName: p.positionName,
       })),
-      products: d.products.map((p: any) => {
+      products: scOnlyProducts.map((p: any) => {
         const mp = masterProductMap.get(p.kodeProduk);
         const cp = canvasserProductMap.get(`${d.kodePI}_${p.kodeProduk}`);
         const isScProduct = scCodes.has(p.kodeProduk);
@@ -288,6 +311,24 @@ export async function getSalesCounterDetailData(
         id: e.id,
         periodeMonth: e.periodeMonth,
         biayaEntertain: Number(e.biayaEntertain.toString()),
+      })),
+      auditLogs: (d.auditLogs || []).map((log: any) => ({
+        id: log.id,
+        poaScId: log.poaScId,
+        actorId: log.actorId,
+        action: log.action,
+        fromStatus: log.fromStatus,
+        toStatus: log.toStatus,
+        snapshot: log.snapshot,
+        createdAt: log.createdAt,
+        actor: log.actor
+          ? {
+              nip: log.actor.nip,
+              name: log.actor.name,
+              role: log.actor.role,
+              jabatan: log.actor.jabatan,
+            }
+          : null,
       })),
       updatedAt: d.updatedAt,
       createdAt: d.createdAt,

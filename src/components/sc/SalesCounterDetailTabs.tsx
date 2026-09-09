@@ -1,6 +1,5 @@
 "use client";
 
-import type { PoaStatus } from "@prisma/client";
 import { SalesCounterDraftChecklist } from "./SalesCounterDraftChecklist";
 import type { ScDraftFormItem, SalesFigures } from "./types";
 import { ScToastProvider } from "./ui/ScToast";
@@ -9,8 +8,6 @@ export function SalesCounterDetailTabs({
   scDrafts = [],
   poaId,
   poaPeriod,
-  poaStatus,
-  poaVersion,
   showSubmit,
   userCanEdit,
   canApprove,
@@ -25,7 +22,7 @@ export function SalesCounterDetailTabs({
   scDrafts?: ScDraftFormItem[];
   poaId?: string;
   poaPeriod: string;
-  poaStatus?: PoaStatus;
+  poaStatus?: any;
   poaVersion?: number;
   showSubmit?: boolean;
   userCanEdit?: boolean;
