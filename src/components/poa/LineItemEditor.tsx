@@ -1203,6 +1203,7 @@ function ProdukEntryRow({
                 onChange({
                   jumlahResepHari: standarisasiPull.jumlahPasien != null ? String(standarisasiPull.jumlahPasien) : entry.jumlahResepHari,
                   qtyProdukResep: standarisasiPull.resepPerPasienSt != null ? String(standarisasiPull.resepPerPasienSt) : entry.qtyProdukResep,
+                  hariKerjaBulan: standarisasiPull.jumlahHariPraktekPerBulan != null ? String(standarisasiPull.jumlahHariPraktekPerBulan) : entry.hariKerjaBulan,
                   statusStandarisasi: "SUDAH_STANDARISASI",
                 });
               }

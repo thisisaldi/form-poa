@@ -292,6 +292,7 @@ export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukL
 
 export interface StandarisasiDataForDokterProduk {
   jumlahPasien: number | null;
+  jumlahHariPraktekPerBulan: number | null;
   resepPerPasienSt: number | null;
 }
 
@@ -304,8 +305,9 @@ export interface StandarisasiDataForDokterProduk {
  * (`currentPhase === "FINALISASI"`, which also covers post-submit/Step 5 —
  * this app never advances currentPhase past FINALISASI) — a match earlier in
  * the flow (still Planning/Approval) isn't final enough to trust yet.
- * "Hari Praktek" is NOT included — POA Standarisasi has no equivalent field
- * per dokter, only the estimasi Pasien/Resep numbers.
+ * "Hari Praktek" (`jumlahHariPraktekPerBulan`) is included since 2026-09-09 —
+ * POA Standarisasi didn't have that field yet when this toggle was first
+ * built (2026-09-08), so it originally only pulled Pasien/Resep.
  */
 export async function getStandarisasiDataForDokterProdukAction(
   kodePI: string,
@@ -319,11 +321,12 @@ export async function getStandarisasiDataForDokterProdukAction(
       produk: { kodeProduk, pengajuan: { kodePI, currentPhase: "FINALISASI" } },
     },
     orderBy: { createdAt: "desc" },
-    select: { jumlahPasien: true, resepPerPasienSt: true },
+    select: { jumlahPasien: true, jumlahHariPraktekPerBulan: true, resepPerPasienSt: true },
   });
   if (!row) return null;
   return {
     jumlahPasien: row.jumlahPasien,
+    jumlahHariPraktekPerBulan: row.jumlahHariPraktekPerBulan,
     resepPerPasienSt: row.resepPerPasienSt != null ? parseFloat(row.resepPerPasienSt.toString()) : null,
   };
 }
