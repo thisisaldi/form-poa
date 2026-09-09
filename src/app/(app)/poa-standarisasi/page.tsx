@@ -61,12 +61,12 @@ export default async function PoaStandarisasiListPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Outlet</th>
-                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tipe</th>
-                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tahap</th>
-                  <th className="pb-3 pr-3 text-right text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Produk</th>
-                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Target Penyelesaian</th>
-                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>Tanggal KFT</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Outlet</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Tipe</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Tahap</th>
+                  <th className="pb-3 pr-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Produk</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Target Penyelesaian</th>
+                  <th className="pb-3 pr-3 text-left text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Tanggal KFT</th>
                   <th className="pb-3" />
                 </tr>
               </thead>
@@ -76,11 +76,11 @@ export default async function PoaStandarisasiListPage() {
                   const jumlahBerhasil = p.produk.length - jumlahGagal;
                   return (
                   <tr key={p.id}>
-                    <td className="py-3 pr-3" style={{ color: "var(--color-text)" }}>{p.outlet.namaOutlet}</td>
-                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    <td className="py-3 pr-3 align-top" style={{ color: "var(--color-text)" }}>{p.outlet.namaOutlet}</td>
+                    <td className="py-3 pr-3 align-top text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
                       {p.tipeStandarisasi === "PERIODIC" ? "Periodic" : p.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic"}
                     </td>
-                    <td className="py-3 pr-3">
+                    <td className="py-3 pr-3 align-top">
                       <span
                         className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
                         style={{
@@ -92,7 +92,7 @@ export default async function PoaStandarisasiListPage() {
                       </span>
                     </td>
                     {/* Popover pakai <details> native (redline: kolom Produk clickable) — zero-JS, tapi absolutely-positioned di dalam wrapper overflow-x-auto tabel, jadi bisa kepotong kalau tabelnya sendiri lagi di-scroll horizontal. Cukup buat kasus normal (gak scroll), upgrade ke Popover berbasis portal kalau itu jadi masalah nyata. */}
-                    <td className="py-3 pr-3 text-right text-xs" style={{ position: "relative", color: "var(--color-text-muted)" }}>
+                    <td className="py-3 pr-3 align-top text-right text-xs" style={{ position: "relative", color: "var(--color-text-muted)" }}>
                       {p.produk.length === 0 ? (
                         0
                       ) : (
@@ -138,9 +138,9 @@ export default async function PoaStandarisasiListPage() {
                         </div>
                       )}
                     </td>
-                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.estimasiTimelineSelesai)}</td>
-                    <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.jadwalMeetingKft)}</td>
-                    <td className="py-3 text-right">
+                    <td className="py-3 pr-3 align-top text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.estimasiTimelineSelesai)}</td>
+                    <td className="py-3 pr-3 align-top text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.jadwalMeetingKft)}</td>
+                    <td className="py-3 align-top text-right">
                       <div className="flex items-center justify-end gap-3">
                         {p.currentPhase === "PLANNING" && (
                           <DeletePoaStandarisasiButton pengajuanId={p.id} namaOutlet={p.outlet.namaOutlet} />
