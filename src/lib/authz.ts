@@ -856,15 +856,21 @@ export async function canViewPoaStandarisasi(
   return false;
 }
 
-/** Only the owner can edit Phase 1/3/4 content, and only before final submit. */
+/** Only the owner can edit Phase 1/3/4 content, and only before final submit.
+ * ADMIN bypasses ownership (matches canApprovePoaStandarisasiAtasan below) —
+ * the detail page is ADMIN-only (page.tsx redirect), so without this an
+ * ADMIN opening anyone else's pengajuan saw every field disabled. */
 export function canEditPoaStandarisasi(user: User, pengajuan: { ownerId: string; submittedAt: Date | null }): boolean {
+  if (user.role === Role.ADMIN) return !pengajuan.submittedAt;
   return pengajuan.ownerId === user.nip && !pengajuan.submittedAt;
 }
 
 /** Step 5 (Permintaan SP Non Sales & DPL/DPF, 2026-09-08) only exists AFTER
  * final submit — deliberately the inverse submittedAt check of
- * canEditPoaStandarisasi above, same owner-only rule otherwise. */
+ * canEditPoaStandarisasi above, same owner-only rule otherwise (ADMIN bypass
+ * included for the same reason). */
 export function canEditPoaStandarisasiStep5(user: User, pengajuan: { ownerId: string; submittedAt: Date | null }): boolean {
+  if (user.role === Role.ADMIN) return !!pengajuan.submittedAt;
   return pengajuan.ownerId === user.nip && !!pengajuan.submittedAt;
 }
 
