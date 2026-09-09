@@ -5,7 +5,6 @@ import { listMyPoaStandarisasiAction } from "@/app/actions/poaStandarisasi";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { formatRp } from "@/lib/utils";
 
 function formatTanggal(d: Date | string | null): string {
   return d ? new Date(d).toLocaleDateString("id-ID") : "—";
@@ -35,9 +34,14 @@ export default async function PoaStandarisasiListPage() {
             Pengajuan standarisasi yang sudah Anda buat.
           </p>
         </div>
-        <Link href="/poa-standarisasi/new">
-          <Button>+ Buat Standarisasi Baru</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <a href="/api/poa-standarisasi/export">
+            <Button size="sm" variant="ghost">↓ Export Excel</Button>
+          </a>
+          <Link href="/poa-standarisasi/new">
+            <Button>+ Buat Standarisasi Baru</Button>
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -66,7 +70,10 @@ export default async function PoaStandarisasiListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-                {pengajuanList.map((p: (typeof pengajuanList)[number]) => (
+                {pengajuanList.map((p: (typeof pengajuanList)[number]) => {
+                  const jumlahGagal = p.produk.filter((prod: (typeof p.produk)[number]) => prod.standarisasiGagal).length;
+                  const jumlahBerhasil = p.produk.length - jumlahGagal;
+                  return (
                   <tr key={p.id}>
                     <td className="py-3 pr-3" style={{ color: "var(--color-text)" }}>{p.outlet.namaOutlet}</td>
                     <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>
@@ -106,12 +113,28 @@ export default async function PoaStandarisasiListPage() {
                               {p.produk.map((prod: (typeof p.produk)[number]) => (
                                 <div key={prod.id} className="flex items-center justify-between gap-2">
                                   <span style={{ color: "var(--color-text)" }}>{prod.namaProduk}</span>
-                                  <span className="shrink-0" style={{ color: "var(--color-text-muted)" }}>Ent. Rp{formatRp(prod.entertainRp)}</span>
+                                  <span
+                                    className="shrink-0 rounded px-1.5 py-0.5 font-medium"
+                                    style={{
+                                      fontSize: 10,
+                                      background: prod.standarisasiGagal ? "var(--color-error-bg, #FDECEA)" : "var(--color-status-approved-bg, #E6F5EC)",
+                                      color: prod.standarisasiGagal ? "var(--color-error)" : "var(--color-status-approved, #008f42)",
+                                    }}
+                                  >
+                                    {prod.standarisasiGagal ? "Gagal Standarisasi" : "Berhasil Standarisasi"}
+                                  </span>
                                 </div>
                               ))}
                             </div>
                           </div>
                         </details>
+                      )}
+                      {p.submittedAt && p.produk.length > 0 && (
+                        <div className="mt-0.5 font-normal" style={{ color: "var(--color-text-faint)" }}>
+                          {jumlahBerhasil > 0 && <>✓ {jumlahBerhasil} produk berhasil standarisasi</>}
+                          {jumlahBerhasil > 0 && jumlahGagal > 0 && <br />}
+                          {jumlahGagal > 0 && <span style={{ color: "var(--color-error)" }}>✕ {jumlahGagal} produk gagal standarisasi</span>}
+                        </div>
                       )}
                     </td>
                     <td className="py-3 pr-3 text-xs" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.estimasiTimelineSelesai)}</td>
@@ -122,7 +145,8 @@ export default async function PoaStandarisasiListPage() {
                       </Link>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

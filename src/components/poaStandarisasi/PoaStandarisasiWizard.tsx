@@ -343,6 +343,8 @@ export interface ProdukFormState {
   diskonDistributorPct: string;
   finalValueDpRp: string;
   finalBiayaListingRp: string;
+  // Ditandai manual di Finalisasi (2026-09-09 redline) — default false ("Berhasil Standarisasi" tersirat), independen per produk.
+  standarisasiGagal: boolean;
   dokterUser: { customerId: string; jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }[];
 }
 
@@ -363,6 +365,7 @@ export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
     diskonDistributorPct: "",
     finalValueDpRp: "",
     finalBiayaListingRp: "",
+    standarisasiGagal: false,
     dokterUser: [],
   };
 }
@@ -393,6 +396,7 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
       p.finalValueDpRp != null ? String(p.finalValueDpRp) : p.estimasiValueDpRp != null ? String(p.estimasiValueDpRp) : "",
     finalBiayaListingRp:
       p.finalBiayaListingRp != null ? String(p.finalBiayaListingRp) : p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
+    standarisasiGagal: p.standarisasiGagal,
     dokterUser:
       p.dokterUser.length > 0
         ? p.dokterUser.map((d) => ({
@@ -607,6 +611,7 @@ export function PoaStandarisasiWizard({
           diskonDistributorPct: p.diskonDistributorPct || null,
           finalValueDpRp: p.finalValueDpRp || null,
           finalBiayaListingRp: p.finalBiayaListingRp || null,
+          standarisasiGagal: p.standarisasiGagal,
           dokterUser: p.dokterUser
             .filter((d) => d.customerId)
             .map((d) => ({
@@ -1587,10 +1592,6 @@ function ApprovalUserDokterPhase({
             {localError}
           </p>
         )}
-        <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-          Dokter di bawah ini masih bisa ditambah/dihapus di tahap ini (tidak fixed dari Planning) — centang &quot;Sudah TTD&quot; setelah tanda tangan fisik didapat. Form Approval Standarisasi (optional) diupload di tahap Finalisasi.
-        </p>
-
         <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--color-blue)" }}>{p.product.namaProduk}</h3>
         {p.dokterApproval.map((d) => {
           const key = `${p.id}:${d.customerId}`;
@@ -1765,31 +1766,10 @@ function FinalisasiPhase({
   removeDokterUser: (idx: number, customerId: string) => void;
 }) {
   const disabled = !canEdit || !!pengajuan.submittedAt;
-  const [uploadingKft, setUploadingKft] = useState(false);
-  const kftInputRef = useRef<HTMLInputElement | null>(null);
-  // Form Approval Standarisasi upload — per produk, moved here from Menunggu
-  // Meeting KFT (2026-08-26, user request: sama konsepnya dengan Surat
-  // Approval Standarisasi KFT di atas, jadi ditaruh berdekatan).
+  // Form Approval Standarisasi upload — per produk (2026-08-26, dipindah dari Menunggu Meeting KFT).
   const formApprovalInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [uploadingFormApproval, setUploadingFormApproval] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
-
-  async function handleUploadKft(file: File) {
-    setUploadingKft(true);
-    setLocalError(null);
-    try {
-      const fd = new FormData();
-      fd.set("file", file);
-      fd.set("pengajuanId", pengajuan.id);
-      fd.set("kind", "suratKft");
-      await uploadPoaStandarisasiFileAction(fd);
-      window.location.reload();
-    } catch (e) {
-      setLocalError(e instanceof Error ? e.message : "Upload gagal.");
-    } finally {
-      setUploadingKft(false);
-    }
-  }
 
   async function handleUploadFormApproval(produkId: string, file: File) {
     setUploadingFormApproval(produkId);
@@ -1839,38 +1819,6 @@ function FinalisasiPhase({
         </div>
       </div>
 
-      <div className="mb-4">
-        <span className="text-sm font-medium block mb-1">Surat Approval Standarisasi KFT <span className="text-xs font-normal" style={{ color: "var(--color-text-faint)" }}>(optional)</span></span>
-        <div className="flex items-center gap-3">
-          {pengajuan.suratApprovalStandarisasiKftPath ? (
-            <span className="text-xs" style={{ color: "var(--color-status-approved, #008f42)" }}>✓ {pengajuan.suratApprovalStandarisasiKftPath}</span>
-          ) : (
-            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum diupload</span>
-          )}
-          {!disabled && (
-            <>
-              <input
-                ref={kftInputRef}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadKft(f); }}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={uploadingKft || POA_STANDARISASI_UPLOAD_DISABLED}
-                title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
-                onClick={() => kftInputRef.current?.click()}
-              >
-                {uploadingKft ? "Mengupload…" : "Upload"}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
       <div className="mb-6">
         <span className="text-sm font-medium block mb-2">Distributor yang Akan Digunakan</span>
         <div className="flex gap-4">
@@ -1900,7 +1848,24 @@ function FinalisasiPhase({
         const totalEntertain = p.dokterUser.reduce((s, d) => s + (parseFloat(d.entertainRp) || 0), 0);
         return (
           <div key={p.id} className="rounded-lg p-4 mb-4" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border-strong, var(--color-border))" }}>
-            <div className="text-sm font-bold mb-3" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-bold" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</div>
+              {/* Independen per produk — TIDAK menggagalkan seluruh pengajuan (2026-09-09 redline). */}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => updateProduk(idx, { standarisasiGagal: !p.standarisasiGagal })}
+                className="rounded px-2.5 py-1 text-xs font-semibold"
+                style={{
+                  background: p.standarisasiGagal ? "var(--color-error-bg, #FDECEA)" : "transparent",
+                  color: p.standarisasiGagal ? "var(--color-error)" : "var(--color-text-faint)",
+                  border: `1px solid ${p.standarisasiGagal ? "var(--color-error)" : "var(--color-border)"}`,
+                  cursor: disabled ? "default" : "pointer",
+                }}
+              >
+                {p.standarisasiGagal ? "✕ Gagal Standarisasi" : "Tandai Gagal Standarisasi"}
+              </button>
+            </div>
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Finalisasi Biaya</span>
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div>

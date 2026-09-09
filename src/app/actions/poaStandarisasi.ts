@@ -198,19 +198,18 @@ export async function listMyPoaStandarisasiAction() {
         select: {
           id: true,
           product: { select: { namaProduk: true } },
-          dokterApproval: { select: { entertainRp: true } },
+          standarisasiGagal: true,
         },
       },
     },
     orderBy: { createdAt: "desc" },
   });
-  // Entertain per produk = SUM dokterApproval.entertainRp (Planning) — sama basis dengan RingkasanPoa's "Total Biaya Entertain" per produk (2026-09-09, redline list page).
   return rows.map((p: (typeof rows)[number]) => ({
     ...p,
     produk: p.produk.map((prod: (typeof p.produk)[number]) => ({
       id: prod.id,
       namaProduk: prod.product.namaProduk,
-      entertainRp: prod.dokterApproval.reduce((s: number, d: (typeof prod.dokterApproval)[number]) => s + (d.entertainRp ? parseFloat(d.entertainRp.toString()) : 0), 0),
+      standarisasiGagal: prod.standarisasiGagal,
     })),
   }));
 }
@@ -911,6 +910,7 @@ export interface FinalisasiProdukInput {
   diskonDistributorPct: number | string | null;
   finalValueDpRp: number | string | null;
   finalBiayaListingRp: number | string | null;
+  standarisasiGagal: boolean;
   dokterUser: FinalisasiDokterUserInput[];
 }
 
@@ -963,6 +963,7 @@ export async function saveFinalisasiAction(id: string, input: FinalisasiInput): 
           diskonDistributorPct: toNum(p.diskonDistributorPct),
           finalValueDpRp: toNum(p.finalValueDpRp),
           finalBiayaListingRp: toNum(p.finalBiayaListingRp),
+          standarisasiGagal: p.standarisasiGagal,
         },
       });
 

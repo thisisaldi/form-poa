@@ -1429,6 +1429,13 @@ model PoaStandarisasiProduk {
   finalValueDpRp Decimal? @db.Decimal(18, 2)
   // finalEntertain TIDAK ada di sini — computed dari SUM PoaStandarisasiDokterUser.entertainRp
 
+  // Ditandai manual per produk di Finalisasi (2026-09-09, redline "Finalisasi
+  // Biaya" — tombol "Gagal Standarisasi", pojok kanan judul produk). Default
+  // false ("Berhasil Standarisasi" tersirat) — cuma produk yang eksplisit
+  // ditandai gagal yang jadi true. Independen per produk, TIDAK menggagalkan
+  // seluruh pengajuan (submit tetap jalan seperti biasa).
+  standarisasiGagal Boolean @default(false)
+
   formApprovalFilePath    String?
   formApprovalDriveFileId String?
 
