@@ -424,13 +424,6 @@ function isoDateInput(v: string | Date | null): string {
   return dt.toISOString().slice(0, 10);
 }
 
-function isoDatetimeLocalInput(v: string | Date | null): string {
-  if (!v) return "";
-  const dt = typeof v === "string" ? new Date(v) : v;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-}
-
 export function PoaStandarisasiWizard({
   pengajuan,
   productOptions,
@@ -495,7 +488,7 @@ export function PoaStandarisasiWizard({
 
   // Jadwal Meeting KFT — optional field, card kecil di sidebar Approval
   // User/Dokter (2026-09-08, redline kedua: bukan phase terpisah lagi).
-  const [jadwalMeetingKft, setJadwalMeetingKft] = useState(isoDatetimeLocalInput(pengajuan.jadwalMeetingKft));
+  const [jadwalMeetingKft, setJadwalMeetingKft] = useState(isoDateInput(pengajuan.jadwalMeetingKft));
 
   // ── Phase 5 state (Finalisasi) ──────────────────────────────────────────
   const [distributors, setDistributors] = useState<string[]>(pengajuan.distributors ?? []);
@@ -1350,9 +1343,9 @@ export function PlanningPhase(props: {
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Hari Praktek / Bulan</th>
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien / Hari</th>
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Resep/Pasien</th>
-                      <th className="text-right py-1 px-2">Est. Qty/bln</th>
-                      <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2" style={{ minWidth: 150 }}>Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Est. Qty/bln</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Est. Sales/bln</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1700,7 +1693,7 @@ function ApprovalUserDokterPhase({
           <div className="text-sm font-bold mb-2">Jadwal Meeting KFT</div>
           <Input
             label="Jadwal Meeting KFT (optional)"
-            type="datetime-local"
+            type="date"
             value={jadwalMeetingKft}
             onChange={(e) => { setJadwalMeetingKft(e.target.value); setJadwalSaved(false); }}
             disabled={!canEdit}
@@ -1966,9 +1959,9 @@ function FinalisasiPhase({
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Hari Praktek / Bulan</th>
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien / Hari</th>
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Resep/Pasien</th>
-                      <th className="text-right py-1 px-2">Est. Qty/bln</th>
-                      <th className="text-right py-1 px-2">Est. Sales/bln</th>
-                      <th className="text-right py-1 px-2" style={{ minWidth: 150 }}>Entertain</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Est. Qty/bln</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Est. Sales/bln</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Entertain</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -2180,7 +2173,7 @@ function Step5SpNonSalesDplDpf({
 
   return (
     <Card className="mt-4">
-      <CardHeader><CardTitle>Step 5 — Permintaan SP Non Sales & DPL/DPF</CardTitle></CardHeader>
+      <CardHeader><CardTitle>SP Non Sales & DPL / DPF</CardTitle></CardHeader>
 
       {error && (
         <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
