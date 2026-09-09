@@ -46,9 +46,9 @@ Panel "Riwayat Akses Dokumen" (log siapa buka dokumen kapan, `PoaStandarisasiFil
 
 | Formula | Definisi | Sumber |
 |---|---|---|
-| `estimasiQtyPerBulan` (per produk, Planning) | `jumlahPasien × resepPerPasienSt` | Resolved — nilai per bulan |
+| `estimasiQtyPerBulan` (per produk, Planning) | `jumlahPasien × jumlahHariPraktekPerBulan × resepPerPasienSt` (2026-09-09: `jumlahPasien` dijelaskan eksplisit PER HARI di label UI "Jumlah Pasien / Hari", dikali kolom baru "Jumlah Hari Praktek / Bulan" biar jadi angka bulanan — sebelumnya `jumlahPasien` langsung dianggap angka bulanan tanpa multiplier ini) | Resolved — nilai per bulan |
 | `estimasiNilaiRpPerBulan` (per produk, Planning) | `estimasiQtyPerBulan × hargaST(product)` | sama |
-| `estimasiQtyPerBulan`/`estimasiSalesRpPerBulan` (per dokter, Finalisasi) | Formula sama persis dengan level produk (`jumlahPasien × resepPerPasien × hargaST`), dihitung per baris dokter, per bulan | Field baru selaras Planning↔Finalisasi |
+| `estimasiQtyPerBulan`/`estimasiSalesRpPerBulan` (per dokter, Finalisasi) | Formula sama persis dengan level produk (`jumlahPasien × jumlahHariPraktekPerBulan × resepPerPasien × hargaST`), dihitung per baris dokter, per bulan | Field baru selaras Planning↔Finalisasi |
 | `listingPct` / `entertainPct` (tabel Ringkasan POA) | `biayaListingRp / estimasiNilaiRp × 100`, sama untuk entertain — 0% kalau `estimasiNilaiRp` 0 | Konversi tampilan saja, input tetap Rupiah |
 | `totalBudgetPct` (Ringkasan POA per produk) | `discountPct + listingPct + entertainPct` | — |
 | `totalBudgetPct` (stat quad level pengajuan, Finalisasi) | `avgDiscountPct + totalListingPct + kpdmEntertainPct + entertainDokterPct` | **Sumbernya BEDA sengaja** dari kolom Entertain% di tabel per-produk (yang tetap dari `estimasiEntertain` Planning) — dikonfirmasi eksplisit oleh penulis dokumen sumber sebagai perbedaan yang disengaja, bukan bug |

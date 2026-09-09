@@ -1494,12 +1494,17 @@ model PoaStandarisasiDokterApproval {
   buktiTtdDriveFileId String?
 
   // ── Estimasi Standarisasi (Planning) — per dokter, bukan per produk ─────
-  jumlahPasien     Int?
-  resepPerPasienSt Decimal? @db.Decimal(10, 2)
+  // jumlahPasien sekarang eksplisit PER HARI (label UI "Jumlah Pasien / Hari",
+  // 2026-09-09) — dikali jumlahHariPraktekPerBulan buat dapet qty per bulan,
+  // bukan langsung dianggap angka bulanan kayak sebelumnya.
+  jumlahPasien              Int?
+  jumlahHariPraktekPerBulan Int?
+  resepPerPasienSt          Decimal? @db.Decimal(10, 2)
 
   // Nilai PER BULAN (bukan total periode, lihat 01-business-rules.md §3/§7
-  // Q4) — computed di server dari jumlahPasien × resepPerPasienSt ×
-  // hargaST(product), tidak trust dari client.
+  // Q4) — computed di server dari jumlahPasien × jumlahHariPraktekPerBulan ×
+  // resepPerPasienSt × hargaST(product) (formula diperluas 2026-09-09, lihat
+  // §3), tidak trust dari client.
   estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
   estimasiNilaiRpPerBulan Decimal? @db.Decimal(18, 2)
 
@@ -1525,10 +1530,13 @@ model PoaStandarisasiDokterUser {
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id])
 
-  jumlahPasien     Int?
-  resepPerPasienSt Decimal? @db.Decimal(10, 2)
+  jumlahPasien              Int?
+  jumlahHariPraktekPerBulan Int?
+  resepPerPasienSt          Decimal? @db.Decimal(10, 2)
 
-  // Nilai PER BULAN, formula sama dengan level produk — computed di server.
+  // Nilai PER BULAN, formula sama dengan level produk (jumlahPasien ×
+  // jumlahHariPraktekPerBulan × resepPerPasienSt × hargaST, 2026-09-09) —
+  // computed di server.
   estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
   estimasiSalesRpPerBulan Decimal? @db.Decimal(18, 2)
 

@@ -210,6 +210,12 @@ function UnitCountInput({
 // pattern, LineItemEditor.tsx:1419) — doesn't block submit.
 const MARGIN_CAP_PCT = 20;
 
+// Fallback default for "Estimasi Diskon Distributor" when this outlet+produk
+// has no live Exodus discount request on file at all (2026-09-09 user
+// request) — still just a DEFAULT, field stays editable and never overwrites
+// a value the MR already typed/saved.
+const DEFAULT_DISKON_DISTRIBUTOR_PCT = "5";
+
 const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 /** Month-only picker (TODO #10) — separate Bulan + Tahun selects (not one long
@@ -297,6 +303,7 @@ function hargaSTFromProduct(p: Product): number {
 export interface DokterKlinisFormState {
   customerId: string;
   jumlahPasien: string;
+  jumlahHariPraktekPerBulan: string;
   resepPerPasienSt: string;
   entertainRp: string;
 }
@@ -336,7 +343,7 @@ export interface ProdukFormState {
   finalDiscountPct: string;
   diskonDistributorPct: string;
   finalBiayaListingRp: string;
-  dokterUser: { customerId: string; jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }[];
+  dokterUser: { customerId: string; jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }[];
 }
 
 export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
@@ -350,7 +357,7 @@ export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
     estimasiBiayaListingRp: "",
     // New product inherits WHICH dokter to consider, not their estimate figures.
     dokterKlinis: inherit
-      ? inherit.dokterKlinis.map((dk) => ({ customerId: dk.customerId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" }))
+      ? inherit.dokterKlinis.map((dk) => ({ customerId: dk.customerId, jumlahPasien: "", jumlahHariPraktekPerBulan: "", resepPerPasienSt: "", entertainRp: "" }))
       : [],
     finalDiscountPct: "",
     diskonDistributorPct: "",
@@ -372,6 +379,7 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
     dokterKlinis: p.dokterApproval.map((d) => ({
       customerId: d.customerId,
       jumlahPasien: d.jumlahPasien != null ? String(d.jumlahPasien) : "",
+      jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan != null ? String(d.jumlahHariPraktekPerBulan) : "",
       resepPerPasienSt: d.resepPerPasienSt != null ? String(d.resepPerPasienSt) : "",
       entertainRp: d.entertainRp != null ? String(d.entertainRp) : "",
     })),
@@ -387,6 +395,7 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
         ? p.dokterUser.map((d) => ({
             customerId: d.customerId,
             jumlahPasien: d.jumlahPasien != null ? String(d.jumlahPasien) : "",
+            jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan != null ? String(d.jumlahHariPraktekPerBulan) : "",
             resepPerPasienSt: d.resepPerPasienSt != null ? String(d.resepPerPasienSt) : "",
             entertainRp: d.entertainRp != null ? String(d.entertainRp) : "",
           }))
@@ -398,6 +407,7 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
             .map((d) => ({
               customerId: d.customerId,
               jumlahPasien: d.jumlahPasien != null ? String(d.jumlahPasien) : "",
+              jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan != null ? String(d.jumlahHariPraktekPerBulan) : "",
               resepPerPasienSt: d.resepPerPasienSt != null ? String(d.resepPerPasienSt) : "",
               entertainRp: d.entertainRp != null ? String(d.entertainRp) : "",
             })),
@@ -560,6 +570,7 @@ export function PoaStandarisasiWizard({
             dokterKlinis: p.dokterKlinis.map((dk) => ({
               customerId: dk.customerId,
               jumlahPasien: dk.jumlahPasien || null,
+              jumlahHariPraktekPerBulan: dk.jumlahHariPraktekPerBulan || null,
               resepPerPasienSt: dk.resepPerPasienSt || null,
               entertainRp: dk.entertainRp || null,
             })),
@@ -603,6 +614,7 @@ export function PoaStandarisasiWizard({
             .map((d) => ({
               customerId: d.customerId,
               jumlahPasien: d.jumlahPasien || null,
+              jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan || null,
               resepPerPasienSt: d.resepPerPasienSt || null,
               entertainRp: d.entertainRp || null,
             })),
@@ -637,7 +649,7 @@ export function PoaStandarisasiWizard({
     setProdukList((prev) =>
       prev.map((p, i) =>
         i === idx && !p.dokterKlinis.some((dk) => dk.customerId === realId)
-          ? { ...p, dokterKlinis: [...p.dokterKlinis, { customerId: realId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" }] }
+          ? { ...p, dokterKlinis: [...p.dokterKlinis, { customerId: realId, jumlahPasien: "", jumlahHariPraktekPerBulan: "", resepPerPasienSt: "", entertainRp: "" }] }
           : p
       )
     );
@@ -645,7 +657,7 @@ export function PoaStandarisasiWizard({
   function removeDokterFromProduk(idx: number, customerId: string) {
     setProdukList((prev) => prev.map((p, i) => (i === idx ? { ...p, dokterKlinis: p.dokterKlinis.filter((dk) => dk.customerId !== customerId) } : p)));
   }
-  function updateDokterKlinis(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) {
+  function updateDokterKlinis(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }>) {
     setProdukList((prev) =>
       prev.map((p, i) =>
         i === idx ? { ...p, dokterKlinis: p.dokterKlinis.map((dk) => (dk.customerId === customerId ? { ...dk, ...patch } : dk)) } : p
@@ -660,12 +672,12 @@ export function PoaStandarisasiWizard({
     setProdukList((prev) =>
       prev.map((p, i) =>
         i === idx && !p.dokterUser.some((d) => d.customerId === realId)
-          ? { ...p, dokterUser: [...p.dokterUser, { customerId: realId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" }] }
+          ? { ...p, dokterUser: [...p.dokterUser, { customerId: realId, jumlahPasien: "", jumlahHariPraktekPerBulan: "", resepPerPasienSt: "", entertainRp: "" }] }
           : p
       )
     );
   }
-  function updateDokterUser(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) {
+  function updateDokterUser(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }>) {
     setProdukList((prev) =>
       prev.map((p, i) =>
         i === idx ? { ...p, dokterUser: p.dokterUser.map((d) => (d.customerId === customerId ? { ...d, ...patch } : d)) } : p
@@ -975,7 +987,7 @@ export function PlanningPhase(props: {
   removeProduk: (idx: number) => void;
   addDokterToProduk: (idx: number, rawId: string) => Promise<void>;
   removeDokterFromProduk: (idx: number, customerId: string) => void;
-  updateDokterKlinis: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) => void;
+  updateDokterKlinis: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }>) => void;
 }) {
   const {
     canEdit, kodePI, namaOutlet, pengajuanId, outletPicker,
@@ -1022,7 +1034,9 @@ export function PlanningPhase(props: {
   // live Exodus discount (same source as Finalisasi's read-only Discount
   // Final / Diskon Distributor) so the MR sees a real default instead of a
   // blank field and can adjust it to see the margin warning react (2026-08-28
-  // user request for PI, extended to distributor 2026-09-07). Only applied
+  // user request for PI, extended to distributor 2026-09-07; distributor
+  // falls back to DEFAULT_DISKON_DISTRIBUTOR_PCT when there's no live
+  // discount request at all, 2026-09-09). Only applied
   // when the row's own value is still empty — never overwrites what the MR
   // already typed or what was already saved, so this only fires once per
   // produk row in practice. Kept in state (not just consumed inline) so the
@@ -1038,11 +1052,12 @@ export function PlanningPhase(props: {
       if (cancelled) return;
       setDiskonLamaMap(map);
       produkList.forEach((p, idx) => {
-        const pct = p.kodeProduk ? map[p.kodeProduk] : undefined;
-        if (!pct) return;
+        if (!p.kodeProduk) return;
+        const pct = map[p.kodeProduk];
         const patch: Partial<ProdukFormState> = {};
-        if (!p.estimasiDiskonPct) patch.estimasiDiskonPct = String(pct.principalPct);
-        if (!p.estimasiDiskonDistributorPct) patch.estimasiDiskonDistributorPct = String(pct.distributorPct);
+        if (!p.estimasiDiskonPct && pct) patch.estimasiDiskonPct = String(pct.principalPct);
+        // Distributor: pakai live Exodus kalau ada request-nya, kalau gak ada sama sekali fallback ke default 5% (2026-09-09 user request) daripada dibiarin kosong.
+        if (!p.estimasiDiskonDistributorPct) patch.estimasiDiskonDistributorPct = pct ? String(pct.distributorPct) : DEFAULT_DISKON_DISTRIBUTOR_PCT;
         if (Object.keys(patch).length > 0) updateProduk(idx, patch);
       });
     });
@@ -1102,7 +1117,7 @@ export function PlanningPhase(props: {
                       <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>{k.jabatan || "-"}</div>
                     </div>
                     <div className="w-40">
-                      <RpInput label="Entertain Estimasi" value={k.entertainEstimasi} onChange={(v) => updateKpdmEntertainEstimasi(k.customerId, v)} disabled={disabled} />
+                      <RpInput label="Estimasi Entertain" value={k.entertainEstimasi} onChange={(v) => updateKpdmEntertainEstimasi(k.customerId, v)} disabled={disabled} />
                     </div>
                     {!disabled && (
                       <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeKpdm(k.customerId)}>Hapus</button>
@@ -1184,7 +1199,7 @@ export function PlanningPhase(props: {
         // (redline 2026-09-08 item #5 — Est. Qty/bln ditampilkan dalam satuan
         // besar, bukan satuan terkecil).
         const konversi = product ? parseFloat(product.konversiPembagi ?? "1") || 1 : 1;
-        const totalQty = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.resepPerPasienSt) || 0), 0);
+        const totalQty = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.jumlahHariPraktekPerBulan) || 0) * (parseFloat(dk.resepPerPasienSt) || 0), 0);
         const totalSales = totalQty * hst;
         const totalEntertain = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.entertainRp) || 0), 0);
         // Produk yang sudah dipilih di baris LAIN gak muncul lagi di dropdown baris ini (2026-09-08 user request) — cegah 1 produk dipilih dobel.
@@ -1321,7 +1336,8 @@ export function PlanningPhase(props: {
                   <thead>
                     <tr style={{ color: "var(--color-text-faint)" }}>
                       <th className="text-left py-1 pr-3">Dokter</th>
-                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Hari Praktek / Bulan</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien / Hari</th>
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
@@ -1332,7 +1348,7 @@ export function PlanningPhase(props: {
                   <tbody>
                     {p.dokterKlinis.map((dk) => {
                       const d = dokterById.get(dk.customerId);
-                      const dq = (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.resepPerPasienSt) || 0);
+                      const dq = (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.jumlahHariPraktekPerBulan) || 0) * (parseFloat(dk.resepPerPasienSt) || 0);
                       return (
                         <tr key={dk.customerId} style={{ borderTop: "1px solid var(--color-border)" }}>
                           <td className="py-1.5 pr-3">
@@ -1341,6 +1357,7 @@ export function PlanningPhase(props: {
                               {p.kodeProduk && <GolonganBadge kodeCustomer={d?.kodeCustomer ?? ""} kodePI={kodePI} kodeProduk={p.kodeProduk} />}
                             </div>
                           </td>
+                          <td className="py-1.5 px-2"><UnitCountInput unit="Hari" value={dk.jumlahHariPraktekPerBulan} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { jumlahHariPraktekPerBulan: v })} disabled={disabled} /></td>
                           <td className="py-1.5 px-2"><UnitCountInput unit="Pasien" value={dk.jumlahPasien} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { jumlahPasien: v })} disabled={disabled} emphasizeValue /></td>
                           <td className="py-1.5 px-2"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={dk.resepPerPasienSt} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { resepPerPasienSt: v })} disabled={disabled} emphasizeValue /></td>
                           <td className="py-1.5 px-2 text-right">{dq ? `${(dq / konversi).toLocaleString("id-ID", { maximumFractionDigits: 2 })} ${product?.satuan ?? ""}` : "-"}</td>
@@ -1758,7 +1775,7 @@ function FinalisasiPhase({
   updateKpdmEntertainFinal: (customerId: string, v: string) => void;
   updateProduk: (idx: number, patch: Partial<ProdukFormState>) => void;
   addDokterUser: (idx: number, rawId: string) => Promise<void>;
-  updateDokterUser: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) => void;
+  updateDokterUser: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }>) => void;
   removeDokterUser: (idx: number, customerId: string) => void;
 }) {
   const disabled = !canEdit || !!pengajuan.submittedAt;
@@ -1891,7 +1908,7 @@ function FinalisasiPhase({
         const idx = produkList.indexOf(p);
         const product = productByKode.get(p.kodeProduk);
         const rawProduk = pengajuan.produk.find((x) => x.id === p.id);
-        const totalQty = p.dokterUser.reduce((s, d) => s + (parseFloat(d.jumlahPasien) || 0) * (parseFloat(d.resepPerPasienSt) || 0), 0);
+        const totalQty = p.dokterUser.reduce((s, d) => s + (parseFloat(d.jumlahPasien) || 0) * (parseFloat(d.jumlahHariPraktekPerBulan) || 0) * (parseFloat(d.resepPerPasienSt) || 0), 0);
         const hst = product ? hargaSTFromProduct(product) : 0;
         const totalSales = totalQty * hst;
         const totalEntertain = p.dokterUser.reduce((s, d) => s + (parseFloat(d.entertainRp) || 0), 0);
@@ -1915,7 +1932,8 @@ function FinalisasiPhase({
                   <thead>
                     <tr style={{ color: "var(--color-text-faint)" }}>
                       <th className="text-left py-1 pr-3">Dokter</th>
-                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Hari Praktek / Bulan</th>
+                      <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Jumlah Pasien / Hari</th>
                       <th className="text-right py-1 px-2" style={{ minWidth: 130 }}>Resep/Pasien</th>
                       <th className="text-right py-1 px-2">Est. Qty/bln</th>
                       <th className="text-right py-1 px-2">Est. Sales/bln</th>
@@ -1925,10 +1943,11 @@ function FinalisasiPhase({
                   </thead>
                   <tbody>
                     {p.dokterUser.map((d) => {
-                      const dq = (parseFloat(d.jumlahPasien) || 0) * (parseFloat(d.resepPerPasienSt) || 0);
+                      const dq = (parseFloat(d.jumlahPasien) || 0) * (parseFloat(d.jumlahHariPraktekPerBulan) || 0) * (parseFloat(d.resepPerPasienSt) || 0);
                       return (
                         <tr key={d.customerId} style={{ borderTop: "1px solid var(--color-border)" }}>
                           <td className="py-1.5 pr-3">{dokterById.get(d.customerId)?.namaCustomer ?? d.customerId}</td>
+                          <td className="py-1.5 px-2"><UnitCountInput unit="Hari" value={d.jumlahHariPraktekPerBulan} onChange={(v) => updateDokterUser(idx, d.customerId, { jumlahHariPraktekPerBulan: v })} disabled={disabled} /></td>
                           <td className="py-1.5 px-2"><UnitCountInput unit="Pasien" value={d.jumlahPasien} onChange={(v) => updateDokterUser(idx, d.customerId, { jumlahPasien: v })} disabled={disabled} /></td>
                           <td className="py-1.5 px-2"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={d.resepPerPasienSt} onChange={(v) => updateDokterUser(idx, d.customerId, { resepPerPasienSt: v })} disabled={disabled} /></td>
                           <td className="py-1.5 px-2 text-right">{dq ? dq.toLocaleString("id-ID") : "-"}</td>
@@ -2312,7 +2331,7 @@ function RingkasanPoa({ produkList, productByKode, kpdmList }: { produkList: Pro
     .map((p) => {
       const product = productByKode.get(p.kodeProduk);
       const hst = product ? hargaSTFromProduct(product) : 0;
-      const qty = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.resepPerPasienSt) || 0), 0);
+      const qty = p.dokterKlinis.reduce((s, dk) => s + (parseFloat(dk.jumlahPasien) || 0) * (parseFloat(dk.jumlahHariPraktekPerBulan) || 0) * (parseFloat(dk.resepPerPasienSt) || 0), 0);
       const nilai = qty * hst;
       const discountPct = parseFloat(p.estimasiDiskonPct) || 0;
       const listingRp = parseFloat(p.estimasiBiayaListingRp) || 0;

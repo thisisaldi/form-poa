@@ -109,7 +109,7 @@ export function NewPoaStandarisasiForm({
     setProdukList((prev) =>
       prev.map((p, i) =>
         i === idx && !p.dokterKlinis.some((dk) => dk.customerId === realId)
-          ? { ...p, dokterKlinis: [...p.dokterKlinis, { customerId: realId, jumlahPasien: "", resepPerPasienSt: "", entertainRp: "" }] }
+          ? { ...p, dokterKlinis: [...p.dokterKlinis, { customerId: realId, jumlahPasien: "", jumlahHariPraktekPerBulan: "", resepPerPasienSt: "", entertainRp: "" }] }
           : p
       )
     );
@@ -117,7 +117,7 @@ export function NewPoaStandarisasiForm({
   function removeDokterFromProduk(idx: number, customerId: string) {
     setProdukList((prev) => prev.map((p, i) => (i === idx ? { ...p, dokterKlinis: p.dokterKlinis.filter((dk) => dk.customerId !== customerId) } : p)));
   }
-  function updateDokterKlinis(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; resepPerPasienSt: string; entertainRp: string }>) {
+  function updateDokterKlinis(idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }>) {
     setProdukList((prev) =>
       prev.map((p, i) =>
         i === idx ? { ...p, dokterKlinis: p.dokterKlinis.map((dk) => (dk.customerId === customerId ? { ...dk, ...patch } : dk)) } : p
@@ -155,6 +155,7 @@ export function NewPoaStandarisasiForm({
                 dokterKlinis: p.dokterKlinis.map((dk) => ({
                   customerId: dk.customerId,
                   jumlahPasien: dk.jumlahPasien || null,
+                  jumlahHariPraktekPerBulan: dk.jumlahHariPraktekPerBulan || null,
                   resepPerPasienSt: dk.resepPerPasienSt || null,
                   entertainRp: dk.entertainRp || null,
                 })),
