@@ -937,6 +937,9 @@ export interface FinalisasiProdukInput {
 
 export interface FinalisasiKpdmInput {
   customerId: string;
+  // Cuma dipakai kalau KPDM ini baru ditambah di Finalisasi (belum ada row-nya dari Planning) — lihat saveFinalisasiAction.
+  nama?: string;
+  jabatan?: string | null;
   entertainFinal: number | string | null;
 }
 
@@ -965,11 +968,34 @@ export async function saveFinalisasiAction(id: string, input: FinalisasiInput): 
       data: { distributors },
     });
 
+    // Add/update/remove — mirrors applyPlanningKpdm, since KPDM can now be
+    // added/removed at Finalisasi too (2026-09-09 user request), not just
+    // Planning. A blind updateMany (the old behavior) silently dropped any
+    // KPDM added here because no row existed yet to match against.
+    const existingKpdm = await tx.poaStandarisasiKpdm.findMany({ where: { pengajuanId: id }, select: { customerId: true } });
+    const existingKpdmSet = new Set(existingKpdm.map((k: (typeof existingKpdm)[number]) => k.customerId));
+    const wantKpdmSet = new Set(input.kpdmList.map((k) => k.customerId));
+    const toRemoveKpdm = [...existingKpdmSet].filter((cid) => !wantKpdmSet.has(cid));
+    if (toRemoveKpdm.length > 0) {
+      await tx.poaStandarisasiKpdm.deleteMany({ where: { pengajuanId: id, customerId: { in: toRemoveKpdm } } });
+    }
     for (const k of input.kpdmList) {
-      await tx.poaStandarisasiKpdm.updateMany({
-        where: { pengajuanId: id, customerId: k.customerId },
-        data: { entertainFinal: toNum(k.entertainFinal) },
-      });
+      if (existingKpdmSet.has(k.customerId)) {
+        await tx.poaStandarisasiKpdm.updateMany({
+          where: { pengajuanId: id, customerId: k.customerId },
+          data: { entertainFinal: toNum(k.entertainFinal) },
+        });
+      } else {
+        await tx.poaStandarisasiKpdm.create({
+          data: {
+            pengajuanId: id,
+            customerId: k.customerId,
+            namaSnapshot: k.nama ?? "",
+            jabatanSnapshot: k.jabatan ?? null,
+            entertainFinal: toNum(k.entertainFinal),
+          },
+        });
+      }
     }
 
     for (const p of input.produk) {

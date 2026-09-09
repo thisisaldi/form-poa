@@ -601,7 +601,7 @@ export function PoaStandarisasiWizard({
   function buildFinalisasiPayload() {
     return {
       distributors,
-      kpdmList: kpdmList.map((k) => ({ customerId: k.customerId, entertainFinal: k.entertainFinal || null })),
+      kpdmList: kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan || null, entertainFinal: k.entertainFinal || null })),
       produk: produkList
         .filter((p) => p.id)
         .map((p) => ({
@@ -808,6 +808,8 @@ export function PoaStandarisasiWizard({
           distributors={distributors}
           setDistributors={setDistributors}
           kpdmList={kpdmList}
+          addKpdm={addKpdm}
+          removeKpdm={removeKpdm}
           updateKpdmEntertainFinal={updateKpdmEntertainFinal}
           updateProduk={updateProduk}
           addDokterUser={addDokterUser}
@@ -1744,6 +1746,8 @@ function FinalisasiPhase({
   distributors,
   setDistributors,
   kpdmList,
+  addKpdm,
+  removeKpdm,
   updateKpdmEntertainFinal,
   updateProduk,
   addDokterUser,
@@ -1759,6 +1763,8 @@ function FinalisasiPhase({
   distributors: string[];
   setDistributors: React.Dispatch<React.SetStateAction<string[]>>;
   kpdmList: KpdmFormState[];
+  addKpdm: (rawId: string) => Promise<void>;
+  removeKpdm: (customerId: string) => void;
   updateKpdmEntertainFinal: (customerId: string, v: string) => void;
   updateProduk: (idx: number, patch: Partial<ProdukFormState>) => void;
   addDokterUser: (idx: number, rawId: string) => Promise<void>;
@@ -1814,9 +1820,26 @@ function FinalisasiPhase({
               <div className="w-40">
                 <RpInput label="Entertain Final" value={k.entertainFinal} onChange={(v) => updateKpdmEntertainFinal(k.customerId, v)} disabled={disabled} />
               </div>
+              {!disabled && (
+                <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeKpdm(k.customerId)}>Hapus</button>
+              )}
             </div>
           ))}
         </div>
+        {/* Bisa nambah KPDM baru di sini juga (2026-09-09 user request) — sebelumnya cuma bisa di Planning. */}
+        {!disabled && (
+          <div className="mt-2">
+            <Combobox
+              name="kpdmAddFinalisasi"
+              options={dokterList.filter((d) => !kpdmList.some((k) => k.customerId === d.id)).map((d) => ({ value: d.id, label: d.namaCustomer, sublabel: d.jabatan, tag: d.isFokus ? "Fokus" : undefined, tagColor: "blue" as const }))}
+              value=""
+              onChange={addKpdm}
+              disabled={disabled}
+              placeholder="+ Tambah KPDM…"
+              emptyMessage="Tidak ada customer terdaftar di outlet ini."
+            />
+          </div>
+        )}
       </div>
 
       <div className="mb-6">
