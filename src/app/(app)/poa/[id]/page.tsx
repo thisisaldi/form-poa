@@ -115,6 +115,12 @@ export default async function PoaDetailPage({
   const doctorVersions: Record<string, number> = Object.fromEntries(
     [...doctorApprovalByKey.entries()].map(([key, a]) => [key, a.version])
   );
+  // Approver name set by Exodus via PATCH /api/poa-doctors/{id}
+  // (docs/exodus-poa-usage/, 2026-09-09) — display-only, next to the
+  // StatusBadge in DraftChecklist's DoctorRow.
+  const doctorExodusApprovedBy: Record<string, string | null> = Object.fromEntries(
+    [...doctorApprovalByKey.entries()].map(([key, a]) => [key, a.exodusApprovedBy])
+  );
   const doctorKeysInDraft = new Map<string, { kodePI: string; namaCust: string }>();
   for (const it of poa.items as PoaLineItem[]) {
     if (!it.kodePI) continue;
@@ -536,6 +542,7 @@ export default async function PoaDetailPage({
         doctorActions={doctorActions}
         doctorEditRequests={doctorEditRequests}
         doctorRejectInfo={doctorRejectInfo}
+        doctorExodusApprovedBy={doctorExodusApprovedBy}
         doctorCanEdit={doctorCanEdit}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}

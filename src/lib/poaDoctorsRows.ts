@@ -55,7 +55,7 @@ export const poaDoctorRowsSelect = {
     orderBy: { createdAt: "asc" as const },
   },
   doctorApprovals: {
-    select: { kodePI: true, namaCust: true, status: true, usedInExodus: true },
+    select: { kodePI: true, namaCust: true, status: true, usedInExodus: true, exodusApprovedBy: true },
   },
 } satisfies Prisma.PoaFormSelect;
 
@@ -440,6 +440,9 @@ export function buildDoctorRows(
       kuartal: poa.period,
       approveUntil: until,
       usedInExodus: approval?.usedInExodus ?? false,
+      // docs/exodus-poa-usage/ (2026-09-09) — nama approver bebas dari sisi
+      // Exodus, murni display, tidak mempengaruhi approveUntil/status di atas.
+      exodusApprovedBy: approval?.exodusApprovedBy ?? null,
       dokter: {
         kodeCust: dokter.kodeCust,
         namaCust: dokter.namaCust,

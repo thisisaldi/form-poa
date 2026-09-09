@@ -253,6 +253,13 @@ model PoaDoctorApproval {
   usedInExodus   Boolean   @default(false)
   usedInExodusAt DateTime?
 
+  // docs/exodus-poa-usage/ (2026-09-09) — nama approver bebas (string, tidak
+  // divalidasi/di-link ke User POA manapun) dikirim Exodus lewat PATCH,
+  // ditampilkan di frontend POA (/poa/[id]) sebagai info tambahan. TIDAK
+  // mengubah `status` (ASM/SM/NSM) di atas — approval internal POA tetap
+  // satu-satunya penentu status, field ini murni display.
+  exodusApprovedBy String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

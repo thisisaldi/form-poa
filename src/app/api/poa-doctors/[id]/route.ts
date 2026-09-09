@@ -30,6 +30,14 @@
  * no-op 200, not an error (safe to retry). usedInExodusAt is set to now()
  * when turning on, cleared to null when turning off (full revert, not an
  * audit trail).
+ *
+ * `exodusApprovedBy` (docs/exodus-poa-usage/01-business-rules.md §10,
+ * 2026-09-09) — free-text approver name from Exodus's own side, independent
+ * of `usedInExodus` (partial update, same as §9's settled contract: only the
+ * fields present in the body are touched). Purely a display field surfaced
+ * back via GET — does NOT affect `PoaDoctorApproval.status` (the ASM/SM/NSM
+ * chain remains the sole determinant of approval; GET /api/poa-doctors only
+ * ever exposes rows already APPROVED_BY_NSM regardless of this field).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -65,17 +73,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Body is optional — a missing/empty/unparseable body defaults to "mark as
   // used" (true), same as the original bodyless PATCH contract.
-  const body: { usedInExodus?: unknown } = await req.json().catch(() => ({}));
+  // `usedInExodus` is set unconditionally on that default (bodyless-compatible);
+  // `exodusApprovedBy` is only touched when the key is actually present in
+  // the body (partial update, same pattern as §9's settled contract).
+  const body: { usedInExodus?: unknown; exodusApprovedBy?: unknown } = await req.json().catch(() => ({}));
   const targetUsed = body.usedInExodus === false ? false : true;
+  const hasApprovedBy = Object.prototype.hasOwnProperty.call(body, "exodusApprovedBy");
+  const targetApprovedBy = typeof body.exodusApprovedBy === "string" ? body.exodusApprovedBy.trim() || null : null;
 
-  if (row.usedInExodus !== targetUsed) {
+  const usedChanged = row.usedInExodus !== targetUsed;
+  if (usedChanged || hasApprovedBy) {
     await prisma.poaDoctorApproval.update({
       where: {
         poaId_kodePI_namaCust: { poaId: row.uidPoa, kodePI: row.dokter.kodePI ?? "", namaCust: row.dokter.namaCust },
       },
-      data: { usedInExodus: targetUsed, usedInExodusAt: targetUsed ? new Date() : null },
+      data: {
+        ...(usedChanged ? { usedInExodus: targetUsed, usedInExodusAt: targetUsed ? new Date() : null } : {}),
+        ...(hasApprovedBy ? { exodusApprovedBy: targetApprovedBy } : {}),
+      },
     });
   }
 
-  return NextResponse.json({ ...row, usedInExodus: targetUsed });
+  return NextResponse.json({
+    ...row,
+    usedInExodus: targetUsed,
+    exodusApprovedBy: hasApprovedBy ? targetApprovedBy : row.exodusApprovedBy,
+  });
 }

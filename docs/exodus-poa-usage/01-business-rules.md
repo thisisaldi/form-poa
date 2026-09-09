@@ -111,6 +111,83 @@ Dikonfirmasi Aldi (2026-09-01): PATCH **tidak** mewajibkan `usedInExodus`+`exodu
 - Server-side: tiap field di body yang hadir di-update, field yang tidak dikirim TIDAK disentuh (tidak di-null-kan/reset). Sama pola dengan `usedInExodus` sekarang yang juga optional-body-defaults-true (lihat kontrak lama di `03-ui-and-access.md`), diperluas ke 2 field baru.
 - `exodusNomorPengajuan` kemungkinan dikirim SEKALI di awal (saat submit/PENGAJUAN), lalu PATCH selanjutnya cuma kirim `exodusStatus` untuk transisi ke `APPROVED` — nomor lama tetap tersimpan karena tidak di-touch.
 
+## 11. Revisi 2026-09-09 (lanjutan, sesi yang sama) — PIVOT: POA jadi CLIENT dari Exodus (bukan §9/§10 lagi)
+
+**Sumber**: Aldi menemukan chat WhatsApp asli dengan tim Exodus (Budi Pharos, cc Zahra Nabila/Juni Pharos) yang ternyata sudah menjawab Open Question #1 di §6 (yang sebelumnya diasumsikan closed oleh `approveUntil`). Ini MEMBATALKAN pendekatan §9 (`exodusStatus`/`exodusNomorPengajuan`, draft) dan §10 (`exodusApprovedBy` PATCH, sudah v1 diimplementasikan tapi sekarang superseded) — bukan Exodus yang PATCH balik ke POA, tapi **POA yang jadi client**, memanggil GET Exodus untuk menentukan level approval yang dibutuhkan, sebelum menampilkan baris itu di `GET /api/poa-doctors`.
+
+### Endpoint Exodus (baru, di luar kontrak yang POA sediakan — ini POA MEMANGGIL Exodus, pola sama seperti `src/lib/exodusApi.ts` yang sudah ada)
+
+```
+GET /promotion/v1/pssp/approval-level
+```
+
+| Environment | Base URL |
+|---|---|
+| Staging | `https://api.stg-pharos.my.id/exodus/promotion/v1/pssp/approval-level` |
+| Production | `https://exodus.pharos.id/exodus/promotion/v1/pssp/approval-level` |
+
+| Query param | Wajib | Keterangan |
+|---|---|---|
+| `start_period` | ya | Belum dikonfirmasi field POA mana yang jadi sumbernya — kandidat: `PoaLineItem.periodeAwal`. |
+| `end_period` | ya | Kandidat: turunan dari `periodeAwal + lamaPeriode`. |
+| `r_percentage` | ya | Kandidat: `PoaLineItem.persenPsspDokter`. |
+| `given_value` | ya | Kandidat: `rencanaTotalBiaya` atau `nilaiPssp` hasil hitung — belum jelas mana. |
+| `nip` | tidak | NIP MR pemilik POA (`PoaForm.ownerId`)? Belum dikonfirmasi. |
+| `pssp_type` | ya | Kandidat: `PoaLineItem.jenisPssp`. |
+| `customer_code` | ya | Kandidat: `PoaLineItem.kodeCust`. |
+| `outlet_code` | ya | Kandidat: `PoaLineItem.kodePI`. |
+
+**Response 200**:
+```jsonc
+{
+  "data": { "role": "sm" },   // role FINAL yang harus dipenuhi — TIDAK selalu "nsm"
+  "error": { "status": false, "msg": "", "code": 0 }
+}
+```
+
+### Kutipan chat asli (verbatim, 2026-09-09) — kenapa ini genuinely mengubah §4/§7 poin 8
+
+> [12:53] Aldi: sebentar mas, response get di /api/poa-doctors itu kan yang sudah approved sampai NSM. kalau gitu yang masuk di exodus dari poa itu yang sudah fully approved nsm dong ya?
+> [12:54] Budi Pharos: yang ini bukan mas? GET /promotion/v1/pssp/approval-level — Yg sudah fully approved sesuai response role di API ini mas
+> [13:02] Aldi: untuk approval draft sampai approved by NSM masih tetep diproses di poa mas? karena kan di exodus yang belum approved NSM masih belum ada
+> [13:05/13:06] Budi Pharos: Approval di POA tidak terbatas di NSM bahkan bisa jadi sampai ASD atau SD, benar di exodus tidak ditampilkan jika belum memenuhi syarat dari final role approvalnya. Jadi di response ini tidak terbatas sampai NSM, bisa jadi ASM, SM, ASD, SD yg menjadi final approvalnya. Jadi POA harus memenuhi approval yg dari response tsb baru tampilkan di list API POA yg utk exodus.
+
+**Artinya**: `role` bukan info tambahan (bukan "siapa yang approve"), tapi **CEILING approval yang wajib dipenuhi** per baris dokter/PSSP — bisa `asm`/`sm`/`nsm`, TIDAK selalu `nsm`. Filter `GET /api/poa-doctors` (§4, §7 poin 8: "hanya `APPROVED_BY_NSM`") jadi **salah** dalam kasus umum — seharusnya "sudah approved sampai level yang di-return `approval-level`", bukan hardcoded NSM.
+
+**Klarifikasi lanjutan Aldi (sesi yang sama, 2026-09-09)**: dikonfirmasi definisi "fully approved" = `role` dari Exodus adalah THRESHOLD, bukan required-exact-match. Kalau `approval-level` balikin `"asm"`, dan `PoaDoctorApproval.status` baris itu SUDAH `APPROVED_BY_ASM` (atau level lebih tinggi apapun di chain-nya — SM/NSM), baris itu dianggap fully approved untuk Exodus, TIDAK perlu menunggu approval lanjut ke SM/NSM. Ini persis konsep yang sudah dihitung `approveUntil()` di `poaDoctorsRows.ts` (highest role yang sudah approve baris itu) — `asm`/`sm`/`nsm` dari Exodus punya padanan LANGSUNG ke `Role` POA yang sudah ada (`ASM`/`SM`/`NSM`), tidak perlu role baru untuk KETIGA nilai ini. **`asd`/`sd` tetap tidak punya padanan** — kalau Exodus mengembalikan salah satu dari itu untuk suatu baris, baris itu (dengan pemahaman role POA saat ini) TIDAK PERNAH bisa fully approved, karena chain POA mentok di NSM. Pertanyaan #1/#2 di bawah (soal ASD/SD) masih tetap blocking, TIDAK berubah oleh klarifikasi ini.
+
+### 🔴 BLOCKING — gap struktural ditemukan, BUKAN sekadar detail teknis
+
+**Role POA (`enum Role` di `prisma/schema.prisma`) hanya: `MR, ASM, SM, NSM, GM, ADMIN, SFE, VIEWER`.** Tidak ada `ASD`/`SD`. **Dikonfirmasi Aldi (2026-09-09): role ASD/SD memang belum ada di POA sama sekali** — bukan cuma penamaan beda, betul-betul tidak ada level org/approval setingkat itu di alur `poaWorkflow.ts` (`MR → ASM → SM → NSM`, hardcoded, lihat `CHAIN_STATUS`/`SUBMIT_TRANSITIONS`/`APPROVE_TRANSITIONS`).
+
+Konsekuensi: kalau Exodus mengembalikan `role: "asd"` atau `role: "sd"` untuk suatu baris, POA **tidak punya cara approve sampai level itu** — chain approval POA mentok di NSM. Baris seperti itu tidak akan PERNAH bisa memenuhi syarat tampil ke Exodus dengan alur approval yang ada sekarang.
+
+**Open questions BLOCKING — wajib dikonfirmasi tim Exodus sebelum implementasi APAPUN dimulai:**
+
+| # | Pertanyaan | Kenapa blocking |
+|---|---|---|
+| 1 | Apa itu ASD/SD? Role di ORG PHAROS (bukan role approval POA) yang perlu dipetakan ke role POA existing (mis. ASD≈ASM, SD≈SM/NSM)? Atau benar-benar level approval baru yang POA perlu bangun (role baru + langkah chain baru)? | Menentukan apakah ini migration Role enum + `poaWorkflow.ts` (besar) atau cuma mapping string (kecil). |
+| 2 | Kalau memang level approval baru: siapa user-nya di POA (ada `User` dengan jabatan ASD/SD di data existing, atau perlu role baru yang belum pernah dipetakan ke siapapun)? | Tanpa user nyata di role itu, approval baris itu TIDAK PERNAH bisa selesai — deadlock. |
+| 3 | Mapping tiap query param (`start_period`/`end_period`/`r_percentage`/`given_value`/`nip`/`pssp_type`/`customer_code`/`outlet_code`) ke field POA mana persis — kandidat di tabel atas belum dikonfirmasi Exodus. | Salah mapping = salah role yang diminta = approval requirement salah untuk baris itu. |
+| 4 | Kapan API ini dipanggil — sekali saat submit pertama (role disimpan, tidak berubah lagi sepanjang siklus dokter itu) atau live tiap kali dicek (GET /api/poa-doctors, atau tiap approve/reject)? Kalau live, per-baris-per-request ke Exodus berisiko kena constraint `docs/PERFORMANCE.md` (company-wide, tanpa `nip`, sampai ~33-270 baris/kuartal — call-in-loop ke API eksternal per baris berpotensi lambat). | Menentukan field baru (snapshot di `PoaDoctorApproval`) vs live-fetch, dan apakah perlu caching/batching. |
+| 5 | Kalau role dari Exodus berubah SETELAH baris sudah mulai diproses (mis. submit awal butuh SM, tapi given_value di-edit lebih besar sehingga sekarang butuh NSM) — approval yang sudah jalan di-restart, atau ceiling-nya di-lock di titik submit awal? | Menentukan apakah field ini snapshot-once atau re-checked tiap transisi. |
+
+**Rekomendasi**: JANGAN mulai coding (migration Role, perubahan `poaWorkflow.ts`, filter `poaDoctorsRows.ts`) sebelum pertanyaan #1 dan #2 dijawab tim Exodus — keduanya menentukan besar-kecilnya pekerjaan secara fundamental (mapping string vs bangun level approval + user baru). §9 dan §10 (di atas) dianggap **superseded**, bukan dihapus dari histori dokumen ini.
+
+**Status implementasi: belum dimulai sama sekali. BLOCKING pada klarifikasi tim Exodus.**
+
+### Update 2026-09-09 (sesi yang sama) — hasil investigasi nyata: ASD/SD BUKAN edge case langka
+
+Sebelum membangun apapun, dites langsung ke API real (`scripts/testExodusApprovalLevel.ts`, staging/production credential dari `.env.local`) — sample 40 `PoaLineItem` company-wide terbaru, dipanggil satu-satu ke `GET /promotion/v1/pssp/approval-level`.
+
+**Temuan penting**:
+1. **Role string ASLI bukan singkatan "asd"/"sd"** (istilah informal Budi Pharos di chat) — nilai sebenarnya di response API: `"asm"`, `"sm"`, `"nsm"`, `"assistant-sales-director"`, `"sales-director"` (full slug, kebab-case).
+2. **`assistant-sales-director`/`sales-director` MUNCUL SERING, bukan langka** — dari 40 baris sample: 14 baris (35%) balik salah satu dari dua role itu. Distribusi lengkap yang teramati: `nsm` (11), `assistant-sales-director` (8), `sm` (8), `sales-director` (6), `asm` (5). Dua role tersebut BUKAN rare edge case yang bisa diabaikan — kalau POA jalan dengan asumsi "approval maksimal NSM", ~35% baris PSSP di sample ini TIDAK AKAN PERNAH fully-approved dan tidak akan pernah muncul ke Exodus.
+3. **Format `start_period`/`end_period` (menjawab pertanyaan #3 di tabel di atas, sebagian)**: `YYYY-MM-DD`, BUKAN `YYYYMM` — dikonfirmasi lewat percobaan langsung (500 error eksplisit: `"invalid start_period, expected YYYY-MM-DD"` saat dikirim `YYYYMM`). `end_period` dipakai hari terakhir bulan tersebut di script test (belum dikonfirmasi apakah harus tepat begitu atau boleh tanggal apapun dalam bulan itu).
+4. **`pssp_type` masih UNCONFIRMED** — `PoaLineItem.jenisPssp` **selalu `null`** di seluruh data production (0 dari 9786 baris terisi, kolom mati — sama seperti `nilaiR` yang sudah diketahui mati di `02-data-model.md`). Script test pakai placeholder `"reguler"` (string tebakan, DITERIMA API tanpa error) semata supaya bisa dapat response — BUKAN mapping yang benar/final, `pssp_type` real perlu sumber lain (field POA yang belum ada, atau tim Exodus perlu clarify apakah param ini sebenarnya opsional/boleh generic).
+
+**Kesimpulan**: pertanyaan #1 di atas ("apa itu ASD/SD?") terjawab SEBAGIAN — sekarang tau nama role persisnya (`assistant-sales-director`/`sales-director`) dan tau ini BUKAN kasus langka (naikkan urgensi, bukan turunkan). Pertanyaan #2 (siapa user-nya di POA) **masih TOTAL belum terjawab** — dan sekarang jauh lebih mendesak karena ~35% data akan stuck kalau tidak diselesaikan. Rekomendasi tidak berubah: JANGAN mulai migration Role/poaWorkflow.ts sampai ada user nyata yang akan memegang kedua role ini dikonfirmasi (single nasional vs per-region — pertanyaan yang sempat diajukan Aldi juga masih belum dijawab, di-skip sementara untuk fokus ke investigasi ini duluan).
+
 ### Open questions BLOCKING — masih perlu didiskusikan (Aldi minta dibahas lebih lanjut, BUKAN diputuskan sekarang)
 
 1. ~~Bentuk kontrak PATCH — menggantikan atau berdampingan?~~ **Settled 2026-09-01**: berdampingan, partial PATCH (lihat di atas).
@@ -120,3 +197,24 @@ Dikonfirmasi Aldi (2026-09-01): PATCH **tidak** mewajibkan `usedInExodus`+`exodu
 5. Perilaku revert (`usedInExodus:false`) terhadap 2 field baru ini — dikosongkan juga atau dipertahankan sebagai histori?
 
 **Status implementasi: belum dimulai** — spec ini ditulis duluan (SDD, `docs/sdd/01-when-and-workflow.md`). Kontrak PATCH (poin 1) sudah settled 2026-09-01; poin 2 masih perlu dibahas Aldi lebih lanjut sebelum lanjut ke migration/implementasi UI di `/poa/[id]`.
+
+## 10. Revisi 2026-09-09 (DRAFT — belum diimplementasikan, blocking) — "sistem approval diatur Exodus"
+
+**Sumber**: sesi kerja dengan Aldi, 2026-09-09. Awalnya dibahas sebagai kelanjutan §9 ("approved by" ditampilkan di frontend POA), tapi setelah ditelusuri Aldi menegaskan maksudnya lebih jauh dari §9: *"INTINYA SISTEM APPROVAL DIATUR EXODUS BUKAN DIKITA AJA"* — bukan cuma menampilkan status pengajuan Exodus sebagai info tambahan (§9), tapi approval **itu sendiri** (siapa yang approve dokter di POA) dikontrol dari sisi Exodus.
+
+**Kontradiksi yang perlu diselesaikan dulu sebelum kontrak ditulis**: `GET /api/poa-doctors` (dan detail) HANYA mengembalikan baris yang sudah `APPROVED_BY_NSM` di alur internal POA (`docs/api-poa-doctors.md`, filter final-approved, dikonfirmasi eksplisit tim Exodus sendiri 2026-08-27 — lihat §7 poin 8). Kalau Exodus baru bisa PATCH/lihat baris SETELAH baris itu `APPROVED_BY_NSM`, maka "approval diatur Exodus" tidak bisa berarti Exodus men-trigger transisi `PoaDoctorApproval.status` menuju `APPROVED_BY_NSM` itu sendiri (baris itu harus sudah berstatus itu duluan supaya kelihatan oleh Exodus) — chicken-and-egg dengan kontrak yang sudah live di production.
+
+**Belum settled — butuh konfirmasi eksplisit dari tim Exodus (bukan diasumsikan/diputuskan sepihak), karena ini mengubah alur bisnis inti** (approval chain ASM→SM→NSM yang sudah berjalan di production, dipakai role lain di luar konteks Exodus juga):
+
+| # | Pertanyaan | Kenapa blocking |
+|---|---|---|
+| 1 | Apakah "approval diatur Exodus" berarti Exodus jadi approval GATE TAMBAHAN setelah ASM→SM→NSM (dokter baru benar-benar "selesai" kalau Exodus juga approve, di luar `PoaDoctorApproval.status` POA yang tetap jalan seperti sekarang) — konsisten dengan §9 (`exodusStatus` sebagai lapisan terpisah)? | Kalau ya, ini kelanjutan §9 (tinggal lanjutkan open questions di situ), TIDAK perlu ubah `PoaDoctorApproval.status`/filter `APPROVED_BY_NSM` yang sudah ada. |
+| 2 | Atau apakah dokter yang BELUM lolos ASM/SM/NSM juga perlu bisa muncul ke Exodus supaya Exodus yang men-triggernya jadi approved (skip/ganti alur manusia)? | Kalau ya, filter `APPROVED_BY_NSM` di `GET /api/poa-doctors` perlu dilonggarkan — **berlawanan langsung** dengan permintaan eksplisit tim Exodus 2026-08-27 ("data yg di show perlu yg sudah final approved saja", §7 poin 8) — perlu konfirmasi ulang ke Exodus apakah itu sudah tidak berlaku. |
+| 3 | Siapa yang tervalidasi sebagai "approver" kalau berasal dari Exodus — user POA manapun (perlu NIP yang match `User`), atau nama bebas dari sisi Exodus (tidak ter-link ke `User` POA manapun)? | Menentukan apakah butuh field baru bertipe relasi (FK ke `User`) atau string bebas — dan implikasi ke audit trail (`PoaAuditLog.actorId` selama ini selalu NIP `User` yang valid). |
+| 4 | Kalau Exodus "approve", apakah itu tetap lewat `PoaDoctorApproval.status` (ASM/SM/NSM) yang sama, atau field/enum approval yang benar-benar terpisah dari status internal (murni untuk ditampilkan, tidak mengubah `status`)? | Menentukan besar-kecilnya migration dan apakah kode approve/reject existing (`poaWorkflow.ts`) ikut disentuh. |
+
+**Diselesaikan 2026-09-09 (sesi yang sama)**: Aldi menyederhanakan maksudnya — bukan pertanyaan #2 (override alur ASM/SM/NSM), murni pertanyaan #1: field display tambahan (`exodusApprovedBy`, string bebas), TIDAK mengubah `PoaDoctorApproval.status`/`approveUntil`/filter `APPROVED_BY_NSM` yang sudah ada sama sekali. Kontradiksi chicken-and-egg di atas TIDAK relevan lagi karena field ini tidak mengontrol visibilitas baris ke Exodus (baris tetap harus `APPROVED_BY_NSM` dulu, sama seperti sekarang).
+
+**🟢 v1 diimplementasikan 2026-09-09**: field baru `exodusApprovedBy` (`String?`, `PoaDoctorApproval`, migration `20260909120000_add_exodus_approved_by` — **file migration dibuat, BELUM di-apply ke DB**, lihat catatan di `02-data-model.md`) — di-set via `PATCH /api/poa-doctors/{id}` (`{ "exodusApprovedBy": "Nama" }`, independen dari `usedInExodus`, partial update), diekspos di `GET /api/poa-doctors`/`GET /api/poa-doctors/{id}` sebagai field biasa. Ditampilkan di UI `/poa/[id]` (`DraftChecklist`'s `DoctorRow`, baris kecil "Approved by Exodus: {nama}" di bawah `StatusBadge`, cuma muncul kalau terisi). Lihat `docs/api-poa-doctors.md` untuk kontrak lengkap.
+
+**⚠️ SUPERSEDED 2026-09-09 (sesi yang sama, lihat §11)** — setelah ditelusuri lebih lanjut, Aldi menemukan chat asli dengan tim Exodus (Budi Pharos) yang mengubah keseluruhan pendekkatan: PATCH `exodusApprovedBy` TIDAK JADI DIPAKAI, diganti flow GET (POA sebagai client, bukan PATCH dari Exodus) — lihat §11. Field/route/migration/UI di atas **dibiarkan ada di kode** (permintaan eksplisit Aldi, bukan dihapus) tapi TIDAK terhubung ke flow final — kemungkinan besar akan di-deprecate/dihapus setelah §11 settled.

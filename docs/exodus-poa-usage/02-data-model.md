@@ -34,6 +34,23 @@ export interface LivePricing {
 }
 ```
 
+## Data baru (migration `20260909120000_add_exodus_approved_by` — file dibuat, **BELUM di-apply ke DB**, lihat catatan)
+
+```prisma
+model PoaDoctorApproval {
+  // ...field existing tidak berubah...
+
+  exodusApprovedBy String? // null = belum pernah di-set
+}
+```
+
+### Catatan desain
+
+- **Murni field display, TIDAK bagian dari alur approval internal** — `PoaDoctorApproval.status` (ASM/SM/NSM) tetap satu-satunya penentu approval POA. Field ini tidak dibaca oleh `approveUntil()`/filter `APPROVED_BY_NSM` di `poaDoctorsRows.ts` — lihat `01-business-rules.md` §10 untuk kronologi kenapa (awalnya disalahpahami sebagai override alur ASM/SM/NSM, disederhanakan setelah klarifikasi).
+- **String bebas, tidak divalidasi/tidak FK ke `User`** — Exodus kirim nama apa adanya, tidak dicek terhadap NIP/`User` POA manapun (beda dari `PoaAuditLog.actorId` yang selalu NIP `User` valid).
+- **PATCH partial, independen dari `usedInExodus`** — field di body yang tidak dikirim tidak disentuh, sama pola dengan draft §9 di bawah.
+- **Migration BELUM di-apply** (2026-09-09) — `prisma migrate dev` tidak bisa jalan non-interactive di sesi ini, dan DB target (`.env.local`, `34.143.164.15/sales_form_poa`) belum dikonfirmasi aman untuk diapply langsung (shared/tidak yakin). File migration sudah dibuat manual (`prisma/migrations/20260909120000_add_exodus_approved_by/migration.sql`), tinggal `prisma migrate deploy` (atau `migrate dev` interaktif) begitu siap.
+
 ## Data baru (DRAFT — belum ada migration, menunggu jawaban Open Questions blocking di `01-business-rules.md` §9)
 
 Diusulkan untuk revisi 2026-09-01 (§9 di `01-business-rules.md`) — Juni Pharos mengonfirmasi kebutuhan tracking nomor pengajuan Exodus + status (`PENGAJUAN`/`APPROVED`), bukan cuma boolean `usedInExodus`.

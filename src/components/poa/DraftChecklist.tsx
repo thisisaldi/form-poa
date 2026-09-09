@@ -708,7 +708,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -743,6 +743,8 @@ function DoctorRow({
   doctorEditRequest?: DoctorEditRequestInfo;
   /** This doctor's rejection reason/category — see DraftChecklist's own prop doc. */
   doctorRejectInfo?: DoctorRejectInfo;
+  /** Approver name set by Exodus via PATCH /api/poa-doctors/{id} (docs/exodus-poa-usage/, 2026-09-09) — display-only, does not affect doctorStatus above. */
+  doctorExodusApprovedBy?: string | null;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -972,6 +974,11 @@ function DoctorRow({
               header. Undefined doctorStatus means no PoaDoctorApproval row
               yet this cycle, same DRAFT state the rollup treats it as. */}
           <StatusBadge status={doctorStatus ?? "DRAFT"} version={doctorVersion} />
+          {doctorExodusApprovedBy && (
+            <p className="text-[10px] leading-tight whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+              Approved by Exodus: {doctorExodusApprovedBy}
+            </p>
+          )}
           <p className="text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
             {doctorItems.length} produk
           </p>
@@ -1293,7 +1300,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {}, doctorExodusApprovedBy = {} }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1362,6 +1369,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
    * OQ-3 — a sibling doctor being approved must never lock this one). Falls
    * back to `userCanEdit` for a doctor absent from the map. */
   doctorCanEdit?: Record<string, boolean>;
+  /** kodePI|namaCust -> approver name set by Exodus (docs/exodus-poa-usage/, 2026-09-09) — display-only. */
+  doctorExodusApprovedBy?: Record<string, string | null>;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -1509,6 +1518,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
                 doctorActions={doctorActions[key]}
                 doctorEditRequest={doctorEditRequests[key]}
                 doctorRejectInfo={doctorRejectInfo[key]}
+                doctorExodusApprovedBy={doctorExodusApprovedBy[key]}
               />
             ))}
           </div>

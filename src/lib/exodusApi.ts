@@ -897,6 +897,60 @@ export async function getExodusNipZoneHierarchy(nip: string): Promise<NipZoneHie
   }
 }
 
+/**
+ * GET /promotion/v1/pssp/approval-level — the approval CEILING (not just an
+ * FYI) a given PSSP submission must reach before it's "fully approved":
+ * `role` can be "asm"/"sm"/"nsm", or (per Exodus's Budi Pharos, 2026-09-09
+ * chat — see docs/exodus-poa-usage/01-business-rules.md §11) possibly
+ * "asd"/"sd" — roles that don't exist in POA's own Role enum today. NOT
+ * wired into any live flow yet — this is investigation-only (scripts/
+ * testExodusApprovalLevel.ts) to see whether asd/sd ever actually come back
+ * for real PSSP data before building the (large) role/chain work §11 needs.
+ * Query param mapping to PoaLineItem fields is UNCONFIRMED with Exodus —
+ * best-guess candidates from §11's table, not a settled contract.
+ */
+export async function getExodusApprovalLevel(params: {
+  startPeriod: string; // "YYYY-MM-DD" — confirmed by testing (2026-09-09): "YYYYMM" 500s ("invalid start_period, expected YYYY-MM-DD")
+  endPeriod: string;   // "YYYY-MM-DD"
+  rPercentage: number; // PoaLineItem.persenPsspDokter guess
+  givenValue: number;  // PoaLineItem.rencanaTotalBiaya guess
+  psspType: string;    // PoaLineItem.jenisPssp guess
+  customerCode: string; // PoaLineItem.kodeCust guess
+  outletCode: string;   // PoaLineItem.kodePI guess
+  nip?: string;
+}): Promise<{ role: string } | null> {
+  if (!isConfigured) return null;
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/pssp/approval-level`);
+    url.searchParams.set("start_period", params.startPeriod);
+    url.searchParams.set("end_period", params.endPeriod);
+    url.searchParams.set("r_percentage", String(params.rPercentage));
+    url.searchParams.set("given_value", String(params.givenValue));
+    url.searchParams.set("pssp_type", params.psspType);
+    url.searchParams.set("customer_code", params.customerCode);
+    url.searchParams.set("outlet_code", params.outletCode);
+    if (params.nip) url.searchParams.set("nip", params.nip);
+
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) {
+      console.error(`[Exodus] approval-level HTTP ${res.status} for`, url.toString());
+      return null;
+    }
+    const body = (await res.json()) as { data?: { role?: string }; error?: { status: boolean; msg?: string } };
+    if (body.error?.status || !body.data?.role) {
+      console.error(`[Exodus] approval-level error:`, body.error);
+      return null;
+    }
+    return { role: body.data.role };
+  } catch (err) {
+    console.error(`[Exodus] approval-level fetch failed:`, err);
+    return null;
+  }
+}
+
 /** Every "YYYYMM" month from n-1 months ago through the current month, inclusive (n total months). */
 export function lastNMonthsRange(n: number, from: Date = new Date()): { periodeAwal: string; periodeAkhir: string } {
   const periodeAkhir = `${from.getFullYear()}${String(from.getMonth() + 1).padStart(2, "0")}`;

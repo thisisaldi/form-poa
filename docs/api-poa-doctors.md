@@ -70,6 +70,7 @@ Array of:
   "periode": { "startDate": "2026-07-01", "endDate": "2026-09-30" },  // tanggal awal/akhir kuartal berjalan (PoaForm.period)
   "approveUntil": "NSM",     // SELALU "NSM" sejak revisi 2026-08-27 (lihat Catatan) — field dipertahankan untuk kompatibilitas
   "usedInExodus": false,     // SELALU false di response ini (baris usedInExodus:true sudah difilter keluar) — lihat Catatan
+  "exodusApprovedBy": null,  // string bebas atau null — nama approver di sisi Exodus (lihat Catatan), TIDAK mempengaruhi approveUntil
   "dokter": {
     "kodeCust": "string | null",
     "namaCust": "string",
@@ -109,6 +110,7 @@ Catatan:
 - Array kosong `[]` (bukan error) kalau NIP valid tapi tidak punya POA di kuartal berjalan, semua dokternya belum final-approved, atau `keyword` tidak match apapun.
 - **`approveUntil` (revisi 2026-08-27)**: hanya dokter dengan `PoaDoctorApproval.status` (atau `PoaForm.status` fallback) `APPROVED_BY_NSM` yang muncul di response ini — permintaan eksplisit tim Exodus ("data yg di show perlu yg sudah final approved saja"), lebih ketat dari behavior sebelumnya (yang menampilkan ASM/SM/NSM level manapun). Field ini karena itu selalu bernilai `"NSM"` di endpoint list/detail ini; dipertahankan (bukan dihapus) untuk stabilitas kontrak kalau nanti ada consumer lain yang butuh level lebih longgar.
 - **`usedInExodus` (revisi 2026-08-27)**: dokter yang `usedInExodus: true` (sudah ditandai lewat `PATCH /api/poa-doctors/{id}`) TIDAK muncul di response `GET /api/poa-doctors` (list) ini — permintaan eksplisit tim Exodus. Field tetap ada di shape (selalu `false` di sini) untuk konsistensi dengan `GET /api/poa-doctors/{id}` (detail by id), yang TIDAK memfilternya (lihat section detail di bawah — endpoint itu masih bisa mengembalikan baris yang sudah dipakai, supaya `PATCH` tetap idempotent).
+- **`exodusApprovedBy` (2026-09-09)**: nama approver bebas (string, tidak divalidasi/tidak di-link ke `User` POA manapun) yang di-set Exodus lewat `PATCH`. Murni field display, tidak memfilter/mempengaruhi `approveUntil` — baris yang muncul di endpoint ini tetap ditentukan HANYA oleh approval internal POA (ASM→SM→NSM), field ini sekadar info tambahan siapa yang approve di sisi Exodus.
 - `idPoa` — nomor urut global (`PoaForm.seq`, autoincrement, tidak pernah reset per periode/kuartal), format `"POA" + 4 digit` (`"POA0001"`). Lebih dari 9999 POA otomatis jadi 5 digit dst (`"POA10000"`), bukan hard cap.
 - `periode.startDate`/`periode.endDate` — tanggal kalender awal/akhir kuartal (`PoaForm.period`, format `"YYYY-QN"`), bukan tanggal buat/submit POA-nya.
 - `pengaliNilaiR` vs `nilaiR` — **DUA field yang berbeda**, jangan disamakan: `pengaliNilaiR` adalah multiplier yang dipakai dalam formula `nilaiPssp` (`estimasi × persenPsspDokter × pengaliNilaiR`, default `1` kalau null); `nilaiR` adalah **angka Rupiah** (bukan rasio/persen) — nilai `r_value` mentah dari API produk Exodus (`api.pharos.id/exodus/core/v1/products`), diambil live saat request (dengan fallback ke rekonstruksi dari data DB kalau API-nya sedang tidak bisa diakses — lihat catatan implementasi). Tidak dipakai dalam formula manapun di response ini, murni data referensi. Keduanya bisa null secara independen. **Catatan implementasi**: `PoaLineItem` punya kolom bernama `nilaiR` sendiri di database, tapi kolom itu tidak pernah diisi oleh kode manapun di aplikasi (selalu `null` di seluruh data production) — field `nilaiR` di response ini TIDAK berasal dari kolom itu. Nilainya diambil live dari `getLiveProductPricing()` (`src/lib/exodusApi.ts`, field `r_value`), fallback ke `Product.nilaiRPersen × Product.hna` (matematis setara, karena `nilaiRPersen` sendiri = `r_value ÷ hna` saat di-sync) kalau live API tidak tersedia.
@@ -153,15 +155,17 @@ Dipanggil Exodus untuk mengunci satu baris supaya tidak dipakai dua kali, dan (k
 PATCH /api/poa-doctors/{uidCustomer}
 Content-Type: application/json
 
-{ "usedInExodus": false }   // opsional — lihat tabel di bawah
+{ "usedInExodus": false, "exodusApprovedBy": "Nama Approver" }   // keduanya opsional, independen — lihat tabel di bawah
 ```
 
 | Body | Efek |
 |---|---|
 | Tanpa body / `{}` / `{ "usedInExodus": true }` | **Mark as used** — `usedInExodus`: `false` → `true`, `usedInExodusAt` di-set ke waktu sekarang. Ini perilaku default (backward-compatible dengan versi sebelum body dikenal). |
 | `{ "usedInExodus": false }` | **Revert** — `usedInExodus`: `true` → `false`, `usedInExodusAt` di-set `null`. |
+| `{ "exodusApprovedBy": "Nama" }` | Set nama approver Exodus (string bebas). Independen dari `usedInExodus` — boleh dikirim sendirian tanpa menyertakan `usedInExodus`, tidak menyentuhnya sama sekali. |
+| `{ "exodusApprovedBy": null }` atau `""` | Kosongkan `exodusApprovedBy` kembali ke `null`. |
 
-**Idempotent di kedua arah** — set ke nilai yang sudah ada saat ini bukan error, tetap 200 (termasuk memanggil "mark as used" pada baris yang sudah hilang dari `GET /api/poa-doctors` list karena sudah `usedInExodus: true` — lihat catatan di section detail di atas).
+**Partial update** — field yang tidak dikirim di body tidak disentuh sama sekali (kecuali `usedInExodus`, yang selalu bodyless-default ke `true` untuk backward-compat). **Idempotent di kedua arah** — set ke nilai yang sudah ada saat ini bukan error, tetap 200 (termasuk memanggil "mark as used" pada baris yang sudah hilang dari `GET /api/poa-doctors` list karena sudah `usedInExodus: true` — lihat catatan di section detail di atas).
 
 ⚠️ **Arah revert (`usedInExodus: false`) membalik keputusan bisnis sebelumnya** ("tidak bisa direvert", dikonfirmasi eksplisit oleh Juni Pharos di chat 2026-08-24) — ditambahkan 2026-08-27 atas permintaan Aldi, **belum ada konfirmasi tertulis dari tim Exodus** bahwa mereka memang butuh ini / bahwa jaminan "sekali dipakai terkunci selamanya" sudah tidak berlaku. Lihat `docs/exodus-poa-usage/01-business-rules.md` §8. *(Awalnya dibangun sebagai `DELETE` terpisah, digabung jadi satu `PATCH` di hari yang sama atas preferensi Aldi.)*
 
