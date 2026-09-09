@@ -1374,7 +1374,7 @@ export function PlanningPhase(props: {
                   </tbody>
                   <tfoot>
                     <tr style={{ borderTop: "2px solid var(--color-border-strong, var(--color-border))", fontWeight: 700 }}>
-                      <td colSpan={3} className="py-1.5">Total</td>
+                      <td colSpan={4} className="py-1.5">Total</td>
                       <td className="py-1.5 text-right">{(totalQty / konversi).toLocaleString("id-ID", { maximumFractionDigits: 2 })} {product?.satuan ?? ""}</td>
                       <td className="py-1.5 px-2"><AccountingRp n={totalSales} /></td>
                       <td className="py-1.5 px-2"><AccountingRp n={totalEntertain} /></td>
@@ -1984,7 +1984,7 @@ function FinalisasiPhase({
                   </tbody>
                   <tfoot>
                     <tr style={{ borderTop: "2px solid var(--color-border-strong, var(--color-border))", fontWeight: 700 }}>
-                      <td colSpan={3} className="py-1.5">Total</td>
+                      <td colSpan={4} className="py-1.5">Total</td>
                       <td className="py-1.5 text-right">{totalQty.toLocaleString("id-ID")}</td>
                       <td className="py-1.5 text-right">{formatRp(totalSales)}</td>
                       <td className="py-1.5 text-right">{formatRp(totalEntertain)}</td>
