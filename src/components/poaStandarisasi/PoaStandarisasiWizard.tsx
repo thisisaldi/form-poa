@@ -1221,7 +1221,12 @@ export function PlanningPhase(props: {
                   name={`produk-${idx}`}
                   options={rowProductOptions}
                   value={p.kodeProduk}
-                  onChange={(v) => updateProduk(idx, { kodeProduk: v })}
+                  // Reset diskon PI/Distributor tiap ganti produk (2026-09-09 bug report:
+                  // "diskon statis, nyangkut ke produk pertama dipilih") — keduanya cuma
+                  // ke-autofill dari live Exodus SEKALI saat masih kosong (lihat effect
+                  // diskonLamaMap di atas), jadi kalau gak di-clear di sini nilai punya
+                  // produk lama nempel terus dan gak pernah ke-refresh buat produk baru.
+                  onChange={(v) => updateProduk(idx, { kodeProduk: v, estimasiDiskonPct: "", estimasiDiskonDistributorPct: "" })}
                   disabled={disabled}
                   placeholder="Cari produk…"
                 />
@@ -1917,9 +1922,9 @@ function FinalisasiPhase({
             <div className="text-sm font-bold mb-3" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</div>
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Finalisasi Biaya</span>
             <div className="grid grid-cols-3 gap-3 mb-4">
-              {/* Sourced live from Exodus discount-request API (principal_percentage / distributor_percentage), see getPoaStandarisasiDetail — no longer manually editable (2026-09-07: distributor stopped being manual too). */}
-              <UnitCountInput label="Discount Final PI" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled />
-              <UnitCountInput label="Discount Final Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled />
+              {/* Default-nya live dari Exodus discount-request API (principal_percentage / distributor_percentage, lihat getPoaStandarisasiDetail), tapi tetap editable di Finalisasi (2026-09-09 user request — belum ada yang di-lock di fase ini). */}
+              <UnitCountInput label="Discount Final PI" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled={disabled} />
+              <UnitCountInput label="Discount Final Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled={disabled} />
               <RpInput label="Biaya Listing Final" value={p.finalBiayaListingRp} onChange={(v) => updateProduk(idx, { finalBiayaListingRp: v })} disabled={disabled} />
             </div>
 

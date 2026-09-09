@@ -119,11 +119,12 @@ const d = (v: { toString(): string } | null | undefined): number | null => (v ==
  * Prisma Decimal fields can't cross the Server→Client Component boundary as-is
  * — stringify/numberify everything before returning. `discounts` (live Exodus
  * principal_percentage + distributor_percentage per kodeProduk, see
- * getDiscountsForOutlet) replaces finalDiscountPct AND diskonDistributorPct
- * entirely: null (empty) when this outlet+product has no discount request,
- * even though a DB value may exist from before these fields became read-only.
- * Only falls back to the stored DB value when `discounts` itself is null —
- * Exodus unreachable/unconfigured for this environment.
+ * getDiscountsForOutlet) is only a DEFAULT for finalDiscountPct/
+ * diskonDistributorPct when the MR hasn't saved a value of their own yet —
+ * Finalisasi stays fully editable, nothing here gets locked to the live
+ * Exodus number (2026-09-09 user request, reverted the earlier "always
+ * override with live value" behavior which silently discarded edits on the
+ * next page load).
  */
 function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct> | null) {
   return {
@@ -140,8 +141,8 @@ function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct>
       estimasiDiskonDistributorPct: d(prod.estimasiDiskonDistributorPct),
       estimasiValueDpRp: d(prod.estimasiValueDpRp),
       estimasiBiayaListingRp: d(prod.estimasiBiayaListingRp),
-      finalDiscountPct: discounts ? discounts.get(prod.product.kodeProduk)?.principalPct ?? null : d(prod.finalDiscountPct),
-      diskonDistributorPct: discounts ? discounts.get(prod.product.kodeProduk)?.distributorPct ?? null : d(prod.diskonDistributorPct),
+      finalDiscountPct: d(prod.finalDiscountPct) ?? discounts?.get(prod.product.kodeProduk)?.principalPct ?? null,
+      diskonDistributorPct: d(prod.diskonDistributorPct) ?? discounts?.get(prod.product.kodeProduk)?.distributorPct ?? null,
       finalBiayaListingRp: d(prod.finalBiayaListingRp),
       spNonSalesJumlahBox: d(prod.spNonSalesJumlahBox),
       product: {
