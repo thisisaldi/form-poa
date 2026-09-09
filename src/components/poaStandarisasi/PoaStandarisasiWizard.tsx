@@ -42,7 +42,6 @@ import {
   type PlanningInput,
   type PlanningProdukInput,
 } from "@/app/actions/poaStandarisasi";
-import { type ExodusDiscountPct } from "@/lib/exodusApi";
 
 export { PHASES };
 
@@ -689,14 +688,19 @@ export function PoaStandarisasiWizard({
 
   return (
     <div className="max-w-5xl">
-      <div className="mb-4">
-        <Link href="/poa-standarisasi" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
-          ← Daftar POA Standarisasi
-        </Link>
-        <h1 className="mt-1">Pengajuan Standarisasi — {pengajuan.outlet.namaOutlet}</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          POA Standarisasi (Produk × Outlet)
-        </p>
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <Link href="/poa-standarisasi" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+            ← Daftar POA Standarisasi
+          </Link>
+          <h1 className="mt-1">Pengajuan Standarisasi — {pengajuan.outlet.namaOutlet}</h1>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            POA Standarisasi (Produk × Outlet)
+          </p>
+        </div>
+        <a href={`/api/poa-standarisasi/${pengajuan.id}/export`}>
+          <Button size="sm" variant="ghost">↓ Export Excel</Button>
+        </a>
       </div>
 
       <Stepper
@@ -1038,18 +1042,13 @@ export function PlanningPhase(props: {
   // discount request at all, 2026-09-09). Only applied
   // when the row's own value is still empty — never overwrites what the MR
   // already typed or what was already saved, so this only fires once per
-  // produk row in practice. Kept in state (not just consumed inline) so the
-  // "diskon terdahulu" figure stays available for the growth/margin
-  // perpanjangan comparison below even after the MR edits the fields away
-  // from this default.
-  const [diskonLamaMap, setDiskonLamaMap] = useState<Record<string, ExodusDiscountPct>>({});
+  // produk row in practice.
   useEffect(() => {
     const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
-    if (!kodePI || kodeList.length === 0) { setDiskonLamaMap({}); return; }
+    if (!kodePI || kodeList.length === 0) return;
     let cancelled = false;
     getEstimasiDiskonPreviewAction(kodePI).then((map) => {
       if (cancelled) return;
-      setDiskonLamaMap(map);
       produkList.forEach((p, idx) => {
         if (!p.kodeProduk) return;
         const pct = map[p.kodeProduk];
@@ -1309,23 +1308,6 @@ export function PlanningPhase(props: {
               return (
                 <p className="text-xs mt-1" style={{ color: "var(--color-error)" }}>
                   ⚠ Estimasi beban diskon {formatRp(biayaDiskonBaru)}/bln melebihi budget margin histori {formatRp(marginBudgetLama)}/bln ({MARGIN_CAP_PCT}% dari sales 12 bulan terakhir) — margin standarisasi berpotensi tergerus lebih dalam dari sebelumnya.
-                </p>
-              );
-            })()}
-            {/* Informational only (docs/TODO.md #7) — growth vs sales histori + margin (PI+Distributor) vs target GM 20% pakai diskon terdahulu, buat pembanding pengisi saat perpanjangan DPL/DPF. Tidak nge-block submit. */}
-            {p.skemaPembayaran === "DISKON" && p.statusPengajuan === "PERPANJANGAN" && p.kodeProduk && marginBaseline[p.kodeProduk] !== undefined && (() => {
-              const salesLamaPerBulan = marginBaseline[p.kodeProduk] / 12;
-              const growthPct = salesLamaPerBulan > 0 ? ((totalSales - salesLamaPerBulan) / salesLamaPerBulan) * 100 : null;
-              const lama = diskonLamaMap[p.kodeProduk];
-              const diskonPiLama = lama?.principalPct ?? 0;
-              const diskonDistLama = lama?.distributorPct ?? 0;
-              const diskonPiBaru = parseFloat(p.estimasiDiskonPct) || 0;
-              const diskonDistBaru = parseFloat(p.estimasiDiskonDistributorPct) || 0;
-              const marginLama = 100 - diskonPiLama - diskonDistLama;
-              const marginBaru = 100 - diskonPiBaru - diskonDistBaru;
-              return (
-                <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>
-                  ℹ Perpanjangan — growth sales: {growthPct === null ? "-" : `${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}%`} vs {formatRp(salesLamaPerBulan)}/bln (histori 12 bln lalu). Margin (asumsi flat, {"= 100% - diskon PI% - diskon Distributor%"}): dulu {marginLama.toFixed(1)}% (PI {diskonPiLama}% + Dist {diskonDistLama}%) → sekarang {marginBaru.toFixed(1)}% (PI {diskonPiBaru}% + Dist {diskonDistBaru}%), target GM {MARGIN_CAP_PCT}%.
                 </p>
               );
             })()}
