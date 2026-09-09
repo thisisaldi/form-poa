@@ -1,12 +1,11 @@
 /**
  * GET /api/poa-standarisasi/export
  *
- * Exports the "Pengajuan Saya" list page — two sheets (2026-09-09 redline
- * "Export Excel — Sheet Baru 'Detail Produk & Dokter'"):
- * - "Ringkasan": one row per pengajuan, unchanged from before.
- * - "Detail Produk & Dokter" (new): one row per Produk × Dokter combination
- *   across every pengajuan owned by the user, so a reader gets full detail
- *   without opening each pengajuan individually.
+ * Exports the "Pengajuan Saya" list page as one sheet, "Detail Produk &
+ * Dokter" — one row per Produk × Dokter combination across every pengajuan
+ * owned by the user (2026-09-09 redline "Export Excel — Sheet Baru 'Detail
+ * Produk & Dokter'"; the separate "Ringkasan" sheet this started with was
+ * dropped same day per user request — this sheet alone is enough).
  *
  * Diverged from the redline mockup in two places where our actual data
  * model disagrees with its illustrative guess (mockup explicitly invited
@@ -31,6 +30,14 @@ function num(v: { toString(): string } | null | undefined): number | null {
   return v == null ? null : parseFloat(v.toString());
 }
 
+// numFmt "0.00%" multiplies the cell value by 100 to display it (it expects a
+// fraction, 0.10 for "10%") — diskonPct is stored as a plain percent number
+// (10 = 10%), so it needs dividing by 100 before being written as a percent cell.
+function pct(v: { toString(): string } | null | undefined): number | null {
+  const n = num(v);
+  return n == null ? null : n / 100;
+}
+
 export async function GET(_req: NextRequest) {
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -52,38 +59,6 @@ export async function GET(_req: NextRequest) {
 
   const wb = new ExcelJS.Workbook();
 
-  // ─── Sheet 1: Ringkasan (unchanged) ────────────────────────────────────
-  const ringkasan = wb.addWorksheet("Ringkasan");
-  ringkasan.columns = [
-    { header: "Outlet", key: "outlet", width: 28 },
-    { header: "Tipe", key: "tipe", width: 14 },
-    { header: "Tahap", key: "tahap", width: 18 },
-    { header: "Jumlah Produk", key: "jumlahProduk", width: 14 },
-    { header: "Produk Berhasil Standarisasi", key: "berhasil", width: 16 },
-    { header: "Produk Gagal Standarisasi", key: "gagal", width: 16 },
-    { header: "Target Penyelesaian", key: "target", width: 16 },
-    { header: "Tanggal KFT", key: "tanggalKft", width: 14 },
-  ];
-  ringkasan.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-  ringkasan.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0063A0" } };
-  ringkasan.getRow(1).alignment = { wrapText: true, vertical: "middle" };
-
-  for (const p of rows) {
-    const jumlahGagal = p.produk.filter((prod: (typeof p.produk)[number]) => prod.standarisasiGagal).length;
-    ringkasan.addRow({
-      outlet: p.outlet.namaOutlet,
-      tipe: p.tipeStandarisasi === "PERIODIC" ? "Periodic" : p.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic",
-      tahap: p.submittedAt ? "Sudah Disubmit" : phaseLabel(p.currentPhase),
-      jumlahProduk: p.produk.length,
-      berhasil: p.submittedAt ? p.produk.length - jumlahGagal : "-",
-      gagal: p.submittedAt ? jumlahGagal : "-",
-      target: p.estimasiTimelineSelesai ? p.estimasiTimelineSelesai.toLocaleDateString("id-ID") : "-",
-      tanggalKft: p.jadwalMeetingKft ? p.jadwalMeetingKft.toLocaleDateString("id-ID") : "-",
-    });
-  }
-  if (rows.length === 0) ringkasan.addRow(["(Belum ada pengajuan)"]);
-
-  // ─── Sheet 2: Detail Produk & Dokter (new) ─────────────────────────────
   const detail = wb.addWorksheet("Detail Produk & Dokter");
   const PCT_FMT = "0.00%";
   const RP_FMT = "#,##0";
@@ -122,8 +97,8 @@ export async function GET(_req: NextRequest) {
 
     for (const prod of p.produk) {
       const skema = prod.skemaPembayaran;
-      const diskonPi = num(prod.finalDiscountPct) ?? num(prod.estimasiDiskonPct);
-      const diskonDist = num(prod.diskonDistributorPct) ?? num(prod.estimasiDiskonDistributorPct);
+      const diskonPi = pct(prod.finalDiscountPct) ?? pct(prod.estimasiDiskonPct);
+      const diskonDist = pct(prod.diskonDistributorPct) ?? pct(prod.estimasiDiskonDistributorPct);
       const dpRp = num(prod.finalValueDpRp) ?? num(prod.estimasiValueDpRp);
       const sudahTtdByCustomerId = new Map(prod.dokterApproval.map((d: (typeof prod.dokterApproval)[number]) => [d.customerId, d.sudahTtd]));
 

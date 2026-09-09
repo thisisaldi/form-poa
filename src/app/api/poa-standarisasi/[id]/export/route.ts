@@ -31,6 +31,14 @@ function num(v: { toString(): string } | null | undefined): number | null {
   return v == null ? null : parseFloat(v.toString());
 }
 
+// numFmt "0.00%" multiplies the cell value by 100 to display it (it expects a
+// fraction, 0.10 for "10%") — diskonPct is stored as a plain percent number
+// (10 = 10%), so it needs dividing by 100 before being written as a percent cell.
+function pct(v: { toString(): string } | null | undefined): number | null {
+  const n = num(v);
+  return n == null ? null : n / 100;
+}
+
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -96,8 +104,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   for (const prod of pengajuan.produk) {
     const produkLabel = `${prod.product.kodeProduk} - ${prod.product.namaProduk}`;
     const skema = prod.skemaPembayaran;
-    const diskonPi = num(prod.finalDiscountPct) ?? num(prod.estimasiDiskonPct);
-    const diskonDist = num(prod.diskonDistributorPct) ?? num(prod.estimasiDiskonDistributorPct);
+    const diskonPi = pct(prod.finalDiscountPct) ?? pct(prod.estimasiDiskonPct);
+    const diskonDist = pct(prod.diskonDistributorPct) ?? pct(prod.estimasiDiskonDistributorPct);
     const valueDp = num(prod.finalValueDpRp) ?? num(prod.estimasiValueDpRp);
     const biayaListing = num(prod.finalBiayaListingRp) ?? num(prod.estimasiBiayaListingRp);
 
