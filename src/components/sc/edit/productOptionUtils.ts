@@ -14,7 +14,6 @@ export interface BuildProductOptionsParams {
 
 export function buildScProductOptions({
   canvasserProducts = [],
-  princodeProducts = [],
   productsMenang = [],
   productsInsentif = [],
   masterProducts = [],
@@ -93,7 +92,6 @@ export function buildScProductOptions({
   const groupPernahOrder: any[] = [];
   const groupPromilan: any[] = [];
   const groupProdukSc: any[] = [];
-  const groupLainnya: any[] = [];
 
   const processedCodes = new Set<string>();
 
@@ -171,85 +169,17 @@ export function buildScProductOptions({
     }
   }
 
-  // Process any survey products not in canvasserProducts
-  if (Array.isArray(surveyData)) {
-    for (const s of surveyData) {
-      const code = String(s.kodeProduk || "").trim();
-      if (!code) continue;
-      const strippedCode = code.replace(/^0+/, "");
-      if (processedCodes.has(code) || processedCodes.has(strippedCode)) continue;
-
-      processedCodes.add(code);
-      processedCodes.add(strippedCode);
-      const masterP = masterProducts.find((mp) => mp.kodeProduk === code || mp.kodeProduk.replace(/^0+/, "") === strippedCode);
-      const isMenang = menangCodes.has(code) || menangCodes.has(strippedCode);
-      const salesQty = historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0;
-      const potensiNum = s.totalPotensiBulan != null ? Number(s.totalPotensiBulan) : 0;
-
-      groupSurvey.push({
-        value: code,
-        label: s.namaProdukRekomendasi || masterP?.namaProduk || code,
-        sublabel: `${code} · ${masterP?.namaGroupBrand || "Data Survey"}${potensiNum > 0 ? ` · Potensi: ${Math.floor(potensiNum)} UB/bln` : ""}${salesQty > 0 ? ` · ${formatHistoryLabel(salesQty)}` : ""}`,
-        group: "PRODUK SURVEY (NEXUS)",
-        tag: "Produk Survey",
-        tagColor: "purple",
-        tag2: isMenang ? "Pernah SC" : undefined,
-        tag2Color: isMenang ? "green" : undefined,
-        _potensi: potensiNum,
-        _salesQty: salesQty,
-      });
-    }
-  }
-
-  // Process princode products
-  for (const p of princodeProducts) {
-    const code = String(p.code || "").trim();
-    if (!code) continue;
-    const strippedCode = code.replace(/^0+/, "");
-    if (processedCodes.has(code) || processedCodes.has(strippedCode)) continue;
-
-    processedCodes.add(code);
-    processedCodes.add(strippedCode);
-    const masterP = masterProducts.find((mp) => mp.kodeProduk === code || mp.kodeProduk.replace(/^0+/, "") === strippedCode);
-    const isMenang = menangCodes.has(code) || menangCodes.has(strippedCode);
-    const salesQty = historySalesMap.get(code) ?? historySalesMap.get(strippedCode) ?? 0;
-
-    if (salesQty > 0) {
-      groupPernahOrder.push({
-        value: code,
-        label: p.name || masterP?.namaProduk || code,
-        sublabel: `${code} · ${masterP?.namaGroupBrand || "Master Produk"} · ${formatHistoryLabel(salesQty)}`,
-        group: "PERNAH ORDER",
-        tag: "Pernah Order",
-        tagColor: "blue",
-        tag2: isMenang ? "Pernah SC" : undefined,
-        tag2Color: isMenang ? "green" : undefined,
-        _salesQty: salesQty,
-      });
-    } else {
-      groupLainnya.push({
-        value: code,
-        label: p.name || masterP?.namaProduk || code,
-        sublabel: `${code} · ${masterP?.namaGroupBrand || "Master Produk"}${masterP?.zatAktif ? ` · ${masterP.zatAktif}` : ""}`,
-        group: isMenang ? "PERNAH SC" : "PRODUK LAINNYA",
-        tag2: isMenang ? "Pernah SC" : undefined,
-        tag2Color: isMenang ? "green" : undefined,
-        _salesQty: 0,
-      });
-    }
-  }
-
   // Sort PERNAH ORDER descending by salesQty ("pastikan order dari label terbanyak")
   groupPernahOrder.sort((a, b) => b._salesQty - a._salesQty);
 
   // Sort SURVEY descending by potensi
   groupSurvey.sort((a, b) => (b._potensi || 0) - (a._potensi || 0));
 
+  // Only return SC products (from canvasserProducts / get-sales-counter-product)
   return [
     ...groupSurvey,
     ...groupPernahOrder,
     ...groupPromilan,
     ...groupProdukSc,
-    ...groupLainnya,
   ];
 }

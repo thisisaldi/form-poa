@@ -4,12 +4,11 @@ import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { BlastInBadge, InsScBadge } from "@/components/ui/BlastInBadge";
+import { displayRole } from "@/lib/role";
 import { deleteSalesCounterFormAction } from "@/app/actions/scActions";
 import {
   submitSalesCounterFormAction,
   approveSalesCounterFormAction,
-  reviseSalesCounterFormAction,
   rejectSalesCounterFormAction,
   requestEditSalesCounterFormAction,
   grantEditSalesCounterFormAction,
@@ -17,7 +16,7 @@ import {
 } from "@/app/actions/scApprovalActions";
 import { formatRp } from "./SalesCounterStatsPanel";
 import type { ScDraftFormItem } from "../types";
-import { getB3PeriodInfo, getB3ByQuarter } from "@/lib/b3Utils";
+import { getB3ByQuarter } from "@/lib/b3Utils";
 import {
   getScOutletB3SalesAction,
   getScCashbackPoaAction,
@@ -54,6 +53,15 @@ function formatMonthKey(key: string) {
   ];
   return `${MONTH_NAMES[month - 1]} ${year}`;
 }
+
+const REJECT_CATEGORY_LABELS: Record<string, string> = {
+  PRODUK: "Produk",
+  OUTLET: "Outlet",
+  USER: "User / SC",
+  PERIODE: "Periode",
+  KALKULASI_PSSP: "Kalkulasi Sales Counter",
+  ALASAN_LAIN: "Alasan Lain",
+};
 
 export function SalesCounterOutletCard({
   draft,
@@ -131,37 +139,6 @@ export function SalesCounterOutletCard({
     return true;
   }, [isOwner, parentCanApprove, canApproveOutlet, draft.status]);
 
-  const canEditThisDraft = useMemo(() => {
-    if (userRole === "ADMIN") return true;
-
-    const roleLevel: Record<string, number> = {
-      MR: 0,
-      ASM: 1,
-      SM: 2,
-      NSM: 3,
-      ADMIN: 4,
-    };
-
-    const userLevel = roleLevel[userRole || "MR"] ?? -1;
-    let lockLevel = 3;
-    if (draft.status === "DRAFT" || draft.status === "REVISI") lockLevel = -1;
-    else if (draft.status === "SUBMITTED_TO_ASM") lockLevel = 0;
-    else if (draft.status === "APPROVED_BY_ASM" || draft.status === "SUBMITTED_TO_SM") lockLevel = 1;
-    else if (draft.status === "APPROVED_BY_SM" || draft.status === "SUBMITTED_TO_NSM") lockLevel = 2;
-    else if (draft.status === "APPROVED_BY_NSM") lockLevel = 3;
-
-    if (isOwner) {
-      // Owner (MR) can always click Edit to modify and submit edit request
-      return true;
-    }
-
-    if (userLevel >= 0 && lockLevel >= 0) {
-      if (draft.status === "APPROVED_BY_NSM") return false;
-      return userLevel >= lockLevel;
-    }
-
-    return false;
-  }, [userRole, isOwner, draft.status]);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [atasanPanelOpen, setAtasanPanelOpen] = useState(false);
@@ -176,21 +153,67 @@ export function SalesCounterOutletCard({
   const [isSubmittingOutlet, setIsSubmittingOutlet] = useState(false);
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [reviseConfirmOpen, setReviseConfirmOpen] = useState(false);
   const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
 
   const [isDeleting, startDelete] = useTransition();
 
   const lastLog = draft.auditLogs && draft.auditLogs.length > 0 ? draft.auditLogs[draft.auditLogs.length - 1] : null;
   const hasPendingEditRequest = lastLog?.action === "REQUEST_EDIT";
-  const pendingEditRequestNotes = hasPendingEditRequest ? (lastLog?.snapshot?.notes || "") : "";
+  const pendingEditRequestNotes = hasPendingEditRequest ? (() => {
+    let snap = lastLog?.snapshot;
+    if (typeof snap === "string") {
+      try { snap = JSON.parse(snap); } catch { return snap; }
+    }
+    return snap?.notes || snap?.reason || "";
+  })() : "";
 
   const lastRevisionLog = useMemo(() => {
     if (!draft.auditLogs || draft.auditLogs.length === 0) return null;
     return [...draft.auditLogs].reverse().find(
-      (log) => log.action === "REVISE" || log.action === "REJECT"
+      (log) =>
+        log.action === "REVISE" ||
+        log.action === "REJECT" ||
+        log.action === "GRANT_EDIT" ||
+        log.toStatus === "REVISI"
     ) || null;
   }, [draft.auditLogs]);
+
+  const revisionInfo = useMemo(() => {
+    if (!lastRevisionLog) return null;
+    let snapshot = lastRevisionLog.snapshot;
+    if (typeof snapshot === "string") {
+      try {
+        snapshot = JSON.parse(snapshot);
+      } catch {
+        snapshot = { notes: snapshot };
+      }
+    }
+    const notes = snapshot?.notes || snapshot?.reason || "";
+    const category = snapshot?.category || "";
+    const actorLabel = lastRevisionLog.actor
+      ? `${lastRevisionLog.actor.name} (${displayRole(lastRevisionLog.actor.role)})`
+      : null;
+
+    let requestEditReasonText: string | null = null;
+    if (lastRevisionLog.action === "GRANT_EDIT" && draft.auditLogs) {
+      const reqLog = [...draft.auditLogs].reverse().find((l) => l.action === "REQUEST_EDIT");
+      if (reqLog) {
+        let reqSnap = reqLog.snapshot;
+        if (typeof reqSnap === "string") {
+          try { reqSnap = JSON.parse(reqSnap); } catch { reqSnap = { notes: reqSnap }; }
+        }
+        requestEditReasonText = reqSnap?.notes || reqSnap?.reason || null;
+      }
+    }
+
+    return {
+      action: lastRevisionLog.action,
+      notes,
+      category,
+      actorLabel,
+      requestEditReasonText,
+    };
+  }, [lastRevisionLog, draft.auditLogs]);
 
   async function handleRequestEditSubmit() {
     if (isRequestingEdit) return;
@@ -291,31 +314,6 @@ export function SalesCounterOutletCard({
     }
   }
 
-  function handleRevise() {
-    if (isSubmittingAction) return;
-    setReviseConfirmOpen(true);
-  }
-
-  async function executeRevise() {
-    setIsSubmittingAction(true);
-    try {
-      const res = await reviseSalesCounterFormAction([draft.id], actionNotes);
-      setReviseConfirmOpen(false);
-      if (res.ok) {
-        showToast(`Sales Counter ${draft.namaOutlet} dikembalikan ke MR untuk revisi.`, "info");
-        setAtasanPanelOpen(false);
-        router.refresh();
-      } else {
-        showToast(res.error || "Gagal meminta revisi.", "error");
-      }
-    } catch (err: any) {
-      setReviseConfirmOpen(false);
-      showToast(err?.message || "Terjadi kesalahan saat meminta revisi.", "error");
-    } finally {
-      setIsSubmittingAction(false);
-    }
-  }
-
   function handleReject() {
     if (isSubmittingAction) return;
     setRejectConfirmOpen(true);
@@ -324,7 +322,7 @@ export function SalesCounterOutletCard({
   async function executeReject() {
     setIsSubmittingAction(true);
     try {
-      const res = await rejectSalesCounterFormAction([draft.id], actionNotes);
+      const res = await rejectSalesCounterFormAction([draft.id], actionNotes, rejectCategory);
       setRejectConfirmOpen(false);
       if (res.ok) {
         showToast(`Sales Counter ${draft.namaOutlet} telah ditolak.`, "error");
@@ -352,80 +350,130 @@ export function SalesCounterOutletCard({
   }, [draft.kodePI]);
 
   const [allScProducts, setAllScProducts] = useState<any[]>([]);
+  const [b3TotalCount, setB3TotalCount] = useState<number | null>(null);
+  const [b3TotalOutletSalesPerMonth, setB3TotalOutletSalesPerMonth] = useState<number>(0);
 
-  useEffect(() => {
-    if (!draft.kodePI) return;
-    getSalesCounterProductsAction(draft.kodePI).then((res) => {
-      if (res?.data && Array.isArray(res.data)) {
-        setAllScProducts(res.data);
-        const scCodes = new Set(res.data.map((cp) => cp.pro_code));
-        setClientScData({ codes: scCodes, total: res.data.length });
-      }
-    });
-  }, [draft.kodePI]);
-
-  const totalScCount = draft.totalScProducts ?? clientScData?.total ?? 0;
-  const validScCount = draft.validScProductsCount ?? (
-    clientScData
-      ? draft.products.filter((p) => clientScData.codes.has(p.kodeProduk)).length
-      : draft.products.filter((p) => p.isScProduct).length || draft.products.length
-  );
   const b3Info = useMemo(() => {
     return getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
   }, [draft.period, draft.periodeAwal, poaId]);
   const b3RangeLabel = b3Info.rangeLabel;
 
-  const [b3TotalCount, setB3TotalCount] = useState<number | null>(null);
-  const [b3TotalOutletSalesPerMonth, setB3TotalOutletSalesPerMonth] = useState<number>(0);
-
   useEffect(() => {
     if (!draft.kodePI) return;
-    postHistorySalesAction([draft.kodePI], b3Info.targetPeriods).then((res) => {
-      const parsed = parseOutletHistorySales(res, draft.kodePI);
-      if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
-        setB3SalesMap(parsed.productSalesMap);
-        setB3TotalOutletSalesPerMonth(parsed.averageSales);
-        setB3TotalCount(parsed.productCount);
-      } else {
-        // Fallback to legacy getHistorySalesAction if postHistorySales has no data
-        getHistorySalesAction(draft.kodePI, false).then((legacyRes) => {
-          if (legacyRes?.data && Array.isArray(legacyRes.data)) {
-            const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
-            const uniqueCodes = new Set<string>();
-            const productSalesSum = new Map<string, number>();
 
-            for (const it of legacyRes.data) {
-              const itemPeriod = Number(it.period);
-              const historyQty = Number(it.history_sales) || 0;
-              const salesVal = Number(it.sales_value) || 0;
+    let isMounted = true;
+    getSalesCounterProductsAction(draft.kodePI).then((res) => {
+      if (!isMounted) return;
+      const products = res?.data && Array.isArray(res.data) ? res.data : [];
+      setAllScProducts(products);
+      const scCodes = new Set<string>(products.map((cp: any) => cp.pro_code).filter(Boolean));
+      setClientScData({ codes: scCodes, total: products.length });
 
-              if (targetPeriodsSet.has(itemPeriod) && (historyQty > 0 || salesVal > 0)) {
-                if (it.code) {
-                  uniqueCodes.add(it.code);
-                  const cur = productSalesSum.get(it.code) || 0;
-                  productSalesSum.set(it.code, cur + salesVal);
+      const scProCodes = Array.from(scCodes);
+      if (scProCodes.length === 0) {
+        setB3SalesMap(new Map());
+        setB3TotalOutletSalesPerMonth(0);
+        setB3TotalCount(0);
+        return;
+      }
+
+      postHistorySalesAction([draft.kodePI], b3Info.targetPeriods, scProCodes).then((historyRes) => {
+        if (!isMounted) return;
+        const parsed = parseOutletHistorySales(historyRes, draft.kodePI);
+        if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
+          setB3SalesMap(parsed.productSalesMap);
+          setB3TotalOutletSalesPerMonth(parsed.averageSales);
+          setB3TotalCount(parsed.productCount);
+        } else {
+          // Fallback 1: getScOutletB3SalesAction for all SC products in outlet
+          getScOutletB3SalesAction(b3Info.period, draft.kodePI, scProCodes).then((b3Res) => {
+            if (!isMounted) return;
+            const items = Array.isArray(b3Res?.data) ? b3Res.data : [];
+            const activeItems = items.filter((it: any) => (Number(it.average_sales) || 0) > 0 || (Number(it.average_qty) || 0) > 0);
+            if (activeItems.length > 0) {
+              const map = new Map<string, number>();
+              let sumAvg = 0;
+              for (const it of activeItems) {
+                if (it.pro_code) {
+                  const val = Number(it.average_sales) || 0;
+                  map.set(it.pro_code, val);
+                  map.set(it.pro_code.replace(/^0+/, ""), val);
+                  sumAvg += val;
                 }
               }
+              setB3SalesMap(map);
+              setB3TotalOutletSalesPerMonth(sumAvg);
+              setB3TotalCount(activeItems.length);
+              return;
             }
 
-            setB3TotalCount(uniqueCodes.size);
+            // Fallback 2: legacy getHistorySalesAction strictly filtered by SC codes
+            getHistorySalesAction(draft.kodePI, false).then((legacyRes) => {
+              if (!isMounted) return;
+              if (legacyRes?.data && Array.isArray(legacyRes.data)) {
+                const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
+                const uniqueCodes = new Set<string>();
+                const productSalesSum = new Map<string, number>();
 
-            let totalValSum = 0;
-            const avgMap = new Map<string, number>();
-            for (const [code, sumVal] of productSalesSum.entries()) {
-              avgMap.set(code, sumVal / 3);
-              totalValSum += sumVal;
-            }
+                for (const it of legacyRes.data) {
+                  const itemPeriod = Number(it.period);
+                  const historyQty = Number(it.history_sales) || 0;
+                  const salesVal = Number(it.sales_value) || 0;
 
-            if (totalValSum > 0) {
-              setB3SalesMap(avgMap);
-              setB3TotalOutletSalesPerMonth(totalValSum / 3);
-            }
-          }
-        });
-      }
+                  if (targetPeriodsSet.has(itemPeriod) && (historyQty > 0 || salesVal > 0)) {
+                    if (it.code && scCodes.has(it.code)) {
+                      uniqueCodes.add(it.code);
+                      const cur = productSalesSum.get(it.code) || 0;
+                      productSalesSum.set(it.code, cur + salesVal);
+                    }
+                  }
+                }
+
+                setB3TotalCount(uniqueCodes.size);
+
+                let totalValSum = 0;
+                const avgMap = new Map<string, number>();
+                for (const [code, sumVal] of productSalesSum.entries()) {
+                  avgMap.set(code, sumVal / 3);
+                  totalValSum += sumVal;
+                }
+
+                if (totalValSum > 0) {
+                  setB3SalesMap(avgMap);
+                  setB3TotalOutletSalesPerMonth(totalValSum / 3);
+                }
+              } else {
+                setB3TotalCount(0);
+                setB3TotalOutletSalesPerMonth(0);
+              }
+            });
+          });
+        }
+      });
     });
+
+    return () => {
+      isMounted = false;
+    };
   }, [draft.kodePI, b3Info.period, b3Info.targetPeriods]);
+
+  // Filter products to strictly SC products only (from get-sales-counter-product)
+  const scProducts = useMemo(() => {
+    if (clientScData && clientScData.codes.size > 0) {
+      return draft.products.filter(
+        (p) =>
+          clientScData.codes.has(p.kodeProduk) ||
+          clientScData.codes.has(String(p.kodeProduk || "").replace(/^0+/, ""))
+      );
+    }
+    if (draft.products.some((p) => p.isScProduct !== undefined)) {
+      return draft.products.filter((p) => p.isScProduct !== false);
+    }
+    return draft.products;
+  }, [draft.products, clientScData]);
+
+  const totalScCount = draft.totalScProducts ?? clientScData?.total ?? 0;
+  const validScCount = scProducts.length;
 
   const isExpanded = detailOpen;
 
@@ -472,34 +520,28 @@ export function SalesCounterOutletCard({
       });
   }, [draft.kodePI]);
 
-  const salesOnlineItems = useMemo(() => {
-    if (Array.isArray(salesOnlineData?.data)) return salesOnlineData.data;
-    if (Array.isArray(salesOnlineData)) return salesOnlineData;
-    return [];
-  }, [salesOnlineData]);
-
   const selectedProductCodes = useMemo(() => {
-    return new Set(draft.products.map((p) => p.kodeProduk).filter(Boolean));
-  }, [draft.products]);
+    return new Set(scProducts.map((p) => p.kodeProduk).filter(Boolean));
+  }, [scProducts]);
 
   const lama = draft.lamaPeriode || 3;
 
   const cbDetails = useMemo(() => {
     return calculateCashbackDetails({
       cashbackData,
-      selectedProducts: draft.products.map((p) => ({
+      selectedProducts: scProducts.map((p) => ({
         kodeProduk: p.kodeProduk,
         qtyPerBulan: String(p.qtyPerBulan || 0),
         persenCashback: String(p.persenCashback || 0),
       })),
-      masterProducts: draft.products.map((p) => ({
+      masterProducts: scProducts.map((p) => ({
         kodeProduk: p.kodeProduk,
         hna: String(p.hnaSJ || 0),
         konversiPembagi: String(p.konversiPembagi || 1),
       })),
       lamaPeriode: draft.lamaPeriode,
     });
-  }, [cashbackData, draft]);
+  }, [cashbackData, draft.lamaPeriode, scProducts]);
 
   const isCashbackNotFound =
     !cashbackData ||
@@ -516,9 +558,8 @@ export function SalesCounterOutletCard({
   // Compute stats per outlet draft
   let outletEstSales = 0;
   let outletNilaiSc = 0;
-  let totalWeightedMatriks = 0;
 
-  for (const p of draft.products) {
+  for (const p of scProducts) {
     const hnaSJ = p.hnaSJ || 0;
     const qty = p.qtyPerBulan || 0;
 
@@ -538,10 +579,8 @@ export function SalesCounterOutletCard({
 
     outletEstSales += estFull;
     outletNilaiSc += valScFull;
-    totalWeightedMatriks += estFull * (p.persenMatriksSc || 0);
   }
 
-  const avgMatriks = outletEstSales > 0 ? totalWeightedMatriks / outletEstSales : 0;
   const totalEntertain = draft.entertainItems.reduce((s, e) => s + (e.biayaEntertain || 0), 0);
   const canvasserNames = draft.persons.map((p) => `${p.personName} (${p.positionName})`).join(", ");
 
@@ -608,7 +647,7 @@ export function SalesCounterOutletCard({
     let repeatCount = 0;
     let newCount = 0;
 
-    const rows = draft.products.map((p) => {
+    const rows = scProducts.map((p) => {
       const hnaSJ = p.hnaSJ || 0;
       const qty = p.qtyPerBulan || 0;
       sumQtyPerBulan += qty;
@@ -691,7 +730,7 @@ export function SalesCounterOutletCard({
       repeatCount,
       newCount,
     };
-  }, [draft.products, lama, cashbackData, cbDetails, b3SalesMap, b3TotalOutletSalesPerMonth]);
+  }, [scProducts, lama, cashbackData, cbDetails, b3SalesMap, b3TotalOutletSalesPerMonth]);
 
   const insentifGrowthPct = useMemo(() => {
     if (!historyInsentifInfo || historyInsentifInfo.avgB3Insentif <= 0) return null;
@@ -817,21 +856,9 @@ export function SalesCounterOutletCard({
                 <strong style={{ color: "var(--color-text)" }}>{validScCount} / {totalScCount}</strong> produk SC
               </span>
             ) : (
-              `${draft.products.length} produk`
+              `${scProducts.length} produk SC`
             )}
           </p>
-          {totalScCount > 0 && validScCount < draft.products.length ? (
-            <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-              Total {draft.products.length} produk{" "}
-              <span style={{ color: "var(--color-red, #dc2626)" }}>
-                ({draft.products.length - validScCount} non-SC)
-              </span>
-            </p>
-          ) : (
-            <p className="text-[11px] mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-              Total {draft.products.length} produk (semua SC)
-            </p>
-          )}
         </div>
 
         <div>
@@ -876,9 +903,13 @@ export function SalesCounterOutletCard({
           <Link
             href={`/sc/${poaId}/edit/${draft.id}`}
             className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
-            style={canEditThisDraft ? { background: "var(--color-blue)", color: "#fff" } : { background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}
+            style={{
+              background: "var(--color-blue-light, #eff6ff)",
+              color: "var(--color-blue)",
+              border: "1px solid var(--color-blue)",
+            }}
           >
-            {canEditThisDraft ? "Edit" : "Lihat"}
+            Lihat
           </Link>
 
           {userCanEdit && (draft.status === "DRAFT" || draft.status === "REVISI") && (
@@ -892,7 +923,7 @@ export function SalesCounterOutletCard({
             </button>
           )}
 
-          {isOwner && !canEditThisDraft && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
+          {isOwner && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
             <button
               type="button"
               onClick={() => setRequestEditBoxOpen((v) => !v)}
@@ -928,16 +959,40 @@ export function SalesCounterOutletCard({
         </div>
       </div>
 
-      {draft.status === "REVISI" && (
-        <div className="mt-2.5 p-2.5 rounded-md border text-xs space-y-1" style={{ background: "#fef2f2", borderColor: "#fca5a5", color: "#991b1b" }}>
-          <div className="flex items-center gap-1.5 font-semibold">
-            <span>📝 Catatan Revisi / Penolakan dari Atasan:</span>
+      {draft.status === "REVISI" && (() => {
+        const categoryLabel = revisionInfo?.category
+          ? (REJECT_CATEGORY_LABELS[revisionInfo.category] || revisionInfo.category)
+          : "";
+        return (
+          <div className="mt-2.5 p-3 rounded-lg border text-xs space-y-1.5" style={{ background: "#fef2f2", borderColor: "#fca5a5", color: "#991b1b" }}>
+            <div className="flex items-center gap-1.5 font-semibold">
+              <span>
+                {revisionInfo?.action === "REJECT" ? (
+                  <>Ditolak{revisionInfo.actorLabel ? ` oleh ${revisionInfo.actorLabel}` : ""}{categoryLabel ? ` — Kategori: ${categoryLabel}` : ""}:</>
+                ) : revisionInfo?.action === "GRANT_EDIT" ? (
+                  <>Permohonan Edit Disetujui{revisionInfo.actorLabel ? ` oleh ${revisionInfo.actorLabel}` : ""}:</>
+                ) : (
+                  <>Diminta Revisi{revisionInfo?.actorLabel ? ` oleh ${revisionInfo.actorLabel}` : " dari Atasan"}:</>
+                )}
+              </span>
+            </div>
+            {revisionInfo?.notes ? (
+              <p className="text-xs leading-relaxed font-normal" style={{ color: "#7f1d1d" }}>
+                {revisionInfo.notes}
+              </p>
+            ) : (
+              <p className="text-xs leading-relaxed font-normal" style={{ color: "#7f1d1d" }}>
+                Atasan meminta revisi pada outlet ini. Silakan perbaiki data lalu klik Ajukan kembali.
+              </p>
+            )}
+            {revisionInfo?.action === "GRANT_EDIT" && revisionInfo.requestEditReasonText && (
+              <p className="text-[11px] leading-relaxed font-normal opacity-85 pt-1 border-t" style={{ borderColor: "#fca5a5", color: "#7f1d1d" }}>
+                Alasan pengajuan edit dari MR: {revisionInfo.requestEditReasonText}
+              </p>
+            )}
           </div>
-          <p className="text-xs leading-relaxed font-normal" style={{ color: "#7f1d1d" }}>
-            {lastRevisionLog?.snapshot?.notes || "Atasan meminta revisi pada outlet ini. Silakan perbaiki data lalu klik Ajukan kembali."}
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {hasPendingEditRequest && (
         <div className="mt-2.5 p-2.5 rounded-md border text-xs flex items-center justify-between" style={{ background: "var(--color-warning-light, #fef3c7)", borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning-dark, #92400e)" }}>
@@ -1337,7 +1392,7 @@ export function SalesCounterOutletCard({
           {/* Header Bar Produk SC & Tombol Analisis Produk Kompetitor */}
           <div className="flex items-center justify-between gap-2 pt-1">
             <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
-              Daftar Produk SC ({draft.products.length})
+              Daftar Produk SC ({scProducts.length})
             </span>
             <button
               type="button"
@@ -1393,14 +1448,6 @@ export function SalesCounterOutletCard({
                         <div className="max-w-[150px] sm:max-w-none truncate sm:whitespace-normal font-semibold">
                           {p.namaProduk}
                         </div>
-                        {totalScCount > 0 && (p.isScProduct === false || (clientScData && !clientScData.codes.has(p.kodeProduk))) && (
-                          <span
-                            className="inline-block text-[10px] font-normal mt-0.5 px-1.5 py-0.5 rounded"
-                            style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" }}
-                          >
-                            Non-SC
-                          </span>
-                        )}
                       </td>
                       <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
                       <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
@@ -1519,14 +1566,18 @@ export function SalesCounterOutletCard({
 
           {/* Entertain items breakdown if present */}
           {draft.entertainItems.length > 0 && (
-            <div className="rounded-lg border p-2.5" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-              <p className="text-xs font-semibold mb-1" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain SC Bulanan</p>
-              <div className="flex gap-4 flex-wrap">
-                {draft.entertainItems.map((e) => (
-                  <span key={e.id} className="text-xs" style={{ color: "var(--color-text)" }}>
-                    {formatMonthLabel(e.periodeMonth)}: <strong>{formatRp(e.biayaEntertain)}</strong>
-                  </span>
-                ))}
+            <div className="space-y-2 mt-4">
+              <span className="text-xs font-semibold tracking-wide" style={{ color: "var(--color-text)" }}>
+                Rencana Entertain SC Bulanan
+              </span>
+              <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
+                <div className="flex gap-4 flex-wrap">
+                  {draft.entertainItems.map((e) => (
+                    <span key={e.id} className="text-xs" style={{ color: "var(--color-text)" }}>
+                      {formatMonthLabel(e.periodeMonth)}: <strong>{formatRp(e.biayaEntertain)}</strong>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -1553,18 +1604,6 @@ export function SalesCounterOutletCard({
         confirmPending={isDeleting}
         onConfirm={executeDelete}
         onCancel={() => setDeleteConfirmOpen(false)}
-      />
-
-      <ConfirmDialog
-        open={reviseConfirmOpen}
-        tone="warning"
-        title="Minta Revisi?"
-        message={`Minta revisi untuk Sales Counter ${draft.namaOutlet}?`}
-        confirmLabel="Minta Revisi"
-        cancelLabel="Batal"
-        confirmPending={isSubmittingAction}
-        onConfirm={executeRevise}
-        onCancel={() => setReviseConfirmOpen(false)}
       />
 
       <ConfirmDialog

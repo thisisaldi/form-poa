@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { PoaStatus, AuditAction, DiskonDplDpf } from "@prisma/client";
 import { getSalesCountersByOutlet } from "../(app)/sc/[id]/_services/getSalesCounters";
+import { getSalesCounterProduct } from "../(app)/sc/[id]/_services/getSalesCounterProduct";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { canUserEditScForm } from "@/lib/authz";
 
@@ -47,16 +48,23 @@ export async function saveSalesCounterFormAction(
 ): Promise<{ ok: boolean; error?: string; poaScId?: string }> {
   const session = await requireSession();
 
-  // 1. Validation
+  // 1. Validation & filter to SC products only
   if (!period || !outletId) {
     return { ok: false, error: "Periode dan Outlet wajib diisi." };
   }
   if (selectedPersonIds.length === 0) {
     return { ok: false, error: "Minimal pilih 1 Sales Counter." };
   }
-  const hasValidProduct = products.some((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0);
+
+  const scRes = await getSalesCounterProduct(outletId).catch(() => null);
+  const validScCodes = new Set(scRes?.data?.map((p: any) => p.pro_code) || []);
+  const validProducts = validScCodes.size > 0
+    ? products.filter((p) => validScCodes.has(p.kodeProduk) || validScCodes.has(p.kodeProduk.replace(/^0+/, "")))
+    : products;
+
+  const hasValidProduct = validProducts.some((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0);
   if (!hasValidProduct) {
-    return { ok: false, error: "Minimal pilih 1 produk dengan kuantitas > 0." };
+    return { ok: false, error: "Minimal pilih 1 produk SC dengan kuantitas > 0." };
   }
 
   // 2. Fetch canvasser person names from canvasser API
@@ -164,7 +172,7 @@ export async function saveSalesCounterFormAction(
 
         // Compare products
         if (!hasChanges) {
-          const newProds = products
+          const newProds = validProducts
             .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
             .map((p) => ({
               kodeProduk: p.kodeProduk,
@@ -290,13 +298,14 @@ export async function saveSalesCounterFormAction(
           if (
             existing.status === PoaStatus.SUBMITTED_TO_NSM ||
             existing.status === PoaStatus.APPROVED_BY_SM ||
-            existing.status === PoaStatus.APPROVED_BY_NSM
+            existing.status === PoaStatus.APPROVED_BY_NSM ||
+            existing.status === PoaStatus.SUBMITTED_TO_SM
           ) {
-            // Step back from NSM -> back to SM review
+            // Step back from NSM -> back to SM review, or stay at SM review if already at SM (stuck di SM)
             targetStatus = PoaStatus.SUBMITTED_TO_SM;
             targetHolderId = smNip;
           } else {
-            // Step back from SM / ASM -> back to ASM review
+            // Step back from ASM -> back to ASM review
             targetStatus = PoaStatus.SUBMITTED_TO_ASM;
             targetHolderId = asmNip;
           }
@@ -357,7 +366,7 @@ export async function saveSalesCounterFormAction(
       });
 
       // Query real product names
-      const pCodes = products.map((p) => p.kodeProduk).filter(Boolean);
+      const pCodes = validProducts.map((p) => p.kodeProduk).filter(Boolean);
       const masterProducts = await tx.product.findMany({
         where: { kodeProduk: { in: pCodes } },
         select: { kodeProduk: true, namaProduk: true },
@@ -365,7 +374,7 @@ export async function saveSalesCounterFormAction(
 
       // 6. Insert new product items
       await tx.poaScProductItem.createMany({
-        data: products
+        data: validProducts
           .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
           .map((p) => {
             const master = masterProducts.find((mp: any) => mp.kodeProduk === p.kodeProduk);
@@ -479,7 +488,7 @@ export async function saveSalesCounterFormAction(
           ])
         );
 
-        const activeNewProducts = products
+        const activeNewProducts = validProducts
           .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
           .map((p) => {
             const master = masterProducts.find((mp: any) => mp.kodeProduk === p.kodeProduk);

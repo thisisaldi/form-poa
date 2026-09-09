@@ -24,7 +24,7 @@ export async function getScCashbackPoa(piCode?: string): Promise<any | null> {
     }
 
     return await res.json();
-  } catch (error) {
+  } catch {
     return { status: false, message: "Gudang Tidak Ditemukan", matrix: [] };
   }
 }

@@ -83,14 +83,13 @@ export interface EntertainRow {
 }
 
 export function useSalesCounterEditor({
-  poaId,
   poaPeriod,
   redirectTo,
   masterProducts,
   outlets,
   savedDrafts = [],
 }: {
-  poaId: string;
+  poaId?: string;
   poaPeriod: string;
   redirectTo: string;
   masterProducts: Product[];
@@ -242,6 +241,15 @@ export function useSalesCounterEditor({
     getSalesCounterProductsAction(outletId).then((res) => {
       if (res?.data) {
         setCanvasserProducts(res.data);
+        const validCodes = new Set(res.data.map((cp: any) => cp.pro_code));
+        setProducts((prev) => {
+          const filtered = prev.filter(
+            (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""))
+          );
+          return filtered.length > 0
+            ? filtered
+            : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
+        });
       } else {
         setCanvasserProducts([]);
       }

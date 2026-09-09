@@ -3,6 +3,7 @@ import { PoaStatus } from "@prisma/client";
 import { getScProducts, getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { isOutletBlastIn } from "@/lib/outletBlastIn";
 import { getSalesCountersByOutlet } from "../../../_services/getSalesCounters";
+import { getSalesCounterProduct } from "../../../_services/getSalesCounterProduct";
 import { canUserEditScForm } from "@/lib/authz";
 
 export async function getSalesCounterFormById(
@@ -34,14 +35,19 @@ export async function getSalesCounterFormById(
 
   if (!hasAccess) return null;
 
-  const [products, isBlastIn, rawOutlets, canvasserPersonsData] = await Promise.all([
+  const [products, isBlastIn, rawOutlets, canvasserPersonsData, scProductRes] = await Promise.all([
     getScProducts().catch(() => []),
     isOutletBlastIn(form.kodePI).catch(() => false),
     getSalesCounterOutletsDirect(form.owner.nip || form.ownerId || sessionUserId).catch(() => []),
     getSalesCountersByOutlet(form.kodePI).catch(() => ({ data: [] })),
+    getSalesCounterProduct(form.kodePI).catch(() => null),
   ]);
 
   const targetOutlet = rawOutlets.find((o) => o.kodePI === form.kodePI);
+  const scCodes = new Set(scProductRes?.data?.map((cp: any) => cp.pro_code) || []);
+  const scOnlyProducts = scCodes.size > 0
+    ? form.products.filter((p: any) => scCodes.has(p.kodeProduk) || scCodes.has(String(p.kodeProduk || "").replace(/^0+/, "")))
+    : form.products;
 
   const serialized = {
     id: form.id,
@@ -78,7 +84,7 @@ export async function getSalesCounterFormById(
         tipeUploadSc: matchedApiPerson?.tipe_upload_sc || "-",
       };
     }),
-    products: form.products.map((p: any) => ({
+    products: scOnlyProducts.map((p: any) => ({
       id: p.id,
       kodeProduk: p.kodeProduk,
       namaProduk: p.namaProduk,

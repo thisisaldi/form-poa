@@ -1,9 +1,5 @@
-"use client";
-
-import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { formatCurrency } from "@/lib/format";
-import { quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { SalesFigures } from "../types";
 
 export const formatRp = formatCurrency;
@@ -27,12 +23,6 @@ export function SalesCounterStatsPanel({
   selectedOutletCount,
   totalOutletCount,
   metrics,
-  targetArea = 0,
-  targetAreaIsReal = false,
-  salesFigures,
-  salesIsReal = false,
-  quarterMonths,
-  totalCoverageScOutlets,
   historyQuarterLabel,
 }: {
   selectedOutletCount: number;

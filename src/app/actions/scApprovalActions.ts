@@ -14,6 +14,32 @@ async function requireSession() {
   return session;
 }
 
+async function resolveHolderForRole(
+  tx: any,
+  mrUser: { nip: string; nipAtasan: string | null },
+  targetRole: "ASM" | "SM" | "NSM"
+): Promise<string | null> {
+  let currentNip: string | null = mrUser.nipAtasan;
+  while (currentNip) {
+    const parent: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
+      await tx.user.findUnique({
+        where: { nip: currentNip },
+        select: { nip: true, role: true, nipAtasan: true, isActive: true },
+      });
+    if (!parent) break;
+    if (parent.role === targetRole && parent.isActive) {
+      return parent.nip;
+    }
+    currentNip = parent.nipAtasan;
+  }
+
+  const fallback = await tx.user.findFirst({
+    where: { isActive: true, role: targetRole === "NSM" ? { in: ["NSM", "ADMIN"] } : targetRole },
+    select: { nip: true },
+  });
+  return fallback?.nip || null;
+}
+
 export async function submitSalesCounterFormAction(
   poaScIds: string[],
   notes?: string
@@ -44,8 +70,6 @@ export async function submitSalesCounterFormAction(
       nextHolderId = manager?.nip || null;
     }
 
-    const nextStatus = PoaStatus.SUBMITTED_TO_ASM;
-
     await prisma.$transaction(async (tx: any) => {
       const forms = await tx.poaScForm.findMany({
         where: {
@@ -60,11 +84,61 @@ export async function submitSalesCounterFormAction(
       }
 
       for (const form of forms) {
+        let targetStatus: PoaStatus = PoaStatus.SUBMITTED_TO_ASM;
+        let targetHolderId: string | null = nextHolderId;
+
+        // Jika form dalam status REVISI, periksa siapa atasan terakhir yang meminta revisi / tolak / setujui edit
+        if (form.status === PoaStatus.REVISI) {
+          const lastRevLog = await tx.poaScAuditLog.findFirst({
+            where: {
+              poaScId: form.id,
+              OR: [
+                { action: AuditAction.REVISE },
+                { action: AuditAction.REJECT },
+                { action: AuditAction.GRANT_EDIT },
+                { toStatus: PoaStatus.REVISI },
+              ],
+            },
+            orderBy: { createdAt: "desc" },
+            include: { actor: true },
+          });
+
+          if (lastRevLog) {
+            const reviserRole = lastRevLog.actor?.role;
+            const fromStatus = lastRevLog.fromStatus;
+
+            if (
+              reviserRole === "NSM" ||
+              fromStatus === PoaStatus.SUBMITTED_TO_NSM ||
+              fromStatus === PoaStatus.APPROVED_BY_SM
+            ) {
+              targetStatus = PoaStatus.SUBMITTED_TO_NSM;
+              targetHolderId = (lastRevLog.actor?.role === "NSM" && lastRevLog.actor.isActive)
+                ? lastRevLog.actorId
+                : await resolveHolderForRole(tx, actor, "NSM");
+            } else if (
+              reviserRole === "SM" ||
+              fromStatus === PoaStatus.SUBMITTED_TO_SM ||
+              fromStatus === PoaStatus.APPROVED_BY_ASM
+            ) {
+              targetStatus = PoaStatus.SUBMITTED_TO_SM;
+              targetHolderId = (lastRevLog.actor?.role === "SM" && lastRevLog.actor.isActive)
+                ? lastRevLog.actorId
+                : await resolveHolderForRole(tx, actor, "SM");
+            } else {
+              targetStatus = PoaStatus.SUBMITTED_TO_ASM;
+              targetHolderId = (lastRevLog.actor?.role === "ASM" && lastRevLog.actor.isActive)
+                ? lastRevLog.actorId
+                : (nextHolderId || await resolveHolderForRole(tx, actor, "ASM"));
+            }
+          }
+        }
+
         await tx.poaScForm.update({
           where: { id: form.id },
           data: {
-            status: nextStatus,
-            currentHolderId: nextHolderId,
+            status: targetStatus,
+            currentHolderId: targetHolderId,
           },
         });
 
@@ -74,7 +148,7 @@ export async function submitSalesCounterFormAction(
             actorId: session.userId,
             action: AuditAction.SUBMIT,
             fromStatus: form.status,
-            toStatus: nextStatus,
+            toStatus: targetStatus,
             snapshot: { notes: notes || "" },
           },
         });
@@ -301,7 +375,8 @@ export async function reviseSalesCounterFormAction(
 
 export async function rejectSalesCounterFormAction(
   poaScIds: string[],
-  notes?: string
+  notes?: string,
+  category?: string
 ): Promise<{ ok: boolean; error?: string }> {
   const session = await requireSession();
 
@@ -340,7 +415,7 @@ export async function rejectSalesCounterFormAction(
             action: AuditAction.REJECT,
             fromStatus: form.status,
             toStatus: PoaStatus.REVISI,
-            snapshot: { notes: notes || "" },
+            snapshot: { notes: notes || "", category: category || "" },
           },
         });
       }

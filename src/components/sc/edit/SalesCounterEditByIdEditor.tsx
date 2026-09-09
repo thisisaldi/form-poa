@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
@@ -30,6 +30,29 @@ function formatDiskonPct(rawVal: number | string | undefined | null): string {
 
 function formatRp(val: number): string {
   return new Intl.NumberFormat("id-ID").format(Math.round(val || 0));
+}
+
+function formatHumanStatus(status?: string): string {
+  if (!status) return "";
+  switch (status) {
+    case "SUBMITTED_TO_ASM":
+      return "Submitted to ASM";
+    case "SUBMITTED_TO_SM":
+      return "Submitted to SM";
+    case "SUBMITTED_TO_NSM":
+      return "Submitted to NSM";
+    case "APPROVED_BY_ASM":
+      return "Disetujui ASM";
+    case "APPROVED_BY_SM":
+      return "Disetujui SM";
+    case "APPROVED_BY_NSM":
+    case "APPROVED":
+      return "Disetujui (Approved)";
+    case "REVISI":
+      return "Revisi";
+    default:
+      return status.replace(/_/g, " ");
+  }
 }
 
 function findDiskonItem(list: any[], targetCode: string) {
@@ -161,8 +184,6 @@ function formatMonthLabel(m: string) {
   return new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "short", year: "numeric" });
 }
 
-const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
-
 export function SalesCounterEditByIdEditor({
   scId,
   poaPeriod,
@@ -218,7 +239,7 @@ export function SalesCounterEditByIdEditor({
   );
 
   // Editable states - pre-filled from DB
-  const [persenResepDokter, setPersenResepDokter] = useState(String(initialPersenResepDokter ?? "0"));
+  const persenResepDokter = String(initialPersenResepDokter ?? "0");
   const [jumlahKaryawan, setJumlahKaryawan] = useState(String(initialJumlahKaryawan ?? ""));
   const [jumlahPasien, setJumlahPasien] = useState(String(initialJumlahPasien ?? ""));
   const [jumlahPasienResep, setJumlahPasienResep] = useState(String(initialJumlahPasienResep ?? ""));
@@ -406,43 +427,72 @@ export function SalesCounterEditByIdEditor({
     );
   }, [diskonList]);
 
+  // Load canvasser products, filter draft products, and fetch SC-only B-3 sales
   useEffect(() => {
     if (!kodePI) return;
     const b3Info = getB3PeriodInfo(effectivePoaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
-    postHistorySalesAction([kodePI], b3Info.targetPeriods).then((res) => {
-      const parsed = parseOutletHistorySales(res, kodePI);
-      if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
-        setB3SalesMap(parsed.productSalesMap);
-        setOutletTotalAvgB3Sales(parsed.averageSales);
-      } else {
-        const selectedCodes = products.map((p) => p.kodeProduk).filter(Boolean);
-        if (selectedCodes.length > 0) {
-          getScOutletB3SalesAction(b3Info.period, kodePI, selectedCodes).then((fallbackRes) => {
-            const map = new Map<string, number>();
-            if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
-              for (const item of fallbackRes.data) {
-                if (item.pro_code) {
-                  map.set(item.pro_code, item.average_sales || 0);
+    let isMounted = true;
+    getSalesCounterProductsAction(kodePI).then((res) => {
+      if (!isMounted) return;
+      if (res?.data) {
+        setCanvasserProducts(res.data);
+        const validCodes = new Set(res.data.map((cp: any) => cp.pro_code).filter(Boolean));
+        setProducts((prev) => {
+          const filtered = prev.filter(
+            (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""))
+          );
+          return filtered.length > 0
+            ? filtered
+            : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
+        });
+
+        const scProCodes = Array.from(validCodes) as string[];
+        if (scProCodes.length === 0) {
+          setB3SalesMap(new Map());
+          setOutletTotalAvgB3Sales(0);
+          return;
+        }
+
+        postHistorySalesAction([kodePI], b3Info.targetPeriods, scProCodes).then((historyRes) => {
+          if (!isMounted) return;
+          const parsed = parseOutletHistorySales(historyRes, kodePI);
+          if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
+            setB3SalesMap(parsed.productSalesMap);
+            setOutletTotalAvgB3Sales(parsed.averageSales);
+          } else {
+            getScOutletB3SalesAction(b3Info.period, kodePI, scProCodes).then((fallbackRes) => {
+              if (!isMounted) return;
+              const map = new Map<string, number>();
+              let totalVal = 0;
+              if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
+                for (const item of fallbackRes.data) {
+                  if (item.pro_code) {
+                    const val = Number(item.average_sales) || 0;
+                    map.set(item.pro_code, val);
+                    map.set(item.pro_code.replace(/^0+/, ""), val);
+                    totalVal += val;
+                  }
                 }
               }
-            }
-            if (map.size > 0) {
-              setB3SalesMap(map);
-            }
-          });
-        }
+              if (map.size > 0) {
+                setB3SalesMap(map);
+                setOutletTotalAvgB3Sales(totalVal);
+              }
+            });
+          }
+        });
       }
     });
-  }, [kodePI, products, effectivePoaPeriod]);
 
-  // Load canvasser products & sidebar data for the outlet
+    return () => {
+      isMounted = false;
+    };
+  }, [kodePI, effectivePoaPeriod]);
+
   useEffect(() => {
     if (!kodePI) return;
-    getSalesCounterProductsAction(kodePI).then((res) => {
-      if (res?.data) setCanvasserProducts(res.data);
-    });
     getPrincodeProductsAction().then((res) => {
       if (res?.data) setPrincodeProducts(res.data);
     });
@@ -592,8 +642,6 @@ export function SalesCounterEditByIdEditor({
       return nextList;
     });
   };
-
-  const months = quarterMonths;
 
   const productOptions = useMemo(() => {
     return buildScProductOptions({
@@ -865,7 +913,7 @@ export function SalesCounterEditByIdEditor({
       {!readOnly && status && status !== "DRAFT" && status !== "REVISI" && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #b45309)", border: "1px solid var(--color-warning, #f59e0b)" }}>
-          Outlet ini sudah dalam tahap approval Atasan. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {status === "SUBMITTED_TO_NSM" || status === "APPROVED_BY_SM" || status === "APPROVED_BY_NSM" ? "SM" : "ASM"}).
+          Outlet ini sudah berstatus <strong>{formatHumanStatus(status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {status === "SUBMITTED_TO_NSM" || status === "APPROVED_BY_NSM" ? "NSM" : status === "SUBMITTED_TO_SM" || status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
         </div>
       )}
       <div className="space-y-6">

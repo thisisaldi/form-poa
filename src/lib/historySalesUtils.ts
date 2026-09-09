@@ -135,6 +135,8 @@ export function parseOutletHistorySales(
       const item = val as any;
       const salesAvg = Number(item.sales_value_avg) || 0;
       const qtyAvg = Number(item.history_sales_avg) || 0;
+      const salesVal = Number(item.sales_value) || 0;
+      const salesQty = Number(item.sales_qty) || 0;
 
       result.productSalesMap.set(key, salesAvg);
       result.productSalesMap.set(key.replace(/^0+/, ""), salesAvg);
@@ -142,8 +144,27 @@ export function parseOutletHistorySales(
       result.productQtyMap.set(key, qtyAvg);
       result.productQtyMap.set(key.replace(/^0+/, ""), qtyAvg);
 
-      result.productCount++;
+      if (salesAvg > 0 || qtyAvg > 0 || salesVal > 0 || salesQty > 0) {
+        result.productCount++;
+      }
     }
+  }
+
+  if (result.averageSales === 0 && result.productSalesMap.size > 0) {
+    let sumAvg = 0;
+    for (const [key, val] of Object.entries(outletData)) {
+      if (key === "total_sales" || key === "average_sales") continue;
+      if (val && typeof val === "object") {
+        sumAvg += Number((val as any).sales_value_avg) || 0;
+      }
+    }
+    if (sumAvg > 0) {
+      result.averageSales = sumAvg;
+    }
+  }
+
+  if (result.totalSales === 0 && result.averageSales > 0) {
+    result.totalSales = result.averageSales * 3;
   }
 
   return result;

@@ -44,45 +44,43 @@ export function useSalesCounterDetail({
     );
     if (missingDrafts.length === 0) return;
 
-    const piCodes = missingDrafts.map((d) => d.kodePI).filter(Boolean);
-    if (piCodes.length === 0) return;
+    missingDrafts.forEach((draft) => {
+      if (!draft.kodePI) return;
+      const scProCodes = (draft.products || [])
+        .filter((p: any) => p.isScProduct !== false)
+        .map((p: any) => p.kodeProduk)
+        .filter(Boolean);
 
-    postHistorySalesAction(piCodes, b3Info.targetPeriods).then((res) => {
-      const updatedMap = new Map(historySalesMap);
-      let hasUpdates = false;
-
-      for (const draft of missingDrafts) {
-        if (!draft.kodePI) continue;
-        const parsed = parseOutletHistorySales(res, draft.kodePI);
-        if (parsed.totalSales > 0) {
-          updatedMap.set(draft.kodePI, parsed.totalSales);
-          hasUpdates = true;
-        }
+      if (scProCodes.length === 0) {
+        setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, 0));
+        return;
       }
 
-      if (hasUpdates) {
-        setHistorySalesMap(updatedMap);
-      } else {
-        // Fallback to legacy getHistorySalesAction if batch post-history-sales yielded no data
-        const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
-        missingDrafts.forEach((d) => {
-          getHistorySalesAction(d.kodePI, false).then((legacyRes) => {
+      postHistorySalesAction([draft.kodePI], b3Info.targetPeriods, scProCodes).then((res) => {
+        const parsed = parseOutletHistorySales(res, draft.kodePI);
+        if (parsed.totalSales > 0) {
+          setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, parsed.totalSales));
+        } else {
+          // Fallback to legacy getHistorySalesAction strictly filtered by SC codes
+          const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
+          const scCodesSet = new Set(scProCodes);
+          getHistorySalesAction(draft.kodePI, false).then((legacyRes) => {
             if (legacyRes?.data && Array.isArray(legacyRes.data)) {
               let total = 0;
               for (const it of legacyRes.data) {
                 const itemPeriod = Number(it.period);
                 const salesVal = Number(it.sales_value) || 0;
-                if (targetPeriodsSet.has(itemPeriod) && salesVal > 0) {
+                if (targetPeriodsSet.has(itemPeriod) && salesVal > 0 && it.code && scCodesSet.has(it.code)) {
                   total += salesVal;
                 }
               }
               if (total > 0) {
-                setHistorySalesMap((prev) => new Map(prev).set(d.kodePI, total));
+                setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, total));
               }
             }
           });
-        });
-      }
+        }
+      });
     });
   }, [safeScDrafts, b3Info, historySalesMap]);
 
@@ -190,7 +188,6 @@ export function useSalesCounterDetail({
 
       const lama = draft.lamaPeriode || 3;
 
-      // Calculate overlap with quarter months
       const startYear = parseInt(draft.periodeAwal.slice(0, 4), 10);
       const startMonth = parseInt(draft.periodeAwal.slice(4, 6), 10);
       let overlapCount = 0;
