@@ -144,6 +144,7 @@ function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct>
       finalDiscountPct: d(prod.finalDiscountPct) ?? discounts?.get(prod.product.kodeProduk)?.principalPct ?? null,
       diskonDistributorPct: d(prod.diskonDistributorPct) ?? discounts?.get(prod.product.kodeProduk)?.distributorPct ?? null,
       finalBiayaListingRp: d(prod.finalBiayaListingRp),
+      finalValueDpRp: d(prod.finalValueDpRp),
       spNonSalesJumlahBox: d(prod.spNonSalesJumlahBox),
       product: {
         ...prod.product,
@@ -904,8 +905,11 @@ export interface FinalisasiDokterUserInput {
 
 export interface FinalisasiProdukInput {
   id: string;
+  // Bisa diganti lagi di Finalisasi (2026-09-09 bug report — lihat schema.prisma).
+  skemaPembayaran: "DISKON" | "DP";
   finalDiscountPct: number | string | null;
   diskonDistributorPct: number | string | null;
+  finalValueDpRp: number | string | null;
   finalBiayaListingRp: number | string | null;
   dokterUser: FinalisasiDokterUserInput[];
 }
@@ -954,8 +958,10 @@ export async function saveFinalisasiAction(id: string, input: FinalisasiInput): 
       await tx.poaStandarisasiProduk.update({
         where: { id: p.id },
         data: {
+          skemaPembayaran: p.skemaPembayaran,
           finalDiscountPct: toNum(p.finalDiscountPct),
           diskonDistributorPct: toNum(p.diskonDistributorPct),
+          finalValueDpRp: toNum(p.finalValueDpRp),
           finalBiayaListingRp: toNum(p.finalBiayaListingRp),
         },
       });

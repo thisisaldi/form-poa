@@ -342,6 +342,7 @@ export interface ProdukFormState {
   dokterKlinis: DokterKlinisFormState[];
   finalDiscountPct: string;
   diskonDistributorPct: string;
+  finalValueDpRp: string;
   finalBiayaListingRp: string;
   dokterUser: { customerId: string; jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }[];
 }
@@ -361,6 +362,7 @@ export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
       : [],
     finalDiscountPct: "",
     diskonDistributorPct: "",
+    finalValueDpRp: "",
     finalBiayaListingRp: "",
     dokterUser: [],
   };
@@ -388,6 +390,8 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
       p.finalDiscountPct != null ? String(p.finalDiscountPct) : p.estimasiDiskonPct != null ? String(p.estimasiDiskonPct) : "",
     diskonDistributorPct:
       p.diskonDistributorPct != null ? String(p.diskonDistributorPct) : p.estimasiDiskonDistributorPct != null ? String(p.estimasiDiskonDistributorPct) : "",
+    finalValueDpRp:
+      p.finalValueDpRp != null ? String(p.finalValueDpRp) : p.estimasiValueDpRp != null ? String(p.estimasiValueDpRp) : "",
     finalBiayaListingRp:
       p.finalBiayaListingRp != null ? String(p.finalBiayaListingRp) : p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
     dokterUser:
@@ -606,8 +610,10 @@ export function PoaStandarisasiWizard({
         .filter((p) => p.id)
         .map((p) => ({
           id: p.id!,
+          skemaPembayaran: p.skemaPembayaran,
           finalDiscountPct: p.finalDiscountPct || null,
           diskonDistributorPct: p.diskonDistributorPct || null,
+          finalValueDpRp: p.finalValueDpRp || null,
           finalBiayaListingRp: p.finalBiayaListingRp || null,
           dokterUser: p.dokterUser
             .filter((d) => d.customerId)
@@ -1922,9 +1928,29 @@ function FinalisasiPhase({
             <div className="text-sm font-bold mb-3" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</div>
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Finalisasi Biaya</span>
             <div className="grid grid-cols-3 gap-3 mb-4">
-              {/* Default-nya live dari Exodus discount-request API (principal_percentage / distributor_percentage, lihat getPoaStandarisasiDetail), tapi tetap editable di Finalisasi (2026-09-09 user request — belum ada yang di-lock di fase ini). */}
-              <UnitCountInput label="Discount Final PI" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled={disabled} />
-              <UnitCountInput label="Discount Final Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled={disabled} />
+              <div>
+                {/* Skema bisa diganti lagi di sini (2026-09-09 bug report: pilih DP di Planning tapi Finalisasi tetap nampilin field Diskon, karena Finalisasi cuma render field Diskon apa pun skemanya). */}
+                <span className="text-xs font-medium block mb-1">Skema</span>
+                <Combobox
+                  name={`finalSkemaPembayaran-${idx}`}
+                  options={[
+                    { value: "DISKON", label: "Diskon" },
+                    { value: "DP", label: "DP" },
+                  ]}
+                  value={p.skemaPembayaran}
+                  onChange={(v) => updateProduk(idx, { skemaPembayaran: v as "DISKON" | "DP" })}
+                  disabled={disabled}
+                />
+              </div>
+              {p.skemaPembayaran === "DP" ? (
+                <RpInput label="Value DP Final" value={p.finalValueDpRp} onChange={(v) => updateProduk(idx, { finalValueDpRp: v })} disabled={disabled} />
+              ) : (
+                <>
+                  {/* Default-nya live dari Exodus discount-request API (principal_percentage / distributor_percentage, lihat getPoaStandarisasiDetail), tapi tetap editable di Finalisasi (2026-09-09 user request — belum ada yang di-lock di fase ini). */}
+                  <UnitCountInput label="Discount Final PI" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled={disabled} />
+                  <UnitCountInput label="Discount Final Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled={disabled} />
+                </>
+              )}
               <RpInput label="Biaya Listing Final" value={p.finalBiayaListingRp} onChange={(v) => updateProduk(idx, { finalBiayaListingRp: v })} disabled={disabled} />
             </div>
 

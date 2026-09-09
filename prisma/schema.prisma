@@ -1408,7 +1408,11 @@ model PoaStandarisasiProduk {
   // Skema pembayaran per produk (2026-09-08, user request): MR pilih salah
   // satu — DISKON pakai dua field % di atas, DP pakai satu field Rupiah
   // (estimasiValueDpRp) sebagai gantinya. Default DISKON biar baris existing
-  // tidak perlu backfill manual.
+  // tidak perlu backfill manual. Bisa diganti lagi di Finalisasi (2026-09-09
+  // bug report: pilih DP di Planning tapi Finalisasi tetap nampilin field
+  // Diskon) — satu field yang sama dipakai di kedua fase, bukan snapshot
+  // terpisah, karena skema pembayarannya sendiri (bukan nilainya) sama-sama
+  // relevan sepanjang siklus produk ini.
   skemaPembayaran   SkemaPembayaranStandarisasi @default(DISKON)
   estimasiValueDpRp Decimal?                    @db.Decimal(18, 2)
 
@@ -1420,6 +1424,9 @@ model PoaStandarisasiProduk {
   finalDiscountPct     Decimal? @db.Decimal(10, 4)
   diskonDistributorPct Decimal? @db.Decimal(10, 4)
   finalBiayaListingRp  Decimal? @db.Decimal(18, 2)
+  // Final DP, dipakai kalau skemaPembayaran DP — sejajar sama finalDiscountPct
+  // buat skema DISKON (2026-09-09).
+  finalValueDpRp Decimal? @db.Decimal(18, 2)
   // finalEntertain TIDAK ada di sini — computed dari SUM PoaStandarisasiDokterUser.entertainRp
 
   formApprovalFilePath    String?
