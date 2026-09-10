@@ -106,3 +106,17 @@ export function parseBlastInPeriod(poaPeriod?: string, quarter?: number): { qNum
 
   return { qNum, yearNum };
 }
+
+/**
+ * Get the 3 YYYYMM period strings corresponding to a quarter.
+ * e.g. Year 2026, Q3 -> ["202607", "202608", "202609"]
+ */
+export function getQuarterPeriodMonths(year: number, quarter: number): string[] {
+  const startMonth = (quarter - 1) * 3 + 1;
+  return [
+    `${year}${String(startMonth).padStart(2, "0")}`,
+    `${year}${String(startMonth + 1).padStart(2, "0")}`,
+    `${year}${String(startMonth + 2).padStart(2, "0")}`,
+  ];
+}
+

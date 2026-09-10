@@ -8,7 +8,7 @@ export interface SurveyResponse {
 }
 
 export interface SurveyList {
-  survey: SurveyProduct[];
+  surveys: Survey[];
   has_data: boolean;
   outlet_code: string;
   outlet_name: string;

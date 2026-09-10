@@ -12,13 +12,13 @@ export default async function EditSalesCounterPoaPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; outlet?: string }>;
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
 
   const { id } = await params;
-  const { period } = await searchParams;
+  const { period, outlet } = await searchParams;
 
   const data = await getSalesCounterEditData(id, period, session.userId, session.role);
   if (!data) notFound();
@@ -41,6 +41,7 @@ export default async function EditSalesCounterPoaPage({
           outlets={outlets}
           products={products}
           savedDrafts={savedDrafts}
+          initialOutletId={outlet}
         />
       </Card>
     </div>

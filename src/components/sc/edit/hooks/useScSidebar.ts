@@ -14,6 +14,7 @@ export function useScSidebar({
   masterProducts = [],
   salesOnlineData,
   surveyData = [],
+  surveyNexusData,
   historySalesData,
   selectedProductCodes = new Set<string>(),
 }: ScSidebarProps) {
@@ -40,14 +41,86 @@ export function useScSidebar({
     return set;
   }, [canvasserProducts]);
 
+  // Build lookup map from Nexus survey: procode (kode_item) -> list of competitors
+  const nexusSurveyMap = useMemo(() => {
+    const map = new Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>();
+    if (!surveyNexusData?.data?.has_data) return map;
+
+    const surveys = surveyNexusData.data.surveys;
+    if (!Array.isArray(surveys) || surveys.length === 0) return map;
+
+    // Use latest survey (index 0)
+    const latestSurvey = surveys[0];
+    const products = Array.isArray(latestSurvey?.products) ? latestSurvey.products : [];
+
+    for (const p of products) {
+      const compName = String(p.product_name || "").trim();
+      const forecast = Number(p.sales_forecast) || 0;
+      const switching = Array.isArray(p.switching_products) ? p.switching_products : [];
+
+      for (const sw of switching) {
+        const procode = String(sw.procode || "").trim();
+        if (!procode) continue;
+        const stripped = procode.replace(/^0+/, "");
+        const entry = { namaKompetitor: compName, salesForecast: forecast };
+
+        const addKey = (k: string) => {
+          const list = map.get(k) ?? [];
+          if (!list.some((it) => it.namaKompetitor === compName)) {
+            list.push(entry);
+          }
+          map.set(k, list);
+        };
+
+        addKey(procode);
+        if (stripped) addKey(stripped);
+      }
+    }
+    return map;
+  }, [surveyNexusData]);
+
   const effectiveSurveyData = useMemo(() => {
+    // If we have nexusSurveyMap with matches from canvasserProducts:
+    if (nexusSurveyMap.size > 0 && Array.isArray(canvasserProducts) && canvasserProducts.length > 0) {
+      const nexusItems: any[] = [];
+      const seen = new Set<string>();
+
+      for (const cp of canvasserProducts) {
+        const itemCode = String(cp.kode_item || "").trim();
+        const strippedItemCode = itemCode.replace(/^0+/, "");
+        const proCode = String(cp.pro_code || cp.kodeProduk || "").trim();
+        const strippedProCode = proCode.replace(/^0+/, "");
+
+        const matched =
+          (itemCode ? nexusSurveyMap.get(itemCode) || (strippedItemCode ? nexusSurveyMap.get(strippedItemCode) : undefined) : undefined) ||
+          (proCode ? nexusSurveyMap.get(proCode) || (strippedProCode ? nexusSurveyMap.get(strippedProCode) : undefined) : undefined) ||
+          [];
+
+        const primaryKey = proCode || itemCode;
+        if (matched.length > 0 && !seen.has(primaryKey)) {
+          seen.add(primaryKey);
+          const totalForecast = matched.reduce((sum, c) => sum + c.salesForecast, 0);
+          nexusItems.push({
+            kodeProduk: primaryKey,
+            namaProdukRekomendasi: cp.pro_name || cp.namaProduk || resolveProductName(primaryKey, masterProducts) || `Produk ${primaryKey}`,
+            totalPotensiBulan: totalForecast,
+            kompetitor: matched,
+          });
+        }
+      }
+
+      if (nexusItems.length > 0) {
+        return nexusItems;
+      }
+    }
+
     const raw = Array.isArray(surveyData) ? surveyData : [];
     if (canvasserScCodes.size === 0) return [];
     return raw.filter((s: any) => {
       const c = String(s.kodeProduk || "").trim();
       return canvasserScCodes.has(c) || canvasserScCodes.has(c.replace(/^0+/, ""));
     });
-  }, [surveyData, canvasserScCodes]);
+  }, [surveyData, canvasserScCodes, nexusSurveyMap, canvasserProducts, masterProducts]);
 
   const historyPeriodSubtext = useMemo(() => {
     return formatHistoryPeriodRange(historySalesData?.period);
@@ -127,40 +200,17 @@ export function useScSidebar({
         }
       }
 
-      const realSurvey = (Array.isArray(surveyData) ? surveyData : []).find((s: any) => {
-        const sCode = String(s.kodeProduk || "").trim();
-        return (
-          sCode === code ||
-          sCode.replace(/^0+/, "") === strippedCode ||
-          (altCode && (sCode === altCode || sCode.replace(/^0+/, "") === strippedAlt))
-        );
-      });
+      // Matching with Nexus Survey: match switching_products.procode with cp.kode_item or cp.pro_code
+      const matchedCompetitors =
+        (altCode ? nexusSurveyMap.get(altCode) || (strippedAlt ? nexusSurveyMap.get(strippedAlt) : undefined) : undefined) ||
+        (code ? nexusSurveyMap.get(code) || (strippedCode ? nexusSurveyMap.get(strippedCode) : undefined) : undefined) ||
+        [];
+
+      const hasSurvey = matchedCompetitors.length > 0;
+      const surveyQty = matchedCompetitors.reduce((sum, c) => sum + c.salesForecast, 0);
+      const surveyCompetitors = matchedCompetitors;
 
       const dummyRef = dummyMap.get(code) || dummyMap.get(strippedCode) || (altCode ? dummyMap.get(altCode) || dummyMap.get(strippedAlt) : undefined);
-
-      let defaultKompetitorName = `Kompetitor ${name.split(" ")[0]}`;
-      const upperName = name.toUpperCase();
-      if (upperName.includes("PRORIS")) defaultKompetitorName = "Sanmol Syrup 60ml";
-      else if (upperName.includes("POLYSILANE")) defaultKompetitorName = "Mylanta Liquid 150ml";
-      else if (upperName.includes("MICROLAX")) defaultKompetitorName = "Dulcolax Suppositoria";
-      else if (upperName.includes("SALBUVEN")) defaultKompetitorName = "Ventolin 2mg";
-      else if (upperName.includes("VASTROL") || upperName.includes("STAVINOR")) defaultKompetitorName = "Lipitor 20mg";
-      else if (upperName.includes("ARCOLASE")) defaultKompetitorName = "Nexium 20mg";
-      else if (upperName.includes("BECANTEX")) defaultKompetitorName = "Mucosta 100mg";
-      else if (upperName.includes("ROZGRA")) defaultKompetitorName = "Viagra 50mg";
-
-      const surveyCompetitor = realSurvey
-        ? {
-            namaKompetitor: realSurvey.kompetitorTop3?.[0]?.namaProduk || defaultKompetitorName,
-            forecastPenjualanKompetitor: `${realSurvey.totalPotensiBulan || 5} UB`,
-            potensiProrisUb: realSurvey.totalPotensiBulan || 5,
-          }
-        : dummyRef?.surveyCompetitor || {
-            namaKompetitor: defaultKompetitorName,
-            forecastPenjualanKompetitor: "5 UB",
-            potensiProrisUb: 30,
-          };
-
       const healthyOneUb = dummyRef?.internalSales?.healthyOneUb ?? 10;
 
       // Sell In: find matching products from effectiveSalesOnlineItems with SAME zat_aktif, EXCLUDING this product itself
@@ -178,22 +228,37 @@ export function useScSidebar({
         return isSameZatAktif(zatAktif, itZat);
       });
 
-      const b2bProducts = matchingOnlineItems.map((it: any) => {
+      // Group matching B2B items by product code to prevent duplicate keys and aggregate quantities
+      const b2bProductMap = new Map<string, { code: string; namaProduk: string; qty_sales: number; isSelected: boolean }>();
+      for (const it of matchingOnlineItems) {
         const itCode = String(it.code || "").trim();
+        if (!itCode) continue;
         const itName = it.product_name || resolveProductName(itCode, masterProducts) || `Produk ${itCode}`;
         const qty = Number(it.qty_sales) || 0;
-        return {
-          kode: itCode,
-          nama: itName,
-          qtyUb: qty,
-        };
-      });
+        const itStripped = itCode.replace(/^0+/, "");
+        const isB2bSelected = selectedProductCodes.has(itCode) || selectedProductCodes.has(itStripped);
+        const existing = b2bProductMap.get(itCode);
+        if (existing) {
+          existing.qty_sales += qty;
+        } else {
+          b2bProductMap.set(itCode, {
+            code: itCode,
+            namaProduk: itName,
+            qty_sales: qty,
+            isSelected: isB2bSelected,
+          });
+        }
+      }
 
-      const totalB2bQty = b2bProducts.reduce((sum: number, p: any) => sum + p.qtyUb, 0);
+      const b2bProducts = Array.from(b2bProductMap.values()).map((bp) => ({
+        ...bp,
+        kode: bp.code,
+        nama: bp.namaProduk,
+        qtyUb: bp.qty_sales,
+      }));
 
-      const surveyForecast = surveyCompetitor?.forecastPenjualanKompetitor || "5 UB";
-      const surveyDisplay = surveyForecast.toUpperCase().includes("UB") ? surveyForecast : `${surveyForecast} UB`;
-      const surveyQty = surveyCompetitor ? parseFloat(surveyForecast.replace(/[^0-9.]/g, "")) || 0 : 0;
+      const totalB2bQty = b2bProducts.reduce((sum: number, p: any) => sum + p.qty_sales, 0);
+
       const totalPotensi = Math.ceil(surveyQty + healthyOneUb + totalB2bQty);
       const isSelected =
         selectedProductCodes.has(code) ||
@@ -205,18 +270,18 @@ export function useScSidebar({
         namaProduk: name,
         subtitel: `${code} · ${zatAktif || name}`,
         zatAktif,
-        surveyCompetitor,
-        surveyDisplay,
+        surveyCompetitors,
+        surveyQty,
         healthyOneUb,
         b2bProducts,
         totalPotensi,
         isSelected,
-        hasSurvey: Boolean(surveyCompetitor),
+        hasSurvey,
         hasHealthyOne: healthyOneUb > 0,
         hasB2b: b2bProducts.length > 0,
       };
     });
-  }, [canvasserProducts, masterProducts, salesOnlineMap, effectiveSalesOnlineItems, selectedProductCodes, surveyData]);
+  }, [canvasserProducts, masterProducts, salesOnlineMap, effectiveSalesOnlineItems, selectedProductCodes, nexusSurveyMap]);
 
   const filteredCards = useMemo(() => {
     let list = scCards;
@@ -234,7 +299,7 @@ export function useScSidebar({
         c.namaProduk.toLowerCase().includes(q) ||
         c.kodeProduk.toLowerCase().includes(q) ||
         c.zatAktif.toLowerCase().includes(q) ||
-        (c.surveyCompetitor?.namaKompetitor || "").toLowerCase().includes(q)
+        c.surveyCompetitors.some((sc: any) => sc.namaKompetitor.toLowerCase().includes(q))
       );
     }
 

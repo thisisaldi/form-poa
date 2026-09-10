@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { ProductSelectorProps } from "./types/editorProps";
 import { Req, InfoTooltip } from "./ui";
 import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
 import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
-import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction } from "@/app/actions/canvasser";
+import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction, getSurveyNexusAction } from "@/app/actions/canvasser";
 import { aggregateHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 
@@ -32,6 +32,7 @@ export function ProductSelector({
   b3SalesMap,
   b3RangeLabel,
   kodePI,
+  surveyNexusData,
 }: ProductSelectorProps) {
   const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
   const [historySalesMap, setHistorySalesMap] = useState<
@@ -45,6 +46,86 @@ export function ProductSelector({
 
   const [historyPeriodRange, setHistoryPeriodRange] = useState<string>("");
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
+
+  const [localSurveyNexusData, setLocalSurveyNexusData] = useState<any>(surveyNexusData || null);
+
+  useEffect(() => {
+    if (surveyNexusData) {
+      setLocalSurveyNexusData(surveyNexusData);
+      return;
+    }
+    if (kodePI) {
+      getSurveyNexusAction(kodePI)
+        .then((res) => {
+          if (res?.data) {
+            setLocalSurveyNexusData(res);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [kodePI, surveyNexusData]);
+
+  const activeSurveyNexusData = surveyNexusData || localSurveyNexusData;
+
+  const nexusSurveyMap = useMemo(() => {
+    const map = new Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>();
+    if (!activeSurveyNexusData?.data?.has_data) return map;
+
+    const surveys = activeSurveyNexusData.data.surveys;
+    if (!Array.isArray(surveys) || surveys.length === 0) return map;
+
+    const latestSurvey = surveys[0];
+    const products = Array.isArray(latestSurvey?.products) ? latestSurvey.products : [];
+
+    for (const p of products) {
+      const compName = String(p.product_name || "").trim();
+      const forecast = Number(p.sales_forecast) || 0;
+      const switching = Array.isArray(p.switching_products) ? p.switching_products : [];
+
+      for (const sw of switching) {
+        const procode = String(sw.procode || "").trim();
+        if (!procode) continue;
+        const stripped = procode.replace(/^0+/, "");
+        const entry = { namaKompetitor: compName, salesForecast: forecast };
+
+        const addKey = (k: string) => {
+          const list = map.get(k) ?? [];
+          if (!list.some((it) => it.namaKompetitor === compName)) {
+            list.push(entry);
+          }
+          map.set(k, list);
+        };
+
+        addKey(procode);
+        if (stripped) addKey(stripped);
+      }
+    }
+    return map;
+  }, [activeSurveyNexusData]);
+
+  const getCompetitorsForRow = (kodeProduk: string) => {
+    if (!kodeProduk) return [];
+    const code = String(kodeProduk).trim();
+    const strippedCode = code.replace(/^0+/, "");
+
+    const canvasserProd = canvasserProducts.find(
+      (p) =>
+        p.pro_code === code ||
+        p.pro_code?.replace(/^0+/, "") === strippedCode ||
+        p.kode_item === code ||
+        p.kode_item?.replace(/^0+/, "") === strippedCode
+    );
+
+    const itemCode = String(canvasserProd?.kode_item || "").trim();
+    const strippedItemCode = itemCode.replace(/^0+/, "");
+
+    return (
+      (itemCode ? nexusSurveyMap.get(itemCode) || (strippedItemCode ? nexusSurveyMap.get(strippedItemCode) : undefined) : undefined) ||
+      nexusSurveyMap.get(code) ||
+      (strippedCode ? nexusSurveyMap.get(strippedCode) : undefined) ||
+      []
+    );
+  };
 
   useEffect(() => {
     if (!kodePI) {
@@ -171,6 +252,7 @@ export function ProductSelector({
   let grandTotalQtyUb = 0;
   let grandTotalEstSalesBln = 0;
   let grandTotalNilaiScBln = 0;
+  let grandTotalPotensiBln = 0;
 
   rows.forEach((row) => {
     const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
@@ -193,9 +275,13 @@ export function ProductSelector({
       nilaiScBln = estSalesBln * (pctMatriks / 100);
     }
 
+    const rowComps = getCompetitorsForRow(row.kodeProduk);
+    const rowPotensi = rowComps.reduce((s, c) => s + c.salesForecast, 0);
+
     grandTotalQtyUb += qtyUb;
     grandTotalEstSalesBln += estSalesBln;
     grandTotalNilaiScBln += nilaiScBln;
+    grandTotalPotensiBln += rowPotensi;
   });
 
   const cashbackDetails = calculateCashbackDetails({
@@ -205,15 +291,15 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = !readOnly ? "w-[21%] min-w-[170px]" : "w-[24%] min-w-[185px]";
-  const colPotensiWidth = "w-[6%] min-w-[55px]";
-  const colSwitchWidth = "w-[12%] min-w-[105px]";
-  const colDiskonWidth = "w-[5%] min-w-[45px]";
-  const colEstSalesWidth = "w-[15%] min-w-[120px]";
-  const colNilaiScWidth = "w-[15%] min-w-[120px]";
-  const colCashbackWidth = "w-[13%] min-w-[115px]";
-  const colActionWidth = "w-[5%] min-w-[40px]";
-  const tableMinWidth = "min-w-[770px]";
+  const colProdukWidth = !readOnly ? "w-[23%] min-w-[170px]" : "w-[24%] min-w-[185px]";
+  const colPotensiWidth = !readOnly ? "w-[8%] min-w-[65px]" : "w-[9%] min-w-[70px]";
+  const colSwitchWidth = !readOnly ? "w-[14%] min-w-[110px]" : "w-[15%] min-w-[115px]";
+  const colDiskonWidth = !readOnly ? "w-[8%] min-w-[65px]" : "w-[9%] min-w-[70px]";
+  const colEstSalesWidth = !readOnly ? "w-[14%] min-w-[115px]" : "w-[14%] min-w-[115px]";
+  const colNilaiScWidth = !readOnly ? "w-[14%] min-w-[115px]" : "w-[14%] min-w-[115px]";
+  const colCashbackWidth = !readOnly ? "w-[13%] min-w-[110px]" : "w-[15%] min-w-[115px]";
+  const colActionWidth = "w-[6%] min-w-[36px]";
+  const tableMinWidth = "min-w-[760px]";
 
   return (
     <div className="space-y-4">
@@ -266,19 +352,19 @@ export function ProductSelector({
                     )}
                   </div>
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   <div className="leading-tight">
                     <div>Est. Sales</div>
                     <div className="text-[9px] font-normal opacity-75">/ Bln</div>
                   </div>
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   <div className="leading-tight">
                     <div>Est. Insentif</div>
                     <div className="text-[9px] font-normal opacity-75">SC / Bln</div>
                   </div>
                 </th>
-                <th className={`py-2 px-1.5 font-semibold text-[11px] text-center ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   <div className="inline-flex items-center justify-center gap-1">
                     <div className="leading-tight text-center">
                       <div>Est. Cashback</div>
@@ -353,6 +439,9 @@ export function ProductSelector({
                   const scMin = canvasserProduct?.sales_counter_minimum != null ? Number(canvasserProduct.sales_counter_minimum) : 0;
                   const targetSellInBln = scMin * hnaSJ;
 
+                  const isUnderTarget = targetSellInBln > 0 && estSalesBln < targetSellInBln;
+                  const isAboveOrEqualTarget = !isUnderTarget;
+
                   let nilaiScBln = 0;
                   if (scVal != null && scVal > 0) {
                     nilaiScBln = qtyUb >= scMin ? qtyUb * scVal : 0;
@@ -379,8 +468,11 @@ export function ProductSelector({
                           })}
                           value={row.kodeProduk}
                           onChange={(val) => {
+                            const comps = getCompetitorsForRow(val);
+                            const compNames = comps.map((c) => c.namaKompetitor).join(", ");
                             onUpdateRow(idx, {
                               kodeProduk: val,
+                              ...(compNames ? { produkKompetitor: compNames } : {}),
                             });
                           }}
                           disabled={readOnly}
@@ -402,17 +494,56 @@ export function ProductSelector({
                       </td>
 
                       {/* Column 2: Potensi / UB */}
-                      <td className="py-2 px-1 text-center align-top">
-                        <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
-                          0
-                        </div>
-                        <div className="text-[10px] space-y-0.5 mt-1 text-center" style={{ color: "var(--color-text-faint)" }}>
-                          <div>produk A: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
-                          <div>produk B: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
-                          <div>produk C: <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
-                          <div>lainnya : <strong style={{ color: "var(--color-text-muted)" }}>0</strong></div>
-                        </div>
-                      </td>
+                      {(() => {
+                        const comps = getCompetitorsForRow(row.kodeProduk);
+                        const totalPotensi = comps.reduce((sum, c) => sum + c.salesForecast, 0);
+
+                        // If <= 4 competitors: show each competitor product that exists.
+                        // If > 4 competitors (5, 6, 7, etc.): show the first 4, and sum the rest (5, 6, 7, ...) into "lainnya".
+                        const hasMoreThan4 = comps.length > 4;
+                        const visibleComps = hasMoreThan4 ? comps.slice(0, 4) : comps;
+                        const otherComps = hasMoreThan4 ? comps.slice(4) : [];
+                        const qtyOthers = otherComps.reduce((sum, c) => sum + c.salesForecast, 0);
+
+                        return (
+                          <td className="py-2 px-1 text-center align-top">
+                            <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
+                              {totalPotensi}
+                            </div>
+                            {comps.length > 0 && (
+                              <div className="text-[10px] space-y-0.5 mt-1 text-center" style={{ color: "var(--color-text-faint)" }}>
+                                {visibleComps.map((comp, cIdx) => (
+                                  <div
+                                    key={cIdx}
+                                    className="flex items-center justify-between gap-1 text-[10px]"
+                                    title={`${comp.namaKompetitor}: ${comp.salesForecast}`}
+                                  >
+                                    <span className="truncate max-w-[65px] text-left" style={{ color: "var(--color-text-muted)" }}>
+                                      {comp.namaKompetitor}:
+                                    </span>
+                                    <strong className="shrink-0" style={{ color: "var(--color-text-muted)" }}>
+                                      {comp.salesForecast}
+                                    </strong>
+                                  </div>
+                                ))}
+                                {hasMoreThan4 && (
+                                  <div
+                                    className="flex items-center justify-between gap-1 text-[10px]"
+                                    title={otherComps.map((c) => `${c.namaKompetitor}: ${c.salesForecast}`).join(", ")}
+                                  >
+                                    <span className="truncate max-w-[65px] text-left" style={{ color: "var(--color-text-faint)" }}>
+                                      lainnya:
+                                    </span>
+                                    <strong className="shrink-0" style={{ color: "var(--color-text-muted)" }}>
+                                      {qtyOthers}
+                                    </strong>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })()}
 
                       {/* Column 3: Quantity Input (Estimasi Switching / UB) */}
                       <td className="py-2 px-1 text-center align-top">
@@ -433,8 +564,8 @@ export function ProductSelector({
                           };
 
                           const labelPrefix = historyPeriodRange
-                            ? `Average History Per Bulan (${historyPeriodRange}) :`
-                            : "Average History Per Bulan :";
+                            ? `Avg. History (${historyPeriodRange}):`
+                            : "Avg. History / Bln:";
 
                           return (
                             <div
@@ -482,18 +613,18 @@ export function ProductSelector({
                       </td>
 
                       {/* Column 5: Est Sales / Bln */}
-                      <td className="py-2 px-1.5 text-center align-top">
+                      <td className="py-2 px-1 text-center align-top">
                         <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
                           Rp {formatRp(estSalesBln)}
                         </div>
-                        {qtyUb > 0 && (
+                        {isAboveOrEqualTarget && qtyUb > 0 && (
                           <div className="text-[10px] mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                             3 Bln: Rp {formatRp(estSalesBln * 3)}
                           </div>
                         )}
                         {row.kodeProduk && (
                           <div className="text-[10px] mt-1 space-y-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
-                            <div>Target Sell-in Ins SC / bln :</div>
+                            <div>Target Sell-in / bln:</div>
                             <div
                               className="font-semibold"
                               style={{ color: "var(--color-text-muted)" }}
@@ -501,58 +632,76 @@ export function ProductSelector({
                             >
                               {targetSellInBln > 0 ? `Rp ${formatRp(targetSellInBln)}` : (canvasserProduct ? "Rp 0" : "-")}
                             </div>
+
+                            {(() => {
+                              const estSalesMonthly = estSalesBln;
+                              const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
+                              let growthPct: number | null = null;
+                              if (avgSalesBln > 0) {
+                                growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
+                              }
+
+                              return (
+                                <div className="space-y-0.5 pt-1">
+                                  <div>
+                                    <div>Historis Sales:</div>
+                                    <div><strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}</strong></div>
+                                  </div>
+
+                                  {isAboveOrEqualTarget && (
+                                    growthPct != null ? (
+                                      <div className="font-semibold" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red, #dc2626)" }}>
+                                        Growth: {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-center gap-1">
+                                        <span>Growth:</span>
+                                        <span
+                                          className="inline-block text-[9px] font-semibold px-1 py-0.2 rounded border leading-none"
+                                          style={{
+                                            background: "rgba(22, 163, 74, 0.12)",
+                                            color: "#16a34a",
+                                            borderColor: "rgba(22, 163, 74, 0.3)",
+                                          }}
+                                        >
+                                          Baru
+                                        </span>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                        {isUnderTarget && (
+                          <div
+                            className="text-[10px] leading-tight font-medium mt-1.5 flex items-center justify-center gap-1 text-center"
+                            style={{ color: "var(--color-red, #dc2626)" }}
+                          >
+                            <span className="shrink-0 text-xs">⚠</span>
+                            <span className="text-center">Estimasi lebih rendah dari Target</span>
                           </div>
                         )}
                       </td>
 
                       {/* Column 6: Nilai SC / Bln */}
-                      <td className="py-2 px-1.5 text-center align-top">
-                        <div className="font-semibold text-[11px]" style={{ color: "var(--color-blue, #2563eb)" }}>
+                      <td className="py-2 px-1 text-center align-top">
+                        <div
+                          className="font-semibold text-[11px]"
+                          style={{
+                            color: nilaiScBln > 0 ? "var(--color-blue, #2563eb)" : "var(--color-text-muted)",
+                          }}
+                        >
                           Rp {formatRp(nilaiScBln)}
                         </div>
-                        {(() => {
-                          const estSalesMonthly = estSalesBln;
-                          const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
-                          let growthPct: number | null = null;
-                          if (avgSalesBln > 0) {
-                            growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
-                          }
-
-                          return (
-                            <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-faint)" }}>
-                              <div>% Insentif: <strong style={{ color: "var(--color-text-muted)" }}>{pctMatriks}%</strong></div>
-
-                              <div>
-                                <div>Historis Insentif:</div>
-                                <div><strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}</strong></div>
-                              </div>
-
-                              {growthPct != null ? (
-                                <div className="font-semibold" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red, #dc2626)" }}>
-                                  Growth: {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-center gap-1">
-                                  <span>Growth:</span>
-                                  <span
-                                    className="inline-block text-[9px] font-semibold px-1 py-0.2 rounded border leading-none"
-                                    style={{
-                                      background: "rgba(22, 163, 74, 0.12)",
-                                      color: "#16a34a",
-                                      borderColor: "rgba(22, 163, 74, 0.3)",
-                                    }}
-                                  >
-                                    Baru
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-faint)" }}>
+                          <div>% Insentif: <strong style={{ color: "var(--color-text-muted)" }}>{pctMatriks}%</strong></div>
+                        </div>
                       </td>
 
                       {/* Column 7: Nilai Cashback / Bln */}
-                      <td className="py-2 px-1.5 text-center align-top">
+                      <td className="py-2 px-1 text-center align-top">
                         {isCashbackNotFound ? (
                           <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
                             -
@@ -618,23 +767,23 @@ export function ProductSelector({
                   <td className="py-2.5 pl-4 pr-2 text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Total ({rows.length} produk)
                   </td>
-                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    0
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                    {grandTotalPotensiBln}
                   </td>
                   <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     {grandTotalQtyUb} UB
                   </td>
                   <td className="py-2.5 px-1"></td>
-                  <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Rp {formatRp(grandTotalEstSalesBln)}
                   </td>
-                  <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
                     Rp {formatRp(grandTotalNilaiScBln)}
                   </td>
-                  <td className="py-2.5 px-1.5 text-center text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-faint)" : "var(--color-green, #16a34a)" }}>
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-faint)" : "var(--color-green, #16a34a)" }}>
                     {isCashbackNotFound ? "-" : `Rp ${formatRp(cashbackDetails.totalFinalCashbackMonthly)}`}
                   </td>
-                  {!readOnly && <td className="py-2.5 px-2 text-center"></td>}
+                  {!readOnly && <td className="py-2.5 px-1 text-center"></td>}
                 </tr>
               </tfoot>
             )}

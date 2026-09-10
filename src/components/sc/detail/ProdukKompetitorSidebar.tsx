@@ -405,9 +405,9 @@ export function ProdukKompetitorSidebar({
                         </div>
                       ) : (
                         <div className="space-y-1">
-                          {item.b2bProducts.map((bp: any) => (
+                          {item.b2bProducts.map((bp: any, bpIdx: number) => (
                             <div
-                              key={bp.code}
+                              key={`${bp.code || bp.kode || "b2b"}-${bpIdx}`}
                               className="p-1.5 rounded border flex items-center justify-between gap-1.5 text-[10px]"
                               style={{
                                 borderColor: "var(--color-border)",

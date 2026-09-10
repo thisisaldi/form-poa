@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -106,6 +107,26 @@ export function SalesCounterOutletCard({
     productDetailRows,
   } = outletData;
 
+  const strategyCounts = useMemo(() => {
+    let intensifikasi = 0;
+    let ekstensifikasi = 0;
+    let penurunan = 0;
+    let tetap = 0;
+
+    for (const row of productDetailRows.rows) {
+      if (row.salesHistorical <= 0) {
+        ekstensifikasi++;
+      } else if (row.growthPct > 0) {
+        intensifikasi++;
+      } else if (row.growthPct < 0) {
+        penurunan++;
+      } else {
+        tetap++;
+      }
+    }
+    return { intensifikasi, ekstensifikasi, penurunan, tetap };
+  }, [productDetailRows.rows]);
+
   return (
     <div
       className="py-3 px-3.5 rounded-lg space-y-2.5"
@@ -177,6 +198,11 @@ export function SalesCounterOutletCard({
           <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-blue)" }}>
             {outletEstSales > 0 ? formatRp(outletEstSales) : "-"}
           </p>
+          {draft.lamaPeriode && draft.lamaPeriode > 1 && outletEstSales > 0 && (
+            <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+              ({formatRp(outletEstSales / draft.lamaPeriode)} / bln)
+            </p>
+          )}
         </div>
 
         <div>
@@ -202,6 +228,52 @@ export function SalesCounterOutletCard({
               `${scProducts.length} produk SC`
             )}
           </p>
+          {isLoadingB3 ? (
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="inline-block h-4 w-20 bg-slate-200 dark:bg-slate-700/60 rounded-full animate-pulse" />
+            </div>
+          ) : (
+            (strategyCounts.intensifikasi > 0 || strategyCounts.ekstensifikasi > 0 || strategyCounts.penurunan > 0) && (
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                {strategyCounts.intensifikasi > 0 && (
+                  <span
+                    className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{
+                      background: "rgba(147, 51, 234, 0.12)",
+                      color: "#7e22ce",
+                      border: "1px solid rgba(147, 51, 234, 0.28)",
+                    }}
+                  >
+                    {strategyCounts.intensifikasi} Intensifikasi
+                  </span>
+                )}
+                {strategyCounts.ekstensifikasi > 0 && (
+                  <span
+                    className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{
+                      background: "rgba(37, 99, 235, 0.12)",
+                      color: "#1d4ed8",
+                      border: "1px solid rgba(37, 99, 235, 0.28)",
+                    }}
+                  >
+                    {strategyCounts.ekstensifikasi} Ekstensifikasi
+                  </span>
+                )}
+                {strategyCounts.penurunan > 0 && (
+                  <span
+                    className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{
+                      background: "rgba(225, 29, 72, 0.12)",
+                      color: "#be123c",
+                      border: "1px solid rgba(225, 29, 72, 0.28)",
+                    }}
+                  >
+                    {strategyCounts.penurunan} Penurunan
+                  </span>
+                )}
+              </div>
+            )
+          )}
         </div>
 
         <div>
@@ -981,7 +1053,12 @@ export function SalesCounterOutletCard({
               estimasiSales={outletEstSales}
             />
           )}
-          {(draft.isPosm || draft.kodePI === "F4002441") && <PosmTable />}
+          {draft.kodePI && (
+            <PosmTable
+              poaPeriod={draft.period || poaId}
+              outletId={draft.kodePI}
+            />
+          )}
         </div>
       )}
       {/* Dialog Konfirmasi Custom */}

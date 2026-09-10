@@ -38,38 +38,65 @@ export async function getPosmNexus(
 ): Promise<PosmResponse | null> {
   if (!outletId) return null;
   try {
-    const url = `https://api-nexus.pharos.id/api/r/posm-placement`;
-
-    const headers = {
-      Accept: "application/json",
-      ...nexusAuthV2Headers(),
-    };
-
-    const body= JSON.stringify({
+    const https = await import("https");
+    const bodyData = JSON.stringify({
       periods: period,
       outletCode: outletId,
     });
 
-    const res = await fetch(url, {
-      method: "GET",
-      headers,
-      body,
-      cache: "no-store",
-    });
+    const headers: Record<string, string | number> = {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(bodyData),
+      ...nexusAuthV2Headers(),
+    };
 
-    if (!res.ok) {
-      if (res.status === 404) return null;
-      const errBody = await res.text().catch(() => "");
-      console.error(
-        `Failed to fetch POSM data for ${outletId}: status ${res.status}${errBody ? ` - ${errBody}` : ""}`
+    return await new Promise<PosmResponse | null>((resolve) => {
+      const req = https.request(
+        {
+          hostname: "api-nexus.pharos.id",
+          port: 443,
+          path: "/api/r/posm-placement",
+          method: "GET",
+          headers,
+        },
+        (res) => {
+          if (res.statusCode && res.statusCode >= 400) {
+            let errText = "";
+            res.on("data", (d) => (errText += d));
+            res.on("end", () => {
+              console.error(
+                `Failed to fetch POSM data for ${outletId}: status ${res.statusCode} - ${errText}`
+              );
+              resolve(null);
+            });
+            return;
+          }
+
+          let responseBody = "";
+          res.on("data", (chunk) => (responseBody += chunk));
+          res.on("end", () => {
+            try {
+              const parsed = JSON.parse(responseBody) as PosmResponse;
+              resolve(parsed);
+            } catch (err) {
+              console.error(`Failed parsing POSM response for ${outletId}:`, err);
+              resolve(null);
+            }
+          });
+        }
       );
-      return null;
-    }
 
-    const data = (await res.json()) as PosmResponse;
-    return data;
+      req.on("error", (err) => {
+        console.error(`Error fetching POSM data for ${outletId}:`, err);
+        resolve(null);
+      });
+
+      req.write(bodyData);
+      req.end();
+    });
   } catch (error) {
-    console.error(`Error fetching POSM data for ${outletId}:`, error);
+    console.error(`Error in getPosmNexus for ${outletId}:`, error);
     return null;
   }
 }

@@ -9,6 +9,7 @@ export interface ScSidebarProps {
   historySalesData?: any;
   salesOnlineData?: any;
   surveyData?: any[];
+  surveyNexusData?: any;
   rekomendasiProduk?: any[];
   masterProducts?: any[];
   canvasserProducts?: any[];

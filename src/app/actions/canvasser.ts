@@ -15,6 +15,8 @@ import { getSalesOnline } from "@/app/(app)/sc/[id]/_services/getSalesOnline";
 import { getSalesApotekOnline } from "@/app/(app)/sc/[id]/_services/getSalesApotekOnline";
 import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 import { getBlastInData } from "@/app/(app)/sc/[id]/_services/getBlastInData";
+import { getSurveyData } from "@/app/(app)/sc/[id]/_services/getSurveyNexus";
+import { getPosmNexus } from "@/app/(app)/sc/[id]/_services/getPosmNexus";
 import { prisma } from "@/lib/prisma";
 
 export async function getSalesCountersAction(piCode: string) {
@@ -320,4 +322,14 @@ export async function getHistoryEntertainAction(
 ): Promise<number | null> {
   if (!outletCode) return null;
   return await getExodusOutletBudgets(outletCode, params);
+}
+
+export async function getSurveyNexusAction(outletId: string) {
+  if (!outletId) return null;
+  return await getSurveyData(outletId);
+}
+
+export async function getPosmNexusAction(outletId: string, periods: string[]) {
+  if (!outletId || !Array.isArray(periods) || periods.length === 0) return null;
+  return await getPosmNexus(outletId, periods);
 }
