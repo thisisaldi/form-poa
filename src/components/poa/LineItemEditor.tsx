@@ -2791,6 +2791,22 @@ function AddPanel({
     }
   }
 
+  // The Spesialisasi combobox matches its `value` against specOptions'
+  // `value` field exactly — but specOptions only ever surfaces ONE raw
+  // string per normalized label (see specOptions above: the first raw
+  // value seen "claims" that label's slot, any other raw sharing the same
+  // label is never added). So auto-filling with a doctor's own RAW
+  // spesialisasi can land on a raw that has no matching option, and the
+  // combobox renders blank even though `spesialisasi` state is correct
+  // (2026-09-10 bug report: "spesialisasinya ga ke-autofill" — filtering
+  // still worked via customerOptions' spesLabel-normalized compare, only
+  // the combobox's own display was blank). Fixed by resolving to whichever
+  // specOptions entry shares this doctor's normalized label, so the value
+  // handed to the combobox always has a matching option to display.
+  function resolveSpesValue(raw: string): string {
+    return specOptions.find((o) => spesLabel(o.value) === spesLabel(raw))?.value ?? raw;
+  }
+
   async function handleCustomerChange(val: string) {
     const found = customerList.find((c) => c.id === val);
     if (!found) { setCustomerId(val); return; }
@@ -2798,7 +2814,7 @@ function AddPanel({
     if (val.startsWith("nexus:")) {
       nexusPickCache.current.set(val, { namaCustomer: found.namaCustomer, spesialisasi: found.spesialisasi, kodeCustomer: found.kodeCustomer });
       setCustomerId(val);
-      setSpesialisasi(found.spesialisasi);
+      setSpesialisasi(resolveSpesValue(found.spesialisasi));
       // Best-effort background resolve — NOT awaited by Submit; if it's
       // still mid-flight (or was never triggered, e.g. a restored draft)
       // when the MR clicks Simpan, handleSubmit resolves it again itself.
@@ -2810,7 +2826,7 @@ function AddPanel({
     }
 
     setCustomerId(val);
-    setSpesialisasi(found.spesialisasi);
+    setSpesialisasi(resolveSpesValue(found.spesialisasi));
   }
 
   // Now just a narrowing filter on the already-loaded outlet customer list
