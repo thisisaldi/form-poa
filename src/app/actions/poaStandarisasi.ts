@@ -235,6 +235,46 @@ export async function listMyPoaStandarisasiAction() {
   }));
 }
 
+/**
+ * POA Standarisasi pengajuan currently sitting in Phase 2 (Approval Atasan)
+ * that THIS atasan (ASM/SM/NSM, or ADMIN for testing) can act on right now —
+ * dedicated "tampilan atasan" (2026-09-10 user request), separate from the
+ * MR-facing wizard at /poa-standarisasi/[id] which stays MR-only.
+ *
+ * Bounded scan, not company-wide: only pengajuan actively in
+ * currentPhase=APPROVAL_ATASAN (a small, naturally-limited set — everything
+ * else is either still Planning or already past this phase), so the
+ * per-row canApprovePoaStandarisasiAtasan call (itself a couple of extra
+ * queries via getPoaStandarisasiApprovers) doesn't hit docs/PERFORMANCE.md's
+ * call-in-loop constraint the way an unbounded company-wide scan would.
+ */
+export async function getPendingPoaStandarisasiForAtasanAction() {
+  const { actor } = await requireActor();
+
+  const candidates = await prisma.poaStandarisasi.findMany({
+    where: { currentPhase: "APPROVAL_ATASAN" },
+    include: {
+      owner: { select: { nip: true, name: true } },
+      outlet: { select: { namaOutlet: true } },
+      produk: { select: { id: true } },
+    },
+    orderBy: { updatedAt: "asc" },
+  });
+
+  const result: (typeof candidates[number] & { pendingLevel: "ASM" | "SM" | "NSM" })[] = [];
+  for (const p of candidates) {
+    // Sequential chain (ASM -> SM -> NSM): the level still awaiting action is
+    // the first one not yet DISETUJUI — same rule approvePoaStandarisasiAtasanAction
+    // enforces when advancing to Phase 3.
+    const pendingLevel: "ASM" | "SM" | "NSM" =
+      p.statusApprovalAsm !== "DISETUJUI" ? "ASM" : p.statusApprovalSm !== "DISETUJUI" ? "SM" : "NSM";
+    if (await canApprovePoaStandarisasiAtasan(actor, p, pendingLevel)) {
+      result.push({ ...p, pendingLevel });
+    }
+  }
+  return result;
+}
+
 /** "Golongan yang Dipakai Saat Ini" per dokter — resolved Q1, reuses the exact
  * function backing "Produk Kompetitor Utama" in the POA Estimasi form. */
 export async function getGolonganSaatIniAction(kodeCustomer: string, kodePI: string, kodeProduk: string) {

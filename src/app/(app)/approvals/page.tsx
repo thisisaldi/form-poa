@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ApprovalsChecklist, type PendingPoaRow } from "@/components/poa/ApprovalsChecklist";
 import { getActivePsspByCustomers } from "@/app/actions/customer";
+import { getPendingPoaStandarisasiForAtasanAction } from "@/app/actions/poaStandarisasi";
+import { PoaStandarisasiApprovalSection, type PendingPoaStandarisasiRow } from "@/components/poaStandarisasi/PoaStandarisasiApprovalSection";
 import { displayRole } from "@/lib/role";
 
 export const metadata = { title: "Persetujuan · Form POA" };
@@ -37,6 +39,15 @@ export default async function ApprovalsPage() {
       .filter((v: string | null): v is string => !!v)
   );
 
+  const pendingStandarisasi = await getPendingPoaStandarisasiForAtasanAction();
+  const pendingStandarisasiRows: PendingPoaStandarisasiRow[] = pendingStandarisasi.map((p) => ({
+    id: p.id,
+    ownerName: p.owner.name,
+    namaOutlet: p.outlet.namaOutlet,
+    jumlahProduk: p.produk.length,
+    pendingLevel: p.pendingLevel,
+  }));
+
   return (
     <div className="space-y-5">
       <div>
@@ -60,6 +71,8 @@ export default async function ApprovalsPage() {
       ) : (
         <ApprovalsChecklist pending={pending} activePssp={activePssp} />
       )}
+
+      <PoaStandarisasiApprovalSection pending={pendingStandarisasiRows} />
     </div>
   );
 }
