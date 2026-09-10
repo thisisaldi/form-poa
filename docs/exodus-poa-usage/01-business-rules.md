@@ -188,6 +188,65 @@ Sebelum membangun apapun, dites langsung ke API real (`scripts/testExodusApprova
 
 **Kesimpulan**: pertanyaan #1 di atas ("apa itu ASD/SD?") terjawab SEBAGIAN — sekarang tau nama role persisnya (`assistant-sales-director`/`sales-director`) dan tau ini BUKAN kasus langka (naikkan urgensi, bukan turunkan). Pertanyaan #2 (siapa user-nya di POA) **masih TOTAL belum terjawab** — dan sekarang jauh lebih mendesak karena ~35% data akan stuck kalau tidak diselesaikan. Rekomendasi tidak berubah: JANGAN mulai migration Role/poaWorkflow.ts sampai ada user nyata yang akan memegang kedua role ini dikonfirmasi (single nasional vs per-region — pertanyaan yang sempat diajukan Aldi juga masih belum dijawab, di-skip sementara untuk fokus ke investigasi ini duluan).
 
+### Update 2026-09-09 (lanjutan, sesi yang sama) — pertanyaan #1/#2 terjawab, infrastruktur diimplementasikan
+
+Aldi mengonfirmasi: **ASD = role `GM` yang sudah ada di POA** (di tabel MSSQL `Struktur_Marketing_PI`, kolom `GM_NIP`/`GM_Nama` di baris yang sama dengan `NSM_NIP` — dipakai `scripts/matchStrukturBaruFromMssql.ts`, sudah ada, tinggal belum di-sync ke `User.nipAtasan`). **SD = satu orang spesifik, Brian Lembong** (`P200134`, sebelumnya role `GM`, dipindah ke role baru `SD`) — tidak ada kolom SD di `Struktur_Marketing_PI` (SD murni tambahan POA, di luar struktur MSSQL, satu-satunya orang di level ini).
+
+**Klarifikasi istilah** (penting, jangan disamakan): Role Prisma `GM` TIDAK diganti nama — tetap dipakai untuk read-only oversight di fitur lain juga (Summary/Dashboard company-wide). Status/label approval chain yang baru pakai istilah `ASD` (`SUBMITTED_TO_ASD`/`APPROVED_BY_ASD`) meski user yang approve di level itu `role`-nya tetap `GM` di database — cuma penamaan status/chain yang pakai "ASD", bukan role usernya.
+
+**Klarifikasi desain krusial**: eskalasi ke ASD/SD **KONDISIONAL per dokter** (dari `exodusRequiredRole`, snapshot sekali di submit pertama — lihat §9), BUKAN tambahan wajib ke chain semua POA. Kalau linear unconditional (semua POA otomatis lewat ASD/SD setelah NSM), itu meregresi ~65% POA yang gak butuh eskalasi. `null`/`"asm"`/`"sm"`/`"nsm"` (termasuk SEMUA data lama, field ini baru) tetap terminate di `APPROVED_BY_NSM` persis seperti sebelumnya — cuma `"assistant-sales-director"`/`"sales-director"` yang mendorong lanjut ke ASD/SD.
+
+**🟢 Infrastruktur diimplementasikan 2026-09-09** (schema + workflow chain + authz, BELUM termasuk live call ke Exodus — masih diblokir `pssp_type`, lihat §11 investigasi di atas):
+- `Role.SD` (baru, migration `20260909130000_add_asd_sd_approval_level` — **belum di-apply ke DB**), data migration `UPDATE "User" SET role='SD' WHERE nip='P200134'` sudah ditulis di migration yang sama.
+- `PoaStatus`: `SUBMITTED_TO_ASD`/`APPROVED_BY_ASD`/`SUBMITTED_TO_SD`/`APPROVED_BY_SD`.
+- `PoaDoctorApproval.exodusRequiredRole` (`String?`, snapshot sekali di submit pertama, BELUM di-wire ke `submitDoctor()` — field ini ada tapi selalu `null` sampai wiring live call selesai, jadi chain 100% backward compatible untuk semua data sekarang).
+- `poaWorkflow.ts`: chain diperluas jadi kondisional — `approveNsmOrAsd()` (baru, exported buat self-check) menentukan lanjut atau terminate di titik NSM dan ASD berdasarkan `approvalCeiling(exodusRequiredRole)`. `resolveNextHolder`/`loadPoaWithHierarchy` diperluas jalur `reportsTo` dari 3 ke 5 level (MR→ASM→SM→NSM→GM→SD) supaya bisa nemuin approver ASD/SD.
+- `authz.ts`: `canApproveDoctor` nerima role `GM`/`SD` juga.
+- `StatusBadge.tsx`/`notifications.ts`/dashboard chart: label buat status baru.
+- Self-check: `scripts/testApprovalCeilingChain.ts` (assert-based, verifikasi invariant backward-compat + eskalasi ASD/SD).
+
+### Update 2026-09-09 (lanjutan) — investigasi `pssp_type`, MASIH tidak match bersih
+
+Dites langsung `GET /promotion/v1/pssp` (list PSSP asli Exodus, endpoint terpisah dari `approval-level`) buat lihat isi field `pssp_type` yang sebenarnya, karena `PoaLineItem.jenisPssp` (kandidat awal) terkonfirmasi kolom mati.
+
+**Ditemukan 3 distinct value** (scan 4000 record production, kemungkinan besar sudah lengkap): `Cash` (3596, 89.9%), `Event` (267, 6.7%), `Peremajaan` (137, 3.4%).
+
+**Divalidasi silang**: satu record real dengan `request_status: "on-approval-by-sm"` di-tes ke `approval-level` pakai field-fieldnya sendiri (termasuk `pssp_type: "Event"` apa adanya) — hasilnya `role: "sm"`, KONSISTEN dengan `request_status` record itu sendiri. Jadi value asli (`Event`/`Cash`/`Peremajaan`) memang valid dikirim ke `approval-level`, BUKAN ditolak seperti placeholder `"reguler"` sebelumnya (yang diterima API tapi tidak divalidasi kebenarannya).
+
+**Masalahnya**: POA sendiri TIDAK punya field yang capture distingsi ini secara langsung:
+- `PoaLineItem.bentukPssp` (`CASH`/`BARANG`/`JASA`/`PRIMATAX`, TERISI 95% di 9786 baris — beda dari `jenisPssp` yang mati) — `CASH` cocok 1:1 ke `pssp_type: "Cash"` Exodus. TAPI `BARANG`/`JASA`/`PRIMATAX` (POA) TIDAK ADA padanannya di 3 value Exodus, dan `Event`/`Peremajaan` (Exodus) TIDAK ADA padanannya di `bentukPssp` (POA).
+- `PoaLineItem.jenisPsSp` (`PS`/`SP`, juga terisi 95%+) — ini malah cocok ke field Exodus YANG BEDA, `pssp_category` (bukan `pssp_type`) — dikonfirmasi dari sample record yang sama (`pssp_category: "SP"`).
+
+**Kesimpulan**: mapping `pssp_type` MASIH blocking — tidak ada 1:1 yang bersih dari data POA yang sudah ada. Opsi yang mungkin (belum diputuskan): (a) kirim `bentukPssp` apa adanya untuk baris `CASH` saja dan default/tebak untuk `BARANG`/`JASA`/`PRIMATAX` (resiko salah untuk ~10% baris), (b) tambah field baru di POA yang capture distingsi Event/Cash/Peremajaan secara eksplisit (perubahan data model, butuh keputusan bisnis: kapan MR mengisinya, apa artinya "Event" di konteks POA), atau (c) tanya balik ke tim Exodus apakah `pssp_type` sebenarnya boleh diabaikan/dibuat opsional untuk use case ini. **Belum ada keputusan** — dicatat sebagai open question, bukan diimplementasikan sepihak.
+
+**Update 2026-09-09 (lanjutan)**: Aldi menilai `pssp_type` **tidak terlalu penting** dibanding param lain — deprioritized, bukan blocking lagi. `r_percentage` dikonfirmasi **fraksi 0-1** (10% = `0.1`) — persis format `PoaLineItem.persenPsspDokter` yang sudah tersimpan di DB (form UI-nya nampilin 0-100, dibagi 100 sebelum disimpan — lihat `LineItemEditor.tsx`), jadi TIDAK perlu konversi tambahan. `getExodusApprovalLevel()` di `exodusApi.ts` sudah diupdate komentarnya.
+
+### 🔴 Temuan baru, BELUM terjawab — chain approval Exodus TIDAK selalu linear ASM→SM→NSM→ASD→SD
+
+Query `GET /promotion/v1/pssp?pssp_type=Peremajaan` (endpoint list PSSP asli, terpisah dari `approval-level`) menunjukkan `pssp_activity_log` satu record (`ref_id_header: "AP400728"`) sbb:
+
+```
+on-approval-by-sm → on-approval-by-nsm → on-approval-by-sd → on-approval-by-fic
+                                          ^^^^^^^^^^^^^^^^^^ note: "Auto Approve by SD - Nilai PSSP <= 10 Juta"
+                                          actor: user_nip P200134, user_name BRIAN LEMBONG, user_role "sales-director"
+```
+
+Dua hal yang mengubah pemahaman sebelumnya:
+
+1. **Record ini LONCAT dari NSM langsung ke SD, TIDAK lewat ASD sama sekali.** Kontradiksi dengan asumsi chain linear yang sudah diimplementasikan di `poaWorkflow.ts` (`approveNsmOrAsd` — NSM approve selalu ke ASD dulu kalau ceiling ASD/SD, baru ASD approve ke SD). Kalau Exodus memang bisa skip ASD untuk kasus tertentu, logic kondisionalnya perlu tau KAPAN skip vs tidak — belum ada datanya.
+2. **Ada level BARU yang belum pernah disebut sebelumnya: `fic`** (muncul setelah SD, auto-approved dengan alasan nilai PSSP ≤ 10 juta). Belum tau kepanjangan `fic` atau apakah ini level approval manusia lain (di luar ASM/SM/NSM/ASD/SD yang sudah dipetakan) atau cuma status administratif otomatis yang tidak perlu direpresentasikan di POA sama sekali.
+
+**Konfirmasi positif dari temuan ini**: `user_role: "sales-director"` + `user_nip: P200134` + `user_name: BRIAN LEMBONG` di log yang sama — cocok PERSIS dengan keputusan Aldi ("SD = Brian Lembong, P200134") yang sudah diimplementasikan.
+
+**Diklarifikasi Aldi (2026-09-09, sesi yang sama)**:
+1. Chain **seharusnya** sesuai urutan (ASM→SM→NSM→ASD→SD, tidak skip) — record `AP400728` yang loncat NSM→SD dianggap ANOMALI di data Exodus, bukan perilaku yang benar untuk ditiru. `poaWorkflow.ts`'s `approveNsmOrAsd()` (linear, selalu lewat ASD dulu) **TIDAK PERLU diubah** — implementasi yang sudah ada sudah benar.
+2. Level `fic` **sedang dibicarakan Aldi dengan tim Exodus secara terpisah** — ditunda, bukan blocking untuk pekerjaan yang sudah ada. Tidak ada representasi di POA untuk level ini sampai ada kejelasan lebih lanjut.
+
+**⚠️ BELUM dikerjakan (menyusul terpisah)**:
+1. **Sync `NSM.nipAtasan`/`GM.nipAtasan` dari `Struktur_Marketing_PI`** — saat ini SEMUA `NSM`/`GM` di DB punya `nipAtasan: null` (org sync existing sengaja skip role `GM`, lihat `docs/org-nexus-migration/02-data-model.md`). Tanpa ini, `resolveNextHolder` untuk ASD/SD akan selalu gagal (`Cannot resolve next holder`) — TAPI tidak akan pernah ke-trigger di production sampai poin #2 di bawah selesai (karena `exodusRequiredRole` masih selalu `null`).
+2. **Wiring live call ke `getExodusApprovalLevel()` di `submitDoctor()`** — masih diblokir `pssp_type` (`PoaLineItem.jenisPssp` selalu null di production, lihat investigasi di atas).
+3. Belum ada UI eksplisit buat "GM/SD approve dokter ini" selain `canApproveDoctor` yang sudah menerima role-nya — perlu dicek apakah halaman `/poa/[id]` sudah cukup generic buat nampilin tombol approve ke GM/SD, atau butuh penyesuaian tampilan (belum diverifikasi visual).
+
 ### Open questions BLOCKING — masih perlu didiskusikan (Aldi minta dibahas lebih lanjut, BUKAN diputuskan sekarang)
 
 1. ~~Bentuk kontrak PATCH — menggantikan atau berdampingan?~~ **Settled 2026-09-01**: berdampingan, partial PATCH (lihat di atas).
