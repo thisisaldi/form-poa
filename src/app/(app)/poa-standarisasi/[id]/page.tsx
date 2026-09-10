@@ -10,9 +10,10 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
   const { id } = await params;
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // Re-disabled for non-ADMIN 2026-08-28 (user request) — was briefly opened
-  // to MR same day, ADMIN-only again while under review.
-  if (session.role !== "ADMIN") redirect("/dashboard");
+  // Re-opened to MR 2026-09-10 (user request) — see new/page.tsx's note.
+  // ASM/SM/NSM still blocked here on purpose: user wants atasan approval done
+  // through its own dedicated view, not this same wizard page.
+  if (session.role !== "ADMIN" && session.role !== "MR") redirect("/dashboard");
 
   const pengajuan = await getPoaStandarisasiDetail(id);
   if (!pengajuan) notFound();

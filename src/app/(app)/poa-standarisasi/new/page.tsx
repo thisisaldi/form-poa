@@ -7,9 +7,12 @@ import { NewPoaStandarisasiForm } from "@/components/poaStandarisasi/NewPoaStand
 export default async function NewPoaStandarisasiPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // Re-disabled for non-ADMIN 2026-08-28 (user request) — was briefly opened
-  // to MR same day, ADMIN-only again while under review.
-  if (session.role !== "ADMIN") redirect("/dashboard");
+  // Re-opened to MR 2026-09-10 (user request) — was ADMIN-only since
+  // 2026-08-28 pending review. ASM/SM/NSM (Phase 2 approval + read-only,
+  // docs/poa-standarisasi/03-ui-and-access.md) still NOT reopened here —
+  // separate follow-up, user wants atasan approval done through its own
+  // dedicated view rather than this same wizard.
+  if (session.role !== "ADMIN" && session.role !== "MR") redirect("/dashboard");
 
   const [outlets, productOptions] = await Promise.all([
     getOutletsByUser(session.userId),

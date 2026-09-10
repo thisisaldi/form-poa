@@ -53,10 +53,10 @@ function toNum(v: unknown): number | null {
  */
 export async function createPoaStandarisasiAction(input: PlanningInput & { kodePI: string }): Promise<void> {
   const session = await requireSession();
-  // Re-disabled for non-ADMIN 2026-08-28 (user request) — was briefly opened
-  // to MR same day, ADMIN-only again while under review. Hard gate here too
-  // (not just the page), since this action can be called directly.
-  if (session.role !== "ADMIN") redirect("/dashboard");
+  // Re-opened to MR 2026-09-10 (user request) — see poa-standarisasi/new/
+  // page.tsx's note. Hard gate here too (not just the page), since this
+  // action can be called directly.
+  if (session.role !== "ADMIN" && session.role !== "MR") redirect("/dashboard");
 
   const kodePI = input.kodePI.trim();
   if (!kodePI) throw new Error("Outlet wajib dipilih.");
