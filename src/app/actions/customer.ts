@@ -734,10 +734,20 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
 
   if (dbRoster) {
     const known = new Set(sourcedCustomers.map((c) => c.vbCode?.toUpperCase()).filter((v): v is string => !!v));
+    // dbRoster itself can carry duplicate doctors for the same outlet (Exodus's
+    // own data, not a bug on our side — confirmed 2026-09-10). No `is_verified`
+    // field to disambiguate: it only appears on the company-wide (no `user_nip`)
+    // shape of this endpoint, unreachable with our external client credential
+    // (`user_nip` is required for us, per the API's own param doc). Dedup by
+    // normalized NAME (not just code — two rows for the same doctor can carry
+    // different/missing customer_code) as the best available fallback, keep-first.
+    const knownNames = new Set(sourcedCustomers.map((c) => c.namaCustomer.trim().toUpperCase()));
     for (const entry of dbRoster) {
       if (entry.outletCode !== kodePI) continue;
       const key = entry.customerCode?.toUpperCase();
+      const nameKey = entry.name.trim().toUpperCase();
       if (key && known.has(key)) continue;
+      if (knownNames.has(nameKey)) continue;
       sourcedCustomers.push({
         vbCode: entry.customerCode,
         namaCustomer: entry.name,
@@ -745,6 +755,7 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
         position: entry.position,
       });
       if (key) known.add(key);
+      knownNames.add(nameKey);
     }
   }
 

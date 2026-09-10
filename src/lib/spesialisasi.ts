@@ -31,6 +31,13 @@ export const SPESIALISASI_PM_LABEL: Record<string, string> = {
   // instead of near-identical duplicates.
   "INTERNIST":                     "INTERNIST UMUM",
   "PENYAKIT DALAM (INTERNIST)":    "INTERNIST UMUM",
+  // Exodus's customers-databases/outlets-customers spesialisasi spelling
+  // (2026-09-10 bug report: dokter ada di response API tapi ga muncul di
+  // dropdown) — same specialty as "PENYAKIT DALAM (INTERNIST)" above, just a
+  // different raw string from that source, so it was falling back to itself
+  // as an unmapped label and landing in its own bucket instead of joining
+  // "INTERNIST UMUM" where the MR actually looks.
+  "SPESIALIS PENYAKIT DALAM":      "INTERNIST UMUM",
   "BEDAH (SURGEON)":               "BEDAH UMUM",
   "BEDAH (UROLOGIS)":              "BEDAH UROLOGIS",
   "PENATA ANASTESI":               "PENATA ANESTESI",
