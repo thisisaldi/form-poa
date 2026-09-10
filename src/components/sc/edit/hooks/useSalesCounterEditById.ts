@@ -20,6 +20,7 @@ import {
   getHistorySalesAction,
   getSalesOnlineAction,
   getHistoryEntertainAction,
+  getSurveyNexusAction,
 } from "@/app/actions/canvasser";
 import { getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
@@ -233,8 +234,10 @@ export function useSalesCounterEditById({
   const [historySalesData, setHistorySalesData] = useState<any>(null);
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
+  const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
+  const [b3QtyMap, setB3QtyMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
   const [outletTotalAvgB3Sales, setOutletTotalAvgB3Sales] = useState<number>(0);
   const [diskonList, setDiskonList] = useState<{ proCode: string; diskon: number }[]>([]);
@@ -298,6 +301,7 @@ export function useSalesCounterEditById({
         const scProCodes = Array.from(validCodes) as string[];
         if (scProCodes.length === 0) {
           setB3SalesMap(new Map());
+          setB3QtyMap(new Map());
           setOutletTotalAvgB3Sales(0);
           return;
         }
@@ -307,24 +311,30 @@ export function useSalesCounterEditById({
           const parsed = parseOutletHistorySales(historyRes, kodePI);
           if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
             setB3SalesMap(parsed.productSalesMap);
+            setB3QtyMap(parsed.productQtyMap);
             setOutletTotalAvgB3Sales(parsed.averageSales);
           } else {
             getScOutletB3SalesAction(b3Info.period, kodePI, scProCodes).then((fallbackRes) => {
               if (!isMounted) return;
               const map = new Map<string, number>();
+              const qMap = new Map<string, number>();
               let totalVal = 0;
               if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
                 for (const item of fallbackRes.data) {
                   if (item.pro_code) {
                     const val = Number(item.average_sales) || 0;
+                    const qVal = Number(item.average_qty) || 0;
                     map.set(item.pro_code, val);
                     map.set(item.pro_code.replace(/^0+/, ""), val);
+                    qMap.set(item.pro_code, qVal);
+                    qMap.set(item.pro_code.replace(/^0+/, ""), qVal);
                     totalVal += val;
                   }
                 }
               }
               if (map.size > 0) {
                 setB3SalesMap(map);
+                setB3QtyMap(qMap);
                 setOutletTotalAvgB3Sales(totalVal);
               }
             });
@@ -348,6 +358,13 @@ export function useSalesCounterEditById({
     getHistorySalesAction(kodePI, false).then((res) => setHistorySalesData(res || null));
     getSalesOnlineAction(kodePI).then((res) => setSalesOnlineData(res || null));
     getSurveyRekomendasiByOutletAggregate(kodePI).then((res) => setSurveyData(res || []));
+    getSurveyNexusAction(kodePI).then((res) => {
+      setSurveyNexusData(res || null);
+      const latestSurvey = res?.data?.surveys?.[0];
+      if (latestSurvey?.avg_patient != null) {
+        setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
+      }
+    });
     getRekomendasiProdukAction(kodePI).then((res) => {
       if (!res?.data) {
         setRekomendasiProduk([]);
@@ -735,8 +752,10 @@ export function useSalesCounterEditById({
     historySalesData,
     salesOnlineData,
     surveyData,
+    surveyNexusData,
     rekomendasiProduk,
     b3SalesMap,
+    b3QtyMap,
     b3RangeLabel,
     outletTotalAvgB3Sales,
     diskonList,

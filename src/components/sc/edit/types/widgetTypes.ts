@@ -13,6 +13,13 @@ export interface BlastInTableProps {
   estimasiSales?: number;
 }
 
+export interface PosmTableProps {
+  poaPeriod?: string;
+  quarter?: number;
+  outletId?: string;
+  onTotalValueChange?: (total: number) => void;
+}
+
 export interface PerincianBudgetModalProps {
   isOpen: boolean;
   onClose: () => void;

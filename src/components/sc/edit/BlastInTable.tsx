@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { getBlastInDataAction } from "@/app/actions/canvasser";
-import type { BlastInResponse } from "@/app/(app)/sc/[id]/_services/getBlastInData";
+import type { BlastInResponse, BlastInQuarter } from "@/app/(app)/sc/[id]/_services/getBlastInData";
 
 import type { BlastInTableProps } from "./types/widgetTypes";
 import { parseBlastInPeriod } from "./utils/periodUtils";
@@ -42,196 +42,365 @@ export function BlastInTable({
     };
   }, [outletId, yearNum]);
 
-  const actualHeader = (
-    <div className="leading-tight">
-      <div>Actual Sales</div>
-      {qNum > 1 && (
-        <div className="text-[10px] font-normal opacity-75">
-          {qNum === 2 ? "(Q1)" : qNum === 3 ? "(Q1-Q2)" : "(Q1-Q3)"}
-        </div>
-      )}
-    </div>
-  );
-
-  const estimasiHeader = (
-    <div className="leading-tight">
-      <div>Estimasi</div>
-      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
-    </div>
-  );
-
-  const sumHeader = (
-    <div className="leading-tight">
-      <div>Actual + Estimasi</div>
-      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
-    </div>
-  );
-
-  const targetHeader = (
-    <div className="leading-tight">
-      <div>Target Blast-In</div>
-      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
-    </div>
-  );
-
-  const hadiahHeader = (
-    <div className="leading-tight">
-      <div>Hadiah</div>
-      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
-    </div>
-  );
-
   const registrant = blastInData?.data?.registrants?.[0] || null;
-  const quarters = registrant?.quarters || [];
+  const quarters = useMemo(() => registrant?.quarters || [], [registrant]);
 
-  // Previous quarter actual sales
-  let actualSales = 0;
-  if (qNum > 1) {
-    const prevQ = quarters.find((q) => q.quarter === qNum - 1);
-    actualSales = Number(prevQ?.actual_sales) || 0;
-  }
+  // Previous quarter actual sales (accumulated up to qNum - 1)
+  const actualSales = useMemo(() => {
+    if (qNum <= 1) return 0;
+    const prevQuarters = quarters.filter((q) => q.quarter < qNum);
+    if (prevQuarters.length === 0) return 0;
+    const immediatePrev = prevQuarters.find((q) => q.quarter === qNum - 1);
+    if (immediatePrev?.actual_sales != null) {
+      return Number(immediatePrev.actual_sales) || 0;
+    }
+    return prevQuarters.reduce((acc, q) => acc + (Number(q.actual_sales) || 0), 0);
+  }, [quarters, qNum]);
 
   // Current quarter data
-  const currentQ = quarters.find((q) => q.quarter === qNum);
+  const currentQ = useMemo(() => quarters.find((q) => q.quarter === qNum), [quarters, qNum]);
   const targetSalesQuarter = Number(currentQ?.target_sales_quarter) || 0;
   const targetSalesAcc = Number(currentQ?.target_sales_acc) || 0;
 
-  // Estimasi Q: target_sales_acc - actual sales
-  const estimasiQ = currentQ
-    ? targetSalesAcc > 0
-      ? Math.max(0, targetSalesAcc - actualSales)
-      : targetSalesQuarter > 0
-      ? Math.max(0, targetSalesQuarter - actualSales)
-      : Number(estimasiSales) || 0
-    : Number(estimasiSales) || 0;
+  // X = target_sales_acc - actual_sales (kekurangan sales untuk mencapai target akumulasi kuartal ini)
+  const targetToReach = targetSalesAcc > 0 ? targetSalesAcc : (actualSales + targetSalesQuarter);
+  const estimasiQ = currentQ ? Math.max(0, targetToReach - actualSales) : 0;
 
-  // Actual + Estimasi Q
+  // Total Projected: Actual sales from past quarters + estimasiQ (X) = targetToReach (target_sales_acc)
   const totalProjected = actualSales + estimasiQ;
 
-  // Target Blast-In is target_sales_quarter
-  const targetSales = targetSalesQuarter;
+  // Target Blast-In for current quarter: target_sales_quarter
+  const targetSales = targetSalesQuarter > 0 ? targetSalesQuarter : targetSalesAcc;
 
-  // Hadiah: akumulasi dari Q1-Q{qNum} jika dan hanya jika is_paid masih false
-  const hadiah = quarters
-    .filter((q) => q.quarter <= qNum && !q.is_paid)
-    .reduce((sum, q) => sum + (Number(q.reward_quarter) || 0), 0);
+  // Hadiah Q: reward_quarter of current quarter
+  const hadiahCurrentQ = Number(currentQ?.reward_quarter) || 0;
 
-  const isAchieved =
-    currentQ?.is_sales_achieve ??
-    (currentQ?.actual_sales != null && currentQ.actual_sales >= targetSalesQuarter);
+  // Estimasi Menang Q:
+  // Penjualan yang diajukan di form POA saat ini (estimasiSales) vs kekurangan target (estimasiQ / X)
+  // Jika estimasiSales >= estimasiQ (mampu menutup kekurangan untuk mencapai target), maka Estimasi Menang!
+  const poaSalesAmount = Number(estimasiSales) || 0;
+  const isEstimatedWin = useMemo(() => {
+    if (!currentQ) return false;
+    // Jika target sudah terlampaui dari actualSales sebelumnya (estimasiQ === 0)
+    if (estimasiQ === 0 && actualSales >= targetToReach && targetToReach > 0) return true;
+    // Jika penjualan POA mampu menutup kekurangan yang dibutuhkan
+    return poaSalesAmount > 0 && poaSalesAmount >= estimasiQ;
+  }, [currentQ, estimasiQ, poaSalesAmount, actualSales, targetToReach]);
+
+  // Quarters to display in Section 2 and Section 1 pills: ONLY up to qNum (e.g. Q1, Q2, Q3)
+  const displayQuarters = useMemo(() => {
+    const list: Array<{
+      quarter: number;
+      data?: BlastInQuarter;
+    }> = [];
+
+    for (let i = 1; i <= qNum; i++) {
+      const qData = quarters.find((q) => q.quarter === i);
+      list.push({ quarter: i, data: qData });
+    }
+    return list;
+  }, [qNum, quarters]);
+
+  const actualHeaderLabel = qNum > 1 ? (qNum === 2 ? "(Q1)" : qNum === 3 ? "(Q1-Q2)" : "(Q1-Q3)") : "";
 
   return (
-    <div className="space-y-2 mt-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold tracking-wide" style={{ color: "var(--color-text)" }}>
-            BLAST-IN {yearNum}
-          </span>
-          {loading && (
-            <span className="text-[10px] animate-pulse" style={{ color: "var(--color-text-faint)" }}>
-              Memuat data performa...
+    <div className="space-y-4 mt-4">
+      {/* 1. SECTION 1: BLAST-IN TAHUN + BADGES & METRICS */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text)" }}>
+              BLAST-IN {yearNum}
             </span>
+            {loading && (
+              <span className="text-[10px] animate-pulse" style={{ color: "var(--color-text-faint)" }}>
+                Memuat data performa...
+              </span>
+            )}
+          </div>
+
+          {/* Quarter status pills (e.g. Kalah Q1, Kalah Q2, Estimasi Menang Q3) */}
+          {registrant && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {displayQuarters.map(({ quarter: qIdx, data: qData }) => {
+                const isPast = qIdx < qNum;
+                const isCurrent = qIdx === qNum;
+
+                if (isPast) {
+                  const won = qData?.is_sales_achieve ?? ((qData?.actual_sales ?? 0) >= (qData?.target_sales_quarter ?? 0) && (qData?.actual_sales ?? 0) > 0);
+                  return (
+                    <span
+                      key={qIdx}
+                      className="text-[10px] font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1"
+                      style={{
+                        background: won ? "rgba(22, 163, 74, 0.12)" : "rgba(241, 245, 249, 0.9)",
+                        color: won ? "#16a34a" : "#64748b",
+                        border: `1px solid ${won ? "rgba(22, 163, 74, 0.25)" : "rgba(203, 213, 225, 0.8)"}`,
+                      }}
+                    >
+                      {won ? `✓ Menang Q${qIdx}` : `Kalah Q${qIdx}`}
+                    </span>
+                  );
+                }
+
+                if (isCurrent) {
+                  return (
+                    <span
+                      key={qIdx}
+                      className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1"
+                      style={{
+                        background: isEstimatedWin ? "rgba(254, 243, 199, 0.5)" : "rgba(241, 245, 249, 0.9)",
+                        color: isEstimatedWin ? "#b45309" : "#64748b",
+                        border: `1px solid ${isEstimatedWin ? "rgba(245, 158, 11, 0.5)" : "rgba(203, 213, 225, 0.8)"}`,
+                      }}
+                    >
+                      {isEstimatedWin ? `Estimasi Menang Q${qIdx}` : `Estimasi Kalah Q${qIdx}`}
+                    </span>
+                  );
+                }
+
+                return null;
+              })}
+            </div>
           )}
         </div>
 
-        {registrant && isAchieved && (
-          <span
-            className="text-[10px] font-semibold px-2 py-0.5 rounded"
-            style={{
-              background: "rgba(22, 163, 74, 0.12)",
-              color: "#16a34a",
-              border: "1px solid rgba(22, 163, 74, 0.25)",
-            }}
+        {!loading && !registrant && outletId && (
+          <div
+            className="rounded-lg border p-3 text-center text-xs"
+            style={{ borderColor: "var(--color-border)", color: "var(--color-text-faint)" }}
           >
-            ✓ Target Tercapai
-          </span>
+            Outlet tidak terdaftar dalam program Blast-In tahun {yearNum}.
+          </div>
+        )}
+
+        {(loading || registrant || !outletId) && (
+          <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+            <table className="w-full text-xs text-center border-collapse">
+              <thead>
+                <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                  <th className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="leading-tight">
+                      <div>Actual Sales</div>
+                      {actualHeaderLabel && (
+                        <div className="text-[10px] font-normal opacity-75">{actualHeaderLabel}</div>
+                      )}
+                    </div>
+                  </th>
+                  <th className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="leading-tight">
+                      <div>Estimasi</div>
+                      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+                    </div>
+                  </th>
+                  <th className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="leading-tight">
+                      <div>Actual + Estimasi</div>
+                      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+                    </div>
+                  </th>
+                  <th className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="leading-tight">
+                      <div>Target Blast-In</div>
+                      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+                    </div>
+                  </th>
+                  <th className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                    <div className="leading-tight">
+                      <div>Hadiah</div>
+                      <div className="text-[10px] font-normal opacity-75">Q{qNum}</div>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ background: "var(--color-bg)" }}>
+                  <td className="px-2.5 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
+                    {loading ? (
+                      <span className="animate-pulse opacity-50">...</span>
+                    ) : actualSales > 0 ? (
+                      <span className="whitespace-nowrap">{`Rp ${Math.round(actualSales).toLocaleString("id-ID")}`}</span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td className="px-2.5 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
+                    {loading ? (
+                      <span className="animate-pulse opacity-50">...</span>
+                    ) : estimasiQ > 0 ? (
+                      <span className="whitespace-nowrap">{`Rp ${Math.round(estimasiQ).toLocaleString("id-ID")}`}</span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td className="px-2.5 py-2.5 text-center font-bold" style={{ color: "var(--color-text)" }}>
+                    {loading ? (
+                      <span className="animate-pulse opacity-50">...</span>
+                    ) : totalProjected > 0 ? (
+                      <span className="whitespace-nowrap">{`Rp ${Math.round(totalProjected).toLocaleString("id-ID")}`}</span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td className="px-2.5 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
+                    {loading ? (
+                      <span className="animate-pulse opacity-50">...</span>
+                    ) : targetSales > 0 ? (
+                      <span className="whitespace-nowrap">{`Rp ${Math.round(targetSales).toLocaleString("id-ID")}`}</span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td className="px-2.5 py-2.5 text-center font-bold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                    {loading ? (
+                      <span className="animate-pulse opacity-50">...</span>
+                    ) : hadiahCurrentQ > 0 ? (
+                      <span className="whitespace-nowrap">{`Rp ${Math.round(hadiahCurrentQ).toLocaleString("id-ID")}`}</span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {!loading && !registrant && outletId && (
-        <div
-          className="rounded-lg border p-3 text-center text-xs"
-          style={{ borderColor: "var(--color-border)", color: "var(--color-text-faint)" }}
-        >
-          Outlet tidak terdaftar dalam program Blast-In tahun {yearNum}.
-        </div>
-      )}
+      {/* 2. SECTION 2: HISTORY PENERIMAAN HADIAH (BARU) */}
+      {(registrant || loading) && (
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
+              HISTORY PENERIMAAN HADIAH
+            </span>
+            <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
+              (baru)
+            </span>
+          </div>
 
-      {(loading || registrant || !outletId) && (
-        <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-          <table className="w-full text-xs text-center border-collapse">
-            <thead>
-              <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  {actualHeader}
-                </th>
-                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  {estimasiHeader}
-                </th>
-                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  {sumHeader}
-                </th>
-                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  {targetHeader}
-                </th>
-                <th className="px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  {hadiahHeader}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
-                <td className="px-2 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
-                  {loading ? (
-                    <span className="animate-pulse opacity-50">...</span>
-                  ) : actualSales > 0 ? (
-                    <span className="whitespace-nowrap">{`Rp ${Math.round(actualSales).toLocaleString("id-ID")}`}</span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-                <td className="px-2 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
-                  {loading ? (
-                    <span className="animate-pulse opacity-50">...</span>
-                  ) : estimasiQ > 0 ? (
-                    <span className="whitespace-nowrap">{`Rp ${Math.round(estimasiQ).toLocaleString("id-ID")}`}</span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-                <td
-                  className="px-2 py-2.5 text-center font-semibold"
-                  style={{ color: isAchieved ? "#16a34a" : "var(--color-text)" }}
-                >
-                  {loading ? (
-                    <span className="animate-pulse opacity-50">...</span>
-                  ) : totalProjected > 0 ? (
-                    <span className="whitespace-nowrap">{`Rp ${Math.round(totalProjected).toLocaleString("id-ID")}`}</span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-                <td className="px-2 py-2.5 text-center font-medium" style={{ color: "var(--color-text)" }}>
-                  {loading ? (
-                    <span className="animate-pulse opacity-50">...</span>
-                  ) : targetSales > 0 ? (
-                    <span className="whitespace-nowrap">{`Rp ${Math.round(targetSales).toLocaleString("id-ID")}`}</span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-                <td className="px-2 py-2.5 text-center font-semibold" style={{ color: "#2563eb" }}>
-                  {loading ? (
-                    <span className="animate-pulse opacity-50">...</span>
-                  ) : hadiah > 0 ? (
-                    <span className="whitespace-nowrap">{`Rp ${Math.round(hadiah).toLocaleString("id-ID")}`}</span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                  <th className="px-3 py-2 font-medium text-left w-[100px]" style={{ color: "var(--color-text-muted)" }}>
+                    QUARTER
+                  </th>
+                  <th className="px-3 py-2 font-medium text-left" style={{ color: "var(--color-text-muted)" }}>
+                    STATUS MENANG
+                  </th>
+                  <th className="px-3 py-2 font-medium text-left" style={{ color: "var(--color-text-muted)" }}>
+                    HADIAH
+                  </th>
+                  <th className="px-3 py-2 font-medium text-left" style={{ color: "var(--color-text-muted)" }}>
+                    STATUS PENERIMAAN
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayQuarters.map(({ quarter: qIdx, data: qData }, idx) => {
+                  const isPast = qIdx < qNum;
+                  const isCurrent = qIdx === qNum;
+
+                  // 1. Status Menang
+                  let statusMenangNode: React.ReactNode = "-";
+                  if (isPast) {
+                    const won = qData?.is_sales_achieve ?? ((qData?.actual_sales ?? 0) >= (qData?.target_sales_quarter ?? 0) && (qData?.actual_sales ?? 0) > 0);
+                    statusMenangNode = (
+                      <span
+                        className="inline-block text-[10px] font-semibold px-2.5 py-0.5 rounded-full"
+                        style={{
+                          background: won ? "rgba(22, 163, 74, 0.12)" : "rgba(225, 29, 72, 0.08)",
+                          color: won ? "#16a34a" : "#e11d48",
+                          border: `1px solid ${won ? "rgba(22, 163, 74, 0.25)" : "rgba(225, 29, 72, 0.2)"}`,
+                        }}
+                      >
+                        {won ? "Menang" : "Kalah"}
+                      </span>
+                    );
+                  } else if (isCurrent) {
+                    statusMenangNode = (
+                      <span
+                        className="inline-block text-[10px] font-semibold px-2.5 py-0.5 rounded-full"
+                        style={{
+                          background: isEstimatedWin ? "rgba(254, 243, 199, 0.5)" : "rgba(100, 116, 139, 0.08)",
+                          color: isEstimatedWin ? "#b45309" : "#64748b",
+                          border: `1px solid ${isEstimatedWin ? "rgba(245, 158, 11, 0.5)" : "rgba(100, 116, 139, 0.2)"}`,
+                        }}
+                      >
+                        {isEstimatedWin ? "Estimasi Menang" : "Estimasi Kalah"}
+                      </span>
+                    );
+                  }
+
+                  // 2. Hadiah
+                  let hadiahText = "-";
+                  if (isPast) {
+                    const val = qData?.reward_paid != null && qData.reward_paid > 0
+                      ? qData.reward_paid
+                      : qData?.reward_quarter != null && qData.reward_quarter > 0
+                      ? qData.reward_quarter
+                      : 0;
+                    hadiahText = val > 0 ? `Rp ${Math.round(val).toLocaleString("id-ID")}` : "-";
+                  } else if (isCurrent) {
+                    const val = qData?.reward_quarter ?? hadiahCurrentQ;
+                    hadiahText = val > 0 ? `Rp ${Math.round(val).toLocaleString("id-ID")}` : "-";
+                  }
+
+                  // 3. Status Penerimaan (is_paid)
+                  let statusPenerimaanNode: React.ReactNode = "-";
+                  if (isPast) {
+                    if (qData?.is_paid) {
+                      statusPenerimaanNode = (
+                        <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 text-xs">
+                          <span>✓</span> Sudah Diterima
+                        </span>
+                      );
+                    } else {
+                      statusPenerimaanNode = (
+                        <span className="inline-flex items-center gap-1 font-semibold text-amber-600 text-xs">
+                          Belum Diterima
+                        </span>
+                      );
+                    }
+                  } else if (isCurrent) {
+                    statusPenerimaanNode = (
+                      <span className="inline-flex items-center gap-1 font-medium text-slate-500 dark:text-slate-400 text-xs">
+                        <span>🕒</span> Belum Diterima (masih estimasi)
+                      </span>
+                    );
+                  }
+
+                  return (
+                    <tr
+                      key={qIdx}
+                      style={{
+                        background: "var(--color-bg)",
+                        borderBottom: idx < displayQuarters.length - 1 ? "1px solid var(--color-border)" : "none",
+                      }}
+                    >
+                      <td className="px-3 py-2.5 font-bold" style={{ color: "var(--color-text)" }}>
+                        Q{qIdx}
+                      </td>
+                      <td className="px-3 py-2.5 align-middle">
+                        {statusMenangNode}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium tabular-nums whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                        {hadiahText}
+                      </td>
+                      <td className="px-3 py-2.5 align-middle whitespace-nowrap">
+                        {statusPenerimaanNode}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-[11px] leading-relaxed italic" style={{ color: "var(--color-text-faint)" }}>
+            Kalau &ldquo;Menang&rdquo;, hadiah pasti didapat — kolom &ldquo;Status Penerimaan&rdquo; cuma menandai sudah dibayarkan/diproses atau belum, bukan menentukan berhak/tidaknya.
+          </p>
         </div>
       )}
     </div>

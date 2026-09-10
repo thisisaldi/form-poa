@@ -160,13 +160,13 @@ function formatPlatformName(platform: string): { key: string; name: string; labe
         </div>
         <div className="flex items-center gap-3 text-xs flex-wrap">
           <div className="flex items-center gap-1.5">
-            <span style={{ color: "var(--color-text-muted)" }}>Total All (B2B + PI) / Bln:</span>
+            <span style={{ color: "var(--color-text-muted)" }}>Total All (B2B + PI) / Quarter:</span>
             <span className="font-bold" style={{ color: "var(--color-text)" }}>
               {formatRp(totalAllSales)}
             </span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span style={{ color: "var(--color-text-muted)" }}>Total PI / Bln:</span>
+            <span style={{ color: "var(--color-text-muted)" }}>Total PI / Quarter:</span>
             <span className="font-bold" style={{ color: "var(--color-text)" }}>
               {formatRp(totalPiSales)}
             </span>

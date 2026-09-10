@@ -329,14 +329,16 @@ function parseBudgetResponse(json: unknown): number {
 
     return (
       Number(
-        costObj.total_entertain_base_cost ??
+        costObj.total_discount_base_cost ??
+          costObj.discount_base_cost ??
+          costObj.total_discount_real_cost ??
+          costObj.discount_real_cost ??
+          costObj.total_entertain_base_cost ??
           costObj.entertain_base_cost ??
           costObj.total_entertain ??
           costObj.budget_entertain ??
           costObj.history_entertain ??
           costObj.entertain ??
-          costObj.total_discount_base_cost ??
-          costObj.discount_base_cost ??
           costObj.budget ??
           costObj.total_budget ??
           costObj.total ??
@@ -349,16 +351,56 @@ function parseBudgetResponse(json: unknown): number {
 
   if (Array.isArray(data)) {
     if (data.length === 0) return 0;
-    // Sum across all periods (e.g. 2026-01 through 2026-12)
-    let total = 0;
-    for (const item of data) {
-      if (typeof item === "number") {
-        total += item;
-      } else if (typeof item === "object" && item !== null) {
-        total += extractCost(item as Record<string, unknown>);
-      }
+
+    // Map each month item to { period: string, cost: number }
+    const monthlyItems = data
+      .map((item) => {
+        if (typeof item === "object" && item !== null) {
+          const p = String((item as any).period || "");
+          const c = extractCost(item as Record<string, unknown>);
+          return { period: p, cost: c };
+        }
+        return { period: "", cost: typeof item === "number" ? item : 0 };
+      })
+      .filter((it) => it.period);
+
+    // Sort by period ascending (e.g. 2026-01, 2026-02, ...)
+    monthlyItems.sort((a, b) => a.period.localeCompare(b.period));
+
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = String(now.getMonth() + 1).padStart(2, "0");
+    const curPeriod = `${curYear}-${curMonth}`;
+
+    // Months up to or before current month
+    const pastMonths = monthlyItems.filter((it) => it.period <= curPeriod);
+
+    // Strategy 1: check the 3 months immediately preceding current month (B-3)
+    const last3Preceding = pastMonths.slice(-4, -1);
+    const precedingSum = last3Preceding.reduce((s, it) => s + it.cost, 0);
+
+    if (precedingSum > 0) {
+      return Math.round(precedingSum / 3);
     }
-    return total;
+
+    // Strategy 2: "ambil 3 bulan yang paling dekat dengan sekarang, atau yang ada trus dibagi 3"
+    // Filter months with cost > 0, reversed so latest active months come first
+    const activeMonths = pastMonths.filter((it) => it.cost > 0).reverse();
+
+    if (activeMonths.length > 0) {
+      const top3Active = activeMonths.slice(0, 3);
+      const sumActive = top3Active.reduce((s, it) => s + it.cost, 0);
+      return Math.round(sumActive / 3);
+    }
+
+    // Fallback across all available data items
+    const anyActive = monthlyItems.filter((it) => it.cost > 0).reverse().slice(0, 3);
+    if (anyActive.length > 0) {
+      const sumAny = anyActive.reduce((s, it) => s + it.cost, 0);
+      return Math.round(sumAny / 3);
+    }
+
+    return 0;
   }
 
   if (typeof data === "object" && data !== null) {
@@ -372,7 +414,7 @@ function parseBudgetResponse(json: unknown): number {
  * Fetches budget / history entertain for an outlet from Exodus:
  * `/analytics/v1/budgets`
  * Required query parameters:
- * - structure_period: last date of current month in RFC3339 format (e.g. "2026-09-30T23:59:59Z")
+ * - structure_period: last date of current month in RFC3339 format (e.g. "2026-09-30T17:00:00.000Z")
  * - period: year only (e.g. "2026")
  * - outlet_ids: numeric Exodus outlet ID from getExodusOutletIdByCode
  */
@@ -407,12 +449,12 @@ export async function getExodusOutletBudgets(
 
     let structurePeriod = params?.structurePeriod;
     if (!structurePeriod) {
-      structurePeriod = `${year}-${monthStr}-${String(lastDay).padStart(2, "0")}T23:59:59Z`;
+      structurePeriod = `${year}-${monthStr}-${String(lastDay).padStart(2, "0")}T17:00:00.000Z`;
     } else if (/^\d{2}-\d{2}-\d{4}$/.test(structurePeriod)) {
       const [d, m, y] = structurePeriod.split("-");
-      structurePeriod = `${y}-${m}-${d}T23:59:59Z`;
+      structurePeriod = `${y}-${m}-${d}T17:00:00.000Z`;
     } else if (/^\d{4}-\d{2}-\d{2}$/.test(structurePeriod)) {
-      structurePeriod = `${structurePeriod}T23:59:59Z`;
+      structurePeriod = `${structurePeriod}T17:00:00.000Z`;
     }
 
     const url = new URL(`${env.EXODUS_API_BASE_URL}/analytics/v1/budgets`);

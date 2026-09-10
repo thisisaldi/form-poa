@@ -15,6 +15,7 @@ import {
   getRekomendasiProdukAction,
   getHistorySalesAction,
   getSalesOnlineAction,
+  getSurveyNexusAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import type { Product } from "@/lib/masterData";
@@ -37,6 +38,7 @@ export function useSalesCounterEditor({
   masterProducts,
   outlets,
   savedDrafts = [],
+  initialOutletId = "",
 }: {
   poaId?: string;
   poaPeriod: string;
@@ -44,13 +46,20 @@ export function useSalesCounterEditor({
   masterProducts: Product[];
   outlets?: { kodePI: string; namaOutlet: string }[];
   savedDrafts?: any[];
+  initialOutletId?: string;
 }) {
   const router = useRouter();
   const { showToast } = useScToast();
   const [isPending, startTransition] = useTransition();
 
   // Form states
-  const [outletId, setOutletId] = useState("");
+  const [outletId, setOutletId] = useState(initialOutletId);
+
+  useEffect(() => {
+    if (initialOutletId) {
+      setOutletId(initialOutletId);
+    }
+  }, [initialOutletId]);
   const [personId, setPersonId] = useState<number | null>(null);
   const [selectedPersonIds, setSelectedPersonIds] = useState<number[]>([]);
   const [periodeAwal, setPeriodeAwal] = useState("");
@@ -84,6 +93,7 @@ export function useSalesCounterEditor({
   const [historySalesData, setHistorySalesData] = useState<any>(null);
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
+  const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
   const [cashbackData, setCashbackData] = useState<CashbackData | null>(null);
@@ -171,6 +181,7 @@ export function useSalesCounterEditor({
     setHistorySalesData(null);
     setSalesOnlineData(null);
     setSurveyData([]);
+    setSurveyNexusData(null);
     setRekomendasiProduk([]);
 
     if (!outletId) {
@@ -239,6 +250,14 @@ export function useSalesCounterEditor({
     });
     getSurveyRekomendasiByOutletAggregate(outletId).then((res) => {
       if (!isCancelled) setSurveyData(res || []);
+    });
+    getSurveyNexusAction(outletId).then((res) => {
+      if (isCancelled) return;
+      setSurveyNexusData(res || null);
+      const latestSurvey = res?.data?.surveys?.[0];
+      if (latestSurvey?.avg_patient != null) {
+        setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
+      }
     });
 
     const pCashback = getScCashbackPoaAction(outletId).then((res) => {
@@ -309,6 +328,9 @@ export function useSalesCounterEditor({
       setPeriodeAwal(draft.periodeAwal);
       setLamaPeriode(draft.lamaPeriode);
       setPersenResepDokter(String(draft.persenResepDokter ?? draft.surveyPasienHarian ?? ""));
+      setJumlahKaryawan(draft.jumlahKaryawan != null ? String(draft.jumlahKaryawan) : "");
+      setJumlahPasien(draft.jumlahPasien != null ? String(draft.jumlahPasien) : "");
+      setJumlahPasienResep(draft.jumlahPasienResep != null ? String(draft.jumlahPasienResep) : "");
       setProducts(
         draft.products.map((p: any) => ({
           kodeProduk: p.kodeProduk,
@@ -325,6 +347,9 @@ export function useSalesCounterEditor({
       setPeriodeAwal("");
       setLamaPeriode(0);
       setPersenResepDokter("");
+      setJumlahKaryawan("");
+      setJumlahPasien("");
+      setJumlahPasienResep("");
       setProducts([
         {
           kodeProduk: "",
@@ -622,11 +647,14 @@ export function useSalesCounterEditor({
     e.preventDefault();
     if (!validate()) return;
 
+    const validPeriodMatch = poaPeriod.match(/^(\d{4})-Q([1-4])$/);
+    const poaYear = validPeriodMatch ? parseInt(validPeriodMatch[1], 10) : new Date().getFullYear();
+    const effectivePeriod = `${poaYear}-Q${rowQuarter}`;
     const matchedOutlet = outlets?.find((o) => o.kodePI === outletId);
 
     startTransition(async () => {
       const res = await saveSalesCounterFormAction(
-        poaPeriod,
+        effectivePeriod,
         outletId,
         selectedPersonIds,
         products,
@@ -703,6 +731,7 @@ export function useSalesCounterEditor({
     historySalesData,
     salesOnlineData,
     surveyData,
+    surveyNexusData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,

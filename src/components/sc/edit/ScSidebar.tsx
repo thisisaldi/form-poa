@@ -86,6 +86,7 @@ export function ScSidebar({
   historySalesData,
   salesOnlineData,
   surveyData = [],
+  surveyNexusData,
   rekomendasiProduk = [],
   masterProducts = [],
   canvasserProducts = [],
@@ -115,6 +116,7 @@ export function ScSidebar({
     masterProducts,
     salesOnlineData,
     surveyData,
+    surveyNexusData,
     historySalesData,
     selectedProductCodes,
   });
@@ -276,69 +278,7 @@ export function ScSidebar({
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
         {activeTab === "rekomendasi" ? (
           <div className="space-y-4 animate-fade-in">
-            {/* 1. PRODUK YANG SUDAH DI SURVEY ( NEXUS ) */}
-            <div className="space-y-1.5">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                  PRODUK YANG SUDAH DI SURVEY ({effectiveSurveyData.length})
-                </p>
-                <p className="text-[9px] font-medium" style={{ color: "var(--color-text-faint)", marginTop: 1 }}>
-                  ( NEXUS )
-                </p>
-              </div>
-              {effectiveSurveyData.length > 0 ? (
-                <div className="space-y-1.5">
-                  {effectiveSurveyData.map((item: any, i: number) => {
-                    const targetCode = String(item.kodeProduk || "").trim();
-                    const isSelected = targetCode ? selectedProductCodes.has(targetCode) : false;
-                    return (
-                      <div
-                        key={i}
-                        onClick={() => targetCode && onSelectProduct?.(targetCode)}
-                        className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
-                          onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
-                        }`}
-                        style={{
-                          background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
-                          borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-1.5">
-                          <div className="min-w-0 flex-1">
-                            <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
-                              {item.namaProdukRekomendasi || item.kodeProduk}
-                            </span>
-                          </div>
-                          {isSelected && (
-                            <span
-                              className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
-                              style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
-                            >
-                              ✓ Terpilih
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1.5 text-[9px] flex-wrap pt-0.5">
-                          <span
-                            className="font-medium px-1.5 py-0.5 rounded"
-                            style={{ background: "#f3e8ff", color: "#6b21a8" }}
-                          >
-                            Produk Survey{item.totalPotensiBulan ? `: ${Math.floor(item.totalPotensiBulan)} UB` : ""}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
-                  Belum ada data survey.
-                </div>
-              )}
-            </div>
-
-            {/* 2. PRODUK PERNAH DI ORDER */}
+            {/* 1. PRODUK PERNAH DI ORDER */}
             <div className="space-y-1.5">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
@@ -871,15 +811,16 @@ export function ScSidebar({
                       {/* Card Body */}
                       <div className="p-2 space-y-2.5">
                         {/* 1. SELL OUT (Survey, HealthyOne) */}
-                        {((showSurvey && item.surveyCompetitor) || (showHealthyOne && item.healthyOneUb > 0)) && (
+                        {((showSurvey && item.hasSurvey) || (showHealthyOne && item.healthyOneUb > 0)) && (
                           <div className="space-y-1">
                             <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                               Sell Out
                             </div>
                             <div className="space-y-1 text-[10px]">
                               {/* Survey (External Competitor Survey) */}
-                              {showSurvey && item.surveyCompetitor && (
+                              {showSurvey && item.hasSurvey && item.surveyCompetitors?.map((sc: any, scIdx: number) => (
                                 <div
+                                  key={`${sc.namaKompetitor}-${scIdx}`}
                                   className="p-1.5 rounded border flex items-center justify-between"
                                   style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}
                                 >
@@ -894,15 +835,15 @@ export function ScSidebar({
                                     >
                                       Survey
                                     </span>
-                                    <span className="truncate font-medium" style={{ color: "var(--color-text)" }}>
-                                      {item.surveyCompetitor.namaKompetitor}
+                                    <span className="truncate font-medium" style={{ color: "var(--color-text)" }} title={sc.namaKompetitor}>
+                                      {sc.namaKompetitor}
                                     </span>
                                   </div>
                                   <span className="font-bold shrink-0" style={{ color: "var(--color-text)" }}>
-                                    {item.surveyDisplay}
+                                    {sc.salesForecast} UB
                                   </span>
                                 </div>
-                              )}
+                              ))}
 
                               {/* HealthyOne (Internal Sell Out) */}
                               {showHealthyOne && item.healthyOneUb > 0 && (
@@ -947,14 +888,15 @@ export function ScSidebar({
                               </div>
                             ) : (
                               <div className="space-y-1">
-                                {item.b2bProducts.map((bp: any) => {
-                                  const formattedQty = formatQtySales(bp.qty_sales);
+                                {item.b2bProducts.map((bp: any, bpIdx: number) => {
+                                  const formattedQty = formatQtySales(bp.qty_sales ?? bp.qtyUb);
+                                  const b2bCode = bp.code || bp.kode || "";
                                   return (
                                     <div
-                                      key={bp.code}
+                                      key={`${b2bCode || "b2b"}-${bpIdx}`}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        onSelectProduct?.(bp.code);
+                                        if (b2bCode) onSelectProduct?.(b2bCode);
                                       }}
                                       className="p-1.5 rounded border flex items-center justify-between text-[10px] transition-all cursor-pointer"
                                       style={{

@@ -62,6 +62,7 @@ export interface SalesCounterLineItemEditorProps {
   outlets: OutletOptionItem[];
   products: Product[];
   savedDrafts?: any[];
+  initialOutletId?: string;
 }
 
 export interface ProductSelectorProps {
@@ -85,4 +86,5 @@ export interface ProductSelectorProps {
   b3QtyMap?: Map<string, number>;
   b3RangeLabel?: string;
   kodePI?: string;
+  surveyNexusData?: any;
 }
