@@ -142,6 +142,12 @@ export interface ExodusCustomer {
   position: string | null;
   specialist: string | null;
   customerCodeExodus: string | null; // == API's CustomerCodeExodus (e.g. "C14")
+  // `IsVerified` (2026-09-10) — confirmed present on core/v1/outlets/{id}/
+  // customers's raw response (unlike promotion/v1/pssp/settlements/
+  // customers-databases's user_nip-scoped shape, which never carries it).
+  // Defaults false when the endpoint doesn't send the field at all, so an
+  // absent field never wins a verified-vs-unverified dedup by accident.
+  isVerified: boolean;
 }
 
 // API casing is inconsistent between endpoints in practice (PascalCase on
@@ -158,6 +164,7 @@ function parseExodusCustomerList(data: unknown[]): ExodusCustomer[] {
       position: str(c.Position) ?? str(c.position),
       specialist: str(c.Specialist) ?? str(c.specialist),
       customerCodeExodus: str(c.CustomerCodeExodus) ?? str(c.customer_code_exodus),
+      isVerified: (c.IsVerified ?? c.is_verified) === true,
     }))
     .filter((c) => c.name);
 }

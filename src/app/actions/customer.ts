@@ -592,6 +592,8 @@ interface SourcedCustomer {
   spesialisasi: string;
   /** Raw Exodus "position" (e.g. "Dokter", "Non Dokter") — used to compute `jabatan`, see computeJabatan(). */
   position: string | null;
+  /** Exodus's own `IsVerified` (2026-09-10) — used to dedup same-name duplicates Exodus itself sends for one outlet, see fetchCustomersForOutlet. */
+  isVerified: boolean;
 }
 
 /** IF position is "Non Dokter" (case-insensitive) → jabatan = specialist, ELSE jabatan = position (2026-08-27, user request). */
@@ -615,14 +617,29 @@ async function fetchCustomersForOutlet(kodePI: string): Promise<SourcedCustomer[
   const customers = await getExodusCustomersByOutletCode(kodePI);
   if (!customers) return [];
 
-  return customers.map((c) => ({
+  const mapped = customers.map((c) => ({
     vbCode: c.customerCode,
     namaCustomer: c.name,
     // Fall back to position when Exodus gives no specialist (2026-09-03,
     // user request) — position is still better than the bare "-" placeholder.
     spesialisasi: c.specialist && c.specialist.trim() ? c.specialist.trim() : (c.position && c.position.trim() ? c.position.trim() : "-"),
     position: c.position,
+    isVerified: c.isVerified,
   }));
+
+  // Exodus itself can send more than one row for the same doctor at this
+  // outlet (2026-09-10 bug report — duplicate dokter in the picker). This
+  // endpoint DOES carry `IsVerified` (unlike customers-databases's
+  // user_nip-scoped shape, see getExodusCustomerDatabaseByNip's own note),
+  // so prefer the verified row on a name collision instead of the earlier
+  // keep-first-arbitrary fallback.
+  const byName = new Map<string, SourcedCustomer>();
+  for (const c of mapped) {
+    const key = c.namaCustomer.trim().toUpperCase();
+    const existing = byName.get(key);
+    if (!existing || (c.isVerified && !existing.isVerified)) byName.set(key, c);
+  }
+  return [...byName.values()];
 }
 
 /**
@@ -753,6 +770,7 @@ export async function getCustomersByOutlet(kodePI: string): Promise<CustomerOpti
         namaCustomer: entry.name,
         spesialisasi: entry.specialist && entry.specialist.trim() ? entry.specialist.trim() : (entry.position && entry.position.trim() ? entry.position.trim() : "-"),
         position: entry.position,
+        isVerified: false, // customers-databases carries no IsVerified field (see note above)
       });
       if (key) known.add(key);
       knownNames.add(nameKey);
