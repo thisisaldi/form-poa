@@ -113,15 +113,17 @@ export function useSalesCounterDetail({
     return safeScDrafts.map((d) => d.id);
   }, [safeScDrafts, showSubmit, canApprove, userRole, canFastTrack]);
 
+  const allIds = useMemo(() => safeScDrafts.map((d) => d.id), [safeScDrafts]);
+
   const [checked, setChecked] = useState<Set<string>>(() =>
-    canApprove && !showSubmit ? new Set() : new Set(actionableIds)
+    canApprove && !showSubmit ? new Set() : new Set(allIds)
   );
 
   useEffect(() => {
     if (!canApprove || showSubmit) {
-      setChecked(new Set(actionableIds));
+      setChecked(new Set(allIds));
     }
-  }, [actionableIds, canApprove, showSubmit]);
+  }, [allIds, canApprove, showSubmit]);
 
   function toggle(id: string) {
     setChecked((prev) => {
@@ -134,16 +136,11 @@ export function useSalesCounterDetail({
 
   function toggleAll() {
     setChecked((prev) => {
-      const allActionableChecked =
-        actionableIds.length > 0 && actionableIds.every((id) => prev.has(id));
-      if (allActionableChecked) {
-        const next = new Set(prev);
-        for (const id of actionableIds) next.delete(id);
-        return next;
+      const allChecked = allIds.length > 0 && allIds.every((id) => prev.has(id));
+      if (allChecked) {
+        return new Set<string>();
       } else {
-        const next = new Set(prev);
-        for (const id of actionableIds) next.add(id);
-        return next;
+        return new Set(allIds);
       }
     });
   }
@@ -298,14 +295,25 @@ export function useSalesCounterDetail({
   const [isSubmitting, startSubmit] = useTransition();
   const [submitNotes, setSubmitNotes] = useState("");
 
+  // IDs that are selected AND can be submitted (DRAFT or REVISI)
+  const submittableIds = useMemo(() => {
+    const draftRevisiIds = new Set(
+      safeScDrafts
+        .filter((d) => d.status === "DRAFT" || d.status === "REVISI")
+        .map((d) => d.id)
+    );
+    return Array.from(checked).filter((id) => draftRevisiIds.has(id));
+  }, [checked, safeScDrafts]);
+
   return {
     checked,
     toggle,
     toggleAll,
-    allSelected: actionableIds.length > 0 && actionableIds.every((id) => checked.has(id)),
+    allSelected: allIds.length > 0 && allIds.every((id) => checked.has(id)),
     actionableIds,
     actionableCount: actionableIds.length,
     selectedActionableCount: actionableIds.filter((id) => checked.has(id)).length,
+    submittableIds,
     selectedDrafts,
     quarterMonths,
     metrics,

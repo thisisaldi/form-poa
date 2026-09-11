@@ -90,6 +90,15 @@ export async function GET(
     draftsWhere.status = { not: PoaStatus.DRAFT };
   }
 
+  // Optional filter: only export specific outlet form IDs
+  const outletIdsParam = _req.nextUrl.searchParams.get("outletIds");
+  if (outletIdsParam) {
+    const outletIds = outletIdsParam.split(",").map((s) => s.trim()).filter(Boolean);
+    if (outletIds.length > 0) {
+      draftsWhere.id = { in: outletIds };
+    }
+  }
+
   const drafts = await prisma.poaScForm.findMany({
     where: draftsWhere,
     include: {
@@ -108,6 +117,7 @@ export async function GET(
   if (drafts.length === 0) {
     return NextResponse.json({ error: "No SC POA drafts found for this period" }, { status: 404 });
   }
+
 
   const first = drafts[0];
   const owner = first.owner;
@@ -191,7 +201,6 @@ export async function GET(
     { header: "Diskon SC / Periode (Rp)", key: "diskonPeriode", width: 22 },
     { header: "% Cashback SC", key: "persenCashback", width: 14 },
     { header: "Cashback SC / Periode (Rp)", key: "cashbackPeriode", width: 22 },
-    { header: "Entertain SC / Periode (Rp)", key: "entertainPeriode", width: 22 },
     { header: "Total Rencana Biaya SC (Rp)", key: "rencanaTotalBiaya", width: 24 },
     { header: "Periode Awal", key: "periodeAwal", width: 14 },
     { header: "Lama Periode (Bulan)", key: "lamaPeriode", width: 16 },
@@ -206,7 +215,6 @@ export async function GET(
   for (const draft of drafts) {
     const lama = draft.lamaPeriode || 3;
     const scPersonStr = draft.persons.map((p: any) => `${p.personName} (${p.positionName})`).join(", ") || "-";
-    const draftEntertain = draft.entertainItems.reduce((s: number, e: any) => s + (parseFloat(e.biayaEntertain.toString()) || 0), 0);
 
     const scCodes = outletScProductCodesMap.get(draft.kodePI);
     for (const p of draft.products) {
@@ -267,8 +275,7 @@ export async function GET(
         diskonPeriode: Math.round(diskonPeriode),
         persenCashback: pctCashback,
         cashbackPeriode: Math.round(cashbackPeriode),
-        entertainPeriode: Math.round(draftEntertain),
-        rencanaTotalBiaya: Math.round(totalBiayaProduk + draftEntertain),
+        rencanaTotalBiaya: Math.round(totalBiayaProduk),
         periodeAwal: draft.periodeAwal,
         lamaPeriode: lama,
         status: draft.status.replace(/_/g, " "),
@@ -288,11 +295,41 @@ export async function GET(
     "nilaiScPeriode",
     "diskonPeriode",
     "cashbackPeriode",
-    "entertainPeriode",
     "rencanaTotalBiaya",
   ].forEach((k) => {
     formSheet.getColumn(k).numFmt = RP_FMT;
   });
+
+  // ─── Sheet 2: BIAYA ENTERTAIN OUTLET (Jika ada data entertain) ───────────
+  const hasEntertain = drafts.some((d: any) => d.entertainItems && d.entertainItems.length > 0);
+  if (hasEntertain) {
+    const entertainSheet = wb.addWorksheet("BIAYA ENTERTAIN OUTLET");
+    entertainSheet.columns = [
+      { header: "No. Form SC", key: "formNo", width: 12 },
+      { header: "KodePI Outlet", key: "kodePI", width: 14 },
+      { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
+      { header: "Periode Bulan", key: "periodeMonth", width: 16 },
+      { header: "Biaya Entertain (Rp)", key: "biayaEntertain", width: 22 },
+    ];
+    entertainSheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
+    entertainSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+    entertainSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
+
+    let fNum = 1;
+    for (const draft of drafts) {
+      for (const ent of draft.entertainItems) {
+        entertainSheet.addRow({
+          formNo: fNum,
+          kodePI: draft.kodePI,
+          namaOutlet: draft.namaOutlet || draft.kodePI,
+          periodeMonth: ent.periodeMonth,
+          biayaEntertain: parseFloat(ent.biayaEntertain.toString()) || 0,
+        });
+      }
+      fNum++;
+    }
+    entertainSheet.getColumn("biayaEntertain").numFmt = RP_FMT;
+  }
 
   // ─── Sheet 2: Audit Log SC ───────────────────────────────────────────────
   const auditSheet = wb.addWorksheet("Audit Log SC");

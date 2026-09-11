@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 
 export function SalesCounterSubmitPanel({
   selectedCount,
+  submittableCount,
   totalCount,
   submitNotes,
   setSubmitNotes,
@@ -11,12 +12,28 @@ export function SalesCounterSubmitPanel({
   onSubmit,
 }: {
   selectedCount: number;
+  submittableCount: number;
   totalCount: number;
   submitNotes: string;
   setSubmitNotes: (notes: string) => void;
   isSubmitting: boolean;
   onSubmit: () => void;
 }) {
+  const nonSubmittable = selectedCount - submittableCount;
+
+  let statusText: string;
+  if (selectedCount === 0) {
+    statusText = "Pilih minimal 1 outlet SC untuk diajukan.";
+  } else if (submittableCount === 0) {
+    statusText = `${selectedCount} outlet dipilih, namun tidak ada yang bisa diajukan (sudah diajukan / selesai).`;
+  } else if (nonSubmittable > 0) {
+    statusText = `${submittableCount} dari ${selectedCount} outlet yang dipilih akan diajukan. ${nonSubmittable} lainnya dilewati (sudah diajukan/selesai).`;
+  } else if (submittableCount === totalCount) {
+    statusText = `Semua ${totalCount} outlet SC yang dipilih akan diajukan.`;
+  } else {
+    statusText = `${submittableCount} outlet SC dipilih untuk diajukan.`;
+  }
+
   return (
     <div
       className="rounded-lg border p-4"
@@ -25,11 +42,7 @@ export function SalesCounterSubmitPanel({
         Ajukan Rencana SC ke Atasan
       </p>
       <p className="text-xs mb-3" style={{ color: "var(--color-text-muted)" }}>
-        {selectedCount === totalCount
-          ? `Semua ${totalCount} outlet SC akan diajukan.`
-          : selectedCount === 0
-          ? "Pilih minimal 1 outlet SC untuk diajukan."
-          : `${selectedCount} dari ${totalCount} outlet SC dipilih untuk diajukan.`}
+        {statusText}
       </p>
 
       <label className="flex flex-col gap-1 mb-3">
@@ -47,10 +60,11 @@ export function SalesCounterSubmitPanel({
 
       <Button
         type="button"
-        disabled={selectedCount === 0 || isSubmitting}
+        disabled={submittableCount === 0 || isSubmitting}
         onClick={onSubmit}>
-        {isSubmitting ? "Mengajukan…" : "Ajukan ke Atasan"}
+        {isSubmitting ? "Mengajukan…" : submittableCount > 0 ? `Ajukan ${submittableCount} Outlet ke Atasan` : "Ajukan ke Atasan"}
       </Button>
     </div>
   );
 }
+
