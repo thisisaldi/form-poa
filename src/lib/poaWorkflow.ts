@@ -276,7 +276,7 @@ const ROLLUP_RANK: Record<PoaStatus, number> = {
  * the source of truth once a doctor has its own PoaDoctorApproval row — see
  * doc comment on PoaDoctorApproval in schema.prisma.
  */
-async function resolvePoaRollup(poaId: string): Promise<void> {
+export async function resolvePoaRollup(poaId: string): Promise<void> {
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
   if (poa.status === PoaStatus.DRAFT) {
     // Never submitted at all yet (no doctor has been split out) — nothing to roll up.

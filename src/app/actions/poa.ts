@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/session";
 import {
   createPoaDraft,
   submitDoctor, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
+  resolvePoaRollup,
 } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
 import {
@@ -223,6 +224,57 @@ export async function deletePoaAction(poaId: string): Promise<{ error?: string }
     prisma.poaForm.delete({ where: { id: poaId } }),
   ]);
 
+  revalidatePath("/dashboard");
+  return {};
+}
+
+// Per-doctor delete (2026-09-11 request) — owner needed a way to remove ONE
+// doctor from a POA without wiping every other doctor in it, which is what
+// deletePoaAction above does (whole PoaForm, cascades every line item).
+// Same ownership rule/reasoning as deletePoaAction: not gated by canEdit,
+// works regardless of the doctor's own approval progress. If this was the
+// LAST doctor in the POA, the now-empty PoaForm is deleted too (2026-09-11
+// decision — an empty draft left behind would just be dashboard clutter).
+export async function deleteDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<{ error?: string }> {
+  const session = await getCurrentUser();
+  if (!session) redirect("/login");
+  if (await isWriteBlocked(session.role)) return { error: WRITE_BLOCKED_MESSAGE };
+
+  const poa = await prisma.poaForm.findUnique({ where: { id: poaId } });
+  if (!poa) return { error: "POA tidak ditemukan." };
+
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  if (poa.ownerId !== actor.nip && actor.role !== "ADMIN") return { error: "Tidak punya akses." };
+
+  const approval = await prisma.poaDoctorApproval.findUnique({
+    where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } },
+  });
+
+  await prisma.$transaction([
+    ...(approval
+      ? [
+          prisma.poaAuditLog.deleteMany({ where: { doctorApprovalId: approval.id } }),
+          prisma.poaDoctorApproval.delete({ where: { id: approval.id } }),
+        ]
+      : []),
+    prisma.poaLineItem.deleteMany({ where: { poaId, kodePI, namaCust } }),
+  ]);
+
+  const remaining = await prisma.poaLineItem.count({ where: { poaId } });
+  if (remaining === 0) {
+    await prisma.$transaction([
+      prisma.poaAuditLog.deleteMany({ where: { poaId } }),
+      prisma.poaForm.delete({ where: { id: poaId } }),
+    ]);
+    revalidatePath("/dashboard");
+    return {};
+  }
+
+  // Doctor set changed — PoaForm.status/currentHolderId (rollup over
+  // PoaDoctorApproval rows) may need to shift to a different representative.
+  await resolvePoaRollup(poaId);
+
+  revalidatePath(`/poa/${poaId}`);
   revalidatePath("/dashboard");
   return {};
 }

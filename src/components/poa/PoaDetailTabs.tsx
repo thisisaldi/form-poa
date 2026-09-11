@@ -78,7 +78,7 @@ export interface DoctorRejectInfo {
 
 export function PoaDetailTabs({
   items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor,
-  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo, doctorCanEdit, doctorExodusApprovedBy,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo, doctorCanEdit, doctorExodusApprovedBy, canDeleteDoctor,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -116,6 +116,8 @@ export function PoaDetailTabs({
   doctorCanEdit?: Record<string, boolean>;
   /** kodePI|namaCust -> approver name set by Exodus (docs/exodus-poa-usage/, 2026-09-09) — display-only. */
   doctorExodusApprovedBy?: Record<string, string | null>;
+  /** Owner (or ADMIN) can delete any doctor here regardless of approval progress (2026-09-11 decision). */
+  canDeleteDoctor?: boolean;
   activePssp?: ActivePsspRow[];
   /** Per-outlet stats for "Informasi PSSP Outlet" dropdown (2026-08-10) —
    * server-computed in poa/[id]/page.tsx, batched once (not per-row). */
@@ -231,6 +233,7 @@ export function PoaDetailTabs({
               doctorRejectInfo={doctorRejectInfo}
               doctorCanEdit={doctorCanEdit}
               doctorExodusApprovedBy={doctorExodusApprovedBy}
+              canDeleteDoctor={canDeleteDoctor}
             />
           )}
         </div>

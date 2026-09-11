@@ -10,7 +10,7 @@ import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
 import { submitDoctorAction } from "@/app/actions/poa";
 import type { DoctorActions, DoctorEditRequestInfo, DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
-import { deleteLineItemAction } from "@/app/actions/lineItem";
+import { DeleteDoctorButton } from "@/components/poa/DeleteDoctorButton";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import type { ActivePsspRow } from "@/app/actions/customer";
 import { computeActivePsspStats, apportion } from "@/lib/activePssp";
@@ -708,7 +708,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy, canDeleteDoctor,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -745,6 +745,8 @@ function DoctorRow({
   doctorRejectInfo?: DoctorRejectInfo;
   /** Approver name set by Exodus via PATCH /api/poa-doctors/{id} (docs/exodus-poa-usage/, 2026-09-09) — display-only, does not affect doctorStatus above. */
   doctorExodusApprovedBy?: string | null;
+  /** Owner (or ADMIN) can delete this doctor entirely regardless of approval progress (2026-09-11 decision) — separate from userCanEdit/Lock Edit Logic above, which gates editing content, not withdrawing it. */
+  canDeleteDoctor?: boolean;
 }) {
   const first = doctorItems[0];
   const rowEst = doctorItems.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
@@ -816,7 +818,6 @@ function DoctorRow({
     ? "Pernah PSSP"
     : first.labelCustomer;
   const contribPct = totalEstimasi > 0 ? (rowEst / totalEstimasi) * 100 : 0;
-  const [isDeleting, startDelete] = useTransition();
   const [detailOpen, setDetailOpen] = useState(false);
   const [outletInfoOpen, setOutletInfoOpen] = useState(false);
 
@@ -829,15 +830,6 @@ function DoctorRow({
   // selalu "-" walau kontrak aktif riil ada, karena outlet itu assignment-nya
   // sedang dipegang MR lain bulan ini).
   const outletInfo = first.kodePI ? outletPsspInfo?.[first.kodePI] : undefined;
-
-  function handleDelete() {
-    if (!poaId) return;
-    const label = doctorItems.length > 1 ? `${doctorItems.length} produk` : "1 produk";
-    if (!confirm(`Hapus ${first.namaCust} beserta ${label}?`)) return;
-    startDelete(async () => {
-      for (const it of doctorItems) await deleteLineItemAction(poaId, it.id);
-    });
-  }
 
   // Per-doctor submit (docs/poa-per-doctor-approval/, OQ-2) — lets the owner
   // send THIS doctor to the atasan without touching the rest of the draft,
@@ -1008,14 +1000,8 @@ function DoctorRow({
                   </button>
                 )}
               </div>
-              {userCanEdit && (
-                <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={handleDelete}
-                  className="text-xs" style={{ color: "var(--color-red)" }}>
-                  Hapus
-                </button>
+              {canDeleteDoctor && poaId && (
+                <DeleteDoctorButton poaId={poaId} kodePI={first.kodePI ?? ""} namaCust={first.namaCust} />
               )}
               {canSubmitThisDoctor && (
                 <Button type="button" size="sm" variant="orange" onClick={() => setDoctorSubmitOpen((v) => !v)}>
@@ -1300,7 +1286,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {}, doctorExodusApprovedBy = {} }: {
+export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {}, doctorExodusApprovedBy = {}, canDeleteDoctor = false }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1371,6 +1357,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
   doctorCanEdit?: Record<string, boolean>;
   /** kodePI|namaCust -> approver name set by Exodus (docs/exodus-poa-usage/, 2026-09-09) — display-only. */
   doctorExodusApprovedBy?: Record<string, string | null>;
+  /** Owner (or ADMIN) can delete any doctor here regardless of approval progress (2026-09-11 decision) — whole-draft flag, same for every doctor row (unlike doctorCanEdit, this isn't per-doctor: ownership is a property of the POA, not of each doctor within it). */
+  canDeleteDoctor?: boolean;
 }) {
   const quarterMonths = useMemo(() => {
     try { return quarterToMonths(poaPeriod); } catch { return []; }
@@ -1519,6 +1507,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
                 doctorEditRequest={doctorEditRequests[key]}
                 doctorRejectInfo={doctorRejectInfo[key]}
                 doctorExodusApprovedBy={doctorExodusApprovedBy[key]}
+                canDeleteDoctor={canDeleteDoctor}
               />
             ))}
           </div>

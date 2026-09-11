@@ -271,6 +271,10 @@ export default async function PoaDetailPage({
   // an ASM/SM/NSM can own one themselves when their team is vacant (see
   // canCreatePoa in authz.ts).
   const isOwner = isOwnerEarly;
+  // Owner (or ADMIN) can delete a doctor entirely regardless of approval
+  // progress (2026-09-11 decision) — deliberately not tied to userCanEdit/
+  // Lock Edit Logic, same reasoning as deletePoaAction in actions/poa.ts.
+  const canDeleteDoctor = isOwner || session.role === "ADMIN";
   const isFullyApproved = poa.status === "APPROVED_BY_NSM";
   const isDraft = poa.status === "DRAFT";
   const isRevisi = poa.status === "REVISI";
@@ -543,6 +547,7 @@ export default async function PoaDetailPage({
         doctorEditRequests={doctorEditRequests}
         doctorRejectInfo={doctorRejectInfo}
         doctorExodusApprovedBy={doctorExodusApprovedBy}
+        canDeleteDoctor={canDeleteDoctor}
         doctorCanEdit={doctorCanEdit}
         activePssp={activePssp}
         outletPsspInfo={outletPsspInfo}
