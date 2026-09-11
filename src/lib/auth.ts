@@ -9,7 +9,7 @@ import { getSession } from "@/lib/session";
 import type { User } from "@prisma/client";
 
 export type VerifyResult =
-  | { ok: true; user: User }
+  | { ok: true; user: User; isTestPsr?: boolean }
   | { ok: false; error: "not_found" | "inactive" };
 
 /**
@@ -20,6 +20,9 @@ export type VerifyResult =
  * in like any other account (2026-07-28 request) — isDummy's only remaining
  * effect is granting national/all-outlet access (see getOutletsByUser,
  * canCreatePoa), not restricting login.
+ *
+ * Prefix `testpsr<NIP>` (case-insensitive) allows managerial users (ASM, SM, NSM)
+ * to log in with an effective role of MR/PSR for simulation/testing.
  */
 export async function verifyNip(nip: string): Promise<VerifyResult> {
   // Every real NIP in the DB is stored uppercase (see any User row) — case-
@@ -28,7 +31,9 @@ export async function verifyNip(nip: string): Promise<VerifyResult> {
   // Seq Scan on User), so login got slower with every user added. Normalizing
   // here and doing a plain findUnique keeps the same "type it in any case"
   // UX while hitting the PK index directly (2026-07-31 perf pass).
-  const targetNip = nip.toUpperCase();
+  const cleanInput = nip.trim();
+  const isTestPsr = cleanInput.toLowerCase().startsWith("testpsr");
+  const targetNip = (isTestPsr ? cleanInput.replace(/^testpsr/i, "") : cleanInput).toUpperCase();
   const user: User | null = await prisma.user.findUnique({
     where: { nip: targetNip },
   });
@@ -54,24 +59,27 @@ export async function verifyNip(nip: string): Promise<VerifyResult> {
           project: "OMEGA",
           sippAbsPtId: null,
         },
+        isTestPsr,
       };
     }
     return { ok: false, error: "not_found" };
   }
   if (!user.isActive) return { ok: false, error: "inactive" };
-  return { ok: true, user };
+  return { ok: true, user, isTestPsr };
 }
 
 /** Create a server-side session for a verified user. */
-export async function createSession(user: User): Promise<void> {
+export async function createSession(user: User, isTestPsr = false): Promise<void> {
   const session = await getSession();
   session.userId = user.nip;
   session.nip = user.nip;
-  session.name = user.name;
-  session.role = user.role;
-  session.jabatan = user.jabatan;
+  session.name = isTestPsr ? `${user.name} (PSR)` : user.name;
+  session.role = isTestPsr ? "MR" : user.role;
+  session.jabatan = isTestPsr ? "PSR" : user.jabatan;
   session.project = user.project;
   session.isLoggedIn = true;
+  session.isTestPsr = isTestPsr;
+  session.originalRole = user.role;
   await session.save();
 }
 

@@ -8,7 +8,7 @@ export interface ApotekOnlineResponse {
 }
 
 function stripTestPrefix(nip: string): string {
-  return nip.replace(/^test/i, "");
+  return nip.replace(/^test(?:psr|mr)?/i, "");
 }
 
 export async function getApotekOnline(

@@ -10,6 +10,8 @@ export interface SessionData {
   jabatan?: string | null;
   project?: string | null;
   isLoggedIn: boolean;
+  isTestPsr?: boolean;
+  originalRole?: string;
 }
 
 export const sessionOptions: SessionOptions = {

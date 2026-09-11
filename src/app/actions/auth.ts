@@ -21,7 +21,7 @@ export async function loginAction(formData: FormData): Promise<void> {
     return encodeError("Terjadi kesalahan. Coba lagi.");
   }
 
-  await createSession(result.user);
+  await createSession(result.user, result.isTestPsr);
 
   redirect("/dashboard");
 }

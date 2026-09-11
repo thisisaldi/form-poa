@@ -131,7 +131,7 @@ export function SalesCounterEditByIdEditor({
   // Online vs Offline Komposisi Sales Calculation
   const [onlinePiSales, setOnlinePiSales] = useState<number>(0);
   const [offlineHistoricalSales, setOfflineHistoricalSales] = useState<number>(0);
-  const [isEntertainOpen, setIsEntertainOpen] = useState(true);
+  const [isEntertainOpen, setIsEntertainOpen] = useState(false);
 
   useEffect(() => {
     if (!kodePI) {
