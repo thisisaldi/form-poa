@@ -11,6 +11,7 @@ import {
   getHistorySalesAction,
   postHistorySalesAction,
   getSalesOnlineAction,
+  getSurveyNexusAction,
 } from "@/app/actions/canvasser";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "../../edit/hooks/useSalesCounterCashback";
@@ -42,6 +43,7 @@ export function useSalesCounterOutletData({
   const [insentifHistoryData, setInsentifHistoryData] = useState<any>(null);
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [isLoadingSalesOnline, setIsLoadingSalesOnline] = useState<boolean>(false);
+  const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
 
   const b3Info = useMemo(() => {
     return getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
@@ -221,6 +223,13 @@ export function useSalesCounterOutletData({
       .finally(() => {
         setIsLoadingSalesOnline(false);
       });
+    getSurveyNexusAction(draft.kodePI)
+      .then((res) => {
+        setSurveyNexusData(res || null);
+      })
+      .catch(() => {
+        setSurveyNexusData(null);
+      });
   }, [draft.kodePI]);
 
   // Filter products to strictly SC products
@@ -323,6 +332,7 @@ export function useSalesCounterOutletData({
     insentifGrowthPct,
     salesOnlineData,
     isLoadingSalesOnline,
+    surveyNexusData,
     productDetailRows,
   };
 }

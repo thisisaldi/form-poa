@@ -1,4 +1,4 @@
-import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 
 export interface B3SalesItem {
   pro_code: string;
@@ -12,7 +12,7 @@ export async function getScOutletB3Sales(period: number, piCode: string, proCode
     const cleanCodes = proCodes.map((c) => String(c).trim()).filter(Boolean);
     if (cleanCodes.length === 0) return [];
 
-    const res = await fetch(`${CANVASSER_API_BASE_URL}/api/post-get-sc-outlet-b3-sales`, {
+    const res = await fetchWithTimeout(`${CANVASSER_API_BASE_URL}/api/post-get-sc-outlet-b3-sales`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -23,7 +23,7 @@ export async function getScOutletB3Sales(period: number, piCode: string, proCode
         pro_codes: cleanCodes,
       }),
       next: { revalidate: 60 },
-    });
+    }, 4000);
 
     if (!res.ok) {
       console.error(`B3 Sales API returned status ${res.status} for ${piCode}`);

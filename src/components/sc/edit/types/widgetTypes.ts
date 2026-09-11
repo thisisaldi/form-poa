@@ -4,6 +4,7 @@ export interface OnlineApotekSalesWidgetProps {
   outletName?: string | null;
   isOnline?: boolean;
   className?: string;
+  onTotalPiSalesChange?: (totalPi: number) => void;
 }
 
 export interface BlastInTableProps {

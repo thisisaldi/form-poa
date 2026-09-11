@@ -87,4 +87,5 @@ export interface ProductSelectorProps {
   b3RangeLabel?: string;
   kodePI?: string;
   surveyNexusData?: any;
+  historySalesData?: any;
 }

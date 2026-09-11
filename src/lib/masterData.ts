@@ -220,7 +220,7 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
   }], live)[0];
 }
 
-import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 
@@ -251,9 +251,9 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
     const onlineSet = new Set(onlineCodes);
 
     const url = `${CANVASSER_API_BASE_URL}/api/get-sc-poa-outlet-by-nip?nip=${encodeURIComponent(targetUserId)}`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       next: { revalidate: 0 },
-    });
+    }, 5000);
     if (!res.ok) {
       const fallback = await getOutletsByUser(userId);
       return fallback.map((o) => ({

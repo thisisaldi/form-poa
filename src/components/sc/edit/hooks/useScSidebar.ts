@@ -3,7 +3,6 @@
 import { useState, useMemo } from "react";
 import { getPreviousQuarterInfo } from "@/lib/quarterUtils";
 import { aggregateHistorySales, type AggregatedProductHistory } from "@/lib/historySalesUtils";
-import { DUMMY_KOMPETITOR_DATA } from "../constants/dummyCompetitorData";
 import { resolveProductName, isSameZatAktif } from "../utils/productMatcherUtils";
 import { formatHistoryPeriodRange } from "../utils/periodUtils";
 import type { SidebarTab, ScSidebarProps } from "../types/sidebarTypes";
@@ -151,20 +150,7 @@ export function useScSidebar({
 
   // Competitor Cards derived from Sales Counter Products (canvasserProducts)
   const scCards = useMemo(() => {
-    const rawList: any[] = (Array.isArray(canvasserProducts) && canvasserProducts.length > 0)
-      ? canvasserProducts
-      : DUMMY_KOMPETITOR_DATA.map((d) => ({
-          pro_code: d.kodeProduk,
-          kode_item: d.kodeProduk,
-          pro_name: d.namaProduk,
-        }));
-
-    const dummyMap = new Map<string, typeof DUMMY_KOMPETITOR_DATA[0]>();
-    for (const d of DUMMY_KOMPETITOR_DATA) {
-      const c = d.kodeProduk.trim();
-      dummyMap.set(c, d);
-      dummyMap.set(c.replace(/^0+/, ""), d);
-    }
+    const rawList: any[] = Array.isArray(canvasserProducts) ? canvasserProducts : [];
 
     return rawList.map((cp: any) => {
       const code = String(cp.pro_code || cp.kode_item || cp.kodeProduk || "").trim();
@@ -210,8 +196,7 @@ export function useScSidebar({
       const surveyQty = matchedCompetitors.reduce((sum, c) => sum + c.salesForecast, 0);
       const surveyCompetitors = matchedCompetitors;
 
-      const dummyRef = dummyMap.get(code) || dummyMap.get(strippedCode) || (altCode ? dummyMap.get(altCode) || dummyMap.get(strippedAlt) : undefined);
-      const healthyOneUb = dummyRef?.internalSales?.healthyOneUb ?? 10;
+      const healthyOneUb = 0;
 
       // Sell In: find matching products from effectiveSalesOnlineItems with SAME zat_aktif, EXCLUDING this product itself
       const matchingOnlineItems = effectiveSalesOnlineItems.filter((it: any) => {

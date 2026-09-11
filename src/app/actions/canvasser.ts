@@ -333,3 +333,122 @@ export async function getPosmNexusAction(outletId: string, periods: string[]) {
   if (!outletId || !Array.isArray(periods) || periods.length === 0) return null;
   return await getPosmNexus(outletId, periods);
 }
+
+import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
+
+export interface ScOutletBundleResult {
+  personsList: any[];
+  canvasserProducts: any[];
+  productsMenang: any[];
+  productsInsentif: any[];
+  historySalesData: any | null;
+  salesOnlineData: any | null;
+  surveyData: any[];
+  surveyNexusData: any | null;
+  cashbackData: any | null;
+  rekomendasiProduk: any[];
+  historyEntertain: number | null;
+  b3SalesResponse: any | null;
+}
+
+export async function getScOutletBundleAction(params: {
+  outletId: string;
+  b3TargetPeriods?: (string | number)[];
+  includeEntertain?: boolean;
+}): Promise<ScOutletBundleResult> {
+  const { outletId, b3TargetPeriods, includeEntertain = false } = params;
+  if (!outletId) {
+    return {
+      personsList: [],
+      canvasserProducts: [],
+      productsMenang: [],
+      productsInsentif: [],
+      historySalesData: null,
+      salesOnlineData: null,
+      surveyData: [],
+      surveyNexusData: null,
+      cashbackData: null,
+      rekomendasiProduk: [],
+      historyEntertain: null,
+      b3SalesResponse: null,
+    };
+  }
+
+  // 1. Launch independent tasks in parallel on server
+  const [
+    personsRes,
+    productsRes,
+    menangRes,
+    insentifRes,
+    historySalesRes,
+    salesOnlineRes,
+    surveyNexusRes,
+    surveyAggRes,
+    cashbackRes,
+    rekomendasiRes,
+    entertainRes,
+  ] = await Promise.allSettled([
+    getSalesCountersAction(outletId),
+    getSalesCounterProductsAction(outletId),
+    getScProductMenangAction(outletId),
+    getScProductWithInsentifAction(outletId),
+    getHistorySalesAction(outletId, false),
+    getSalesOnlineAction(outletId),
+    getSurveyNexusAction(outletId),
+    getSurveyRekomendasiByOutletAggregate(outletId),
+    getScCashbackPoaAction(outletId),
+    getRekomendasiProdukAction(outletId),
+    includeEntertain ? getHistoryEntertainAction(outletId) : Promise.resolve(null),
+  ]);
+
+  const personsList = personsRes.status === "fulfilled" && personsRes.value?.data ? personsRes.value.data : [];
+  const canvasserProducts = productsRes.status === "fulfilled" && productsRes.value?.data ? productsRes.value.data : [];
+  const productsMenang = menangRes.status === "fulfilled" && menangRes.value?.data ? menangRes.value.data : [];
+  const productsInsentif = insentifRes.status === "fulfilled" && insentifRes.value?.data ? insentifRes.value.data : [];
+  const historySalesData = historySalesRes.status === "fulfilled" ? historySalesRes.value : null;
+  const salesOnlineData = salesOnlineRes.status === "fulfilled" ? salesOnlineRes.value : null;
+  const surveyNexusData = surveyNexusRes.status === "fulfilled" ? surveyNexusRes.value : null;
+  const surveyData = surveyAggRes.status === "fulfilled" ? surveyAggRes.value : [];
+  const cashbackData = cashbackRes.status === "fulfilled" ? cashbackRes.value : null;
+  const rawRekomendasi = rekomendasiRes.status === "fulfilled" && rekomendasiRes.value?.data ? rekomendasiRes.value.data : [];
+  const historyEntertain = entertainRes.status === "fulfilled" ? entertainRes.value : null;
+
+  let rekomendasiProduk: any[] = [];
+  if (Array.isArray(rawRekomendasi)) {
+    for (const group of rawRekomendasi) {
+      if (Array.isArray(group.products)) {
+        rekomendasiProduk.push(...group.products);
+      }
+    }
+  } else if (rawRekomendasi && Array.isArray((rawRekomendasi as any).products)) {
+    rekomendasiProduk = (rawRekomendasi as any).products;
+  }
+
+  // 2. Fetch B3 sales in parallel if target periods are provided
+  let b3SalesResponse: any | null = null;
+  if (b3TargetPeriods && b3TargetPeriods.length > 0) {
+    try {
+      const scProCodes = Array.from(new Set(canvasserProducts.map((cp: any) => cp.pro_code).filter(Boolean))) as string[];
+      if (scProCodes.length > 0) {
+        b3SalesResponse = await postHistorySalesAction([outletId], b3TargetPeriods, scProCodes);
+      }
+    } catch (err) {
+      console.error("Error fetching b3 history sales in bundle:", err);
+    }
+  }
+
+  return {
+    personsList,
+    canvasserProducts,
+    productsMenang,
+    productsInsentif,
+    historySalesData,
+    salesOnlineData,
+    surveyData,
+    surveyNexusData,
+    cashbackData,
+    rekomendasiProduk,
+    historyEntertain,
+    b3SalesResponse,
+  };
+}

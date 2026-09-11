@@ -17,6 +17,7 @@ export function BlastInTable({
 
   const [loading, setLoading] = useState(false);
   const [blastInData, setBlastInData] = useState<BlastInResponse | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     if (!outletId) {
@@ -107,9 +108,21 @@ export function BlastInTable({
     <div className="space-y-4 mt-4">
       {/* 1. SECTION 1: BLAST-IN TAHUN + BADGES & METRICS */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between flex-wrap gap-2">
+        <div
+          onClick={() => setIsOpen((prev) => !prev)}
+          className="flex items-center justify-between flex-wrap gap-2 cursor-pointer select-none py-1 group"
+        >
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text)" }}>
+            <svg
+              className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-500 group-hover:text-slate-800 ${isOpen ? "rotate-0" : "-rotate-90"}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" />
+            </svg>
+            <span className="text-xs font-semibold uppercase tracking-wider group-hover:opacity-80 transition-opacity" style={{ color: "var(--color-text)" }}>
               BLAST-IN {yearNum}
             </span>
             {loading && (
@@ -119,7 +132,7 @@ export function BlastInTable({
             )}
           </div>
 
-          {/* Quarter status pills (e.g. Kalah Q1, Kalah Q2, Estimasi Menang Q3) */}
+          {/* Quarter status pills (e.g. Kalah Q1, Kalah Q2, Estimasi Q3) */}
           {registrant && (
             <div className="flex items-center gap-1.5 flex-wrap">
               {displayQuarters.map(({ quarter: qIdx, data: qData }) => {
@@ -133,9 +146,9 @@ export function BlastInTable({
                       key={qIdx}
                       className="text-[10px] font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1"
                       style={{
-                        background: won ? "rgba(22, 163, 74, 0.12)" : "rgba(241, 245, 249, 0.9)",
-                        color: won ? "#16a34a" : "#64748b",
-                        border: `1px solid ${won ? "rgba(22, 163, 74, 0.25)" : "rgba(203, 213, 225, 0.8)"}`,
+                        background: won ? "rgba(22, 163, 74, 0.12)" : "rgba(225, 29, 72, 0.08)",
+                        color: won ? "#16a34a" : "#e11d48",
+                        border: `1px solid ${won ? "rgba(22, 163, 74, 0.25)" : "rgba(225, 29, 72, 0.2)"}`,
                       }}
                     >
                       {won ? `✓ Menang Q${qIdx}` : `Kalah Q${qIdx}`}
@@ -149,12 +162,12 @@ export function BlastInTable({
                       key={qIdx}
                       className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1"
                       style={{
-                        background: isEstimatedWin ? "rgba(254, 243, 199, 0.5)" : "rgba(241, 245, 249, 0.9)",
+                        background: isEstimatedWin ? "rgba(254, 243, 199, 0.5)" : "rgba(100, 116, 139, 0.08)",
                         color: isEstimatedWin ? "#b45309" : "#64748b",
-                        border: `1px solid ${isEstimatedWin ? "rgba(245, 158, 11, 0.5)" : "rgba(203, 213, 225, 0.8)"}`,
+                        border: `1px solid ${isEstimatedWin ? "rgba(245, 158, 11, 0.5)" : "rgba(100, 116, 139, 0.2)"}`,
                       }}
                     >
-                      {isEstimatedWin ? `Estimasi Menang Q${qIdx}` : `Estimasi Kalah Q${qIdx}`}
+                      {isEstimatedWin ? `Estimasi Menang Q${qIdx}` : `Estimasi Q${qIdx}`}
                     </span>
                   );
                 }
@@ -165,14 +178,16 @@ export function BlastInTable({
           )}
         </div>
 
-        {!loading && !registrant && outletId && (
-          <div
-            className="rounded-lg border p-3 text-center text-xs"
-            style={{ borderColor: "var(--color-border)", color: "var(--color-text-faint)" }}
-          >
-            Outlet tidak terdaftar dalam program Blast-In tahun {yearNum}.
-          </div>
-        )}
+        {isOpen && (
+          <>
+            {!loading && !registrant && outletId && (
+              <div
+                className="rounded-lg border p-3 text-center text-xs"
+                style={{ borderColor: "var(--color-border)", color: "var(--color-text-faint)" }}
+              >
+                Outlet tidak terdaftar dalam program Blast-In tahun {yearNum}.
+              </div>
+            )}
 
         {(loading || registrant || !outletId) && (
           <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
@@ -265,17 +280,16 @@ export function BlastInTable({
             </table>
           </div>
         )}
+          </>
+        )}
       </div>
 
       {/* 2. SECTION 2: HISTORY PENERIMAAN HADIAH (BARU) */}
-      {(registrant || loading) && (
+      {isOpen && (registrant || loading) && (
         <div className="space-y-2 pt-2">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
               HISTORY PENERIMAAN HADIAH
-            </span>
-            <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-              (baru)
             </span>
           </div>
 
@@ -328,7 +342,7 @@ export function BlastInTable({
                           border: `1px solid ${isEstimatedWin ? "rgba(245, 158, 11, 0.5)" : "rgba(100, 116, 139, 0.2)"}`,
                         }}
                       >
-                        {isEstimatedWin ? "Estimasi Menang" : "Estimasi Kalah"}
+                        {isEstimatedWin ? "Estimasi Menang" : "Estimasi"}
                       </span>
                     );
                   }

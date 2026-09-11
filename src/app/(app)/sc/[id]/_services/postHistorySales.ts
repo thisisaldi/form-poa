@@ -1,4 +1,4 @@
-import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 
 export interface PostHistorySalesProductItem {
   sales_value: number;
@@ -57,12 +57,12 @@ export async function postHistorySales(
 
   try {
     const url = `${CANVASSER_API_BASE_URL}/api/post-history-sales`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
-    });
+    }, 4000);
 
     if (!res.ok) {
       if (res.status === 404) return null;

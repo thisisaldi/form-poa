@@ -18,6 +18,7 @@ export function PosmTable({
 
   const [loading, setLoading] = useState(false);
   const [posmData, setPosmData] = useState<PosmResponse | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     if (!outletId) {
@@ -84,9 +85,21 @@ export function PosmTable({
 
   return (
     <div className="space-y-2 mt-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      <div
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex items-center justify-between flex-wrap gap-2 cursor-pointer select-none py-1 group"
+      >
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold tracking-wide" style={{ color: "var(--color-text)" }}>
+          <svg
+            className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-500 group-hover:text-slate-800 ${isOpen ? "rotate-0" : "-rotate-90"}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" />
+          </svg>
+          <span className="text-xs font-semibold tracking-wide group-hover:opacity-80 transition-opacity" style={{ color: "var(--color-text)" }}>
             POSM (Q{qNum} {yearNum})
           </span>
           {loading && (
@@ -95,9 +108,16 @@ export function PosmTable({
             </span>
           )}
         </div>
+
+        {totalKomisi > 0 && (
+          <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
+            Total: Rp {formatRp(totalKomisi)}
+          </span>
+        )}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+      {isOpen && (
+        <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
         <table className="w-full text-xs text-center border-collapse min-w-[360px]">
           <thead>
             <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
@@ -167,7 +187,8 @@ export function PosmTable({
             </tfoot>
           )}
         </table>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -104,6 +104,7 @@ export function SalesCounterOutletCard({
     insentifGrowthPct,
     salesOnlineData,
     isLoadingSalesOnline,
+    surveyNexusData,
     productDetailRows,
   } = outletData;
 
@@ -1025,6 +1026,7 @@ export function SalesCounterOutletCard({
             salesOnlineData={salesOnlineData}
             isLoadingSalesOnline={isLoadingSalesOnline}
             periodLabel={b3RangeLabel}
+            surveyNexusData={surveyNexusData}
           />
 
           {/* Entertain items breakdown if present */}

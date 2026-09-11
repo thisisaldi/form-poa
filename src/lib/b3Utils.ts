@@ -152,3 +152,94 @@ export function getB3ByQuarter(poaPeriod: string) {
 
 export const b3ByQuarter = getB3ByQuarter;
 
+/**
+ * Utility untuk menghitung 3 bulan periode B-3 (Rolling vs Past Quarter)
+ *
+ * Aturan:
+ * 1. Current / Future Quarter (misal form dibuat September 2026 untuk Q3 atau Q4 2026):
+ *    Mengambil 3 bulan closed terakhir dari tanggal sistem saat ini.
+ *    Contoh dibuat September 2026 -> [202608, 202607, 202606] (Agustus, Juli, Juni).
+ * 2. Past Quarter (misal memilih Q2 2026 di masa lalu):
+ *    Mengambil 3 bulan sebelum kuartal tersebut dimulai.
+ *    Contoh Q2 (mulai April) -> [202603, 202602, 202601] (Maret, Feb, Jan).
+ *    Contoh Q1 (mulai Januari) -> [202512, 202511, 202510] (Desember, Nov, Okt tahun sebelumnya).
+ */
+export function getB3RollingPeriodInfo(poaPeriod: string) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+
+  // 1. Bulan closed terakhir dari sistem hari ini
+  let latestClosedYear = currentYear;
+  let latestClosedMonth = currentMonth - 1;
+  if (latestClosedMonth < 1) {
+    latestClosedMonth = 12;
+    latestClosedYear -= 1;
+  }
+  const latestClosedPeriod = latestClosedYear * 100 + latestClosedMonth;
+
+  // 2. Parse informasi kuartal dari poaPeriod
+  let poaYear = currentYear;
+  let poaStartMonth = currentMonth;
+
+  if (poaPeriod) {
+    if (poaPeriod.includes("-Q")) {
+      const [yrStr, qStr] = poaPeriod.split("-Q");
+      poaYear = parseInt(yrStr, 10) || currentYear;
+      const q = parseInt(qStr, 10) || 1;
+      poaStartMonth = (q - 1) * 3 + 1;
+    } else if (poaPeriod.replace(/[^0-9]/g, "").length >= 6) {
+      const clean = poaPeriod.replace(/[^0-9]/g, "");
+      poaYear = parseInt(clean.slice(0, 4), 10) || currentYear;
+      const m = parseInt(clean.slice(4, 6), 10) || currentMonth;
+      const q = Math.ceil(m / 3);
+      poaStartMonth = (q - 1) * 3 + 1;
+    }
+  }
+
+  // Bulan tepat sebelum kuartal poaPeriod dimulai
+  let monthBeforeQuarter = poaStartMonth - 1;
+  let yearBeforeQuarter = poaYear;
+  if (monthBeforeQuarter < 1) {
+    monthBeforeQuarter = 12;
+    yearBeforeQuarter -= 1;
+  }
+  const periodBeforeQuarter = yearBeforeQuarter * 100 + monthBeforeQuarter;
+
+  // Jika kuartal target di masa lalu (periodBeforeQuarter < latestClosedPeriod):
+  //    Gunakan 3 bulan sebelum kuartal tersebut (misal Q2 -> 202603, 202602, 202601).
+  // Jika kuartal target adalah kuartal berjalan / masa depan (>= latestClosedPeriod):
+  //    Gunakan rolling 3 bulan closed terakhir saat form dibuat (misal saat ini Sep 2026 -> 202608, 202607, 202606).
+  const isPastQuarter = periodBeforeQuarter < latestClosedPeriod;
+  const chosenPeriodNum = isPastQuarter ? periodBeforeQuarter : latestClosedPeriod;
+
+  const chosenYear = Math.floor(chosenPeriodNum / 100);
+  const chosenMonth = chosenPeriodNum % 100;
+
+  const getMonthDetails = (yr: number, mo: number, minusMonths: number) => {
+    const d = new Date(yr, mo - 1 - minusMonths, 1);
+    const y = d.getFullYear();
+    const name = d.toLocaleDateString("id-ID", { month: "short" });
+    return { year: y, month: d.getMonth() + 1, name };
+  };
+
+  const startInfo = getMonthDetails(chosenYear, chosenMonth, 2);
+  const endInfo = getMonthDetails(chosenYear, chosenMonth, 0);
+  const rangeLabel = `${startInfo.name} ${startInfo.year} - ${endInfo.name} ${endInfo.year}`;
+
+  const targetPeriods: number[] = [];
+  for (let i = 0; i <= 2; i++) {
+    const d = new Date(chosenYear, chosenMonth - 1 - i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    targetPeriods.push(y * 100 + m);
+  }
+
+  return {
+    period: chosenPeriodNum,
+    rangeLabel,
+    targetPeriods,
+  };
+}
+
+

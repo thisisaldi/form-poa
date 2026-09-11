@@ -3,7 +3,6 @@ import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCount
 
 export interface BuildProductOptionsParams {
   canvasserProducts: SalesCounterProduct[];
-  princodeProducts?: any[];
   productsMenang?: any[];
   productsInsentif?: any[];
   masterProducts: Product[];

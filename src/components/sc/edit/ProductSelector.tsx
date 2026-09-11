@@ -7,7 +7,7 @@ import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
 import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
-import { getHistorySalesAction, getLossSalesAnalysisAction, getRecommendedProCodesAction, getSurveyNexusAction } from "@/app/actions/canvasser";
+import { getLossSalesAnalysisAction, getRecommendedProCodesAction } from "@/app/actions/canvasser";
 import { aggregateHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 
@@ -33,45 +33,16 @@ export function ProductSelector({
   b3RangeLabel,
   kodePI,
   surveyNexusData,
+  historySalesData,
 }: ProductSelectorProps) {
   const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
-  const [historySalesMap, setHistorySalesMap] = useState<
-    Map<string, {
-      history_sales: number;
-      sales_b1: number;
-      sales_b2: number;
-      sales_b3: number;
-    }>
-  >(new Map());
-
-  const [historyPeriodRange, setHistoryPeriodRange] = useState<string>("");
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
-
-  const [localSurveyNexusData, setLocalSurveyNexusData] = useState<any>(surveyNexusData || null);
-
-  useEffect(() => {
-    if (surveyNexusData) {
-      setLocalSurveyNexusData(surveyNexusData);
-      return;
-    }
-    if (kodePI) {
-      getSurveyNexusAction(kodePI)
-        .then((res) => {
-          if (res?.data) {
-            setLocalSurveyNexusData(res);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [kodePI, surveyNexusData]);
-
-  const activeSurveyNexusData = surveyNexusData || localSurveyNexusData;
 
   const nexusSurveyMap = useMemo(() => {
     const map = new Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>();
-    if (!activeSurveyNexusData?.data?.has_data) return map;
+    if (!surveyNexusData?.data?.has_data) return map;
 
-    const surveys = activeSurveyNexusData.data.surveys;
+    const surveys = surveyNexusData.data.surveys;
     if (!Array.isArray(surveys) || surveys.length === 0) return map;
 
     const latestSurvey = surveys[0];
@@ -101,7 +72,38 @@ export function ProductSelector({
       }
     }
     return map;
-  }, [activeSurveyNexusData]);
+  }, [surveyNexusData]);
+
+  const { historySalesMap, historyPeriodRange } = useMemo(() => {
+    const hMap = new Map<string, {
+      history_sales: number;
+      sales_b1: number;
+      sales_b2: number;
+      sales_b3: number;
+    }>();
+    let periodRange = "";
+
+    if (historySalesData?.data && Array.isArray(historySalesData.data)) {
+      const aggMap = aggregateHistorySales(historySalesData);
+      for (const [code, item] of aggMap.entries()) {
+        hMap.set(code, {
+          history_sales: item.avgQty,
+          sales_b1: item.sales_b1,
+          sales_b2: item.sales_b2,
+          sales_b3: item.sales_b3,
+        });
+      }
+    }
+
+    if (Array.isArray(historySalesData?.period) && historySalesData.period.length > 0) {
+      const periods = [...historySalesData.period].filter(Boolean).sort();
+      const minP = periods[0];
+      const maxP = periods[periods.length - 1];
+      periodRange = `${minP}-${maxP}`;
+    }
+
+    return { historySalesMap: hMap, historyPeriodRange: periodRange };
+  }, [historySalesData]);
 
   const getCompetitorsForRow = (kodeProduk: string) => {
     if (!kodeProduk) return [];
@@ -126,46 +128,6 @@ export function ProductSelector({
       []
     );
   };
-
-  useEffect(() => {
-    if (!kodePI) {
-      setHistorySalesMap(new Map());
-      setHistoryPeriodRange("");
-      return;
-    }
-    getHistorySalesAction(kodePI, false).then((res) => {
-      const hMap = new Map<string, {
-        history_sales: number;
-        sales_b1: number;
-        sales_b2: number;
-        sales_b3: number;
-      }>();
-
-      if (res?.data && Array.isArray(res.data)) {
-        const aggMap = aggregateHistorySales(res);
-        for (const [code, item] of aggMap.entries()) {
-          hMap.set(code, {
-            history_sales: item.avgQty,
-            sales_b1: item.sales_b1,
-            sales_b2: item.sales_b2,
-            sales_b3: item.sales_b3,
-          });
-        }
-      }
-
-      setHistorySalesMap(hMap);
-
-
-      if (Array.isArray(res?.period) && res.period.length > 0) {
-        const periods = [...res.period].filter(Boolean).sort();
-        const minP = periods[0];
-        const maxP = periods[periods.length - 1];
-        setHistoryPeriodRange(`${minP}-${maxP}`);
-      } else {
-        setHistoryPeriodRange("");
-      }
-    });
-  }, [kodePI]);
 
 
   useEffect(() => {

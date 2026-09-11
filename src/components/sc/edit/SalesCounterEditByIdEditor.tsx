@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { saveSalesCounterFormAction } from "@/app/actions/scActions";
 import { ProductSelector } from "./ProductSelector";
@@ -13,6 +13,9 @@ import { PerincianBudgetModal } from "./PerincianBudgetModal";
 import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
 import { KomposisiSalesWidget } from "./KomposisiSalesWidget";
 import { useScToast } from "../ui/ScToast";
+import { quarterToMonths, getPreviousQuarterInfo } from "@/lib/quarterUtils";
+import { postHistorySalesAction } from "@/app/actions/canvasser";
+import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 
 import { QUARTER_OPTIONS } from "./constants/quarterOptions";
 import type { SalesCounterEditByIdEditorProps } from "./types/editorProps";
@@ -82,6 +85,7 @@ export function SalesCounterEditByIdEditor({
     salesOnlineData,
     surveyData,
     surveyNexusData,
+    loadingSurvey,
     rekomendasiProduk,
     b3SalesMap,
     b3QtyMap,
@@ -123,6 +127,43 @@ export function SalesCounterEditByIdEditor({
     initialJumlahPasienNonResep,
     masterProducts,
   });
+
+  // Online vs Offline Komposisi Sales Calculation
+  const [onlinePiSales, setOnlinePiSales] = useState<number>(0);
+  const [offlineHistoricalSales, setOfflineHistoricalSales] = useState<number>(0);
+
+  useEffect(() => {
+    if (!kodePI) {
+      setOfflineHistoricalSales(0);
+      return;
+    }
+    const prevQInfo = getPreviousQuarterInfo(poaPeriod);
+    const prevQQuarterPeriod = `${prevQInfo.year}-${prevQInfo.quarter}`;
+    const prevQMonths = quarterToMonths(prevQQuarterPeriod);
+
+    let isMounted = true;
+    postHistorySalesAction([kodePI], prevQMonths).then((res) => {
+      if (!isMounted) return;
+      const parsed = parseOutletHistorySales(res, kodePI);
+      setOfflineHistoricalSales(parsed.totalSales || 0);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [kodePI, poaPeriod]);
+
+  const { komposisiOnlinePct, komposisiOfflinePct } = useMemo(() => {
+    const total = onlinePiSales + offlineHistoricalSales;
+    if (total <= 0) {
+      if (onlinePiSales > 0) return { komposisiOnlinePct: 100, komposisiOfflinePct: 0 };
+      if (offlineHistoricalSales > 0) return { komposisiOnlinePct: 0, komposisiOfflinePct: 100 };
+      return { komposisiOnlinePct: 100, komposisiOfflinePct: 0 };
+    }
+    const onPct = Math.round((onlinePiSales / total) * 100);
+    const offPct = 100 - onPct;
+    return { komposisiOnlinePct: onPct, komposisiOfflinePct: offPct };
+  }, [onlinePiSales, offlineHistoricalSales]);
 
   const validate = () => {
     const nextErrors: Record<string, string> = {};
@@ -414,12 +455,13 @@ export function SalesCounterEditByIdEditor({
 
           {isOnline && (
             <>
-              <KomposisiSalesWidget onlinePct={50} offlinePct={50} />
+              <KomposisiSalesWidget onlinePct={komposisiOnlinePct} offlinePct={komposisiOfflinePct} />
               <OnlineApotekSalesWidget
                 poaPeriod={poaPeriod}
                 outletCode={kodePI}
                 outletName={namaOutlet}
                 isOnline={isOnline}
+                onTotalPiSalesChange={setOnlinePiSales}
               />
             </>
           )}
@@ -461,59 +503,75 @@ export function SalesCounterEditByIdEditor({
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                 Jumlah Karyawan
               </span>
-              <input
-                type="number"
-                value={jumlahKaryawan}
-                onChange={(e) => setJumlahKaryawan(e.target.value)}
-                placeholder="0"
-                min={0}
-                disabled={readOnly}
-                className="input-field text-center font-semibold text-sm h-[38px]"
-              />
+              {loadingSurvey ? (
+                <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+              ) : (
+                <input
+                  type="number"
+                  value={jumlahKaryawan}
+                  onChange={(e) => setJumlahKaryawan(e.target.value)}
+                  placeholder="0"
+                  min={0}
+                  disabled={readOnly}
+                  className="input-field text-center font-semibold text-sm h-[38px]"
+                />
+              )}
             </div>
 
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                 Jumlah Pasien (Per Hari)
               </span>
-              <input
-                type="number"
-                value={jumlahPasien}
-                onChange={(e) => setJumlahPasien(e.target.value)}
-                placeholder="0"
-                min={0}
-                disabled={readOnly}
-                className="input-field text-center font-semibold text-sm h-[38px]"
-              />
+              {loadingSurvey ? (
+                <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+              ) : (
+                <input
+                  type="number"
+                  value={jumlahPasien}
+                  onChange={(e) => setJumlahPasien(e.target.value)}
+                  placeholder="0"
+                  min={0}
+                  disabled={readOnly}
+                  className="input-field text-center font-semibold text-sm h-[38px]"
+                />
+              )}
             </div>
 
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                 Jumlah Pasien Resep (Per Hari)
               </span>
-              <input
-                type="number"
-                value={jumlahPasienResep}
-                onChange={(e) => setJumlahPasienResep(e.target.value)}
-                placeholder="0"
-                min={0}
-                disabled={readOnly}
-                className="input-field text-center font-semibold text-sm h-[38px]"
-              />
+              {loadingSurvey ? (
+                <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+              ) : (
+                <input
+                  type="number"
+                  value={jumlahPasienResep}
+                  onChange={(e) => setJumlahPasienResep(e.target.value)}
+                  placeholder="0"
+                  min={0}
+                  disabled={readOnly}
+                  className="input-field text-center font-semibold text-sm h-[38px]"
+                />
+              )}
             </div>
 
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                 Jumlah Pasien Non Resep (Per Hari)
               </span>
-              <input
-                type="number"
-                value={jumlahPasienNonResep}
-                readOnly
-                disabled
-                className="input-field text-center font-semibold text-sm h-[38px]"
-                style={{ background: "var(--color-bg-subtle)", opacity: 0.85, cursor: "not-allowed" }}
-              />
+              {loadingSurvey ? (
+                <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+              ) : (
+                <input
+                  type="number"
+                  value={jumlahPasienNonResep}
+                  readOnly
+                  disabled
+                  className="input-field text-center font-semibold text-sm h-[38px]"
+                  style={{ background: "var(--color-bg-subtle)", opacity: 0.85, cursor: "not-allowed" }}
+                />
+              )}
               <span className="text-[10px] leading-tight mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                 Pasien Non Resep = Jumlah Pasien - Jumlah Pasien Resep
               </span>
@@ -624,6 +682,7 @@ export function SalesCounterEditByIdEditor({
               b3SalesMap={b3SalesMap}
               b3RangeLabel={b3RangeLabel}
               surveyNexusData={surveyNexusData}
+              historySalesData={historySalesData}
             />
           </div>
 

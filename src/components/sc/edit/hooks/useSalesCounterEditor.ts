@@ -10,17 +10,16 @@ import {
   getScProductMenangAction,
   getScProductWithInsentifAction,
   getScInsentifHistoryAction,
-  getPrincodeProductsAction,
   getScCashbackPoaAction,
   getRekomendasiProdukAction,
   getHistorySalesAction,
   getSalesOnlineAction,
   getSurveyNexusAction,
+  getScOutletBundleAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
-import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { calculateCashbackDetails } from "./useSalesCounterCashback";
 import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
 import { useScToast } from "../../ui/ScToast";
@@ -94,8 +93,8 @@ export function useSalesCounterEditor({
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
   const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
+  const [loadingSurvey, setLoadingSurvey] = useState(false);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
-  const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
   const [cashbackData, setCashbackData] = useState<CashbackData | null>(null);
   const [cashbackMatrix, setCashbackMatrix] = useState<any[]>([]);
   const [diskonList, setDiskonList] = useState<{ proCode: string; diskon: number }[]>([]);
@@ -185,7 +184,6 @@ export function useSalesCounterEditor({
     setRekomendasiProduk([]);
 
     if (!outletId) {
-      setPrincodeProducts([]);
       setPersonsList([]);
       setInsentifHistory(null);
       setLoadingOutletData(false);
@@ -195,25 +193,14 @@ export function useSalesCounterEditor({
     let isCancelled = false;
     setLoadingOutletData(true);
     setLoadingPersons(true);
+    setLoadingSurvey(true);
 
-    getSalesCountersAction(outletId)
-      .then((res) => {
+    getScOutletBundleAction({ outletId })
+      .then((bundle) => {
         if (isCancelled) return;
-        if (res?.data) {
-          setPersonsList(res.data);
-        } else {
-          setPersonsList([]);
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) setLoadingPersons(false);
-      });
-
-    const pCanvasser = getSalesCounterProductsAction(outletId).then((res) => {
-      if (isCancelled) return;
-      if (res?.data) {
-        setCanvasserProducts(res.data);
-        const validCodes = new Set(res.data.map((cp: any) => cp.pro_code));
+        setPersonsList(bundle.personsList);
+        setCanvasserProducts(bundle.canvasserProducts);
+        const validCodes = new Set(bundle.canvasserProducts.map((cp: any) => cp.pro_code));
         setProducts((prev) => {
           const filtered = prev.filter(
             (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""))
@@ -222,83 +209,43 @@ export function useSalesCounterEditor({
             ? filtered
             : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
         });
-      } else {
-        setCanvasserProducts([]);
-      }
-    });
+        setProductsMenang(bundle.productsMenang);
+        setProductsInsentif(bundle.productsInsentif);
+        setHistorySalesData(bundle.historySalesData);
+        setSalesOnlineData(bundle.salesOnlineData);
+        setSurveyData(bundle.surveyData);
+        setSurveyNexusData(bundle.surveyNexusData);
 
-    getPrincodeProductsAction().then((res) => {
-      if (isCancelled) return;
-      if (res?.data) {
-        setPrincodeProducts(res.data);
-      } else {
-        setPrincodeProducts([]);
-      }
-    });
-
-    getScProductMenangAction(outletId).then((res) => {
-      if (!isCancelled) setProductsMenang(res?.data || []);
-    });
-    getScProductWithInsentifAction(outletId).then((res) => {
-      if (!isCancelled) setProductsInsentif(res?.data || []);
-    });
-    getHistorySalesAction(outletId, false).then((res) => {
-      if (!isCancelled) setHistorySalesData(res || null);
-    });
-    getSalesOnlineAction(outletId).then((res) => {
-      if (!isCancelled) setSalesOnlineData(res || null);
-    });
-    getSurveyRekomendasiByOutletAggregate(outletId).then((res) => {
-      if (!isCancelled) setSurveyData(res || []);
-    });
-    getSurveyNexusAction(outletId).then((res) => {
-      if (isCancelled) return;
-      setSurveyNexusData(res || null);
-      const latestSurvey = res?.data?.surveys?.[0];
-      if (latestSurvey?.avg_patient != null) {
-        setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
-      }
-    });
-
-    const pCashback = getScCashbackPoaAction(outletId).then((res) => {
-      if (isCancelled) return;
-      setCashbackData(res || null);
-      const array = Array.isArray(res?.matrix)
-        ? res.matrix
-        : Array.isArray(res?.data?.matrix)
-        ? res.data.matrix
-        : Array.isArray(res?.data)
-        ? res.data
-        : Array.isArray(res)
-        ? res
-        : [];
-      setCashbackMatrix(array);
-    });
-
-    getRekomendasiProdukAction(outletId).then((res) => {
-      if (isCancelled) return;
-      if (!res?.data) {
-        setRekomendasiProduk([]);
-        return;
-      }
-      let prods: LossSalesRekomendasiProduct[] = [];
-      if (Array.isArray(res.data)) {
-        for (const group of res.data) {
-          if (Array.isArray(group.products)) {
-            prods.push(...group.products);
-          }
+        const latestSurvey = bundle.surveyNexusData?.data?.surveys?.[0];
+        if (latestSurvey?.avg_patient != null) {
+          setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
         }
-      } else if (res.data && Array.isArray((res.data as any).products)) {
-        prods = (res.data as any).products;
-      }
-      setRekomendasiProduk(prods);
-    });
+        const totalEmp = latestSurvey?.total_outlet_employees ?? (bundle.surveyNexusData?.data as any)?.total_outlet_employees;
+        if (totalEmp != null) {
+          setJumlahKaryawan((prev) => (!prev || prev === "0" ? String(totalEmp) : prev));
+        }
 
-    Promise.allSettled([pCanvasser, pCashback]).finally(() => {
-      if (!isCancelled) {
-        setLoadingOutletData(false);
-      }
-    });
+        setCashbackData(bundle.cashbackData);
+        const array = Array.isArray(bundle.cashbackData?.matrix)
+          ? bundle.cashbackData.matrix
+          : Array.isArray(bundle.cashbackData?.data?.matrix)
+          ? bundle.cashbackData.data.matrix
+          : Array.isArray(bundle.cashbackData?.data)
+          ? bundle.cashbackData.data
+          : Array.isArray(bundle.cashbackData)
+          ? bundle.cashbackData
+          : [];
+        setCashbackMatrix(array);
+
+        setRekomendasiProduk(bundle.rekomendasiProduk);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setLoadingOutletData(false);
+          setLoadingPersons(false);
+          setLoadingSurvey(false);
+        }
+      });
 
     return () => {
       isCancelled = true;
@@ -721,10 +668,10 @@ export function useSalesCounterEditor({
     updateProductRow,
     selectProductFromSidebar,
     canvasserProducts,
-    princodeProducts,
     personsList,
     loadingPersons,
     loadingOutletData,
+    loadingSurvey,
     productsMenang,
     productsInsentif,
     insentifHistory,
