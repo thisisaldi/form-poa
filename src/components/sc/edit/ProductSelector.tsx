@@ -80,6 +80,13 @@ export function ProductSelector({
       sales_b1: number;
       sales_b2: number;
       sales_b3: number;
+      sales_val_b1?: number;
+      sales_val_b2?: number;
+      sales_val_b3?: number;
+      activeMonthsB3?: number;
+      avgQtyB3?: number;
+      avgQtyB3Active?: number;
+      avgValueB3Active?: number;
     }>();
     let periodRange = "";
 
@@ -91,6 +98,13 @@ export function ProductSelector({
           sales_b1: item.sales_b1,
           sales_b2: item.sales_b2,
           sales_b3: item.sales_b3,
+          sales_val_b1: item.sales_val_b1,
+          sales_val_b2: item.sales_val_b2,
+          sales_val_b3: item.sales_val_b3,
+          activeMonthsB3: item.activeMonthsB3,
+          avgQtyB3: item.avgQtyB3 ?? (item.sales_b1 + item.sales_b2 + item.sales_b3) / 3,
+          avgQtyB3Active: item.avgQtyB3Active,
+          avgValueB3Active: item.avgValueB3Active,
         });
       }
     }
@@ -597,7 +611,26 @@ export function ProductSelector({
 
                             {(() => {
                               const estSalesMonthly = estSalesBln;
-                              const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
+                              const historyData = historySalesMap.get(row.kodeProduk);
+                              const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
+
+                              // Rumus per arahan user:
+                              // Rata-rata Qty B3 = (B1 + B2 + B3) / 3
+                              // Historis Sales = Rata-rata Qty B3 * HNA
+                              // Contoh: B1=2, B2=0, B3=0 -> (2 / 3) * 176.000 = Rp 117.333
+                              const b1 = Number(historyData?.sales_b1) || 0;
+                              const b2 = Number(historyData?.sales_b2) || 0;
+                              const b3 = Number(historyData?.sales_b3) || 0;
+                              const totalQtyB3 = b1 + b2 + b3;
+                              const avgQtyB3 = historyData ? (totalQtyB3 / 3) : 0;
+
+                              let avgSalesBln = 0;
+                              if (historyData != null && hnaSJ > 0) {
+                                avgSalesBln = avgQtyB3 * hnaSJ;
+                              } else if (rawB3Sales > 0) {
+                                avgSalesBln = rawB3Sales;
+                              }
+
                               let growthPct: number | null = null;
                               if (avgSalesBln > 0) {
                                 growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
@@ -780,7 +813,26 @@ export function ProductSelector({
         const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
         const qty = parseFloat(row.qtyPerBulan) || 0;
         const estSalesMonthly = qty * hnaSJ;
-        const avgSalesBln = b3SalesMap?.get(row.kodeProduk) ?? 0;
+        const historyData = historySalesMap.get(row.kodeProduk);
+        const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
+
+        // Rumus per arahan user:
+        // Rata-rata Qty B3 = (B1 + B2 + B3) / 3
+        // Historis Sales = Rata-rata Qty B3 * HNA
+        // Contoh: B1=2, B2=0, B3=0 -> (2 / 3) * 176.000 = Rp 117.333
+        const b1 = Number(historyData?.sales_b1) || 0;
+        const b2 = Number(historyData?.sales_b2) || 0;
+        const b3 = Number(historyData?.sales_b3) || 0;
+        const totalQtyB3 = b1 + b2 + b3;
+        const avgQtyB3 = historyData ? (totalQtyB3 / 3) : 0;
+
+        let avgSalesBln = 0;
+        if (historyData != null && hnaSJ > 0) {
+          avgSalesBln = avgQtyB3 * hnaSJ;
+        } else if (rawB3Sales > 0) {
+          avgSalesBln = rawB3Sales;
+        }
+
         let growthPct: number | null = null;
         if (avgSalesBln > 0) {
           growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;

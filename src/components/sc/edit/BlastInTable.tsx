@@ -88,7 +88,7 @@ export function BlastInTable({
     return poaSalesAmount > 0 && poaSalesAmount >= estimasiQ;
   }, [currentQ, estimasiQ, poaSalesAmount, actualSales, targetToReach]);
 
-  // Quarters to display in Section 2 and Section 1 pills: ONLY up to qNum (e.g. Q1, Q2, Q3)
+  // Quarters to display in Section 2 and Section 1 pills: up to qNum (quarters that are relevant for this period)
   const displayQuarters = useMemo(() => {
     const list: Array<{
       quarter: number;
@@ -297,8 +297,17 @@ export function BlastInTable({
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                  <th className="px-3 py-2 font-medium text-left w-[100px]" style={{ color: "var(--color-text-muted)" }}>
+                  <th className="px-3 py-2 font-medium text-left w-[80px]" style={{ color: "var(--color-text-muted)" }}>
                     QUARTER
+                  </th>
+                  <th className="px-3 py-2 font-medium text-left" style={{ color: "var(--color-text-muted)" }}>
+                    TARGET
+                  </th>
+                  <th className="px-3 py-2 font-medium text-left" style={{ color: "var(--color-text-muted)" }}>
+                    ACTUAL
+                  </th>
+                  <th className="px-3 py-2 font-medium text-left" style={{ color: "var(--color-text-muted)" }}>
+                    % ACH
                   </th>
                   <th className="px-3 py-2 font-medium text-left" style={{ color: "var(--color-text-muted)" }}>
                     STATUS MENANG
@@ -315,6 +324,35 @@ export function BlastInTable({
                 {displayQuarters.map(({ quarter: qIdx, data: qData }, idx) => {
                   const isPast = qIdx < qNum;
                   const isCurrent = qIdx === qNum;
+
+                  // Target, Actual, % Ach
+                  let targetVal = 0;
+                  let actualVal = 0;
+                  let achPctStr = "-";
+
+                  if (isPast) {
+                    // Target akumulasi (e.g. Q1 = target Q1, Q2 = target Q1 + Q2 -> target_sales_acc)
+                    targetVal = Number(qData?.target_sales_acc) || Number(qData?.target_sales_quarter) || 0;
+                    // Actual dari API sudah akumulasi (e.g. 9.349.536), jangan ditambah lagi
+                    actualVal = Number(qData?.actual_sales) || 0;
+                    if (targetVal > 0) {
+                      achPctStr = `${Math.round((actualVal / targetVal) * 100)}%`;
+                    } else if (actualVal > 0) {
+                      achPctStr = "100%";
+                    }
+                  } else if (isCurrent) {
+                    // Current quarter target akumulasi
+                    targetVal = targetSalesAcc > 0 ? targetSalesAcc : targetSales;
+                    // Actual akumulasi: past actual sales + poaSalesAmount form
+                    const currentActualRaw = Number(qData?.actual_sales) || 0;
+                    actualVal = currentActualRaw > 0 ? currentActualRaw : (actualSales + poaSalesAmount);
+                    if (targetVal > 0 && actualVal > 0) {
+                      achPctStr = `${Math.round((actualVal / targetVal) * 100)}%`;
+                    }
+                  }
+
+                  const targetText = targetVal > 0 ? `Rp ${Math.round(targetVal).toLocaleString("id-ID")}` : "-";
+                  const actualText = actualVal > 0 ? `Rp ${Math.round(actualVal).toLocaleString("id-ID")}` : "-";
 
                   // 1. Status Menang
                   let statusMenangNode: React.ReactNode = "-";
@@ -380,7 +418,7 @@ export function BlastInTable({
                   } else if (isCurrent) {
                     statusPenerimaanNode = (
                       <span className="inline-flex items-center gap-1 font-medium text-slate-500 dark:text-slate-400 text-xs">
-                        <span>🕒</span> Belum Diterima (masih estimasi)
+                        <span>🕒</span> Belum Diterima (estimasi)
                       </span>
                     );
                   }
@@ -395,6 +433,15 @@ export function BlastInTable({
                     >
                       <td className="px-3 py-2.5 font-bold" style={{ color: "var(--color-text)" }}>
                         Q{qIdx}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium tabular-nums whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                        {targetText}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium tabular-nums whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                        {actualText}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium tabular-nums whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                        {achPctStr}
                       </td>
                       <td className="px-3 py-2.5 align-middle">
                         {statusMenangNode}

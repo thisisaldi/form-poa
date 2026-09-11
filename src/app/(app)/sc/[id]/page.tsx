@@ -80,13 +80,6 @@ export default async function SalesCounterDetailPage({
         <StatusBadge status={poa.status} version={poa.version} />
       </div>
 
-      {/* Export button */}
-      <div>
-        <a href={`/api/sc/${id}/export`}>
-          <Button size="sm" variant="ghost">↓ Export Excel</Button>
-        </a>
-      </div>
-
       <SalesCounterDetailTabs
         scDrafts={scDrafts}
         poaId={id}

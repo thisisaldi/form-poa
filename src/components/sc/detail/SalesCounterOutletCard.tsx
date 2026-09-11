@@ -40,7 +40,6 @@ export function SalesCounterOutletCard({
   const {
     canApproveOutlet,
     canFastTrackOutlet,
-    isSelectableForThisUser,
     detailOpen,
     setDetailOpen,
     atasanPanelOpen,
@@ -132,7 +131,7 @@ export function SalesCounterOutletCard({
     <div
       className="py-3 px-3.5 rounded-lg space-y-2.5"
       style={{
-        opacity: checked || !selectable || !isSelectableForThisUser ? 1 : 0.65,
+        opacity: checked || !selectable ? 1 : 0.65,
         border: "1px solid var(--color-border)",
       }}
     >
@@ -143,25 +142,10 @@ export function SalesCounterOutletCard({
             <input
               type="checkbox"
               checked={checked}
-              disabled={!isSelectableForThisUser}
-              onChange={() => {
-                if (isSelectableForThisUser) {
-                  onToggle();
-                }
-              }}
-              className={`h-4 w-4 shrink-0 rounded mt-0.5 ${
-                !isSelectableForThisUser ? "opacity-30 cursor-not-allowed" : "cursor-pointer"
-              }`}
+              onChange={onToggle}
+              className="h-4 w-4 shrink-0 rounded mt-0.5 cursor-pointer"
               style={{ accentColor: "var(--color-blue)" }}
-              title={
-                !isSelectableForThisUser
-                  ? draft.status === "REVISI"
-                    ? "Outlet ini dalam status Revisi (diperbaiki oleh MR)"
-                    : draft.status === "APPROVED_BY_NSM"
-                    ? "Outlet ini sudah disetujui penuh (Approved by NSM)"
-                    : "Outlet ini tidak menunggu persetujuan pada tingkat wewenang Anda"
-                  : "Pilih outlet"
-              }
+              title="Pilih outlet untuk statistik, export, atau pengajuan"
             />
           )}
 
@@ -339,16 +323,8 @@ export function SalesCounterOutletCard({
             </button>
           )}
 
-          {isOwner && draft.status !== "DRAFT" && draft.status !== "REVISI" && draft.status !== "APPROVED_BY_NSM" && (
-            <button
-              type="button"
-              onClick={() => setRequestEditBoxOpen((v) => !v)}
-              className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90 cursor-pointer"
-              style={{ background: "var(--color-blue)", color: "#ffffff" }}
-            >
-              Ajukan Edit
-            </button>
-          )}
+
+
 
           {(canApproveOutlet || canFastTrackOutlet) && (
             <button

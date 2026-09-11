@@ -131,6 +131,7 @@ export function SalesCounterEditByIdEditor({
   // Online vs Offline Komposisi Sales Calculation
   const [onlinePiSales, setOnlinePiSales] = useState<number>(0);
   const [offlineHistoricalSales, setOfflineHistoricalSales] = useState<number>(0);
+  const [isEntertainOpen, setIsEntertainOpen] = useState(true);
 
   useEffect(() => {
     if (!kodePI) {
@@ -689,8 +690,25 @@ export function SalesCounterEditByIdEditor({
           {/* Entertain */}
           {entertainList.length > 0 && (
             <div className="space-y-2 mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Rencana Entertain Per Bulan</span>
+              {/* Accordion header — same style as Blast-In */}
+              <div
+                onClick={() => setIsEntertainOpen((v) => !v)}
+                className="flex items-center justify-between flex-wrap gap-2 cursor-pointer select-none py-1 group"
+              >
+                <div className="flex items-center gap-2">
+                  <svg
+                    className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-500 group-hover:text-slate-800 ${isEntertainOpen ? "rotate-0" : "-rotate-90"}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" />
+                  </svg>
+                  <span className="text-xs font-semibold uppercase tracking-wider group-hover:opacity-80 transition-opacity" style={{ color: "var(--color-text)" }}>
+                    Rencana Entertain Per Bulan
+                  </span>
+                </div>
                 <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
                   History Entertain: {loadingHistoryEntertain ? (
                     <span className="animate-pulse opacity-60">Memuat...</span>
@@ -699,38 +717,42 @@ export function SalesCounterEditByIdEditor({
                   )}
                 </span>
               </div>
-              <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-                <table className="w-full text-xs text-left min-w-[320px]" style={{ borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                      <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Bulan</th>
-                      <th className="px-4 py-2.5 font-medium w-[220px] whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Biaya Entertain</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {entertainList.map((row) => (
-                      <tr key={row.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                        <td className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text)" }}>{row.label}</td>
-                        <td className="px-4 py-2">
-                          <div style={{ maxWidth: 180 }}>
-                            <UnitInput value={row.value} onChange={(val) => updateEntertainValue(row.month, val)} unit="Rp" placeholder="0" disabled={readOnly} />
-                          </div>
+
+              {isEntertainOpen && (
+                <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+                  <table className="w-full text-xs text-left min-w-[320px]" style={{ borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                        <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Bulan</th>
+                        <th className="px-4 py-2.5 font-medium w-[220px] whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>Biaya Entertain</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entertainList.map((row) => (
+                        <tr key={row.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                          <td className="px-4 py-2.5 font-medium" style={{ color: "var(--color-text)" }}>{row.label}</td>
+                          <td className="px-4 py-2">
+                            <div style={{ maxWidth: 180 }}>
+                              <UnitInput value={row.value} onChange={(val) => updateEntertainValue(row.month, val)} unit="Rp" placeholder="0" disabled={readOnly} />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-semibold" style={{ background: "var(--color-bg-subtle)", borderTop: "1px solid var(--color-border)" }}>
+                        <td className="px-4 py-2.5" style={{ color: "var(--color-text)" }}>Total Entertain</td>
+                        <td className="px-4 py-2.5 text-xs font-bold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                          Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="font-semibold" style={{ background: "var(--color-bg-subtle)", borderTop: "1px solid var(--color-border)" }}>
-                      <td className="px-4 py-2.5" style={{ color: "var(--color-text)" }}>Total Entertain</td>
-                      <td className="px-4 py-2.5 text-xs font-bold" style={{ color: "var(--color-blue, #2563eb)" }}>
-                        Rp {formatRp(entertainList.reduce((sum, item) => sum + (parseFloat(item.value) || 0), 0))}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
             </div>
           )}
+
 
           {/* Tabel BLAST-IN & POSM (Autofill data) */}
           {isBlastIn && (
@@ -799,6 +821,22 @@ export function SalesCounterEditByIdEditor({
               >
                 <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                   ESTIMASI GROWTH SALES
+                </div>
+
+                <div
+                  className="text-2xl sm:text-3xl font-extrabold whitespace-nowrap mt-1"
+                  style={{
+                    color:
+                      totalGrowthPct == null
+                        ? "var(--color-text-muted)"
+                        : totalGrowthPct > 0
+                        ? "var(--color-success, #16a34a)"
+                        : totalGrowthPct < 0
+                        ? "var(--color-red, #dc2626)"
+                        : "var(--color-text)",
+                  }}
+                >
+                  {totalGrowthPct != null ? `${totalGrowthPct >= 0 ? "+" : ""}${totalGrowthPct.toFixed(1)}%` : "-"}
                 </div>
 
                 {/* Classification Badges */}

@@ -1,4 +1,5 @@
 import { nexusAuthV2Headers } from "@/lib/nexusAuth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 export interface BlastInQuarter {
   quarter: number;
@@ -54,7 +55,7 @@ export async function getBlastInData(
       ...nexusAuthV2Headers(),
     };
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "GET",
       headers,
       cache: "no-store",
