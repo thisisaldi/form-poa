@@ -74,7 +74,7 @@ export async function runOutletCoverageSync(): Promise<OutletCoverageSyncResult>
     prisma.user.findMany({ select: { nip: true, role: true, isActive: true, nipAtasan: true } }),
     prisma.mrOutletAssignment.findMany({ where: { periode }, select: { kodePI: true, nipMR: true } }),
   ]);
-  const userByNip = new Map<string, UserLite>(users.map((u) => [u.nip, u]));
+  const userByNip = new Map<string, UserLite>(users.map((u: UserLite) => [u.nip, u]));
 
   // Outlet.coveredByNip is singular — first assignment per outlet wins, same
   // "representative holder" convention as importStrukturVerifiedKAM.ts's
