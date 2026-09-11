@@ -962,7 +962,7 @@ export async function getExodusNipZoneHierarchy(nip: string): Promise<NipZoneHie
 export async function getExodusApprovalLevel(params: {
   startPeriod: string; // "YYYY-MM-DD" — confirmed by testing (2026-09-09): "YYYYMM" 500s ("invalid start_period, expected YYYY-MM-DD")
   endPeriod: string;   // "YYYY-MM-DD"
-  rPercentage: number; // PoaLineItem.persenPsspDokter guess
+  rPercentage: number; // 0-1 fraction (10% = 0.1, confirmed 2026-09-09) — matches PoaLineItem.persenPsspDokter's own DB storage format as-is, no conversion needed
   givenValue: number;  // PoaLineItem.rencanaTotalBiaya guess
   psspType: string;    // PoaLineItem.jenisPssp guess
   customerCode: string; // PoaLineItem.kodeCust guess
@@ -997,6 +997,108 @@ export async function getExodusApprovalLevel(params: {
     return { role: body.data.role };
   } catch (err) {
     console.error(`[Exodus] approval-level fetch failed:`, err);
+    return null;
+  }
+}
+
+export interface ExodusZoneSummaryNode {
+  nip: string;
+  name: string | null;
+  role_name: string | null;
+  zone_id: number;
+  zone_code: string;
+  zone_name: string;
+  zone_type: string;
+  zone: unknown;
+  parent: ExodusZoneSummaryNode[] | null;
+}
+
+interface ZoneSummaryResponse {
+  data?: ExodusZoneSummaryNode[];
+  error?: { status: boolean; msg?: string; code?: number };
+}
+
+/**
+ * INVESTIGATION ONLY (2026-09-10) — not wired into any live flow yet. GET
+ * core/v1/users/zone-summary/parent: one NIP's own zone + upward ancestor
+ * chain (subarea -> area -> region -> district), same shape idea as
+ * getExodusNipZoneHierarchy's users/parent but carries nip/name/role_name at
+ * every level instead of just zone code/name. Untested against the real API
+ * — see scripts/testExodusZoneSummary.ts.
+ */
+export async function getExodusZoneSummaryParent(params: {
+  nip?: string;
+  zoneType?: string;
+  period?: string;
+}): Promise<ExodusZoneSummaryNode[] | null> {
+  if (!isConfigured) return null;
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/core/v1/users/zone-summary/parent`);
+    if (params.nip) url.searchParams.set("nip", params.nip);
+    if (params.zoneType) url.searchParams.set("zone_type", params.zoneType);
+    if (params.period) url.searchParams.set("period", params.period);
+
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) {
+      console.error(`[Exodus] zone-summary/parent HTTP ${res.status} for`, url.toString());
+      return null;
+    }
+    const body = (await res.json()) as ZoneSummaryResponse;
+    if (body.error?.status || !Array.isArray(body.data)) {
+      console.error(`[Exodus] zone-summary/parent error:`, body.error);
+      return null;
+    }
+    return body.data;
+  } catch (err) {
+    console.error(`[Exodus] zone-summary/parent fetch failed:`, err);
+    return null;
+  }
+}
+
+/**
+ * INVESTIGATION ONLY (2026-09-10) — not wired into any live flow yet. GET
+ * core/v1/users/zone-summary/child: zones matching `keyword`/`zoneType`,
+ * paginated, each row's OWN nip/name (not an ancestor's) — a row with empty
+ * `nip` and null `name` is the signal this might close the outlet-nexus-
+ * migration OQ-1/OQ-3 gap (docs/outlet-nexus-migration/01-business-rules.md),
+ * since it's indexed per-zone rather than per-nip like get_outlet_by_nip.
+ * Zone-to-Outlet(kodePI) mapping is UNCONFIRMED — do not wire into
+ * coveredByNip/coveredByRole without an SDD spec (docs/sdd/01-when-and-
+ * workflow.md — ambiguous mapping + touches approval role/access matrix).
+ */
+export async function getExodusZoneSummaryChild(params: {
+  keyword?: string;
+  zoneType?: string;
+  page?: number;
+  limit?: number;
+}): Promise<ExodusZoneSummaryNode[] | null> {
+  if (!isConfigured) return null;
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/core/v1/users/zone-summary/child`);
+    if (params.keyword) url.searchParams.set("keyword", params.keyword);
+    if (params.zoneType) url.searchParams.set("zone_type", params.zoneType);
+    if (params.page) url.searchParams.set("page", String(params.page));
+    if (params.limit) url.searchParams.set("limit", String(params.limit));
+
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!res.ok) {
+      console.error(`[Exodus] zone-summary/child HTTP ${res.status} for`, url.toString());
+      return null;
+    }
+    const body = (await res.json()) as ZoneSummaryResponse;
+    if (body.error?.status || !Array.isArray(body.data)) {
+      console.error(`[Exodus] zone-summary/child error:`, body.error);
+      return null;
+    }
+    return body.data;
+  } catch (err) {
+    console.error(`[Exodus] zone-summary/child fetch failed:`, err);
     return null;
   }
 }

@@ -78,6 +78,12 @@ export function formatPoaId(seq: number): string {
 // approved" not our internal status). SUBMITTED_TO_X means the level below X
 // already approved, so it maps to that lower level too. null = never
 // approved this cycle (DRAFT/SUBMITTED_TO_ASM/REVISI) — caller drops these.
+// Deliberately NOT extended to ASD/SD (docs/exodus-poa-usage/01-business-rules.md
+// §11) yet — those statuses can't occur in practice until exodusRequiredRole
+// is actually populated (live call still unwired, blocked on pssp_type), and
+// this function's "NSM" return is part of the live GET /api/poa-doctors
+// contract Exodus already consumes — extend together with that wiring, not
+// speculatively ahead of it.
 function approveUntil(status: string): "ASM" | "SM" | "NSM" | null {
   switch (status) {
     case "APPROVED_BY_ASM":

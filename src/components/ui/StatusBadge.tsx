@@ -40,6 +40,25 @@ const STATUS_CONFIG: Record<
     label: "Fully Approved",
     colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
+  // ASD/SD (docs/exodus-poa-usage/01-business-rules.md §11, 2026-09-09) —
+  // only reached when a doctor's exodusRequiredRole ceiling calls for it;
+  // APPROVED_BY_NSM above stays "Fully Approved" for every other doctor.
+  SUBMITTED_TO_ASD: {
+    label: "Butuh Approval ASD",
+    colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
+  },
+  APPROVED_BY_ASD: {
+    label: "Approved by ASD",
+    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)]",
+  },
+  SUBMITTED_TO_SD: {
+    label: "Butuh Approval SD",
+    colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
+  },
+  APPROVED_BY_SD: {
+    label: "Fully Approved",
+    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
+  },
   REVISI: {
     label: "Revisi",
     colorClass: "bg-[var(--color-status-revisi-bg)] text-[var(--color-status-revisi)] font-semibold",

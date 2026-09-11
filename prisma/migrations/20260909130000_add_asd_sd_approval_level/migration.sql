@@ -1,0 +1,11 @@
+-- AlterEnum
+ALTER TYPE "Role" ADD VALUE 'SD';
+
+-- AlterEnum
+ALTER TYPE "PoaStatus" ADD VALUE 'SUBMITTED_TO_ASD';
+ALTER TYPE "PoaStatus" ADD VALUE 'APPROVED_BY_ASD';
+ALTER TYPE "PoaStatus" ADD VALUE 'SUBMITTED_TO_SD';
+ALTER TYPE "PoaStatus" ADD VALUE 'APPROVED_BY_SD';
+
+-- AlterTable
+ALTER TABLE "PoaDoctorApproval" ADD COLUMN     "exodusRequiredRole" TEXT;

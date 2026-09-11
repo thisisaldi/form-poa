@@ -688,7 +688,14 @@ export async function getLastApproverForDoctor(doctorApprovalId: string): Promis
 
 /** Doctor-scoped twin of hasApprovalThisCycle. */
 export async function hasApprovalThisCycleForDoctor(doctorApprovalId: string, status?: PoaStatus): Promise<boolean> {
-  if (status && (status === PoaStatus.SUBMITTED_TO_SM || status === PoaStatus.SUBMITTED_TO_NSM || status === PoaStatus.APPROVED_BY_NSM)) {
+  if (
+    status && (
+      status === PoaStatus.SUBMITTED_TO_SM || status === PoaStatus.SUBMITTED_TO_NSM || status === PoaStatus.APPROVED_BY_NSM ||
+      // ASD/SD (2026-09-09) — reaching any of these implies NSM (at least) already approved.
+      status === PoaStatus.SUBMITTED_TO_ASD || status === PoaStatus.APPROVED_BY_ASD ||
+      status === PoaStatus.SUBMITTED_TO_SD || status === PoaStatus.APPROVED_BY_SD
+    )
+  ) {
     return true;
   }
   return (await getLastApproverForDoctor(doctorApprovalId)) !== null;
@@ -762,7 +769,10 @@ export async function getEditLockRoleLabelForDoctor(poa: PoaForm, doctor: PoaDoc
 export async function canApproveDoctor(user: User, doctor: PoaDoctorApproval): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
   if (
-    !([Role.ASM, Role.SM, Role.NSM] as string[]).includes(user.role) ||
+    // GM/SD (2026-09-09) — the ASD/SD approval levels (docs/exodus-poa-usage/
+    // 01-business-rules.md §11); DB role for ASD stays GM, see schema.prisma's
+    // comment on Role.SD.
+    !([Role.ASM, Role.SM, Role.NSM, Role.GM, Role.SD] as string[]).includes(user.role) ||
     doctor.currentHolderId !== user.nip
   ) {
     return false;

@@ -22,6 +22,14 @@ enum Role {
   // reusing GM so it isn't conflated with the real General Manager title
   // (2026-07-29 request).
   VIEWER
+  // Top of the approval chain, above GM (docs/exodus-poa-usage/01-business-rules.md
+  // §11, 2026-09-09) — a single named person (Brian Lembong, P200134, moved
+  // from GM to SD), not synced from anywhere (no SD column in MSSQL
+  // Struktur_Marketing_PI, unlike GM). PoaStatus/label terminology for this
+  // level and GM's approval capacity below it use "ASD"/"SD" (Exodus's own
+  // vocabulary) even though the DB role for the ASD level stays GM — GM is
+  // already used elsewhere (read-only oversight) and isn't renamed.
+  SD
 }
 
 enum PoaStatus {
@@ -33,6 +41,14 @@ enum PoaStatus {
   SUBMITTED_TO_NSM
   APPROVED_BY_NSM
   REVISI
+  // ASD = GM role (docs/exodus-poa-usage/01-business-rules.md §11) — only
+  // reached when a doctor's exodusRequiredRole (PoaDoctorApproval) calls for
+  // it; APPROVED_BY_NSM stays the default terminal state for every doctor
+  // without that field set (100% of pre-existing data).
+  SUBMITTED_TO_ASD
+  APPROVED_BY_ASD
+  SUBMITTED_TO_SD
+  APPROVED_BY_SD
 }
 
 enum AuditAction {
@@ -259,6 +275,19 @@ model PoaDoctorApproval {
   // mengubah `status` (ASM/SM/NSM) di atas — approval internal POA tetap
   // satu-satunya penentu status, field ini murni display.
   exodusApprovedBy String?
+
+  // docs/exodus-poa-usage/01-business-rules.md §11 (2026-09-09) — the approval
+  // CEILING this doctor must reach, snapshotted from Exodus's GET
+  // /promotion/v1/pssp/approval-level ONCE at first submit (not re-checked
+  // live) — raw role slug as Exodus returns it ("asm"/"sm"/"nsm"/
+  // "assistant-sales-director"/"sales-director"), null = never fetched
+  // (100% of data before this field existed, and the default until the live
+  // call is actually wired into submitDoctor() — see caveat in exodusApi.ts's
+  // getExodusApprovalLevel). null/"asm"/"sm"/"nsm" all behave identically to
+  // today: chain still terminates at APPROVED_BY_NSM. Only
+  // "assistant-sales-director"/"sales-director" push the chain past NSM into
+  // ASD/SD (poaWorkflow.ts).
+  exodusRequiredRole String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1000,6 +1029,42 @@ model TargetHospitalValue {
   @@index([nipASM])
   @@index([nipSM])
   @@index([nipNSM])
+}
+
+// Monthly Rupiah sales TARGET per territory (GT) for the non-hospital
+// (project "OMEGA") team — from "internal/Target Non-Hospital (In
+// Value).xlsx", one sheet per area, "TARGET yyyymm (PENGAJUAN)" columns.
+// See docs/target-non-hospital-value/ for the full spec. Unlike
+// TargetHospitalValue, there's no separate Outlet/MrOutletAssignment table
+// for this team — live "who holds this GT" resolution is User.namaWilayah
+// directly (role MR, project OMEGA), so nipMR/nipSM here are just an import-
+// time snapshot for audit, not the live source of truth. No ASM/NSM columns
+// — the source sheet only has FF (MR) and SM per row; ASM/NSM subtree
+// resolution is done live via getSubordinateMRNips instead of stored here.
+model TargetNonHospitalValue {
+  id        String   @id @default(uuid())
+  namaGT    String
+  divisi    String // "RETAIL" | "GROSIR_PBF"
+  periode   String // YYYYMM, e.g. "202608"
+  target    Decimal  @db.Decimal(18, 2)
+  nipMR     String?
+  namaMR    String
+  nipSM     String?
+  namaSM    String
+  syncedAt  DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // NOT globally unique across divisi — confirmed 2026-09-11 on real import
+  // data (e.g. "MEDAN 09" and "GROSIR MALANG 09" each appear as a DISTINCT
+  // GT with a DIFFERENT target in both the RETAIL and GROSIR_PBF blocks of
+  // the same area sheet, not a duplicate copy-paste — original design here
+  // assumed namaGT was already unique per divisi like hospital's, that
+  // assumption was wrong).
+  @@unique([namaGT, divisi, periode])
+  @@index([periode])
+  @@index([nipMR])
+  @@index([divisi])
 }
 
 // Manual policy input ("Tambahan Target" in the source spreadsheet) — the

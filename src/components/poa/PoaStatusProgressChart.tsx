@@ -53,6 +53,14 @@ const STATUS_META: Record<PoaStatus, { label: string; color: string }> = {
   APPROVED_BY_SM: { label: "Approved SM", color: APPROVED_COLOR },
   SUBMITTED_TO_NSM: { label: "Menunggu Review NSM", color: PENDING_COLOR },
   APPROVED_BY_NSM: { label: "Fully Approved", color: APPROVED_COLOR },
+  // ASD/SD (2026-09-09, docs/exodus-poa-usage/01-business-rules.md §11) —
+  // not yet part of this dashboard's pipeline rows below (feature not live
+  // yet, exodusRequiredRole unwired); present only so this Record stays
+  // exhaustive over PoaStatus (TypeScript requirement).
+  SUBMITTED_TO_ASD: { label: "Menunggu Review ASD", color: PENDING_COLOR },
+  APPROVED_BY_ASD: { label: "Approved ASD", color: APPROVED_COLOR },
+  SUBMITTED_TO_SD: { label: "Menunggu Review SD", color: PENDING_COLOR },
+  APPROVED_BY_SD: { label: "Fully Approved", color: APPROVED_COLOR },
   REVISI: { label: "Revisi", color: REVISI_COLOR },
 };
 

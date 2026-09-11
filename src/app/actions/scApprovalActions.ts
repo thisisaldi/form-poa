@@ -172,6 +172,14 @@ const POA_STATUS_RANK: Record<PoaStatus, number> = {
   APPROVED_BY_SM: 3,
   SUBMITTED_TO_NSM: 3,
   APPROVED_BY_NSM: 4,
+  // ASD/SD (2026-09-09, docs/exodus-poa-usage/01-business-rules.md §11) —
+  // per-doctor POA escalation levels, not used by POA-SC's own workflow
+  // (unreachable here); present only so this Record stays exhaustive over
+  // PoaStatus (TypeScript requirement).
+  SUBMITTED_TO_ASD: 4,
+  APPROVED_BY_ASD: 4,
+  SUBMITTED_TO_SD: 4,
+  APPROVED_BY_SD: 4,
 };
 
 function buildApprovalWhereClause(actorRole: string, actorNip: string, poaScIds: string[]) {

@@ -40,6 +40,11 @@ const STATUS_LABELS: Record<PoaStatus, string> = {
   [PoaStatus.APPROVED_BY_SM]: "Approved by SM",
   [PoaStatus.SUBMITTED_TO_NSM]: "Submitted to NSM",
   [PoaStatus.APPROVED_BY_NSM]: "Approved by NSM",
+  // ASD/SD (2026-09-09, docs/exodus-poa-usage/01-business-rules.md §11)
+  [PoaStatus.SUBMITTED_TO_ASD]: "Submitted to ASD",
+  [PoaStatus.APPROVED_BY_ASD]: "Approved by ASD",
+  [PoaStatus.SUBMITTED_TO_SD]: "Submitted to SD",
+  [PoaStatus.APPROVED_BY_SD]: "Approved by SD",
   [PoaStatus.REVISI]: "Revisi — needs resubmission",
 };
 

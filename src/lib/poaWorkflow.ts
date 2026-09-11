@@ -10,15 +10,20 @@ import { prisma } from "@/lib/prisma";
 import { canEdit,
   canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor } from "@/lib/authz";
 import { sendEditRequestEmail, sendDoctorStatusEmail } from "@/lib/notifications";
+import { getExodusApprovalLevel } from "@/lib/exodusApi";
+import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { PoaStatus, AuditAction } from "@prisma/client";
 import type { PoaForm, PoaDoctorApproval, PoaRejectCategory, Role, User } from "@prisma/client";
 
 // ─── Transition Map ───────────────────────────────────────────────────────────
 
+/** Chain-position labels — ASD/SD use Exodus's own vocabulary (docs/exodus-poa-usage/01-business-rules.md §11); the DB Role for the ASD level is GM (see schema.prisma comment on Role.SD). */
+type ChainRole = "ASM" | "SM" | "NSM" | "ASD" | "SD";
+
 type TransitionTarget = {
   toStatus: PoaStatus;
   /** Role of the next holder. Null = fully approved, no further holder. */
-  nextHolderRole: "ASM" | "SM" | "NSM" | null;
+  nextHolderRole: ChainRole | null;
 };
 
 // Post-approval re-submit steps only — the DRAFT/REVISI → first-submit step is
@@ -28,15 +33,69 @@ type TransitionTarget = {
 const SUBMIT_TRANSITIONS: Partial<Record<PoaStatus, TransitionTarget>> = {
   [PoaStatus.APPROVED_BY_ASM]: { toStatus: PoaStatus.SUBMITTED_TO_SM, nextHolderRole: "SM" },
   [PoaStatus.APPROVED_BY_SM]: { toStatus: PoaStatus.SUBMITTED_TO_NSM, nextHolderRole: "NSM" },
+  // Symmetry with the two entries above — unreachable in the normal flow
+  // today (APPROVE_TRANSITIONS auto-advances past these), kept the same way
+  // APPROVED_BY_ASM/APPROVED_BY_SM above are ("backward compat" — see
+  // APPROVE_TRANSITIONS's own comment).
+  [PoaStatus.APPROVED_BY_NSM]: { toStatus: PoaStatus.SUBMITTED_TO_ASD, nextHolderRole: "ASD" },
+  [PoaStatus.APPROVED_BY_ASD]: { toStatus: PoaStatus.SUBMITTED_TO_SD, nextHolderRole: "SD" },
 };
 
-const ROLE_LEVEL: Record<string, number> = { MR: 0, ASM: 1, SM: 2, NSM: 3 };
-const APPROVAL_CHAIN: ("ASM" | "SM" | "NSM")[] = ["ASM", "SM", "NSM"];
-const CHAIN_STATUS: Record<"ASM" | "SM" | "NSM", PoaStatus> = {
+// Keyed by the REAL Role enum value of whoever can act at that chain
+// position — the ASD chain label maps to Role.GM (not a "Role.ASD" that
+// doesn't exist), per schema.prisma's comment on Role.SD.
+const ROLE_LEVEL: Record<string, number> = { MR: 0, ASM: 1, SM: 2, NSM: 3, GM: 4, SD: 5 };
+const CHAIN_LEVEL: Record<ChainRole, number> = { ASM: 1, SM: 2, NSM: 3, ASD: 4, SD: 5 };
+const APPROVAL_CHAIN: ChainRole[] = ["ASM", "SM", "NSM", "ASD", "SD"];
+const CHAIN_STATUS: Record<ChainRole, PoaStatus> = {
   ASM: PoaStatus.SUBMITTED_TO_ASM,
   SM: PoaStatus.SUBMITTED_TO_SM,
   NSM: PoaStatus.SUBMITTED_TO_NSM,
+  ASD: PoaStatus.SUBMITTED_TO_ASD,
+  SD: PoaStatus.SUBMITTED_TO_SD,
 };
+const APPROVED_STATUS: Record<ChainRole, PoaStatus> = {
+  ASM: PoaStatus.APPROVED_BY_ASM,
+  SM: PoaStatus.APPROVED_BY_SM,
+  NSM: PoaStatus.APPROVED_BY_NSM,
+  ASD: PoaStatus.APPROVED_BY_ASD,
+  SD: PoaStatus.APPROVED_BY_SD,
+};
+
+/**
+ * The approval CEILING a doctor must reach, from its snapshotted
+ * exodusRequiredRole (PoaDoctorApproval, set once at first submit — see the
+ * field's doc comment in schema.prisma). null or anything not recognized as
+ * "assistant-sales-director"/"sales-director" behaves exactly like before
+ * this field existed: ceiling is NSM, chain terminates there.
+ */
+export function approvalCeiling(exodusRequiredRole: string | null): ChainRole {
+  if (exodusRequiredRole === "sales-director") return "SD";
+  if (exodusRequiredRole === "assistant-sales-director") return "ASD";
+  return "NSM";
+}
+
+/**
+ * Approving at NSM or ASD is the only place the chain can either terminate
+ * or continue, depending on the doctor's ceiling — every other step
+ * (ASM→SM, SM→NSM, ASD→SD) always continues unconditionally, same as
+ * before this field existed (APPROVE_TRANSITIONS below).
+ */
+export function approveNsmOrAsd(currentRole: "NSM" | "ASD", ceiling: ChainRole): TransitionTarget {
+  if (CHAIN_LEVEL[ceiling] <= CHAIN_LEVEL[currentRole]) {
+    return { toStatus: APPROVED_STATUS[currentRole], nextHolderRole: null };
+  }
+  const next = APPROVAL_CHAIN[CHAIN_LEVEL[currentRole]]; // one level up (0-indexed array, levels start at 1)
+  return { toStatus: CHAIN_STATUS[next], nextHolderRole: next };
+}
+
+// ASM→SM→NSM only — first submit always targets this range regardless of
+// APPROVAL_CHAIN's ASD/SD extension. exodusRequiredRole (and therefore
+// whether this doctor needs to climb past NSM) isn't known until its
+// PoaDoctorApproval row exists, so the very first submit can never aim past
+// NSM — the ASD/SD decision only happens later, when NSM approves
+// (approveNsmOrAsd above).
+const FIRST_SUBMIT_CHAIN: ("ASM" | "SM" | "NSM")[] = ["ASM", "SM", "NSM"];
 
 /**
  * First submit step for a DRAFT/REVISI POA — starts one level ABOVE the
@@ -46,9 +105,9 @@ const CHAIN_STATUS: Record<"ASM" | "SM" | "NSM", PoaStatus> = {
  * approver of their own first step, so it skips straight to their own atasan.
  */
 function firstSubmitTransition(ownerRole: string): TransitionTarget {
-  const target = APPROVAL_CHAIN[ROLE_LEVEL[ownerRole] ?? 0];
+  const target = FIRST_SUBMIT_CHAIN[ROLE_LEVEL[ownerRole] ?? 0];
   if (!target) {
-    // Owner is already SM+ with no level between them and NSM — shouldn't
+    // Owner is already NSM+ with no level between them and NSM — shouldn't
     // normally happen (NSM has nobody to submit "up" to), but resolve safely.
     return { toStatus: PoaStatus.APPROVED_BY_NSM, nextHolderRole: null };
   }
@@ -56,17 +115,41 @@ function firstSubmitTransition(ownerRole: string): TransitionTarget {
 }
 
 // Approve goes directly to the next level — no separate "submit upward" step.
+// SUBMITTED_TO_NSM/SUBMITTED_TO_ASD entries below are UNUSED defaults never
+// actually read — getApproveTransition() intercepts those two statuses and
+// computes the real (conditional, ceiling-dependent) target via
+// approveNsmOrAsd instead. Kept here only so this Record stays exhaustive
+// over PoaStatus (TypeScript requirement), matching what "terminate here"
+// looked like before ASD/SD existed.
 const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
   [PoaStatus.SUBMITTED_TO_ASM]: { toStatus: PoaStatus.SUBMITTED_TO_SM,  nextHolderRole: "SM"  },
   [PoaStatus.SUBMITTED_TO_SM]:  { toStatus: PoaStatus.SUBMITTED_TO_NSM, nextHolderRole: "NSM" },
   [PoaStatus.SUBMITTED_TO_NSM]: { toStatus: PoaStatus.APPROVED_BY_NSM,  nextHolderRole: null  },
+  [PoaStatus.SUBMITTED_TO_ASD]: { toStatus: PoaStatus.APPROVED_BY_ASD,  nextHolderRole: null  },
+  [PoaStatus.SUBMITTED_TO_SD]:  { toStatus: PoaStatus.APPROVED_BY_SD,   nextHolderRole: null  },
   // Intermediate statuses kept for backward compat but unreachable in normal flow
   [PoaStatus.DRAFT]: null,
   [PoaStatus.REVISI]: null,
   [PoaStatus.APPROVED_BY_ASM]: null,
   [PoaStatus.APPROVED_BY_SM]: null,
   [PoaStatus.APPROVED_BY_NSM]: null,
+  [PoaStatus.APPROVED_BY_ASD]: null,
+  [PoaStatus.APPROVED_BY_SD]: null,
 };
+
+/**
+ * Resolves the real approve-time transition for a doctor — SUBMITTED_TO_NSM
+ * and SUBMITTED_TO_ASD are conditional on the doctor's snapshotted approval
+ * ceiling (exodusRequiredRole); every other status uses the fixed
+ * APPROVE_TRANSITIONS map above, unconditionally, same as before ASD/SD
+ * existed.
+ */
+function getApproveTransition(status: PoaStatus, exodusRequiredRole: string | null): TransitionTarget | null {
+  const ceiling = approvalCeiling(exodusRequiredRole);
+  if (status === PoaStatus.SUBMITTED_TO_NSM) return approveNsmOrAsd("NSM", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_ASD) return approveNsmOrAsd("ASD", ceiling);
+  return APPROVE_TRANSITIONS[status];
+}
 
 // ─── Internal Helpers ─────────────────────────────────────────────────────────
 
@@ -95,9 +178,9 @@ interface ReportsToChain extends User {
  */
 function resolveNextHolder(
   poa: PoaForm & { owner: ReportsToChain },
-  nextHolderRole: "ASM" | "SM" | "NSM"
+  nextHolderRole: ChainRole
 ): string | null {
-  const targetLevel = ROLE_LEVEL[nextHolderRole];
+  const targetLevel = CHAIN_LEVEL[nextHolderRole];
   let current: ReportsToChain | null = poa.owner.reportsTo ?? null;
   while (current) {
     if (current.isActive && (ROLE_LEVEL[current.role] ?? -1) >= targetLevel) return current.nip;
@@ -106,6 +189,9 @@ function resolveNextHolder(
   return null;
 }
 
+// 5 levels of reportsTo beyond owner — enough for MR→ASM→SM→NSM→GM(ASD)→SD,
+// the deepest chain resolveNextHolder needs to walk (extended 2026-09-09 for
+// ASD/SD, was 3 levels/enough for just ASM→SM→NSM before).
 async function loadPoaWithHierarchy(poaId: string) {
   return prisma.poaForm.findUniqueOrThrow({
     where: { id: poaId },
@@ -116,7 +202,15 @@ async function loadPoaWithHierarchy(poaId: string) {
             include: {
               reportsTo: {
                 include: {
-                  reportsTo: true,
+                  reportsTo: {
+                    include: {
+                      reportsTo: {
+                        include: {
+                          reportsTo: true,
+                        },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -151,6 +245,10 @@ const ROLLUP_RANK: Record<PoaStatus, number> = {
   [PoaStatus.APPROVED_BY_SM]: 4,
   [PoaStatus.SUBMITTED_TO_NSM]: 5,
   [PoaStatus.APPROVED_BY_NSM]: 6,
+  [PoaStatus.SUBMITTED_TO_ASD]: 7,
+  [PoaStatus.APPROVED_BY_ASD]: 8,
+  [PoaStatus.SUBMITTED_TO_SD]: 9,
+  [PoaStatus.APPROVED_BY_SD]: 10,
 };
 
 /**
@@ -210,6 +308,83 @@ async function loadDoctorApproval(poaId: string, kodePI: string, namaCust: strin
   });
 }
 
+// "YYYYMM" -> "YYYY-MM-DD" — Exodus's approval-level rejects "YYYYMM" (500,
+// "invalid start_period, expected YYYY-MM-DD" — confirmed 2026-09-09).
+function toDateStr(yyyymm: string, end: boolean): string {
+  const year = parseInt(yyyymm.slice(0, 4), 10);
+  const month = parseInt(yyyymm.slice(4, 6), 10);
+  const day = end ? new Date(year, month, 0).getDate() : 1;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// BentukPssp (POA's own field, populated ~95% of PoaLineItem rows) -> Exodus's
+// pssp_type vocabulary — best-effort (docs/exodus-poa-usage/01-business-rules.md
+// §11, 2026-09-09): CASH is a confirmed 1:1 match (both sides' dominant value),
+// BARANG/JASA/PRIMATAX have no confirmed Exodus equivalent (never observed in
+// a 4000-record sample of real Exodus pssp_type values: only Cash/Event/
+// Peremajaan appeared there) — sent as their own capitalized name anyway
+// (Aldi: "pssp_type nya pakai yang sesuai dari kita aja"), not blocking on a
+// perfect mapping. null (~5% of rows) defaults to "Cash", the majority case.
+function toExodusPsspType(bentukPssp: string | null): string {
+  switch (bentukPssp) {
+    case "BARANG": return "Barang";
+    case "JASA": return "Jasa";
+    case "PRIMATAX": return "Primatax";
+    case "CASH":
+    default: return "Cash";
+  }
+}
+
+/**
+ * Fetches the approval ceiling for a doctor's FIRST submit from Exodus's
+ * GET /promotion/v1/pssp/approval-level (docs/exodus-poa-usage/
+ * 01-business-rules.md §11), to snapshot into PoaDoctorApproval.exodusRequiredRole.
+ * Returns null on ANY failure (Exodus down/misconfigured, missing outlet/
+ * customer code, etc.) — submission must never block on this; a null
+ * snapshot defaults to ceiling NSM, identical to today's behavior before
+ * this field existed (see approvalCeiling above).
+ */
+async function fetchExodusRequiredRole(poaId: string, kodePI: string, namaCust: string, ownerNip: string): Promise<string | null> {
+  try {
+    const items = await prisma.poaLineItem.findMany({
+      where: { poaId, kodePI, namaCust },
+      select: {
+        kodeCust: true, periodeAwal: true, lamaPeriode: true, bentukPssp: true,
+        rencanaTotalBiaya: true, persenPsspDokter: true, pengaliNilaiR: true,
+      },
+    });
+    const first = items[0];
+    if (!first || !first.kodeCust || !kodePI) return null;
+
+    const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
+    let estimasiTotal = 0;
+    let nilaiPsspTotal = 0;
+    for (const it of items) {
+      const estimasi = toNum(it.rencanaTotalBiaya);
+      const pengaliNilaiR = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
+      estimasiTotal += estimasi;
+      nilaiPsspTotal += estimasi * toNum(it.persenPsspDokter) * pengaliNilaiR;
+    }
+    if (estimasiTotal <= 0) return null;
+
+    const months = expandPeriodeMonths(first.periodeAwal, first.lamaPeriode);
+    const result = await getExodusApprovalLevel({
+      startPeriod: toDateStr(months[0], false),
+      endPeriod: toDateStr(months[months.length - 1], true),
+      rPercentage: nilaiPsspTotal / estimasiTotal,
+      givenValue: nilaiPsspTotal,
+      psspType: toExodusPsspType(first.bentukPssp),
+      customerCode: first.kodeCust,
+      outletCode: kodePI,
+      nip: ownerNip,
+    });
+    return result?.role ?? null;
+  } catch (err) {
+    console.error(`[poaWorkflow] fetchExodusRequiredRole failed for POA ${poaId} doctor ${namaCust}:`, err);
+    return null;
+  }
+}
+
 /** Internal — mirrors applyTransition, but mutates a PoaDoctorApproval row (creating it if needed) instead of PoaForm. */
 async function applyDoctorTransition(
   poaId: string,
@@ -226,7 +401,11 @@ async function applyDoctorTransition(
   /** Explicit `undefined` = leave editResumeRole untouched. Pass `null` to
    * clear it (reject/cancel), or a role to set it (granted edit request) —
    * see the field's own doc comment in schema.prisma. */
-  editResumeRole?: Role | null
+  editResumeRole?: Role | null,
+  /** Only meaningful when `existing` is null (row being CREATED, i.e. this
+   * doctor's true first submit) — snapshotted once, never touched again on
+   * later updates (see exodusRequiredRole's doc comment in schema.prisma). */
+  exodusRequiredRole?: string | null
 ): Promise<PoaDoctorApproval> {
   const poa = await loadPoaWithHierarchy(poaId);
 
@@ -252,7 +431,7 @@ async function applyDoctorTransition(
           },
         })
       : prisma.poaDoctorApproval.create({
-          data: { poaId, kodePI, namaCust, status: transition.toStatus, currentHolderId: nextHolderId },
+          data: { poaId, kodePI, namaCust, status: transition.toStatus, currentHolderId: nextHolderId, exodusRequiredRole },
         }),
   ]);
 
@@ -314,10 +493,21 @@ export async function submitDoctor(
     throw new Error(`Cannot submit doctor ${namaCust} in status ${fromStatus}`);
   }
 
+  // Snapshot the approval ceiling ONLY on this doctor's true first submit
+  // (docs/exodus-poa-usage/01-business-rules.md §11, §9's "once at first
+  // submit" decision) — a REVISI resubmit reuses the existing row, whose
+  // exodusRequiredRole from the ORIGINAL first submit must NOT be re-fetched
+  // (applyDoctorTransition's create-only wiring already leaves it untouched
+  // on update; this call is just never made for that case).
+  const exodusRequiredRole = !existing
+    ? await fetchExodusRequiredRole(poaId, kodePI, namaCust, poa.ownerId)
+    : undefined;
+
   return applyDoctorTransition(
     poaId, kodePI, namaCust, actingUserId, transition, fromStatus, AuditAction.SUBMIT, existing, notes,
     undefined, undefined,
-    resumeRole ? null : undefined // consume it once used; leave untouched otherwise (nothing to clear)
+    resumeRole ? null : undefined, // consume it once used; leave untouched otherwise (nothing to clear)
+    exodusRequiredRole
   );
 }
 
@@ -336,7 +526,7 @@ export async function approveDoctor(
     throw new Error(`User ${actingUserId} is not authorized to approve doctor ${namaCust} on POA ${poaId}`);
   }
 
-  const transition = APPROVE_TRANSITIONS[existing.status];
+  const transition = getApproveTransition(existing.status, existing.exodusRequiredRole);
   if (!transition) throw new Error(`Cannot approve doctor ${namaCust} in status ${existing.status}`);
 
   return applyDoctorTransition(poaId, kodePI, namaCust, actingUserId, transition, existing.status, AuditAction.APPROVE, existing);
@@ -475,7 +665,10 @@ export async function grantEditRequestDoctor(
   // same level instead of restarting from ASM (2026-09-08 user request). Only
   // ASM/SM/NSM are valid resume points (matches CHAIN_STATUS); anything else
   // (shouldn't happen — only chain roles can hold/approve a doctor cycle)
-  // falls back to the normal full-restart behavior.
+  // falls back to the normal full-restart behavior. Deliberately does NOT
+  // include GM/SD (the ASD/SD approval levels, 2026-09-09) — resuming an
+  // edit-granted doctor at ASD/SD isn't supported yet; it falls back to a
+  // full restart from ASM instead, same as any other unrecognized role here.
   const resumeRole = (["ASM", "SM", "NSM"] as const).includes(lastApprover.role as "ASM" | "SM" | "NSM")
     ? (lastApprover.role as Role)
     : null;
