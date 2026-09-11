@@ -600,7 +600,13 @@ async function DashboardContent({
                         <Link href={`/poa/${poa.id}`} style={{ color: "var(--color-blue)" }} className="text-xs font-medium">
                           Detail
                         </Link>
-                        {poa.status === "DRAFT" && editablePoaIds.has(poa.id) && (
+                        {/* Owner can delete their own POA regardless of status/approval
+                            progress (2026-09-11 decision) — deliberately NOT gated by
+                            editablePoaIds/canEdit, which locks once someone above the
+                            owner has approved (that lock is about editing content, not
+                            about withdrawing the whole POA). Mirrors deletePoaAction's
+                            own ownership check. */}
+                        {(poa.ownerId === actor.nip || actor.role === "ADMIN") && (
                           <DeletePoaButton poaId={poa.id} period={poa.period} />
                         )}
                       </div>

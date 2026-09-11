@@ -201,8 +201,12 @@ export async function declineEditRequestDoctorAction(poaId: string, kodePI: stri
   redirect(`/poa/${poaId}`);
 }
 
-// Only DRAFT POAs — once submitted, deleting it would destroy approval/audit history.
-// Restricted to the owning MR (same check submit/edit use), not just "someone who can view it".
+// Owner MR can delete their own POA regardless of status/approval progress
+// (2026-09-11 decision) — deliberately NOT gated by canEdit, since canEdit's
+// Lock Edit Logic blocks the owner once anyone above them has approved; that
+// lock is about editing content, not about the owner's ability to withdraw
+// the whole POA. Ownership check is a direct poa.ownerId === actor.nip
+// comparison for that reason (ADMIN also allowed, same as everywhere else).
 export async function deletePoaAction(poaId: string): Promise<{ error?: string }> {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
@@ -212,8 +216,7 @@ export async function deletePoaAction(poaId: string): Promise<{ error?: string }
   if (!poa) return { error: "POA tidak ditemukan." };
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canEdit(actor, poa))) return { error: "Tidak punya akses." };
-  if (poa.status !== "DRAFT") return { error: "Hanya POA berstatus Draft yang bisa dihapus." };
+  if (poa.ownerId !== actor.nip && actor.role !== "ADMIN") return { error: "Tidak punya akses." };
 
   await prisma.$transaction([
     prisma.poaAuditLog.deleteMany({ where: { poaId } }),
