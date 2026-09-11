@@ -7,6 +7,10 @@ export interface ApotekOnlineResponse {
   NIP?: string;
 }
 
+function stripTestPrefix(nip: string): string {
+  return nip.replace(/^test/i, "");
+}
+
 export async function getApotekOnline(
   nip: string,
   position?: string
@@ -29,6 +33,8 @@ export async function getApotekOnline(
     } else if (targetNip === "SCNSM123456") {
       targetNip = "P080855";
       targetPosition = targetPosition || "NSM";
+    } else if (targetNip?.toLowerCase().startsWith("test")) {
+      targetNip = stripTestPrefix(targetNip);
     }
 
     // If position not explicitly provided, look up from User table

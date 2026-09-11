@@ -224,12 +224,17 @@ import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 
+function stripTestPrefix(nip: string): string {
+  return nip.replace(/^test/i, "");
+}
+
 export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {
   let targetUserId = userId;
   if (userId === "SCMR123456") targetUserId = "P250091";
   else if (userId === "SCASM123456") targetUserId = "L260437";
   else if (userId === "SCSM123456") targetUserId = "P230219";
   else if (userId === "SCNSM123456") targetUserId = "P080855";
+  else if (userId?.toLowerCase().startsWith("test")) targetUserId = stripTestPrefix(userId);
 
   const { prisma } = await import("@/lib/prisma");
   const user = await prisma.user.findUnique({
