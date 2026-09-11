@@ -11,12 +11,67 @@ import { ScToastProvider } from "@/components/sc/ui/ScToast";
 import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
+import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import type { ScDraftFormItem } from "@/components/sc/types";
-import type { PoaStatus } from "@prisma/client";
+import { Role, Prisma, type PoaStatus } from "@prisma/client";
 
 export const metadata = { title: "Persetujuan Sales Counter · Form POA" };
 
-export default async function SalesCounterApprovalsPage() {
+interface UserHierarchyNode {
+  nip: string;
+  name: string;
+  role: Role;
+  reportsTo?: {
+    nip: string;
+    name: string;
+    role: Role;
+    reportsTo?: {
+      nip: string;
+      name: string;
+      role: Role;
+    } | null;
+  } | null;
+}
+
+function resolveAsm(owner: UserHierarchyNode): { nip: string; name: string } | null {
+  if (owner.role === "ASM") return { nip: owner.nip, name: owner.name };
+  if (owner.reportsTo?.role === "ASM") return { nip: owner.reportsTo.nip, name: owner.reportsTo.name };
+  if (owner.reportsTo?.reportsTo?.role === "ASM") return { nip: owner.reportsTo.reportsTo.nip, name: owner.reportsTo.reportsTo.name };
+  if (owner.reportsTo) return { nip: owner.reportsTo.nip, name: owner.reportsTo.name };
+  return null;
+}
+
+type PendingPoaScWithIncludes = Prisma.PoaScFormGetPayload<{
+  include: {
+    owner: {
+      include: {
+        reportsTo: {
+          include: {
+            reportsTo: true;
+          };
+        };
+      };
+    };
+    products: true;
+    persons: true;
+    entertainItems: true;
+  };
+}>;
+
+type MasterProductItem = {
+  kodeProduk: string;
+  namaProduk: string;
+  hna: Prisma.Decimal;
+  konversiPembagi: Prisma.Decimal | null;
+  satuanTerkecil: string | null;
+  satuan: string | null;
+};
+
+export default async function SalesCounterApprovalsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ period?: string }>;
+}) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
 
@@ -30,10 +85,36 @@ export default async function SalesCounterApprovalsPage() {
 
   const pendingFilter = getPendingActionScFilter(actor);
 
-  const pendingForms = await prisma.poaScForm.findMany({
+  // Collect distinct available periods for filter
+  const allPendingPeriods = await prisma.poaScForm.findMany({
     where: pendingFilter,
+    select: { period: true },
+    distinct: ["period"],
+    orderBy: { period: "desc" },
+  });
+  const availablePeriods = allPendingPeriods.map((p: { period: string }) => p.period);
+
+  const params = searchParams ? await searchParams : {};
+  const selectedPeriod = params?.period && availablePeriods.includes(params.period)
+    ? params.period
+    : "ALL";
+
+  const effectiveFilter = selectedPeriod !== "ALL"
+    ? { ...pendingFilter, period: selectedPeriod }
+    : pendingFilter;
+
+  const pendingForms: PendingPoaScWithIncludes[] = await prisma.poaScForm.findMany({
+    where: effectiveFilter,
     include: {
-      owner: true,
+      owner: {
+        include: {
+          reportsTo: {
+            include: {
+              reportsTo: true,
+            },
+          },
+        },
+      },
       products: true,
       persons: true,
       entertainItems: true,
@@ -43,15 +124,15 @@ export default async function SalesCounterApprovalsPage() {
 
   // Collect unique product codes & outlet codes across all pending forms
   const allProductCodes = Array.from(
-    new Set(pendingForms.flatMap((f: any) => f.products.map((p: any) => p.kodeProduk)).filter(Boolean))
+    new Set(pendingForms.flatMap((f: PendingPoaScWithIncludes) => f.products.map((p: PendingPoaScWithIncludes["products"][number]) => p.kodeProduk)).filter(Boolean))
   );
 
-  const outletCodes = Array.from(new Set(pendingForms.map((f: any) => f.kodePI).filter(Boolean))) as string[];
+  const outletCodes = Array.from(new Set(pendingForms.map((f: PendingPoaScWithIncludes) => f.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
 
   const [masterProducts, blastInSet, rawOutlets] = await Promise.all([
     allProductCodes.length > 0
-      ? prisma.product.findMany({
+      ? (prisma.product.findMany({
           where: { kodeProduk: { in: allProductCodes } },
           select: {
             kodeProduk: true,
@@ -61,8 +142,8 @@ export default async function SalesCounterApprovalsPage() {
             satuanTerkecil: true,
             satuan: true,
           },
-        })
-      : [],
+        }) as Promise<MasterProductItem[]>)
+      : Promise.resolve([] as MasterProductItem[]),
     getBlastInOutletSet().catch(() => new Set<string>()),
     getSalesCounterOutletsDirect(actor.nip).catch(() => []),
     Promise.all(
@@ -84,114 +165,207 @@ export default async function SalesCounterApprovalsPage() {
     ),
   ]);
 
-  const masterProductMap = new Map<string, any>(
-    masterProducts.map((p: any) => [p.kodeProduk, p])
+  const masterProductMap = new Map<string, MasterProductItem>(
+    masterProducts.map((p: MasterProductItem) => [p.kodeProduk, p])
   );
-  const outletScMap = new Map(rawOutlets.map((o: any) => [o.kodePI, !!o.is_sc]));
+  const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));
 
-  // Build serialized ScDraftFormItem list
-  const scDrafts: ScDraftFormItem[] = pendingForms.map((d: any) => ({
-    id: d.id,
-    period: d.period,
-    periodeAwal: d.periodeAwal,
-    lamaPeriode: d.lamaPeriode,
-    status: d.status,
-    version: d.version,
-    kodePI: d.kodePI,
-    namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
-    persenResepDokter: d.persenResepDokter,
-    jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
-    jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien ?? d.jumlahPasien ?? null),
-    jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
-    jumlahPasienNonResep: (d.jumlahPasienNonResep && d.jumlahPasienNonResep > 0) ? d.jumlahPasienNonResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_non_resep ?? d.jumlahPasienNonResep ?? null),
-    ownerId: d.ownerId,
-    is_sc: outletScMap.get(d.kodePI) ?? false,
-    isBlastIn: blastInSet.has(d.kodePI),
-    persons: d.persons.map((p: any) => ({
-      id: p.id,
-      nik_ktp: p.nik_ktp,
-      personName: p.personName,
-      positionName: p.positionName,
-    })),
-    products: d.products.map((p: any) => {
-      const mp = masterProductMap.get(p.kodeProduk);
-      const cp = canvasserProductMap.get(`${d.kodePI}_${p.kodeProduk}`);
-      return {
+  type RawOutlet = (typeof rawOutlets)[number];
+  type ScPerson = PendingPoaScWithIncludes["persons"][number];
+  type ScProduct = PendingPoaScWithIncludes["products"][number];
+  type ScEntertain = PendingPoaScWithIncludes["entertainItems"][number];
+
+  // Build serialized ScDraftFormItem list for stats panel
+  const scDrafts: ScDraftFormItem[] = pendingForms.map((d: PendingPoaScWithIncludes) => {
+    const matchedOutlet = rawOutlets.find((o: RawOutlet) => o.kodePI === d.kodePI);
+    return {
+      id: d.id,
+      period: d.period,
+      periodeAwal: d.periodeAwal,
+      lamaPeriode: d.lamaPeriode,
+      status: d.status,
+      version: d.version,
+      kodePI: d.kodePI,
+      namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
+      persenResepDokter: d.persenResepDokter,
+      jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (matchedOutlet?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
+      jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (matchedOutlet?.jumlah_pasien ?? d.jumlahPasien ?? null),
+      jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (matchedOutlet?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
+      jumlahPasienNonResep: (d.jumlahPasienNonResep && d.jumlahPasienNonResep > 0) ? d.jumlahPasienNonResep : (matchedOutlet?.jumlah_pasien_non_resep ?? d.jumlahPasienNonResep ?? null),
+      ownerId: d.ownerId,
+      is_sc: outletScMap.get(d.kodePI) ?? false,
+      isBlastIn: blastInSet.has(d.kodePI),
+      persons: d.persons.map((p: ScPerson) => ({
         id: p.id,
-        kodeProduk: p.kodeProduk,
-        namaProduk: p.namaProduk,
-        produkKompetitor: p.produkKompetitor || null,
-        qtyPerBulan: p.qtyPerBulan,
-        persenMatriksSc: Number(p.persenMatriksSc.toString()),
-        persenDiskon: Number(p.persenDiskon.toString()),
-        persenCashback: Number(p.persenCashback.toString()),
-        rencanaTotalBiaya: Number(p.rencanaTotalBiaya.toString()),
-        hnaSJ: mp ? Number(mp.hna.toString()) : 0,
-        konversiPembagi: mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1,
-        satuanTerkecil: mp?.satuanTerkecil || "ST",
-        satuanSJ: mp?.satuan || "SJ",
-        salesCounterValue: cp?.sales_counter_value || 0,
-        salesCounterMinimum: cp?.sales_counter_minimum || 0,
-      };
-    }),
-    entertainItems: d.entertainItems.map((e: any) => ({
-      id: e.id,
-      periodeMonth: e.periodeMonth,
-      biayaEntertain: Number(e.biayaEntertain.toString()),
-    })),
-  }));
+        nik_ktp: p.nik_ktp,
+        personName: p.personName,
+        positionName: p.positionName,
+      })),
+      products: d.products.map((p: ScProduct) => {
+        const mp = masterProductMap.get(p.kodeProduk);
+        const cp = canvasserProductMap.get(`${d.kodePI}_${p.kodeProduk}`);
+        return {
+          id: p.id,
+          kodeProduk: p.kodeProduk,
+          namaProduk: p.namaProduk,
+          produkKompetitor: p.produkKompetitor || null,
+          qtyPerBulan: p.qtyPerBulan,
+          persenMatriksSc: Number(p.persenMatriksSc.toString()),
+          persenDiskon: Number(p.persenDiskon.toString()),
+          persenCashback: Number(p.persenCashback.toString()),
+          rencanaTotalBiaya: Number(p.rencanaTotalBiaya.toString()),
+          hnaSJ: mp ? Number(mp.hna.toString()) : 0,
+          konversiPembagi: mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1,
+          satuanTerkecil: mp?.satuanTerkecil || "ST",
+          satuanSJ: mp?.satuan || "SJ",
+          salesCounterValue: cp?.sales_counter_value || 0,
+          salesCounterMinimum: cp?.sales_counter_minimum || 0,
+        };
+      }),
+      entertainItems: d.entertainItems.map((e: ScEntertain) => ({
+        id: e.id,
+        periodeMonth: e.periodeMonth,
+        biayaEntertain: Number(e.biayaEntertain.toString()),
+      })),
+    };
+  });
 
-  // Group forms by owner (MR) & period for manager review
-  const groupedMap = new Map<string, { owner: any; period: string; forms: any[] }>();
+  // Group forms:
+  // - If NSM: group by ASM
+  // - If SM / ASM / ADMIN: group by MR
+  const isNSM = actor.role === "NSM";
+
+  type PendingForm = (typeof pendingForms)[number];
+
+  type GroupBucket = {
+    groupKey: string;
+    groupType: "MR" | "ASM";
+    nip: string;
+    name: string;
+    period: string;
+    asmName: string | null;
+    ownerNips: string[];
+    forms: PendingForm[];
+  };
+
+  const groupedMap = new Map<string, GroupBucket>();
 
   for (const form of pendingForms) {
-    const key = `${form.period}_${form.ownerId}`;
+    const asm = resolveAsm(form.owner);
+    let key: string;
+    let groupType: "MR" | "ASM";
+    let nip: string;
+    let name: string;
+    const asmName: string | null = asm?.name || null;
+
+    if (isNSM) {
+      groupType = "ASM";
+      nip = asm?.nip || form.owner.nip;
+      name = asm?.name || form.owner.name;
+      key = `${form.period}_${nip}`;
+    } else {
+      groupType = "MR";
+      nip = form.owner.nip;
+      name = form.owner.name;
+      key = `${form.period}_${form.ownerId}`;
+    }
+
     if (!groupedMap.has(key)) {
       groupedMap.set(key, {
-        owner: form.owner,
+        groupKey: key,
+        groupType,
+        nip,
+        name,
         period: form.period,
+        asmName,
+        ownerNips: [],
         forms: [],
       });
     }
-    groupedMap.get(key)!.forms.push(form);
+
+    const bucket = groupedMap.get(key)!;
+    bucket.forms.push(form);
+    if (!bucket.ownerNips.includes(form.ownerId)) {
+      bucket.ownerNips.push(form.ownerId);
+    }
   }
 
-  // Query all forms for these owner+period pairs to calculate approvedCount & belumCount
-  const ownerPeriodPairs = Array.from(groupedMap.values()).map((g) => ({
-    ownerId: g.owner.nip,
-    period: g.period,
+  // Resolve target fallback per group
+  const targetEntries = Array.from(groupedMap.values()).map((g) => ({
+    owner: { nip: g.nip, role: (g.groupType === "ASM" ? Role.ASM : Role.MR) },
+    quarter: g.period,
   }));
+  const targetFallbackMap = await resolveTargetHospitalValueFallback(targetEntries);
 
-  const allFormsForGroups = ownerPeriodPairs.length > 0
+  // Query all non-draft forms for these owner+period pairs to calculate approvedCount & belumCount
+  const allOwnerNips = Array.from(new Set(Array.from(groupedMap.values()).flatMap((g) => g.ownerNips)));
+  const allPeriods = Array.from(new Set(Array.from(groupedMap.values()).map((g) => g.period)));
+
+  const allFormsForGroups = allOwnerNips.length > 0 && allPeriods.length > 0
     ? await prisma.poaScForm.findMany({
         where: {
-          OR: ownerPeriodPairs.map((p) => ({ ownerId: p.ownerId, period: p.period })),
+          ownerId: { in: allOwnerNips },
+          period: { in: allPeriods },
           status: { not: "DRAFT" as PoaStatus },
         },
         select: { id: true, ownerId: true, period: true, status: true },
       })
     : [];
 
-  const mrGroups: MrApprovalGroup[] = Array.from(groupedMap.values()).map((g) => {
-    const allInPeriod = (allFormsForGroups as { id: string; ownerId: string; period: string; status: string }[]).filter(
-      (f) => f.ownerId === g.owner.nip && f.period === g.period
-    );
-    const approvedCount = allInPeriod.filter((f) => f.status === "APPROVED_BY_NSM").length;
-    const belumCount = allInPeriod.length - approvedCount;
+  let defaultBadgeLabel = "Butuh Tindakan";
+  if (actor.role === "ASM") defaultBadgeLabel = "Butuh Approval ASM";
+  else if (actor.role === "SM") defaultBadgeLabel = "Butuh Approval SM";
+  else if (actor.role === "NSM") defaultBadgeLabel = "Butuh Approval NSM";
 
-    const totalBudgetSc = g.forms.reduce((sum: number, f: any) => {
-      const prodSum = f.products.reduce((ps: number, p: any) => ps + Number(p.rencanaTotalBiaya.toString()), 0);
-      const entSum = f.entertainItems.reduce((es: number, e: any) => es + Number(e.biayaEntertain.toString()), 0);
-      return sum + prodSum + entSum;
-    }, 0);
+  const mrGroups: MrApprovalGroup[] = Array.from(groupedMap.values()).map((g) => {
+    const matchingForms = (allFormsForGroups as { id: string; ownerId: string; period: string; status: string }[]).filter(
+      (f) => g.ownerNips.includes(f.ownerId) && f.period === g.period
+    );
+    const approvedCount = matchingForms.filter((f) => f.status === "APPROVED_BY_NSM").length;
+    const belumCount = matchingForms.length - approvedCount;
+
+    let totalEstimasiSales = 0;
+    let totalBudgetSc = 0;
+    const distinctOutlets = new Set<string>();
+    const distinctProducts = new Set<string>();
+
+    for (const f of g.forms) {
+      if (f.kodePI) distinctOutlets.add(f.kodePI);
+      const lama = f.lamaPeriode || 3;
+
+      for (const p of f.products) {
+        if (p.kodeProduk) distinctProducts.add(p.kodeProduk);
+        const mp = masterProductMap.get(p.kodeProduk);
+        const hna = mp ? Number(mp.hna.toString()) : 0;
+        const qty = p.qtyPerBulan || 0;
+        totalEstimasiSales += qty * hna * lama;
+        totalBudgetSc += Number(p.rencanaTotalBiaya?.toString() || 0);
+      }
+
+      for (const e of f.entertainItems) {
+        totalBudgetSc += Number(e.biayaEntertain?.toString() || 0);
+      }
+    }
+
+    const targetValue = targetFallbackMap.get(`${g.nip}|${g.period}`) ?? null;
+    const targetRatio = targetValue != null && targetValue > 0 ? (totalEstimasiSales / targetValue) * 100 : null;
 
     return {
-      ownerNip: g.owner.nip,
-      ownerName: g.owner.name,
+      groupKey: g.groupKey,
+      groupType: g.groupType,
+      ownerNip: g.nip,
+      ownerName: g.name,
       period: g.period,
       status: (g.forms[0]?.status as PoaStatus) || "SUBMITTED_TO_ASM",
       version: g.forms[0]?.version || 1,
-      outletCount: g.forms.length,
+      badgeLabel: defaultBadgeLabel,
+      asmName: g.groupType === "MR" ? g.asmName : null,
+      mrCount: g.groupType === "ASM" ? g.ownerNips.length : undefined,
+      totalEstimasiSales,
+      outletCount: distinctOutlets.size,
+      variasiProdukCount: distinctProducts.size,
+      targetValue,
+      targetRatio,
       approvedCount,
       belumCount,
       totalBudgetSc,
@@ -199,14 +373,14 @@ export default async function SalesCounterApprovalsPage() {
       forms: g.forms.map((f) => ({
         id: f.id,
         kodePI: f.kodePI,
-        namaOutlet: f.namaOutlet,
+        namaOutlet: f.namaOutlet || "",
         status: f.status,
         version: f.version,
       })),
     };
   });
 
-  const dominantPeriod = pendingForms[0]?.period || "";
+  const dominantPeriod = selectedPeriod !== "ALL" ? selectedPeriod : (pendingForms[0]?.period || "");
 
   return (
     <div className="space-y-5">
@@ -217,7 +391,7 @@ export default async function SalesCounterApprovalsPage() {
         </p>
       </div>
 
-      {pendingForms.length === 0 ? (
+      {pendingForms.length === 0 && availablePeriods.length === 0 ? (
         <Card>
           <div className="py-12 text-center">
             <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -236,6 +410,9 @@ export default async function SalesCounterApprovalsPage() {
             mrGroups={mrGroups}
             scDrafts={scDrafts}
             dominantPeriod={dominantPeriod}
+            userRole={actor.role}
+            availablePeriods={availablePeriods}
+            selectedPeriod={selectedPeriod}
           />
         </ScToastProvider>
       )}
