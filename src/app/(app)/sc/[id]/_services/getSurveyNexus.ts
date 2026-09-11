@@ -1,4 +1,5 @@
 import { nexusAuthV2Headers } from "@/lib/nexusAuth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 
 export interface SurveyResponse {
@@ -13,15 +14,17 @@ export interface SurveyList {
   outlet_code: string;
   outlet_name: string;
   total_surveys: number;
+  total_outlet_employees?: number;
 }
 
-export interface Survey{
+export interface Survey {
   products: SurveyProduct[];
   avg_patient: number;
   response_id: string;
   survey_date: string;
   avg_recipes_in: number;
   avg_transaction: number;
+  total_outlet_employees?: number;
 }
 
 export interface SurveyProduct{
@@ -50,11 +53,11 @@ export async function getSurveyData(
       ...nexusAuthV2Headers(),
     };
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "GET",
       headers,
       cache: "no-store",
-    });
+    }, 4000);
 
     if (!res.ok) {
       if (res.status === 404) return null;

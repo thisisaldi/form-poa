@@ -14,6 +14,7 @@ export function OnlineApotekSalesWidget({
   outletCode = "",
   isOnline,
   className = "",
+  onTotalPiSalesChange,
 }: OnlineApotekSalesWidgetProps) {
   if (isOnline === false) {
     return null;
@@ -121,6 +122,10 @@ function formatPlatformName(platform: string): { key: string; name: string; labe
 
     return { platforms: list, totalPiSales: sumPi, totalAllSales: sumAll };
   }, [salesItems]);
+
+  useEffect(() => {
+    onTotalPiSalesChange?.(totalPiSales);
+  }, [totalPiSales, onTotalPiSalesChange]);
 
   return (
     <div

@@ -9,9 +9,9 @@ import { UnitInput } from "./UnitInput";
 import { ScSidebar } from "./ScSidebar";
 import { Button } from "@/components/ui/Button";
 import { Combobox } from "@/components/ui/Combobox";
-import { quarterToMonths } from "@/lib/quarterUtils";
+import { quarterToMonths, getPreviousQuarterInfo } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
-import { getB3PeriodInfo } from "@/lib/b3Utils";
+import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { getScOutletB3SalesAction, postHistorySalesAction, getHistoryEntertainAction } from "@/app/actions/canvasser";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { BlastInTable } from "./BlastInTable";
@@ -66,10 +66,10 @@ export function SalesCounterLineItemEditor({
     updateProductRow,
     selectProductFromSidebar,
     canvasserProducts,
-    princodeProducts,
     personsList,
     loadingPersons,
     loadingOutletData,
+    loadingSurvey,
     productsMenang,
     productsInsentif,
     insentifHistory,
@@ -165,7 +165,7 @@ export function SalesCounterLineItemEditor({
       setB3RangeLabel("");
       return;
     }
-    const b3Info = getB3PeriodInfo(poaPeriod);
+    const b3Info = getB3RollingPeriodInfo(poaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
     const scProCodes = Array.from(new Set(canvasserProducts.map((cp) => cp.pro_code).filter(Boolean)));
@@ -211,14 +211,13 @@ export function SalesCounterLineItemEditor({
   const productOptions = useMemo(() => {
     return buildScProductOptions({
       canvasserProducts,
-      princodeProducts,
       productsMenang,
       productsInsentif,
       masterProducts: products,
       historySalesData,
       surveyData,
     });
-  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, products, historySalesData, surveyData]);
+  }, [canvasserProducts, productsMenang, productsInsentif, products, historySalesData, surveyData]);
 
   const [historyEntertain, setHistoryEntertain] = useState<number | null>(null);
   const [loadingHistoryEntertain, setLoadingHistoryEntertain] = useState(false);
@@ -247,6 +246,43 @@ export function SalesCounterLineItemEditor({
       isMounted = false;
     };
   }, [selectedOutlet?.kodePI]);
+
+  // Online vs Offline Komposisi Sales Calculation
+  const [onlinePiSales, setOnlinePiSales] = useState<number>(0);
+  const [offlineHistoricalSales, setOfflineHistoricalSales] = useState<number>(0);
+
+  useEffect(() => {
+    if (!outletId) {
+      setOfflineHistoricalSales(0);
+      return;
+    }
+    const prevQInfo = getPreviousQuarterInfo(poaPeriod);
+    const prevQQuarterPeriod = `${prevQInfo.year}-${prevQInfo.quarter}`;
+    const prevQMonths = quarterToMonths(prevQQuarterPeriod);
+
+    let isMounted = true;
+    postHistorySalesAction([outletId], prevQMonths).then((res) => {
+      if (!isMounted) return;
+      const parsed = parseOutletHistorySales(res, outletId);
+      setOfflineHistoricalSales(parsed.totalSales || 0);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [outletId, poaPeriod]);
+
+  const { komposisiOnlinePct, komposisiOfflinePct } = useMemo(() => {
+    const total = onlinePiSales + offlineHistoricalSales;
+    if (total <= 0) {
+      if (onlinePiSales > 0) return { komposisiOnlinePct: 100, komposisiOfflinePct: 0 };
+      if (offlineHistoricalSales > 0) return { komposisiOnlinePct: 0, komposisiOfflinePct: 100 };
+      return { komposisiOnlinePct: 100, komposisiOfflinePct: 0 };
+    }
+    const onPct = Math.round((onlinePiSales / total) * 100);
+    const offPct = 100 - onPct;
+    return { komposisiOnlinePct: onPct, komposisiOfflinePct: offPct };
+  }, [onlinePiSales, offlineHistoricalSales]);
 
   const monthlyBreakdown = activeMonths.map((m) => {
     let monthlyEstimasiSales = 0;
@@ -718,12 +754,13 @@ export function SalesCounterLineItemEditor({
 
             {outletId && !!selectedOutlet?.isOnline && (
               <>
-                <KomposisiSalesWidget onlinePct={50} offlinePct={50} />
+                <KomposisiSalesWidget onlinePct={komposisiOnlinePct} offlinePct={komposisiOfflinePct} />
                 <OnlineApotekSalesWidget
                   poaPeriod={poaPeriod}
                   outletCode={outletId}
                   outletName={selectedOutlet?.namaOutlet}
                   isOnline={selectedOutlet?.isOnline}
+                  onTotalPiSalesChange={setOnlinePiSales}
                 />
               </>
             )}
@@ -813,56 +850,72 @@ export function SalesCounterLineItemEditor({
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Jumlah Karyawan
                 </span>
-                <input
-                  type="number"
-                  value={jumlahKaryawan}
-                  onChange={(e) => setJumlahKaryawan(e.target.value)}
-                  placeholder="0"
-                  min={0}
-                  className="input-field text-center font-semibold text-sm h-[38px]"
-                />
+                {loadingSurvey ? (
+                  <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+                ) : (
+                  <input
+                    type="number"
+                    value={jumlahKaryawan}
+                    onChange={(e) => setJumlahKaryawan(e.target.value)}
+                    placeholder="0"
+                    min={0}
+                    className="input-field text-center font-semibold text-sm h-[38px]"
+                  />
+                )}
               </div>
 
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Jumlah Pasien (Per Hari)
                 </span>
-                <input
-                  type="number"
-                  value={jumlahPasien}
-                  onChange={(e) => setJumlahPasien(e.target.value)}
-                  placeholder="0"
-                  min={0}
-                  className="input-field text-center font-semibold text-sm h-[38px]"
-                />
+                {loadingSurvey ? (
+                  <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+                ) : (
+                  <input
+                    type="number"
+                    value={jumlahPasien}
+                    onChange={(e) => setJumlahPasien(e.target.value)}
+                    placeholder="0"
+                    min={0}
+                    className="input-field text-center font-semibold text-sm h-[38px]"
+                  />
+                )}
               </div>
 
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Jumlah Pasien Resep (Per Hari)
                 </span>
-                <input
-                  type="number"
-                  value={jumlahPasienResep}
-                  onChange={(e) => setJumlahPasienResep(e.target.value)}
-                  placeholder="0"
-                  min={0}
-                  className="input-field text-center font-semibold text-sm h-[38px]"
-                />
+                {loadingSurvey ? (
+                  <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+                ) : (
+                  <input
+                    type="number"
+                    value={jumlahPasienResep}
+                    onChange={(e) => setJumlahPasienResep(e.target.value)}
+                    placeholder="0"
+                    min={0}
+                    className="input-field text-center font-semibold text-sm h-[38px]"
+                  />
+                )}
               </div>
 
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Jumlah Pasien Non Resep (Per Hari)
                 </span>
-                <input
-                  type="number"
-                  value={jumlahPasienNonResep}
-                  readOnly
-                  disabled
-                  className="input-field text-center font-semibold text-sm h-[38px]"
-                  style={{ background: "var(--color-bg-subtle)", opacity: 0.85, cursor: "not-allowed" }}
-                />
+                {loadingSurvey ? (
+                  <div className="h-[38px] rounded-md animate-pulse border" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }} />
+                ) : (
+                  <input
+                    type="number"
+                    value={jumlahPasienNonResep}
+                    readOnly
+                    disabled
+                    className="input-field text-center font-semibold text-sm h-[38px]"
+                    style={{ background: "var(--color-bg-subtle)", opacity: 0.85, cursor: "not-allowed" }}
+                  />
+                )}
                 <span className="text-[10px] leading-tight mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                   Pasien Non Resep = Jumlah Pasien - Jumlah Pasien Resep
                 </span>
@@ -938,6 +991,7 @@ export function SalesCounterLineItemEditor({
                 b3SalesMap={b3SalesMap}
                 b3RangeLabel={b3RangeLabel}
                 surveyNexusData={surveyNexusData}
+                historySalesData={historySalesData}
               />
             </div>
 

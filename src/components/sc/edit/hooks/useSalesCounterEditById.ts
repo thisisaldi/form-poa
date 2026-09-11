@@ -8,11 +8,11 @@ import type { SelectedProductRow } from "../types/productRow";
 import type { SalesCounterProduct } from "@/app/(app)/sc/[id]/_models/SalesCounterProductModel";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import {
+  getScOutletBundleAction,
   getSalesCounterProductsAction,
   getScProductMenangAction,
   getScProductWithInsentifAction,
   getScInsentifHistoryAction,
-  getPrincodeProductsAction,
   getScCashbackPoaAction,
   getScOutletB3SalesAction,
   postHistorySalesAction,
@@ -27,7 +27,7 @@ import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { calculateCashbackDetails } from "./useSalesCounterCashback";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { quarterToMonths, resolvePeriodForQuarter } from "@/lib/quarterUtils";
-import { getB3PeriodInfo } from "@/lib/b3Utils";
+import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { formatDiskonPct, formatCashbackPct } from "../utils/formatEditUtils";
 import { findDiskonItem, findCashbackItem } from "../utils/productMatcherUtils";
@@ -144,30 +144,6 @@ export function useSalesCounterEditById({
   const [historyEntertain, setHistoryEntertain] = useState<number | null>(null);
   const [loadingHistoryEntertain, setLoadingHistoryEntertain] = useState(false);
 
-  useEffect(() => {
-    if (!kodePI) {
-      setHistoryEntertain(null);
-      return;
-    }
-    let isMounted = true;
-    setLoadingHistoryEntertain(true);
-    getHistoryEntertainAction(kodePI)
-      .then((val) => {
-        if (isMounted) setHistoryEntertain(val ?? 0);
-      })
-      .catch((err) => {
-        console.error("Error fetching history entertain:", err);
-        if (isMounted) setHistoryEntertain(0);
-      })
-      .finally(() => {
-        if (isMounted) setLoadingHistoryEntertain(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [kodePI]);
-
   const handlePeriodeAwalChange = (newStart: string, q = rowQuarter) => {
     setPeriodeAwal(newStart);
     if (!newStart) {
@@ -225,7 +201,6 @@ export function useSalesCounterEditById({
   };
 
   const [canvasserProducts, setCanvasserProducts] = useState<SalesCounterProduct[]>([]);
-  const [princodeProducts, setPrincodeProducts] = useState<any[]>([]);
   const [cashbackMatrix, setCashbackMatrix] = useState<any[]>([]);
   const [rawCashbackData, setRawCashbackData] = useState<any>(null);
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
@@ -235,6 +210,7 @@ export function useSalesCounterEditById({
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
   const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
+  const [loadingSurvey, setLoadingSurvey] = useState(false);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3QtyMap, setB3QtyMap] = useState<Map<string, number>>(new Map());
@@ -277,18 +253,47 @@ export function useSalesCounterEditById({
     );
   }, [diskonList]);
 
-  // Load canvasser products, filter draft products, and fetch SC-only B-3 sales
+  // Fetch bundle outlet data (products, b3 sales, survey, cashback, entertain, etc.) in a single round-trip
   useEffect(() => {
-    if (!kodePI) return;
-    const b3Info = getB3PeriodInfo(effectivePoaPeriod);
+    if (!kodePI) {
+      setHistoryEntertain(null);
+      setCanvasserProducts([]);
+      setCashbackMatrix([]);
+      setRawCashbackData(null);
+      setProductsMenang([]);
+      setProductsInsentif([]);
+      setHistorySalesData(null);
+      setSalesOnlineData(null);
+      setSurveyData([]);
+      setSurveyNexusData(null);
+      setRekomendasiProduk([]);
+      setB3SalesMap(new Map());
+      setB3QtyMap(new Map());
+      setOutletTotalAvgB3Sales(0);
+      return;
+    }
+
+    const b3Info = getB3RollingPeriodInfo(effectivePoaPeriod);
     setB3RangeLabel(b3Info.rangeLabel);
 
     let isMounted = true;
-    getSalesCounterProductsAction(kodePI).then((res) => {
-      if (!isMounted) return;
-      if (res?.data) {
-        setCanvasserProducts(res.data);
-        const validCodes = new Set(res.data.map((cp: any) => cp.pro_code).filter(Boolean));
+    setLoadingHistoryEntertain(true);
+    setLoadingSurvey(true);
+
+    getScOutletBundleAction({
+      outletId: kodePI,
+      includeEntertain: true,
+      b3TargetPeriods: b3Info.targetPeriods,
+    })
+      .then((bundle) => {
+        if (!isMounted) return;
+
+        // Entertain
+        setHistoryEntertain(bundle.historyEntertain ?? 0);
+
+        // Canvasser products & draft product validation
+        setCanvasserProducts(bundle.canvasserProducts);
+        const validCodes = new Set(bundle.canvasserProducts.map((cp: any) => cp.pro_code).filter(Boolean));
         setProducts((prev) => {
           const filtered = prev.filter(
             (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""))
@@ -298,104 +303,89 @@ export function useSalesCounterEditById({
             : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
         });
 
-        const scProCodes = Array.from(validCodes) as string[];
-        if (scProCodes.length === 0) {
-          setB3SalesMap(new Map());
-          setB3QtyMap(new Map());
-          setOutletTotalAvgB3Sales(0);
-          return;
-        }
-
-        postHistorySalesAction([kodePI], b3Info.targetPeriods, scProCodes).then((historyRes) => {
-          if (!isMounted) return;
-          const parsed = parseOutletHistorySales(historyRes, kodePI);
+        // B3 sales
+        if (bundle.b3SalesResponse) {
+          const parsed = parseOutletHistorySales(bundle.b3SalesResponse, kodePI);
           if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
             setB3SalesMap(parsed.productSalesMap);
             setB3QtyMap(parsed.productQtyMap);
             setOutletTotalAvgB3Sales(parsed.averageSales);
           } else {
-            getScOutletB3SalesAction(b3Info.period, kodePI, scProCodes).then((fallbackRes) => {
-              if (!isMounted) return;
-              const map = new Map<string, number>();
-              const qMap = new Map<string, number>();
-              let totalVal = 0;
-              if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
-                for (const item of fallbackRes.data) {
-                  if (item.pro_code) {
-                    const val = Number(item.average_sales) || 0;
-                    const qVal = Number(item.average_qty) || 0;
-                    map.set(item.pro_code, val);
-                    map.set(item.pro_code.replace(/^0+/, ""), val);
-                    qMap.set(item.pro_code, qVal);
-                    qMap.set(item.pro_code.replace(/^0+/, ""), qVal);
-                    totalVal += val;
+            // Fallback if needed
+            const scProCodes = Array.from(validCodes) as string[];
+            if (scProCodes.length > 0) {
+              getScOutletB3SalesAction(b3Info.period, kodePI, scProCodes).then((fallbackRes) => {
+                if (!isMounted) return;
+                const map = new Map<string, number>();
+                const qMap = new Map<string, number>();
+                let totalVal = 0;
+                if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
+                  for (const item of fallbackRes.data) {
+                    if (item.pro_code) {
+                      const val = Number(item.average_sales) || 0;
+                      const qVal = Number(item.average_qty) || 0;
+                      map.set(item.pro_code, val);
+                      map.set(item.pro_code.replace(/^0+/, ""), val);
+                      qMap.set(item.pro_code, qVal);
+                      qMap.set(item.pro_code.replace(/^0+/, ""), qVal);
+                      totalVal += val;
+                    }
                   }
                 }
-              }
-              if (map.size > 0) {
-                setB3SalesMap(map);
-                setB3QtyMap(qMap);
-                setOutletTotalAvgB3Sales(totalVal);
-              }
-            });
+                if (map.size > 0) {
+                  setB3SalesMap(map);
+                  setB3QtyMap(qMap);
+                  setOutletTotalAvgB3Sales(totalVal);
+                }
+              });
+            }
           }
-        });
-      }
-    });
+        }
+
+        // Others
+        setProductsMenang(bundle.productsMenang);
+        setProductsInsentif(bundle.productsInsentif);
+        setHistorySalesData(bundle.historySalesData);
+        setSalesOnlineData(bundle.salesOnlineData);
+        setSurveyData(bundle.surveyData);
+        setSurveyNexusData(bundle.surveyNexusData);
+
+        const latestSurvey = bundle.surveyNexusData?.data?.surveys?.[0];
+        if (latestSurvey?.avg_patient != null) {
+          setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
+        }
+        const totalEmp = latestSurvey?.total_outlet_employees ?? (bundle.surveyNexusData?.data as any)?.total_outlet_employees;
+        if (totalEmp != null) {
+          setJumlahKaryawan((prev) => (!prev || prev === "0" ? String(totalEmp) : prev));
+        }
+
+        setRekomendasiProduk(bundle.rekomendasiProduk);
+        setRawCashbackData(bundle.cashbackData);
+        const array = Array.isArray(bundle.cashbackData?.matrix)
+          ? bundle.cashbackData.matrix
+          : Array.isArray(bundle.cashbackData?.data?.matrix)
+          ? bundle.cashbackData.data.matrix
+          : Array.isArray(bundle.cashbackData?.data)
+          ? bundle.cashbackData.data
+          : Array.isArray(bundle.cashbackData)
+          ? bundle.cashbackData
+          : [];
+        setCashbackMatrix(array);
+      })
+      .catch((err) => {
+        console.error("Error fetching SC outlet bundle:", err);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setLoadingHistoryEntertain(false);
+          setLoadingSurvey(false);
+        }
+      });
 
     return () => {
       isMounted = false;
     };
   }, [kodePI, effectivePoaPeriod]);
-
-  useEffect(() => {
-    if (!kodePI) return;
-    getPrincodeProductsAction().then((res) => {
-      if (res?.data) setPrincodeProducts(res.data);
-    });
-    getScProductMenangAction(kodePI).then((res) => setProductsMenang(res?.data || []));
-    getScProductWithInsentifAction(kodePI).then((res) => setProductsInsentif(res?.data || []));
-    getHistorySalesAction(kodePI, false).then((res) => setHistorySalesData(res || null));
-    getSalesOnlineAction(kodePI).then((res) => setSalesOnlineData(res || null));
-    getSurveyRekomendasiByOutletAggregate(kodePI).then((res) => setSurveyData(res || []));
-    getSurveyNexusAction(kodePI).then((res) => {
-      setSurveyNexusData(res || null);
-      const latestSurvey = res?.data?.surveys?.[0];
-      if (latestSurvey?.avg_patient != null) {
-        setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
-      }
-    });
-    getRekomendasiProdukAction(kodePI).then((res) => {
-      if (!res?.data) {
-        setRekomendasiProduk([]);
-        return;
-      }
-      let prods: LossSalesRekomendasiProduct[] = [];
-      if (Array.isArray(res.data)) {
-        for (const group of res.data) {
-          if (Array.isArray(group.products)) {
-            prods.push(...group.products);
-          }
-        }
-      } else if (res.data && Array.isArray((res.data as any).products)) {
-        prods = (res.data as any).products;
-      }
-      setRekomendasiProduk(prods);
-    });
-    getScCashbackPoaAction(kodePI).then((res) => {
-      setRawCashbackData(res);
-      const array = Array.isArray(res?.matrix)
-        ? res.matrix
-        : Array.isArray(res?.data?.matrix)
-        ? res.data.matrix
-        : Array.isArray(res?.data)
-        ? res.data
-        : Array.isArray(res)
-        ? res
-        : [];
-      setCashbackMatrix(array);
-    });
-  }, [kodePI]);
 
   // Period-aware SC insentif history
   const targetPeriod = useMemo(
@@ -510,14 +500,13 @@ export function useSalesCounterEditById({
   const productOptions = useMemo(() => {
     return buildScProductOptions({
       canvasserProducts,
-      princodeProducts,
       productsMenang,
       productsInsentif,
       masterProducts,
       historySalesData,
       surveyData,
     });
-  }, [canvasserProducts, princodeProducts, productsMenang, productsInsentif, masterProducts, historySalesData, surveyData]);
+  }, [canvasserProducts, productsMenang, productsInsentif, masterProducts, historySalesData, surveyData]);
 
   const totalEstimasiSales = products.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
@@ -743,7 +732,6 @@ export function useSalesCounterEditById({
     historyEntertain,
     loadingHistoryEntertain,
     canvasserProducts,
-    princodeProducts,
     cashbackMatrix,
     rawCashbackData,
     productsMenang,
@@ -753,6 +741,7 @@ export function useSalesCounterEditById({
     salesOnlineData,
     surveyData,
     surveyNexusData,
+    loadingSurvey,
     rekomendasiProduk,
     b3SalesMap,
     b3QtyMap,

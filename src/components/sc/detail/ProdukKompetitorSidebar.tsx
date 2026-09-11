@@ -13,6 +13,7 @@ interface ProdukKompetitorSidebarProps {
   salesOnlineData?: any;
   isLoadingSalesOnline?: boolean;
   periodLabel?: string;
+  surveyNexusData?: any;
 }
 
 export function ProdukKompetitorSidebar({
@@ -24,6 +25,7 @@ export function ProdukKompetitorSidebar({
   salesOnlineData,
   isLoadingSalesOnline = false,
   periodLabel,
+  surveyNexusData,
 }: ProdukKompetitorSidebarProps) {
   const {
     kompetitorFilter,
@@ -39,6 +41,7 @@ export function ProdukKompetitorSidebar({
     products,
     salesOnlineData,
     selectedCodes,
+    surveyNexusData,
   });
 
   if (!isOpen) return null;
@@ -295,7 +298,7 @@ export function ProdukKompetitorSidebar({
                   style={{ background: "var(--color-surface)" }}
                 >
                   {/* 1. SELL OUT */}
-                  {((showSurvey && item.hasSurvey) || (showHealthyOne && item.healthyOneUb > 0)) && (
+                  {(showSurvey || (showHealthyOne && item.healthyOneUb > 0)) && (
                     <div className="space-y-1">
                       <div
                         className="text-[9px] font-bold uppercase tracking-wider"
@@ -305,40 +308,56 @@ export function ProdukKompetitorSidebar({
                       </div>
                       <div className="space-y-1 text-[10px]">
                         {/* Survey */}
-                        {showSurvey && item.hasSurvey && (
-                          <div
-                            className="p-1.5 rounded border flex items-center justify-between gap-1.5"
-                            style={{
-                              borderColor: "var(--color-border)",
-                              background: "var(--color-bg)",
-                            }}
-                          >
-                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                              <span
-                                className="shrink-0 px-1.5 py-0.5 rounded font-semibold text-[8px] uppercase border"
+                        {showSurvey && (
+                          item.hasSurvey && item.surveyCompetitors?.length > 0 ? (
+                            item.surveyCompetitors.map((sc, scIdx) => (
+                              <div
+                                key={`${sc.namaKompetitor}-${scIdx}`}
+                                className="p-1.5 rounded border flex items-center justify-between gap-1.5"
                                 style={{
-                                  background: "#fef2f2",
-                                  color: "#dc2626",
-                                  borderColor: "#fecaca",
+                                  borderColor: "var(--color-border)",
+                                  background: "var(--color-bg)",
                                 }}
                               >
-                                Survey
-                              </span>
-                              <span
-                                className="truncate font-medium text-[10px]"
-                                style={{ color: "var(--color-text)" }}
-                                title={item.surveyName}
-                              >
-                                {item.surveyName}
-                              </span>
-                            </div>
-                            <span
-                              className="font-bold shrink-0 text-[10px]"
-                              style={{ color: "var(--color-text)" }}
+                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                  <span
+                                    className="shrink-0 px-1.5 py-0.5 rounded font-semibold text-[8px] uppercase border"
+                                    style={{
+                                      background: "#fef2f2",
+                                      color: "#dc2626",
+                                      borderColor: "#fecaca",
+                                    }}
+                                  >
+                                    Survey
+                                  </span>
+                                  <span
+                                    className="truncate font-medium text-[10px]"
+                                    style={{ color: "var(--color-text)" }}
+                                    title={sc.namaKompetitor}
+                                  >
+                                    {sc.namaKompetitor}
+                                  </span>
+                                </div>
+                                <span
+                                  className="font-bold shrink-0 text-[10px]"
+                                  style={{ color: "var(--color-text)" }}
+                                >
+                                  {sc.salesForecast} UB
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div
+                              className="p-1.5 rounded border text-[10px] text-center"
+                              style={{
+                                borderColor: "var(--color-border)",
+                                color: "var(--color-text-muted)",
+                                background: "var(--color-bg)",
+                              }}
                             >
-                              {item.surveyDisplay}
-                            </span>
-                          </div>
+                              Tidak ada data survey kompetitor.
+                            </div>
+                          )
                         )}
 
                         {/* HealthyOne */}

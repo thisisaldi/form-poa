@@ -1001,9 +1001,6 @@ export function ScSidebar({
                       <span className="text-[11px] font-bold" style={{ color: "var(--color-text)" }}>
                         {monthLabel}
                       </span>
-                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue, #2563eb)" }}>
-                        SC Active
-                      </span>
                     </div>
 
                     {/* Metric Summary Header Card: Target / Realisasi / Insentif */}

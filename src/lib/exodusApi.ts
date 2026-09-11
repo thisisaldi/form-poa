@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 /**
  * Client for the external "Exodus Activity" API (Pharos) — visit history by
@@ -22,7 +23,7 @@ async function getAccessToken(): Promise<string | null> {
   if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.token;
 
   try {
-    const res = await fetch(env.EXODUS_AUTH_URL!, {
+    const res = await fetchWithTimeout(env.EXODUS_AUTH_URL!, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -31,7 +32,7 @@ async function getAccessToken(): Promise<string | null> {
         grant_type: "client_credentials",
       }),
       cache: "no-store",
-    });
+    }, 4000);
     if (!res.ok) return null;
     const data = (await res.json()) as { access_token?: string; expires_in?: number };
     if (!data.access_token) return null;
@@ -295,7 +296,7 @@ export async function getExodusOutletIdByCode(outletCode: string): Promise<numbe
   try {
     const url = new URL(`${env.EXODUS_API_BASE_URL}/core/v1/outlets`);
     url.searchParams.set("outlet_code", outletCode);
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 4000);
     if (!res.ok) return null;
     const body = (await res.json()) as { data?: { id: number; outlet_code: string }[]; error?: { status: boolean } };
     if (body.error?.status || !Array.isArray(body.data)) return null;
@@ -462,10 +463,10 @@ export async function getExodusOutletBudgets(
     url.searchParams.set("period", period);
     url.searchParams.set("outlet_ids", String(outletId));
 
-    const res = await fetch(url.toString(), {
+    const res = await fetchWithTimeout(url.toString(), {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
-    });
+    }, 4000);
 
     if (!res.ok) {
       console.error(`[Exodus] /analytics/v1/budgets error status: ${res.status}`);
@@ -602,10 +603,10 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
   if (!token) return null;
 
   try {
-    const res = await fetch(`${env.EXODUS_API_BASE_URL}/core/v1/products`, {
+    const res = await fetchWithTimeout(`${env.EXODUS_API_BASE_URL}/core/v1/products`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
-    });
+    }, 5000);
     if (!res.ok) return null;
     const body = (await res.json()) as {
       data?: {

@@ -22,7 +22,7 @@ export function KomposisiSalesWidget({
       }}
     >
       <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "var(--color-text)" }}>
-        <span>Komposisi Sales (DUMMY)</span>
+        <span>Komposisi Sales</span>
       </div>
 
       <div className="flex items-center gap-2">

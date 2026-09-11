@@ -1,4 +1,4 @@
-import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 
 export interface SalesOnlineItem {
   code: string;
@@ -18,11 +18,11 @@ export async function getSalesOnline(piCode: string): Promise<SalesOnlineRespons
   if (!piCode) return null;
   try {
     const url = `${CANVASSER_API_BASE_URL}/api/get-sales-online?pi_code=${encodeURIComponent(piCode)}`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-    });
+    }, 4000);
 
     if (!res.ok) {
       console.error(`Failed to fetch sales online from ${url}: status ${res.status}`);

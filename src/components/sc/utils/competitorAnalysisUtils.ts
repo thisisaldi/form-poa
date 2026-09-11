@@ -14,53 +14,21 @@ export interface DummyKompetitorItem {
   };
 }
 
-export const DUMMY_KOMPETITOR_DATA: DummyKompetitorItem[] = [
-  {
-    kodeProduk: "0201478",
-    namaProduk: "PRORIS SUSP 60 ML RASA JERUK",
-    subtitel: "0201478 · PRORIS · Ibuprofen 100mg/5ml",
-    zatAktif: "IBUPROFEN",
-    internalSales: {
-      healthyOneUb: 10,
-      b2bSellInUb: 16.67,
-    },
-    surveyCompetitor: {
-      namaKompetitor: "Sanmol Syrup 60ml",
-      forecastPenjualanKompetitor: "5 UB",
-      potensiProrisUb: 35,
-    },
-  },
-  {
-    kodeProduk: "0201784",
-    namaProduk: "POLYSILANE SUSPENSI 100 ML",
-    subtitel: "0201784 · POLYSILANE · Antasida Doen & Dimethicone",
-    zatAktif: "AL(OH)3, MG(OH)2, DIMETHICONE",
-    internalSales: {
-      healthyOneUb: 18,
-      b2bSellInUb: 7.33,
-    },
-    surveyCompetitor: {
-      namaKompetitor: "Mylanta Liquid 150ml",
-      forecastPenjualanKompetitor: "8 UB",
-      potensiProrisUb: 51,
-    },
-  },
-  {
-    kodeProduk: "0202144",
-    namaProduk: "MICROLAX 3 X 5 ML",
-    subtitel: "0202144 · MICROLAX · Na Lauril Sulfoasetat",
-    zatAktif: "NA LAURYL SULFATE, PEG, SORBITOL, NA CITRATE, SORBIC ACID",
-    internalSales: {
-      healthyOneUb: 8,
-      b2bSellInUb: 3.33,
-    },
-    surveyCompetitor: {
-      namaKompetitor: "Dulcolax Suppositoria",
-      forecastPenjualanKompetitor: "4 UB",
-      potensiProrisUb: 27,
-    },
-  },
-];
+export const DUMMY_KOMPETITOR_DATA: DummyKompetitorItem[] = [];
+
+export const FALLBACK_PRODUCT_NAMES: Record<string, string> = {
+  "0110492": "PRORIS FORTE 200MG SUSP 50ML",
+  "0201478": "PRORIS SUSP 60 ML RASA JERUK",
+  "0202672": "PRORIS IBUPROFEN 10 KAPLET",
+  "0201784": "POLYSILANE SUSPENSI 100 ML",
+  "0200850": "POLYSILANE SUSPENSI 180 ML",
+  "0200851": "POLYSILANE MAX TABLET",
+  "0202144": "MICROLAX 3 X 5 ML",
+  "0203638": "MICROLAXTAB BISACODYL 5MG",
+  "0302259": "NOURISH SKIN 30 TABLET",
+  "0110168": "GLICOLON 5MG TAB 100`S",
+  "0110515": "ARCOLASE 20MG TAB 30`S",
+};
 
 export function formatQtySales(qty: number): string {
   if (qty == null || isNaN(qty)) return "0";
@@ -81,10 +49,51 @@ export function isSameZatAktif(a?: string | null, b?: string | null): boolean {
   return wordsA.some((wa) => wordsB.includes(wa));
 }
 
+/**
+ * Build lookup map from Nexus survey response: procode -> list of competitors
+ */
+export function buildNexusSurveyMap(surveyNexusData: any) {
+  const map = new Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>();
+  if (!surveyNexusData?.data?.has_data) return map;
+
+  const surveys = surveyNexusData.data.surveys;
+  if (!Array.isArray(surveys) || surveys.length === 0) return map;
+
+  // Use latest survey (index 0)
+  const latestSurvey = surveys[0];
+  const products = Array.isArray(latestSurvey?.products) ? latestSurvey.products : [];
+
+  for (const p of products) {
+    const compName = String(p.product_name || "").trim();
+    const forecast = Number(p.sales_forecast) || 0;
+    const switching = Array.isArray(p.switching_products) ? p.switching_products : [];
+
+    for (const sw of switching) {
+      const procode = String(sw.procode || "").trim();
+      if (!procode) continue;
+      const stripped = procode.replace(/^0+/, "");
+      const entry = { namaKompetitor: compName, salesForecast: forecast };
+
+      const addKey = (k: string) => {
+        const list = map.get(k) ?? [];
+        if (!list.some((it) => it.namaKompetitor === compName)) {
+          list.push(entry);
+        }
+        map.set(k, list);
+      };
+
+      addKey(procode);
+      if (stripped) addKey(stripped);
+    }
+  }
+  return map;
+}
+
 export interface ProductPotensiDetail {
   kodeProduk: string;
   namaProduk: string;
   zatAktif: string;
+  surveyCompetitors: Array<{ namaKompetitor: string; salesForecast: number }>;
   surveyQty: number;
   surveyName: string;
   healthyOneUb: number;
@@ -104,7 +113,8 @@ export function getProductPotensiDetail(
     zatAktif?: string;
     zat_aktif?: string;
   },
-  salesOnlineItems: any[] = []
+  salesOnlineItems: any[] = [],
+  nexusSurveyMap?: Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>
 ): ProductPotensiDetail {
   const code = String(product.kodeProduk || product.pro_code || product.kode_item || "").trim();
   const strippedCode = code.replace(/^0+/, "");
@@ -112,72 +122,35 @@ export function getProductPotensiDetail(
     product.namaProduk ||
     product.pro_name ||
     product.name ||
+    FALLBACK_PRODUCT_NAMES[code] ||
+    FALLBACK_PRODUCT_NAMES[strippedCode] ||
     code ||
     "Produk"
   ).trim();
-  const upperName = name.toUpperCase();
 
-  // 1. Resolve Dummy Config or Defaults based on product code / brand
-  const dummyMap = new Map<string, DummyKompetitorItem>();
-  for (const d of DUMMY_KOMPETITOR_DATA) {
-    const c = d.kodeProduk.trim();
-    dummyMap.set(c, d);
-    dummyMap.set(c.replace(/^0+/, ""), d);
+  // Look up zatAktif from product directly or from salesOnlineItems
+  let zatAktif = (product.zatAktif || product.zat_aktif || "").trim().toUpperCase();
+  if (!zatAktif && Array.isArray(salesOnlineItems)) {
+    const matchedOnline = salesOnlineItems.find((it) => {
+      const itCode = String(it.code || "").trim();
+      return itCode === code || (strippedCode && itCode.replace(/^0+/, "") === strippedCode);
+    });
+    if (matchedOnline?.zat_aktif) {
+      zatAktif = String(matchedOnline.zat_aktif).trim().toUpperCase();
+    }
   }
 
-  const dummyRef = dummyMap.get(code) || dummyMap.get(strippedCode);
+  // 1. Resolve Survey from real Nexus survey map (No dummy fallback)
+  const matchedCompetitors = nexusSurveyMap
+    ? (nexusSurveyMap.get(code) || (strippedCode ? nexusSurveyMap.get(strippedCode) : undefined) || [])
+    : [];
 
-  let zatAktif = (product.zatAktif || product.zat_aktif || dummyRef?.zatAktif || "").trim().toUpperCase();
-  let defaultKompetitorName = `Kompetitor ${name.split(" ")[0] || "Umum"}`;
-  let defaultSurveyQty = 5;
-  let defaultHealthyOneUb = 10;
+  const surveyCompetitors = matchedCompetitors;
+  const surveyQty = matchedCompetitors.reduce((sum, c) => sum + c.salesForecast, 0);
+  const surveyName = matchedCompetitors.map((c) => c.namaKompetitor).join(", ");
 
-  if (upperName.includes("PRORIS")) {
-    if (!zatAktif) zatAktif = "IBUPROFEN";
-    defaultKompetitorName = "Sanmol Syrup 60ml";
-    defaultSurveyQty = 5;
-    defaultHealthyOneUb = 10;
-  } else if (upperName.includes("POLYSILANE")) {
-    if (!zatAktif) zatAktif = "AL(OH)3, MG(OH)2, DIMETHICONE";
-    defaultKompetitorName = "Mylanta Liquid 150ml";
-    defaultSurveyQty = 8;
-    defaultHealthyOneUb = 18;
-  } else if (upperName.includes("MICROLAX")) {
-    if (!zatAktif) zatAktif = "NA LAURYL SULFATE, PEG, SORBITOL, NA CITRATE, SORBIC ACID";
-    defaultKompetitorName = "Dulcolax Suppositoria";
-    defaultSurveyQty = 4;
-    defaultHealthyOneUb = 8;
-  } else if (upperName.includes("ARCOLASE")) {
-    if (!zatAktif) zatAktif = "ESOMEPRAZOLE";
-    defaultKompetitorName = "Nexium 20mg";
-    defaultSurveyQty = 5;
-    defaultHealthyOneUb = 10;
-  } else if (upperName.includes("SALBUVEN")) {
-    if (!zatAktif) zatAktif = "SALBUTAMOL";
-    defaultKompetitorName = "Ventolin 2mg";
-    defaultSurveyQty = 4;
-    defaultHealthyOneUb = 6;
-  } else if (upperName.includes("VASTROL") || upperName.includes("STAVINOR")) {
-    if (!zatAktif) zatAktif = "ATORVASTATIN";
-    defaultKompetitorName = "Lipitor 20mg";
-    defaultSurveyQty = 6;
-    defaultHealthyOneUb = 12;
-  } else if (upperName.includes("BECANTEX")) {
-    if (!zatAktif) zatAktif = "REBAMIPIDE";
-    defaultKompetitorName = "Mucosta 100mg";
-    defaultSurveyQty = 5;
-    defaultHealthyOneUb = 8;
-  } else if (upperName.includes("ROZGRA")) {
-    if (!zatAktif) zatAktif = "SILDENAFIL";
-    defaultKompetitorName = "Viagra 50mg";
-    defaultSurveyQty = 3;
-    defaultHealthyOneUb = 5;
-  }
-
-  const surveyName = dummyRef?.surveyCompetitor?.namaKompetitor || defaultKompetitorName;
-  const rawSurveyForecast = String(dummyRef?.surveyCompetitor?.forecastPenjualanKompetitor || defaultSurveyQty);
-  const surveyQty = parseFloat(rawSurveyForecast.replace(/[^0-9.]/g, "")) || defaultSurveyQty;
-  const healthyOneUb = dummyRef?.internalSales?.healthyOneUb ?? defaultHealthyOneUb;
+  // HealthyOne: 0 because no API data currently exists (no dummy 10 UB)
+  const healthyOneUb = 0;
 
   // 2. Logic-wise matching for Sell In (B2B)
   const matchingB2bItems: Array<{ code: string; namaProduk: string; qty_sales: number }> = [];
@@ -196,6 +169,8 @@ export function getProductPotensiDetail(
           it.namaProduk ||
           it.pro_name ||
           it.name ||
+          FALLBACK_PRODUCT_NAMES[itCode] ||
+          FALLBACK_PRODUCT_NAMES[itStripped] ||
           (itCode ? `Produk ${itCode}` : "Produk B2B");
 
         matchingB2bItems.push({
@@ -214,6 +189,7 @@ export function getProductPotensiDetail(
     kodeProduk: code,
     namaProduk: name,
     zatAktif,
+    surveyCompetitors,
     surveyQty,
     surveyName,
     healthyOneUb,

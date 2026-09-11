@@ -1,4 +1,4 @@
-import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 import { prisma } from "@/lib/prisma";
 
 export interface ApotekOnlineResponse {
@@ -50,11 +50,11 @@ export async function getApotekOnline(
       targetNip
     )}&position=${encodeURIComponent(targetPosition || "MR")}`;
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-    });
+    }, 4000);
 
     if (!res.ok) {
       return [];

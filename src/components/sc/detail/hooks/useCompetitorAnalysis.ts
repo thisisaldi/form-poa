@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import {
   getProductPotensiDetail,
+  buildNexusSurveyMap,
   type ProductPotensiDetail,
 } from "../../utils/competitorAnalysisUtils";
 import {
@@ -23,14 +24,20 @@ export function useCompetitorAnalysis({
   products = [],
   salesOnlineData,
   selectedCodes = new Set<string>(),
+  surveyNexusData,
 }: {
   products?: Array<any>;
   salesOnlineData?: any;
   selectedCodes?: Set<string>;
+  surveyNexusData?: any;
 }) {
   const [kompetitorFilter, setKompetitorFilter] = useState<CompetitorFilterKey>("semua");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [page, setPage] = useState<number>(1);
+
+  const nexusSurveyMap = useMemo(() => {
+    return buildNexusSurveyMap(surveyNexusData);
+  }, [surveyNexusData]);
 
   const salesOnlineItems = useMemo(() => {
     if (Array.isArray(salesOnlineData?.data)) return salesOnlineData.data;
@@ -41,7 +48,7 @@ export function useCompetitorAnalysis({
   // Build card details for all products (from get-sales-counter-product)
   const cards: CompetitorCardItem[] = useMemo(() => {
     return products.map((p) => {
-      const detail = getProductPotensiDetail(p, salesOnlineItems);
+      const detail = getProductPotensiDetail(p, salesOnlineItems, nexusSurveyMap);
       const code = detail.kodeProduk;
       const stripped = code.replace(/^0+/, "");
       const isSelected = selectedCodes.has(code) || selectedCodes.has(stripped);
@@ -51,13 +58,13 @@ export function useCompetitorAnalysis({
         ...detail,
         subtitel,
         surveyDisplay,
-        hasSurvey: Boolean(detail.surveyName),
+        hasSurvey: detail.surveyCompetitors.length > 0,
         hasHealthyOne: detail.healthyOneUb > 0,
         hasB2b: detail.b2bProducts.length > 0,
         isSelected,
       };
     });
-  }, [products, salesOnlineItems, selectedCodes]);
+  }, [products, salesOnlineItems, selectedCodes, nexusSurveyMap]);
 
   // Filter cards by pill tabs and search query
   const filteredCards = useMemo(() => {

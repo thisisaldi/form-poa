@@ -1,4 +1,4 @@
-import { CANVASSER_API_BASE_URL } from "@/lib/canvasserApi";
+import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 
 export interface HistorySalesItem {
   code: string;
@@ -23,11 +23,11 @@ export async function getHistorySales(piCode: string, agg: boolean = true): Prom
   try {
     const aggParam = agg ? "&agg=True" : "";
     const url = `${CANVASSER_API_BASE_URL}/api/get-history-sales?pi_code=${encodeURIComponent(piCode)}${aggParam}`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-    });
+    }, 4000);
 
     if (!res.ok) {
       if (res.status === 404) {
