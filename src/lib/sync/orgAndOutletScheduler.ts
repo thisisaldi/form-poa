@@ -1,16 +1,18 @@
 /**
- * In-process daily scheduler for the org-structure → outlet sync pair
- * (runOrgSync then runOutletSync — order matters, outlet sync reads its NIP
- * list from `User`, which org sync populates/refreshes; see outletSync.ts's
- * module doc comment). Both previously had only an external-cron-triggered
- * HTTP endpoint (/api/sync/org-structure, /api/sync/outlet) whose actual
- * schedule lives outside this repo — this fires them automatically from
- * inside the running server instead, same self-contained pattern as
- * salesHistoryMonthlyScheduler.ts (2026-09-02 user request). Runs once at
- * 00:00 WIB, then every 24h.
+ * In-process daily scheduler for the org-structure → outlet → outlet-coverage
+ * sync chain (runOrgSync, then runOutletSync, then runOutletCoverageSync —
+ * order matters: outlet sync reads its NIP list from `User`, which org sync
+ * populates/refreshes; outlet-coverage sync reads both `User` and
+ * `MrOutletAssignment`, which the first two steps just refreshed; see each
+ * step's own module doc comment). The first two previously had only an
+ * external-cron-triggered HTTP endpoint (/api/sync/org-structure,
+ * /api/sync/outlet) whose actual schedule lives outside this repo — this
+ * fires them automatically from inside the running server instead, same
+ * self-contained pattern as salesHistoryMonthlyScheduler.ts (2026-09-02 user
+ * request). Runs once at 00:00 WIB, then every 24h.
  *
- * If org-structure fails, outlet sync is skipped this run (would read a
- * stale/incomplete User list otherwise) — next day's run tries both again.
+ * If an earlier step fails, later steps are skipped this run (would read
+ * stale/incomplete data otherwise) — next day's run tries all three again.
  *
  * globalThis guard prevents duplicate intervals if register() runs more than
  * once in the same process (e.g. dev-mode reloads). A SyncLock row (see
@@ -19,6 +21,7 @@
 
 import { runOrgSync } from "./orgStructureSync";
 import { runOutletSync } from "./outletSync";
+import { runOutletCoverageSync } from "./outletCoverageSync";
 import { acquireSyncLock } from "./syncLock";
 import { msUntilNextWibMidnight } from "./salesHistoryMonthlyScheduler";
 
@@ -55,7 +58,18 @@ async function runOnce() {
       (outletResult.errors.length > 0 ? `, errors: ${outletResult.errors.join("; ")}` : "")
     );
   } catch (err) {
-    console.error("[scheduler] outlet sync failed:", err);
+    console.error("[scheduler] outlet sync failed, skipping outlet-coverage sync this run:", err);
+    return;
+  }
+
+  try {
+    const coverageResult = await runOutletCoverageSync();
+    console.log(
+      `[scheduler] outlet-coverage done — ${coverageResult.outletsConsidered} outlet(s) considered, ` +
+      `${coverageResult.outletsUpdated} updated, ${coverageResult.outletsUnresolved} unresolved`
+    );
+  } catch (err) {
+    console.error("[scheduler] outlet-coverage sync failed:", err);
   }
 }
 
