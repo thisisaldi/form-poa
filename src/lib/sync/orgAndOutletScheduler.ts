@@ -1,10 +1,13 @@
 /**
  * In-process daily scheduler for the org-structure → outlet → outlet-coverage
- * sync chain (runOrgSync, then runOutletSync, then runOutletCoverageSync —
- * order matters: outlet sync reads its NIP list from `User`, which org sync
+ * → pending-approval-holder sync chain (runOrgSync, then runOutletSync, then
+ * runOutletCoverageSync, then runPendingApprovalHolderSync — order matters:
+ * outlet sync reads its NIP list from `User`, which org sync
  * populates/refreshes; outlet-coverage sync reads both `User` and
- * `MrOutletAssignment`, which the first two steps just refreshed; see each
- * step's own module doc comment). The first two previously had only an
+ * `MrOutletAssignment`, which the first two steps just refreshed;
+ * pending-approval-holder sync only needs fresh `User`, but runs last for
+ * simplicity, same "sequential, skip rest on failure" chain as the others;
+ * see each step's own module doc comment). The first two previously had only an
  * external-cron-triggered HTTP endpoint (/api/sync/org-structure,
  * /api/sync/outlet) whose actual schedule lives outside this repo — this
  * fires them automatically from inside the running server instead, same
@@ -22,6 +25,7 @@
 import { runOrgSync } from "./orgStructureSync";
 import { runOutletSync } from "./outletSync";
 import { runOutletCoverageSync } from "./outletCoverageSync";
+import { runPendingApprovalHolderSync } from "./pendingApprovalHolderSync";
 import { acquireSyncLock } from "./syncLock";
 import { msUntilNextWibMidnight } from "./salesHistoryMonthlyScheduler";
 
@@ -69,7 +73,18 @@ async function runOnce() {
       `${coverageResult.outletsUpdated} updated, ${coverageResult.outletsUnresolved} unresolved`
     );
   } catch (err) {
-    console.error("[scheduler] outlet-coverage sync failed:", err);
+    console.error("[scheduler] outlet-coverage sync failed, skipping pending-approval-holder sync this run:", err);
+    return;
+  }
+
+  try {
+    const holderResult = await runPendingApprovalHolderSync();
+    console.log(
+      `[scheduler] pending-approval-holder done — ${holderResult.doctorsConsidered} doctor(s) considered, ` +
+      `${holderResult.doctorsUpdated} updated, ${holderResult.doctorsUnresolved} unresolved`
+    );
+  } catch (err) {
+    console.error("[scheduler] pending-approval-holder sync failed:", err);
   }
 }
 

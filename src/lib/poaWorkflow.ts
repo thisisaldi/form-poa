@@ -43,9 +43,11 @@ const SUBMIT_TRANSITIONS: Partial<Record<PoaStatus, TransitionTarget>> = {
 
 // Keyed by the REAL Role enum value of whoever can act at that chain
 // position — the ASD chain label maps to Role.GM (not a "Role.ASD" that
-// doesn't exist), per schema.prisma's comment on Role.SD.
-const ROLE_LEVEL: Record<string, number> = { MR: 0, ASM: 1, SM: 2, NSM: 3, GM: 4, SD: 5 };
-const CHAIN_LEVEL: Record<ChainRole, number> = { ASM: 1, SM: 2, NSM: 3, ASD: 4, SD: 5 };
+// doesn't exist), per schema.prisma's comment on Role.SD. Exported for
+// pendingApprovalHolderSync.ts (needs the same scale to re-resolve stale
+// currentHolderId snapshots from live org structure).
+export const ROLE_LEVEL: Record<string, number> = { MR: 0, ASM: 1, SM: 2, NSM: 3, GM: 4, SD: 5 };
+export const CHAIN_LEVEL: Record<ChainRole, number> = { ASM: 1, SM: 2, NSM: 3, ASD: 4, SD: 5 };
 const APPROVAL_CHAIN: ChainRole[] = ["ASM", "SM", "NSM", "ASD", "SD"];
 const CHAIN_STATUS: Record<ChainRole, PoaStatus> = {
   ASM: PoaStatus.SUBMITTED_TO_ASM,
@@ -53,6 +55,16 @@ const CHAIN_STATUS: Record<ChainRole, PoaStatus> = {
   NSM: PoaStatus.SUBMITTED_TO_NSM,
   ASD: PoaStatus.SUBMITTED_TO_ASD,
   SD: PoaStatus.SUBMITTED_TO_SD,
+};
+// Reverse of CHAIN_STATUS above — which chain-position role a PENDING
+// (SUBMITTED_TO_X) status implies is currently awaiting approval. Exported
+// for pendingApprovalHolderSync.ts.
+export const PENDING_STATUS_ROLE: Partial<Record<PoaStatus, ChainRole>> = {
+  [PoaStatus.SUBMITTED_TO_ASM]: "ASM",
+  [PoaStatus.SUBMITTED_TO_SM]: "SM",
+  [PoaStatus.SUBMITTED_TO_NSM]: "NSM",
+  [PoaStatus.SUBMITTED_TO_ASD]: "ASD",
+  [PoaStatus.SUBMITTED_TO_SD]: "SD",
 };
 const APPROVED_STATUS: Record<ChainRole, PoaStatus> = {
   ASM: PoaStatus.APPROVED_BY_ASM,
