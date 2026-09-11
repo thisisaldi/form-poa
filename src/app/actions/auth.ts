@@ -18,6 +18,8 @@ export async function loginAction(formData: FormData): Promise<void> {
       return encodeError("NIP tidak ditemukan. Hubungi administrator.");
     if (result.error === "inactive")
       return encodeError("Akun tidak aktif. Hubungi administrator.");
+    if (result.error === "staging_blocked")
+      return encodeError("Role MR/ASM/SM/NSM tidak bisa login di staging.");
     return encodeError("Terjadi kesalahan. Coba lagi.");
   }
 

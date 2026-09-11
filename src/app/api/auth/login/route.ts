@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
       not_found: "NIP tidak ditemukan. Hubungi administrator.",
       inactive: "Akun tidak aktif. Hubungi administrator.",
       dummy: "Akun ini belum punya NIP resmi terverifikasi dan belum bisa login. Hubungi administrator.",
+      staging_blocked: "Role MR/ASM/SM/NSM tidak bisa login di staging.",
     };
     const status = result.error === "not_found" ? 404 : 403;
     return NextResponse.json({ ok: false, error: messages[result.error] ?? "Terjadi kesalahan." }, { status });
