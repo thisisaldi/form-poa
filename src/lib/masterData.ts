@@ -80,11 +80,25 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
   // ever written for the MR role) — but they can still create a POA scoped to
   // specific outlets whose own MR/ASM/SM chain is vacant down to them (see
   // canCreatePoa in authz.ts and Outlet.coveredByNip/coveredByRole).
+  // Additionally, for managers simulating MR or territory planning (Option B),
+  // include outlets assigned to subordinate MRs in their subtree.
   if (user?.role && user.role !== "MR") {
     const covered = await prisma.outlet.findMany({
       where: { coveredByNip: userId, coveredByRole: { not: "MR" } },
     });
-    return [...fromAssignments, ...covered.map(toMockCustomer)];
+    const { getSubordinateMRNips } = await import("@/lib/authz");
+    const mrNips = await getSubordinateMRNips(user as any);
+    const subtreeOutlets = await getOutletsForMrSubtree(mrNips);
+
+    const seen = new Set<string>();
+    const out: MockCustomer[] = [];
+    for (const o of [...fromAssignments, ...covered.map(toMockCustomer), ...subtreeOutlets]) {
+      if (o.id && !seen.has(o.id)) {
+        seen.add(o.id);
+        out.push(o);
+      }
+    }
+    return out;
   }
 
   return fromAssignments;
@@ -225,7 +239,7 @@ import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 
 function stripTestPrefix(nip: string): string {
-  return nip.replace(/^test/i, "");
+  return nip.replace(/^test(?:psr|mr)?/i, "");
 }
 
 export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {

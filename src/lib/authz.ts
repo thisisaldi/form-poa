@@ -484,6 +484,15 @@ export async function canCreatePoa(userId: string): Promise<boolean> {
       where: { coveredByNip: userId, coveredByRole: { not: Role.MR } },
     });
     if (coveredCount > 0) return true;
+
+    // Subordinate MR assignments check (allows manager simulating MR or covering team to create POA):
+    const mrNips = await getSubordinateMRNips({ nip: userId, role: user.role as Role } as User);
+    if (mrNips.length > 0) {
+      const subAssignmentCount = await prisma.mrOutletAssignment.count({
+        where: { nipMR: { in: mrNips } },
+      });
+      if (subAssignmentCount > 0) return true;
+    }
   }
 
   return false;

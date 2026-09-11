@@ -66,8 +66,12 @@ function DashboardSkeleton() {
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const session = (await getCurrentUser())!;
-  const actor = await prisma.user.findUnique({ where: { nip: session.userId } });
-  if (!actor) return null;
+  const rawActor = await prisma.user.findUnique({ where: { nip: session.userId } });
+  if (!rawActor) return null;
+
+  const actor: UserType = session.role === "MR" && rawActor.role !== "MR"
+    ? { ...rawActor, role: "MR" as any, jabatan: session.jabatan ?? rawActor.jabatan }
+    : rawActor;
 
   if (actor.project === "OMEGA") {
     redirect("/sc/dashboard");

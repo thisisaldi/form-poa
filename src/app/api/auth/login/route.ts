@@ -31,9 +31,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: messages[result.error] ?? "Terjadi kesalahan." }, { status });
   }
 
-  await createSession(result.user);
+  await createSession(result.user, result.isTestPsr);
   return NextResponse.json({
     ok: true,
-    user: { nip: result.user.nip, name: result.user.name, role: result.user.role },
+    user: {
+      nip: result.user.nip,
+      name: result.isTestPsr ? `${result.user.name} (PSR)` : result.user.name,
+      role: result.isTestPsr ? "MR" : result.user.role,
+    },
   });
 }

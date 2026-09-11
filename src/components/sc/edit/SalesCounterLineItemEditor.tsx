@@ -155,7 +155,7 @@ export function SalesCounterLineItemEditor({
   const [b3QtyMap, setB3QtyMap] = useState<Map<string, number>>(new Map());
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
   const [outletTotalAvgB3Sales, setOutletTotalAvgB3Sales] = useState<number>(0);
-  const [isEntertainOpen, setIsEntertainOpen] = useState(true);
+  const [isEntertainOpen, setIsEntertainOpen] = useState(false);
 
   useEffect(() => {
     setB3SalesMap(new Map());
