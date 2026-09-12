@@ -87,7 +87,14 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
       where: { coveredByNip: userId, coveredByRole: { not: "MR" } },
     });
     const { getSubordinateMRNips } = await import("@/lib/authz");
-    const mrNips = await getSubordinateMRNips(user as any);
+    // `user` was fetched with select: { isDummy, role } only — no `nip` —
+    // so `user.nip` is undefined; getSubordinateMRNips then walks
+    // getMrIdsUnder(undefined, depth), whose `nipAtasan: { in: [undefined] }`
+    // query throws at Prisma's validation layer (2026-09-12 bug report: ASM
+    // with a fully vacant team got a hard error clicking "create POA", which
+    // renders /poa/[id]/edit -> this function, right after creation).
+    // `userId` (this function's own param) is the same NIP, already in scope.
+    const mrNips = await getSubordinateMRNips({ nip: userId, role: user.role as Role } as User);
     const subtreeOutlets = await getOutletsForMrSubtree(mrNips);
 
     const seen = new Set<string>();
