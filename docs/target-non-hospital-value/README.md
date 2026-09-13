@@ -1,0 +1,7 @@
+# Target Non-Hospital (Omega) Value — Index
+
+1. **Sumber requirement**: permintaan langsung user (chat, 2026-09-11), bukan memo. Sumber data: `internal/Target Non-Hospital (In Value).xlsx`.
+2. **Status**: 🟢 v1 diimplementasikan (2026-09-11) — import script + resolver + `GET /api/target-value?divisi=non-hospital` (digabung ke endpoint hospital yang sudah ada per revisi user, bukan route terpisah — lihat `docs/API.md`). Sudah diimport ke DB staging (589 baris, 2026-09-11). **Belum diimport ke production** — menunggu konfirmasi. Tidak ada UI admin (lihat "Non-goals v1" di `03-ui-and-access.md`).
+3. **Ringkasan**: Tim non-hospital (project `OMEGA`) punya target value bulanan (Rupiah) per GT (territory), terpisah dari `TargetHospitalValue` karena sumber Excel, struktur kolom (FF+SM saja, tanpa ASM/NSM eksplisit), dan mekanisme "siapa pemegang GT" berbeda — non-hospital pakai `User.namaWilayah` langsung (bukan `Outlet`/`MrOutletAssignment`). Target diimport per (namaGT, divisi, periode) dari kolom "TARGET yyyymm (PENGAJUAN)", lalu di-resolve LIVE ke pemegang GT saat ini lewat `User.namaWilayah`, sama pola dengan `getCurrentGTsForMrNips` di hospital — supaya saat GT pindah tangan, target ikut otomatis tanpa re-import.
+
+Cross-reference: tidak menutup item `docs/TODO.md` manapun (fitur baru, bukan gap lama).
