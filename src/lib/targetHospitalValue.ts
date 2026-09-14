@@ -152,52 +152,30 @@ export async function getCurrentGTsForMrNips(mrNips: string[], periode?: string)
 // SUKAJADI" — different territory composition, not just spelling) don't
 // close under either rule — those need manual reconciliation on the source
 // side, not more normalization.
-function normalizeGTName(s: string): string {
+export function normalizeGTName(s: string): string {
   const noDummyPrefix = s.replace(/^\s*DUMMY\s+(SPV|MR)?\s*/i, "");
   return noDummyPrefix.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
 
-async function findTargetHospitalValueRowsForGTs(
-  gts: string[],
-  periode?: string
-): Promise<{ namaGT: string; nipMR: string | null; namaMR: string; target: number; periode: string }[]> {
-  if (gts.length === 0) return [];
-  const wanted = new Set(gts.map(normalizeGTName));
-  const rows = (await prisma.targetHospitalValue.findMany({
-    where: periode ? { periode } : {},
-    select: { namaGT: true, nipMR: true, namaMR: true, periode: true, target: true },
-  })) as { namaGT: string; nipMR: string | null; namaMR: string; periode: string; target: { toString(): string } }[];
-  return rows
-    .filter((r) => wanted.has(normalizeGTName(r.namaGT)))
-    .map((r) => ({ namaGT: r.namaGT, nipMR: r.nipMR, namaMR: r.namaMR, periode: r.periode, target: parseFloat(r.target.toString()) }));
-}
-
 /**
- * Sums TargetHospitalValue.target for every GT in `gts` (as returned by
- * getCurrentGTsForMrNips), matching by normalizeGTName since the two tables'
- * namaGT spelling isn't always identical (see normalizeGTName above).
- */
-export async function sumTargetHospitalValueForGTs(
-  gts: string[],
-  periode?: string
-): Promise<{ periode: string; target: number }[]> {
-  const rows = await findTargetHospitalValueRowsForGTs(gts, periode);
-  const sums = new Map<string, number>();
-  for (const r of rows) sums.set(r.periode, (sums.get(r.periode) ?? 0) + r.target);
-  return [...sums.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([periode, target]) => ({ periode, target }));
-}
-
-/**
- * Same GT matching as sumTargetHospitalValueForGTs, but returns the raw
- * per-GT rows instead of a single summed total per periode — same shape as
- * /api/target-value's no-`?nip=` "get target all" response, scoped to just
- * `gts` (2026-09-03, for callers who want the per-GT breakdown under a
- * subtree, not just its total).
+ * Per-GT rows matching `gts` (as returned by getCurrentGTsForMrNips),
+ * matching by normalizeGTName since the two tables' namaGT spelling isn't
+ * always identical (see normalizeGTName above) — used for NSM session
+ * scoping (2026-09-14: GT-based query only, no more `?nip=` rollup, see
+ * docs/API.md). `gts.length === 0` means unrestricted (ADMIN/Basic Auth).
  */
 export async function getTargetHospitalValueRowsForGTs(
   gts: string[],
   periode?: string
-): Promise<{ namaGT: string; nipMR: string | null; namaMR: string; target: number; periode: string }[]> {
-  const rows = await findTargetHospitalValueRowsForGTs(gts, periode);
-  return rows.sort((a, b) => a.periode.localeCompare(b.periode) || a.namaGT.localeCompare(b.namaGT, "id"));
+): Promise<{ namaGT: string; kodeGT: string | null; nipMR: string | null; namaMR: string; target: number; periode: string }[]> {
+  if (gts.length === 0) return [];
+  const wanted = new Set(gts.map(normalizeGTName));
+  const rows = (await prisma.targetHospitalValue.findMany({
+    where: periode ? { periode } : {},
+    select: { namaGT: true, kodeGT: true, nipMR: true, namaMR: true, periode: true, target: true },
+  })) as { namaGT: string; kodeGT: string | null; nipMR: string | null; namaMR: string; periode: string; target: { toString(): string } }[];
+  return rows
+    .filter((r) => wanted.has(normalizeGTName(r.namaGT)))
+    .map((r) => ({ namaGT: r.namaGT, kodeGT: r.kodeGT, nipMR: r.nipMR, namaMR: r.namaMR, periode: r.periode, target: parseFloat(r.target.toString()) }))
+    .sort((a, b) => a.periode.localeCompare(b.periode) || a.namaGT.localeCompare(b.namaGT, "id"));
 }

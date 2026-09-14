@@ -97,11 +97,18 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
     const mrNips = await getSubordinateMRNips({ nip: userId, role: user.role as Role } as User);
     const subtreeOutlets = await getOutletsForMrSubtree(mrNips);
 
+    // 2026-09-14 bug fix: MockCustomer (toMockCustomer's return shape) has no
+    // `.id` field at all — its identifier is `kodePI`. The dedup below used
+    // to check `o.id`, which is undefined on EVERY item, so `if (o.id && ...)`
+    // was always false and `out` came back empty no matter what
+    // fromAssignments/covered/subtreeOutlets actually contained. This was the
+    // real reason the "vacant team" ASM's outlet dropdown stayed empty even
+    // after Outlet.coveredByNip/coveredByRole was correctly populated.
     const seen = new Set<string>();
     const out: MockCustomer[] = [];
     for (const o of [...fromAssignments, ...covered.map(toMockCustomer), ...subtreeOutlets]) {
-      if (o.id && !seen.has(o.id)) {
-        seen.add(o.id);
+      if (o.kodePI && !seen.has(o.kodePI)) {
+        seen.add(o.kodePI);
         out.push(o);
       }
     }

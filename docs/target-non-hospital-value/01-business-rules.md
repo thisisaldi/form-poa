@@ -42,13 +42,19 @@ Maka resolusi live pemegang GT untuk non-hospital = **`User.findFirst({ where: {
 
 Baris "GROSIR ..." di sumber (divisi `GROSIR_PBF`) sering VACANT (dikonfirmasi 2026-09-11: query `namaWilayah contains "GROSIR"` di tabel User project OMEGA — hasil kosong, tidak ada live holder tersinkron untuk territory grosir manapun saat ini). Ini valid, bukan bug — sama seperti hospital, GT vacant tetap boleh punya target, `nipMR` null di baris hasil resolusi.
 
+## Kode GT (2026-09-14)
+
+Workbook sumbernya punya sheet "STRUKTUR" terpisah (per-outlet org structure dump, ~56.500 baris, kolom "Kode GT"/"Nama GT") yang sebelumnya cuma dipakai buat XLOOKUP nama FF/SM di sheet target (lihat cara ExcelJS expose `.value.result` di `01-business-rules.md` bagian atas) — belum dipakai buat ambil kode GT-nya sendiri. Dikonfirmasi 2026-09-14: SEMUA 347 GT name distinct di sheet target match 1 baris STRUKTUR persis (exact string match, tanpa perlu normalisasi), 1:1 dengan Kode GT, ZERO collision (1 nama selalu 1 kode, 1 kode selalu 1 nama). `TargetNonHospitalValue.kodeGT` di-isi dari lookup ini saat import — lihat `02-data-model.md` buat detail kolomnya.
+
 ## Divisi source (query filter)
 
 `?kategori=RETAIL` atau `?kategori=GROSIR_PBF` (case-insensitive), omit = semua kategori. Dinamai `kategori`, bukan `divisi` — `?divisi` sudah dipakai `/api/target-value` (nama endpoint yang dipakai ulang, lihat "Endpoint" di bawah) untuk memilih hospital vs non-hospital.
 
-## Endpoint (revisi 2026-09-11)
+## Endpoint (revisi 2026-09-11, revisi 2026-09-14)
 
-Awalnya dirancang sebagai route terpisah `/api/target-value-non-hospital`. Direvisi user jadi digabung ke `GET /api/target-value` yang sudah ada, dipilih lewat `?divisi=hospital` (default)/`?divisi=non-hospital` — satu endpoint, dua tabel backing, karena shape query/auth/response-nya memang sudah identik. Lihat `docs/API.md` untuk kontrak lengkapnya.
+Awalnya dirancang sebagai route terpisah `/api/target-value-non-hospital`. Direvisi user jadi digabung ke `GET /api/target-value` yang sudah ada, dipilih lewat `?divisi=hospital` (default)/`?divisi=non-hospital` — satu endpoint, dua tabel backing, karena shape query/auth/response-nya memang sudah identik.
+
+**2026-09-14**: `?nip=` (rollup-by-person) DIHAPUS TOTAL dari endpoint ini — GT-based only sekarang, sama untuk hospital maupun non-hospital (user: "tidak ada target by nip, adanya target by gt"). BREAKING CHANGE — konsumer existing yang sudah pakai `?nip=` (diketahui: Insentif Sales, terintegrasi 2026-09-13, sehari sebelum perubahan ini) perlu migrasi. Lihat `docs/API.md` untuk kontrak lengkap (query param, response shape, auth/scoping NSM baru yang gak lagi lewat query param).
 
 ## Open questions — status & assumptions dipakai untuk v1
 

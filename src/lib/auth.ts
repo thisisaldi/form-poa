@@ -48,36 +48,10 @@ export async function verifyNip(nip: string): Promise<VerifyResult> {
   const user: User | null = await prisma.user.findUnique({
     where: { nip: targetNip },
   });
-  if (!user) {
-    if (targetNip === "SCMR123456") {
-      if (IS_STAGING) return { ok: false, error: "staging_blocked" };
-      return {
-        ok: true,
-        user: {
-          nip: "SCMR123456",
-          name: "Sales Counter Test MR",
-          role: "MR",
-          jabatan: null,
-          email: "scmr123456@example.com",
-          nipAtasan: "ASM001",
-          namaAtasan: "Agus Pratama",
-          kodeWilayah: "GT-01",
-          namaWilayah: "GT JAKARTA 1",
-          isActive: true,
-          isDummy: false,
-          syncedAt: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          project: "OMEGA",
-          sippAbsPtId: null,
-        },
-        isTestPsr,
-      };
-    }
-    return { ok: false, error: "not_found" };
-  }
+  if (!user) return { ok: false, error: "not_found" };
   if (!user.isActive) return { ok: false, error: "inactive" };
   const effectiveRole = isTestPsr ? "MR" : user.role;
+  if (user.project === 'OMEGA') return { ok: true, user, isTestPsr };
   if (IS_STAGING && STAGING_BLOCKED_ROLES.includes(effectiveRole)) {
     return { ok: false, error: "staging_blocked" };
   }
