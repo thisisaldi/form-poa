@@ -1,8 +1,16 @@
 import type { ScProductItemData } from "../../types";
 
+export interface ProductMonthlyQty {
+  month: string;      // e.g. "202607"
+  monthLabel: string; // e.g. "Jul"
+  qty: number;
+}
+
 export interface ProductDetailRowItem {
   product: ScProductItemData;
-  qty: number;
+  qty: number; // monthly average or legacy flat qty
+  totalQty: number; // total quantity across all months in period
+  monthlyBreakdown?: ProductMonthlyQty[];
   estSalesMonth: number;
   estSalesFull: number;
   nilaiScPerMonth: number;
@@ -14,7 +22,10 @@ export interface ProductDetailRowItem {
 
 export interface ProductDetailRowsSummary {
   rows: ProductDetailRowItem[];
+  distinctMonths: string[];
+  monthlyTotalBreakdown?: ProductMonthlyQty[];
   sumQtyPerBulan: number;
+  sumTotalQty: number;
   sumEstSales: number;
   sumEstSalesPerMonth: number;
   sumNilaiSc: number;

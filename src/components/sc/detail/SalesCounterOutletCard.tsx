@@ -827,11 +827,8 @@ export function SalesCounterOutletCard({
                 <thead>
                   <tr style={{ background: "var(--color-bg-subtle)" }}>
                     <th className="text-left px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Produk SC</th>
-                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      <div className="leading-tight">
-                        <div>Qty ST</div>
-                        <div className="text-[10px] font-normal opacity-75">/ Bln</div>
-                      </div>
+                    <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      Qty ST
                     </th>
                     <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
                       <div className="leading-tight">
@@ -860,21 +857,45 @@ export function SalesCounterOutletCard({
                   </tr>
                 </thead>
                 <tbody>
-                  {productDetailRows.rows.map(({ product: p, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, valCashbackFull, salesHistorical, growthPct }) => (
+                  {productDetailRows.rows.map(({ product: p, qty, totalQty, monthlyBreakdown, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, valCashbackFull, salesHistorical, growthPct }) => (
                     <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
                       <td className="px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
                         <div className="max-w-[150px] sm:max-w-none truncate sm:whitespace-normal font-semibold">
                           {p.namaProduk}
                         </div>
                       </td>
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{p.qtyPerBulan || 0}</td>
+                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                        <div className="flex flex-col items-end gap-0.5">
+                          {monthlyBreakdown && monthlyBreakdown.length > 1 ? (
+                            <>
+                              {monthlyBreakdown.map((m) => (
+                                <div key={m.month} className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
+                                  <span style={{ color: "var(--color-text-muted)" }}>{m.monthLabel}:</span>
+                                  <span className="font-semibold">{m.qty}</span>
+                                </div>
+                              ))}
+                              <div className="mt-0.5 pt-0.5 border-t border-[var(--color-border)] flex items-center justify-end gap-1 text-[11px] font-bold font-mono">
+                                <span className="text-[10px] font-normal" style={{ color: "var(--color-text-muted)" }}>Tot:</span>
+                                <span>{totalQty}</span>
+                              </div>
+                            </>
+                          ) : monthlyBreakdown && monthlyBreakdown.length === 1 ? (
+                            <div className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
+                              <span style={{ color: "var(--color-text-muted)" }}>{monthlyBreakdown[0].monthLabel}:</span>
+                              <span className="font-semibold">{monthlyBreakdown[0].qty}</span>
+                            </div>
+                          ) : (
+                            <span className="font-semibold text-xs">{totalQty || qty || 0}</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                         {estSalesFull > 0 ? (
                           <div>
                             <span>{formatRp(estSalesFull)}</span>
                             {lama > 1 && (
                               <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                                ({formatRp(estSalesMonth)}/bln)
+                                ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(estSalesMonth)}/bln)
                               </span>
                             )}
                           </div>
@@ -888,7 +909,7 @@ export function SalesCounterOutletCard({
                             <span>{formatRp(nilaiScFull)}</span>
                             {lama > 1 && (
                               <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                                ({formatRp(nilaiScPerMonth)}/bln)
+                                ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(nilaiScPerMonth)}/bln)
                               </span>
                             )}
                           </div>
@@ -927,14 +948,33 @@ export function SalesCounterOutletCard({
                 <tfoot>
                   <tr className="font-semibold border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
                     <td className="px-2.5 py-2 sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Total</td>
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>{productDetailRows.sumQtyPerBulan}</td>
+                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                      <div className="flex flex-col items-end gap-0.5">
+                        {productDetailRows.monthlyTotalBreakdown && productDetailRows.monthlyTotalBreakdown.length > 1 ? (
+                          <>
+                            {productDetailRows.monthlyTotalBreakdown.map((m) => (
+                              <div key={m.month} className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
+                                <span style={{ color: "var(--color-text-muted)" }}>{m.monthLabel}:</span>
+                                <span className="font-semibold">{m.qty}</span>
+                              </div>
+                            ))}
+                            <div className="mt-0.5 pt-0.5 border-t border-[var(--color-border)] flex items-center justify-end gap-1 text-[11px] font-bold font-mono">
+                              <span className="text-[10px] font-normal" style={{ color: "var(--color-text-muted)" }}>Tot:</span>
+                              <span>{productDetailRows.sumTotalQty} ST</span>
+                            </div>
+                          </>
+                        ) : (
+                          <span className="font-semibold text-xs">{productDetailRows.sumTotalQty} ST</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                       {productDetailRows.sumEstSales > 0 ? (
                         <div>
                           <span>{formatRp(productDetailRows.sumEstSales)}</span>
                           {lama > 1 && (
                             <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({formatRp(productDetailRows.sumEstSalesPerMonth)}/bln)
+                              ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(productDetailRows.sumEstSalesPerMonth)}/bln)
                             </span>
                           )}
                         </div>
@@ -948,7 +988,7 @@ export function SalesCounterOutletCard({
                           <span>{formatRp(productDetailRows.sumNilaiSc)}</span>
                           {lama > 1 && (
                             <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({formatRp(productDetailRows.sumNilaiScPerMonth)}/bln)
+                              ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(productDetailRows.sumNilaiScPerMonth)}/bln)
                             </span>
                           )}
                         </div>

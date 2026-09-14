@@ -285,12 +285,13 @@ export function useSalesCounterOutletData({
     return calculateProductDetailRows({
       scProducts,
       lama,
+      periodeAwal: draft.periodeAwal,
       cashbackData,
       cbDetails,
       b3SalesMap,
       b3TotalOutletSalesPerMonth,
     });
-  }, [scProducts, lama, cashbackData, cbDetails, b3SalesMap, b3TotalOutletSalesPerMonth]);
+  }, [scProducts, lama, draft.periodeAwal, cashbackData, cbDetails, b3SalesMap, b3TotalOutletSalesPerMonth]);
 
   const insentifGrowthPct = useMemo(() => {
     if (!historyInsentifInfo || historyInsentifInfo.avgB3Insentif <= 0) return null;

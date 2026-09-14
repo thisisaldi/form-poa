@@ -74,7 +74,7 @@ export function useSalesCounterEditById({
   masterProducts,
 }: UseSalesCounterEditByIdParams) {
   // Pre-filled locked values
-  const selectedPersonIds = persons.map((p) => parseInt(p.nik_ktp, 10));
+  const selectedPersonIds = persons.map((p) => parseInt(p.outletPersonId || p.nik_ktp, 10));
 
   // Quarter & period setup
   const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();

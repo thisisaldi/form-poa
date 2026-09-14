@@ -1777,8 +1777,11 @@ model PoaScProductItem {
   namaProduk          String
   produkKompetitor    String?
 
+  // Periode bulan pengajuan produk (Format YYYYMM, e.g. "202607")
+  periodeMonth        String
+
   // Parameter Rencana Penjualan per Produk
-  qtyPerBulan         Int        @default(0) // Qty produk Satuan Terkecil per bulan
+  qtyPerBulan         Int        @default(0) // Qty produk Satuan Terkecil pada bulan ini
 
   // Persentase Finansial & Insentif
   persenMatriksSc     Decimal    @db.Decimal(5, 2)  // Nilai insentif SC dari HNA
@@ -1791,8 +1794,7 @@ model PoaScProductItem {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
-  @@index([poaScId])
-  @@unique([poaScId, kodeProduk]) // Satu produk hanya boleh diinput 1 kali per outlet
+  @@unique([poaScId, periodeMonth, kodeProduk]) // Unik per outlet, per bulan, per produk
 }
 
 // 3. Daftar Staff Canvasser / Sales Counter Person yang ditugaskan di Outlet
@@ -1802,15 +1804,14 @@ model PoaScPersonItem {
   poaSc               PoaScForm  @relation(fields: [poaScId], references: [id], onDelete: Cascade)
 
   // Data Staff Canvasser
-  nik_ktp         String     // NIK Staff SC
+  outletPersonId  String     // ID Staff Canvasser Outlet (person_id)
   personName      String     // Nama Staff SC
   positionName    String     // Jabatan (Apoteker, SPV, dll.)
 
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  @@index([poaScId])
-  @@unique([poaScId, nik_ktp]) // Satu staff hanya boleh terdaftar 1 kali per outlet
+  @@unique([poaScId, outletPersonId]) // Satu staff hanya boleh terdaftar 1 kali per outlet (otomatis mengindeks poaScId)
 }
 
 // 4. Biaya Rencana Entertain Bulanan (Per-Outlet Per-Bulan)

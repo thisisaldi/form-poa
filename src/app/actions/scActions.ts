@@ -74,7 +74,7 @@ export async function saveSalesCounterFormAction(
   const personItems = selectedPersonIds.map((pId) => {
     const detail = canvasserData.find((c: any) => c.person_id === pId);
     return {
-      nik_ktp: String(pId),
+      outletPersonId: String(pId),
       personName: detail?.person_name || `Sales Counter ${pId}`,
       positionName: detail?.position_name || "Sales Counter",
     };
@@ -163,8 +163,8 @@ export async function saveSalesCounterFormAction(
 
         // Compare persons
         if (!hasChanges) {
-          const existingNiks = existing.persons.map((p: any) => p.nik_ktp).sort();
-          const newNiks = personItems.map((p) => p.nik_ktp).sort();
+          const existingNiks = existing.persons.map((p: any) => p.outletPersonId || p.nik_ktp).sort();
+          const newNiks = personItems.map((p) => p.outletPersonId).sort();
           if (JSON.stringify(existingNiks) !== JSON.stringify(newNiks)) {
             hasChanges = true;
           }
@@ -359,7 +359,7 @@ export async function saveSalesCounterFormAction(
       await tx.poaScPersonItem.createMany({
         data: personItems.map((p) => ({
           poaScId: poaSc.id,
-          nik_ktp: p.nik_ktp,
+          outletPersonId: p.outletPersonId,
           personName: p.personName,
           positionName: p.positionName,
         })),
@@ -443,25 +443,25 @@ export async function saveSalesCounterFormAction(
         }
 
         // Compare person staff items
-        const oldPersonMap = new Map<string, any>(existing.persons.map((p: any) => [p.nik_ktp, p]));
-        const newPersonMap = new Map<string, any>(personItems.map((p: any) => [p.nik_ktp, p]));
+        const oldPersonMap = new Map<string, any>(existing.persons.map((p: any) => [p.outletPersonId || p.nik_ktp, p]));
+        const newPersonMap = new Map<string, any>(personItems.map((p: any) => [p.outletPersonId, p]));
         const personDiffs: any[] = [];
 
-        for (const [nik, p] of newPersonMap.entries()) {
-          if (!oldPersonMap.has(nik)) {
+        for (const [pId, p] of newPersonMap.entries()) {
+          if (!oldPersonMap.has(pId)) {
             personDiffs.push({
               type: "add",
-              nik_ktp: p.nik_ktp,
+              outletPersonId: p.outletPersonId,
               personName: p.personName,
               positionName: p.positionName,
             });
           }
         }
-        for (const [nik, p] of oldPersonMap.entries()) {
-          if (!newPersonMap.has(nik)) {
+        for (const [pId, p] of oldPersonMap.entries()) {
+          if (!newPersonMap.has(pId)) {
             personDiffs.push({
               type: "delete",
-              nik_ktp: p.nik_ktp,
+              outletPersonId: p.outletPersonId || p.nik_ktp,
               personName: p.personName,
               positionName: p.positionName,
             });

@@ -280,7 +280,8 @@ export async function getSalesCounterDetailData(
       historySalesQuarter: outletHistorySalesQuarterMap.get(d.kodePI) ?? 0,
       persons: d.persons.map((p: any) => ({
         id: p.id,
-        nik_ktp: p.nik_ktp,
+        outletPersonId: p.outletPersonId,
+        nik_ktp: p.outletPersonId,
         personName: p.personName,
         positionName: p.positionName,
       })),
@@ -292,6 +293,7 @@ export async function getSalesCounterDetailData(
           id: p.id,
           kodeProduk: p.kodeProduk,
           namaProduk: p.namaProduk,
+          periodeMonth: p.periodeMonth,
           produkKompetitor: p.produkKompetitor || null,
           qtyPerBulan: p.qtyPerBulan,
           persenMatriksSc: Number(p.persenMatriksSc.toString()),

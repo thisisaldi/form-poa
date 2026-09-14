@@ -14,6 +14,7 @@ export interface ScProductItemData {
   id: string;
   kodeProduk: string;
   namaProduk: string;
+  periodeMonth?: string;
   produkKompetitor: string | null;
   qtyPerBulan: number;
   persenMatriksSc: number;
@@ -32,7 +33,8 @@ export interface ScProductItemData {
 
 export interface ScPersonItemData {
   id: string;
-  nik_ktp: string;
+  outletPersonId: string;
+  nik_ktp?: string; // alias for backwards compatibility
   personName: string;
   positionName: string;
 }
