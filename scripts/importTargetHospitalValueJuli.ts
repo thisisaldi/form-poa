@@ -7,11 +7,17 @@
  * per-territory like "Target Hospital (in Value).xlsx"), so this creates ONE
  * TargetHospitalValue row per MR-level nip instead of skipping the month
  * entirely — Q3 rollups (Jul+Aug+Sep) would otherwise silently miss July.
- * namaGT: reuses the SAME namaGT as that nip's real August row when exactly
- * one exists (185 of 239, verified 2026-08-24 — so July lands in the same
- * row as Aug-Dec in the admin table, not a separate one), else falls back to
- * a synthetic "[JULI-NO-GT] <nama> (<nip>)" placeholder (mostly Hospinet,
- * which isn't part of the GT-level source at all).
+ * namaGT: reuses the GT that nip CURRENTLY holds live (Outlet +
+ * MrOutletAssignment, via getCurrentGTsForMrNips) when exactly one exists —
+ * 2026-09-14 rewrite: originally cross-referenced that nip's stored August
+ * TargetHospitalValue.nipMR row instead of live data, but nipMR was dropped
+ * from the table entirely that same day (see schema doc comment, "udah
+ * gaada personil ... cuma ada target by gt") — live current-holder is the
+ * only source left, and is actually MORE correct for a historical backfill
+ * anyway (doesn't depend on whatever GT that nip happened to hold back when
+ * August was last imported). Falls back to a synthetic
+ * "[JULI-NO-GT] <nama> (<nip>)" placeholder when 0 or >1 GT resolves (mostly
+ * Hospinet, which isn't part of the GT-level source at all).
  *
  * Sources:
  *  - "internal/2. RATIO INSENTIF JULI 26 UNTUK PAK BRIAN.xlsx", sheet
@@ -32,13 +38,10 @@
  *
  * nip is given DIRECTLY by both sources (not name-matched, unlike the
  * recurring GT import) — confirmed zero NIP overlap between the two files
- * (disjoint divisions, matches the business owner's statement). ASM/SM/NSM
- * attribution is derived by walking User.nipAtasan up from each resolved
- * nip, in memory (one-time script over ~280 rows, so the per-node walk
- * docs/PERFORMANCE.md §2 point 2 warns against for real app routes is fine
- * here — same exemption as sync job batches). A nip that doesn't resolve to
- * a live User keeps the source's raw name (nipMR null), same tolerant
- * pattern as the recurring import script.
+ * (disjoint divisions, matches the business owner's statement). A nip that
+ * doesn't resolve to a live User falls back to the placeholder namaGT (no
+ * live GT to resolve without a real User) — the raw source name isn't kept
+ * anywhere anymore since this table has no personnel columns (2026-09-14).
  *
  * Effects: upserts TargetHospitalValue on (namaGT, periode="202607") only —
  * does not touch any other periode's rows.
@@ -51,6 +54,7 @@ import path from "path";
 import ExcelJS from "exceljs";
 import { randomUUID } from "crypto";
 import { prisma } from "../src/lib/prisma";
+import { getCurrentGTsForMrNips } from "../src/lib/targetHospitalValue";
 
 const PERIODE = "202607";
 
@@ -128,90 +132,49 @@ async function main() {
   // otherwise leave the old placeholder row behind as an orphaned duplicate.
   await prisma.targetHospitalValue.deleteMany({ where: { periode: PERIODE, namaGT: { startsWith: "[JULI-NO-GT]" } } });
 
-  // A July nip that already owns exactly one real GT in the August (Pengajuan)
-  // import reuses THAT namaGT — 2026-08-24 fix, found 2026-08-24: the first
-  // version of this script always used a synthetic per-person namaGT, so July
-  // never showed up in the same row as that MR's real Aug-Dec GT data (185 of
-  // 239 nips DO have exactly one matching Aug GT — verified zero ambiguous
-  // multi-GT cases). Only nips with no Aug GT match (mostly Hospinet, which
-  // isn't part of the GT-level source at all) fall back to the placeholder.
-  const augRows = await prisma.targetHospitalValue.findMany({ where: { periode: "202608", nipMR: { not: null } }, select: { nipMR: true, namaGT: true } });
-  const augGtByNip = new Map<string, string[]>();
-  for (const r of augRows) {
-    if (!r.nipMR) continue;
-    augGtByNip.set(r.nipMR, [...(augGtByNip.get(r.nipMR) ?? []), r.namaGT]);
-  }
-
-  // ── nip -> User map (single bulk fetch, in-memory hierarchy walk below) ──
-  const users = await prisma.user.findMany({ where: { isDummy: false }, select: { nip: true, name: true, role: true, nipAtasan: true } });
+  // ── nip -> User map (single bulk fetch) ──
+  const users = await prisma.user.findMany({ where: { isDummy: false }, select: { nip: true, name: true } });
   const userByNip = new Map(users.map((u) => [u.nip, u]));
 
-  function walkUp(nip: string): { nipASM: string | null; namaASM: string; nipSM: string | null; namaSM: string; nipNSM: string | null; namaNSM: string } {
-    let asm: typeof users[number] | null = null, sm: typeof users[number] | null = null, nsm: typeof users[number] | null = null;
-    const seen = new Set([nip]);
-    let cursor = userByNip.get(nip)?.nipAtasan ?? null;
-    for (let depth = 0; depth < 10 && cursor && !seen.has(cursor); depth++) {
-      seen.add(cursor);
-      const u = userByNip.get(cursor);
-      if (!u) break;
-      if (u.role === "ASM" && !asm) asm = u;
-      if (u.role === "SM" && !sm) sm = u;
-      if (u.role === "NSM" && !nsm) nsm = u;
-      cursor = u.nipAtasan;
-    }
-    return {
-      nipASM: asm?.nip ?? null, namaASM: asm?.name ?? "",
-      nipSM: sm?.nip ?? null, namaSM: sm?.name ?? "",
-      nipNSM: nsm?.nip ?? null, namaNSM: nsm?.name ?? "",
-    };
+  const now = new Date();
+  // Keyed by namaGT (this periode is fixed) — 2 different source nips COULD
+  // resolve to the same live GT, which would otherwise hit the same
+  // "ON CONFLICT cannot affect row a second time" failure this table's other
+  // import scripts already hit and fixed (2026-09-11/14) — sum defensively.
+  const byNamaGT = new Map<string, number>();
+  let placeholderCount = 0;
+  for (const r of allRows) {
+    const u = userByNip.get(r.nip);
+    const namaMR = u?.name ?? r.nama;
+    const liveGts = u ? await getCurrentGTsForMrNips([u.nip]) : [];
+    const namaGT = liveGts.length === 1 ? liveGts[0] : `[JULI-NO-GT] ${namaMR} (${r.nip})`;
+    if (liveGts.length !== 1) placeholderCount++;
+    byNamaGT.set(namaGT, (byNamaGT.get(namaGT) ?? 0) + r.target);
   }
 
-  const now = new Date();
-  const values = allRows.map((r) => {
-    const u = userByNip.get(r.nip);
-    const nipMR = u?.nip ?? null;
-    const namaMR = u?.name ?? r.nama;
-    const hier = nipMR ? walkUp(nipMR) : { nipASM: null, namaASM: "", nipSM: null, namaSM: "", nipNSM: null, namaNSM: "" };
-    const augGts = nipMR ? augGtByNip.get(nipMR) : undefined;
-    const namaGT = augGts && augGts.length === 1 ? augGts[0] : `[JULI-NO-GT] ${namaMR} (${r.nip})`;
-    return `(
+  const values = [...byNamaGT.entries()].map(([namaGT, target]) => `(
       '${randomUUID()}',
       '${esc(namaGT)}',
       '${PERIODE}',
-      ${r.target},
-      ${sqlNullableStr(nipMR)},
-      '${esc(namaMR)}',
-      ${sqlNullableStr(hier.nipASM)},
-      '${esc(hier.namaASM)}',
-      ${sqlNullableStr(hier.nipSM)},
-      '${esc(hier.namaSM)}',
-      ${sqlNullableStr(hier.nipNSM)},
-      '${esc(hier.namaNSM)}',
+      ${target},
       '${now.toISOString()}',
       '${now.toISOString()}'
-    )`;
-  });
+    )`);
 
   console.log(`Upserting ${values.length} TargetHospitalValue rows for periode ${PERIODE}...`);
   await prisma.$executeRawUnsafe(`
     INSERT INTO "TargetHospitalValue" (
-      "id", "namaGT", "periode", "target", "nipMR", "namaMR", "nipASM", "namaASM",
-      "nipSM", "namaSM", "nipNSM", "namaNSM", "syncedAt", "updatedAt"
+      "id", "namaGT", "periode", "target", "syncedAt", "updatedAt"
     )
     VALUES ${values.join(",\n")}
     ON CONFLICT ("namaGT", "periode") DO UPDATE SET
       "target" = EXCLUDED."target",
-      "nipMR" = EXCLUDED."nipMR", "namaMR" = EXCLUDED."namaMR",
-      "nipASM" = EXCLUDED."nipASM", "namaASM" = EXCLUDED."namaASM",
-      "nipSM" = EXCLUDED."nipSM", "namaSM" = EXCLUDED."namaSM",
-      "nipNSM" = EXCLUDED."nipNSM", "namaNSM" = EXCLUDED."namaNSM",
       "syncedAt" = EXCLUDED."syncedAt",
       "updatedAt" = EXCLUDED."updatedAt"
   `);
 
-  const unresolved = allRows.filter((r) => !userByNip.get(r.nip));
   console.log(`\n✅ TargetHospitalValue upserted: ${values.length} rows for periode ${PERIODE}.`);
-  console.log(`   (${unresolved.length} nip(s) did not resolve to a live User — kept raw name, nipMR null: ${unresolved.map((r) => r.nip).join(", ") || "-"})\n`);
+  console.log(`   (${placeholderCount} row(s) fell back to the "[JULI-NO-GT] ..." placeholder — 0 or >1 live GT resolved.)\n`);
 
   console.log("✅ Import complete.");
   await prisma.$disconnect();

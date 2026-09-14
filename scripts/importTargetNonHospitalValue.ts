@@ -14,21 +14,18 @@
  * length differs per area — same approach as this table's PBF/Retail blocks
  * not having a fixed row range).
  *
- * Col B (NAMA FF) / col C (NAMA SM) are XLOOKUP formulas into the STRUKTUR
- * sheet — ExcelJS caches the computed value as `.result` on the cell's
- * object value, read directly instead of re-implementing the lookup.
- *
  * Target columns used: J = TARGET 202608 (PENGAJUAN), K = TARGET 202609
  * (PENGAJUAN). Blank/non-numeric means not submitted yet for that periode —
  * skipped, not zeroed (same "pengajuan apa adanya" rule as the hospital
  * import).
  *
- * nip resolution: FF/SM names matched case-insensitive/trimmed against
- * non-dummy Users of the expected role AND project "OMEGA" (this table's
- * territory names can collide with hospital's if project weren't scoped —
- * they're separate people pools). Unresolved (vacant territory, e.g. most
- * "GROSIR ..." rows — confirmed 2026-09-11 no synced OMEGA user currently
- * holds any grosir territory) keeps nip null, raw name always kept.
+ * TargetNonHospitalValue has no personnel columns (2026-09-14, "udah gaada
+ * personil mr -> nsm lagi cuma ada target by gt") — col B (NAMA FF)/col C
+ * (NAMA SM), XLOOKUP formulas into the STRUKTUR sheet, are no longer read at
+ * all (they were only ever used to populate the now-dropped nipMR/namaMR/
+ * nipSM/namaSM columns; namaGT itself comes straight from col A, unlike
+ * hospital which needs the MR name to identify the GT). "Who holds this GT"
+ * is resolved LIVE (getCurrentGTsForOmegaMrNips), never from this import.
  *
  * kodeGT: looked up from this SAME workbook's "STRUKTUR" sheet (per-outlet
  * org structure dump, cols "Kode GT"/"Nama GT") by exact Nama GT match —
@@ -81,20 +78,9 @@ function sqlNullableStr(s: string | null): string {
   return s == null ? "NULL" : `'${esc(s)}'`;
 }
 
-/** Plain string, or a formula cell's cached `.result` (XLOOKUP cells here). */
-function cellText(v: unknown): string {
-  if (v == null) return "";
-  if (typeof v === "object" && "result" in (v as Record<string, unknown>)) {
-    return String((v as { result: unknown }).result ?? "").trim();
-  }
-  return String(v).trim();
-}
-
 interface SourceRow {
   namaGT: string;
   divisi: string;
-  namaMR: string;
-  namaSM: string;
   targets: Record<string, number>;
 }
 
@@ -133,8 +119,6 @@ async function main() {
       if (a === "" || a === "NAMA GT" || a === "TOTAL") continue;
 
       const namaGT = a;
-      const namaMR = cellText(row.getCell(2).value);
-      const namaSM = cellText(row.getCell(3).value);
 
       const targets: Record<string, number> = {};
       for (const { col, periode } of PENGAJUAN_COLUMNS) {
@@ -143,51 +127,19 @@ async function main() {
       }
       if (Object.keys(targets).length === 0) continue; // nothing submitted yet
 
-      rows.push({ namaGT, divisi: curDivisi, namaMR, namaSM, targets });
+      rows.push({ namaGT, divisi: curDivisi, targets });
     }
   }
 
   console.log(`Parsed ${rows.length} GT rows with at least one Pengajuan value.\n`);
 
-  // ── Name -> nip resolution, restricted to non-dummy OMEGA users of the expected role ──
-  const users = await prisma.user.findMany({ where: { isDummy: false, project: "OMEGA" }, select: { nip: true, name: true, role: true } });
-  function buildNameIndex(role: string): Map<string, string[]> {
-    const idx = new Map<string, string[]>();
-    for (const u of users) {
-      if (u.role !== role) continue;
-      const key = u.name.trim().toUpperCase();
-      const list = idx.get(key) ?? [];
-      list.push(u.nip);
-      idx.set(key, list);
-    }
-    return idx;
-  }
-  const mrIndex = buildNameIndex("MR");
-  const smIndex = buildNameIndex("SM");
-  const nipToName = new Map<string, string>(users.map((u) => [u.nip, u.name]));
-
-  let collisions = 0;
-  function resolveNipAndName(index: Map<string, string[]>, name: string): { nip: string | null; name: string } {
-    if (!name) return { nip: null, name };
-    const candidates = index.get(name.toUpperCase());
-    if (!candidates || candidates.length === 0) return { nip: null, name };
-    if (candidates.length > 1) collisions++;
-    const nip = [...candidates].sort()[0];
-    return { nip, name: nipToName.get(nip) ?? name };
-  }
-
   let kodeGTMisses = 0;
-  const flat: { namaGT: string; kodeGT: string | null; divisi: string; periode: string; target: number; nipMR: string | null; namaMR: string; nipSM: string | null; namaSM: string }[] = [];
+  const flat: { namaGT: string; kodeGT: string | null; divisi: string; periode: string; target: number }[] = [];
   for (const r of rows) {
-    const mr = resolveNipAndName(mrIndex, r.namaMR);
-    const sm = resolveNipAndName(smIndex, r.namaSM);
     const kodeGT = kodeGTByNama.get(r.namaGT) ?? null;
     if (!kodeGT) kodeGTMisses++;
     for (const [periode, target] of Object.entries(r.targets)) {
-      flat.push({
-        namaGT: r.namaGT, kodeGT, divisi: r.divisi, periode, target,
-        nipMR: mr.nip, namaMR: mr.name, nipSM: sm.nip, namaSM: sm.name,
-      });
+      flat.push({ namaGT: r.namaGT, kodeGT, divisi: r.divisi, periode, target });
     }
   }
 
@@ -203,30 +155,23 @@ async function main() {
       '${esc(r.divisi)}',
       '${esc(r.periode)}',
       ${r.target},
-      ${sqlNullableStr(r.nipMR)},
-      '${esc(r.namaMR)}',
-      ${sqlNullableStr(r.nipSM)},
-      '${esc(r.namaSM)}',
       '${now.toISOString()}',
       '${now.toISOString()}'
     )`).join(",\n");
     await prisma.$executeRawUnsafe(`
       INSERT INTO "TargetNonHospitalValue" (
-        "id", "namaGT", "kodeGT", "divisi", "periode", "target", "nipMR", "namaMR", "nipSM", "namaSM", "syncedAt", "updatedAt"
+        "id", "namaGT", "kodeGT", "divisi", "periode", "target", "syncedAt", "updatedAt"
       )
       VALUES ${values}
       ON CONFLICT ("namaGT", "divisi", "periode") DO UPDATE SET
         "kodeGT" = EXCLUDED."kodeGT",
         "target" = EXCLUDED."target",
-        "nipMR" = EXCLUDED."nipMR", "namaMR" = EXCLUDED."namaMR",
-        "nipSM" = EXCLUDED."nipSM", "namaSM" = EXCLUDED."namaSM",
         "syncedAt" = EXCLUDED."syncedAt",
         "updatedAt" = EXCLUDED."updatedAt"
     `);
     process.stdout.write(`  ${Math.min(i + BATCH, flat.length)}/${flat.length}\r`);
   }
   console.log(`\n✅ TargetNonHospitalValue upserted: ${flat.length} rows.`);
-  console.log(`   (${collisions} name collisions hit during resolution — picked lowest nip deterministically.)`);
   console.log(`   (${kodeGTMisses} GT rows with no STRUKTUR kodeGT match.)\n`);
 
   console.log("✅ Import complete.");

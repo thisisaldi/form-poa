@@ -27,20 +27,22 @@ export async function getCurrentGTsForOmegaMrNips(mrNips: string[]): Promise<str
  * Per-GT rows for `gts` (as returned by getCurrentGTsForOmegaMrNips) — used
  * for NSM session scoping (2026-09-14: GT-based query only, no more `?nip=`
  * rollup, see docs/API.md). `gts.length === 0` means unrestricted
- * (ADMIN/Basic Auth).
+ * (ADMIN/Basic Auth). No personnel columns (2026-09-14: nipMR/namaMR/nipSM/
+ * namaSM dropped from the table entirely — GT-based only, "who holds this
+ * GT now" is `gts` itself, resolved live by the caller before calling this).
  */
 export async function getTargetNonHospitalValueRowsForGTs(
   gts: string[],
   opts: { periode?: string; divisi?: string } = {}
-): Promise<{ namaGT: string; kodeGT: string | null; divisi: string; nipMR: string | null; namaMR: string; target: number; periode: string }[]> {
+): Promise<{ namaGT: string; kodeGT: string | null; divisi: string; target: number; periode: string }[]> {
   if (gts.length === 0) return [];
   const where: Record<string, unknown> = { namaGT: { in: gts } };
   if (opts.periode) where.periode = opts.periode;
   if (opts.divisi) where.divisi = opts.divisi;
   const rows = (await prisma.targetNonHospitalValue.findMany({
     where,
-    select: { namaGT: true, kodeGT: true, divisi: true, nipMR: true, namaMR: true, periode: true, target: true },
-  })) as { namaGT: string; kodeGT: string | null; divisi: string; nipMR: string | null; namaMR: string; periode: string; target: { toString(): string } }[];
+    select: { namaGT: true, kodeGT: true, divisi: true, periode: true, target: true },
+  })) as { namaGT: string; kodeGT: string | null; divisi: string; periode: string; target: { toString(): string } }[];
   return rows
     .map((r) => ({ ...r, target: parseFloat(r.target.toString()) }))
     .sort((a, b) => a.periode.localeCompare(b.periode) || a.namaGT.localeCompare(b.namaGT, "id"));
@@ -49,25 +51,4 @@ export async function getTargetNonHospitalValueRowsForGTs(
 /** owner only needs nip+role (getSubordinateMRNips reads nothing else). */
 export async function resolveOmegaMrNipsForOwner(owner: Pick<User, "nip" | "role">): Promise<string[]> {
   return owner.role === "MR" ? [owner.nip] : await getSubordinateMRNips(owner as User);
-}
-
-/**
- * Batch-fetch User.project for a set of NIPs (2026-09-13, cross-repo request
- * from Insentif Sales) — POA's OWN OMEGA/non-hospital source of truth is
- * this column, synced from Nexus's `get_employees?project=omega`
- * (omegaUserSync.ts), NOT mkt_insight.Struktur_Marketing_PI's `Divisi`
- * column — those two are independent pipelines that can disagree while a
- * migration is in flight (Nexus already moved someone to project OMEGA,
- * mkt_insight's own denormalized copy hasn't caught up yet). There is no
- * dedicated "in transition" flag anywhere — `project === "OMEGA"` here IS
- * the signal: it means Nexus (POA's upstream) already considers that NIP
- * OMEGA, regardless of what Struktur_Marketing_PI still says.
- */
-export async function getUserProjectByNip(nips: string[]): Promise<Map<string, string | null>> {
-  if (nips.length === 0) return new Map();
-  const users = await prisma.user.findMany({
-    where: { nip: { in: [...new Set(nips)] } },
-    select: { nip: true, project: true },
-  });
-  return new Map(users.map((u: { nip: string; project: string | null }) => [u.nip, u.project]));
 }

@@ -16,6 +16,16 @@
  * existing external caller (e.g. Insentif Sales, which was using `?nip=` as
  * of 2026-09-13) before relying on this removal in production.
  *
+ * NO PERSONNEL FIELDS AT ALL (2026-09-14, same date, second breaking change —
+ * DB migration dropped nipMR/namaMR/nipASM/.../namaNSM from both tables
+ * entirely, not just this endpoint hiding them): a row is namaGT/kodeGT/
+ * target/periode/divisi(+kategori for non-hospital) only. "Who currently
+ * holds this GT" is NOT in this response — callers who need that resolve it
+ * live themselves (same live GT-holder resolution this endpoint already uses
+ * internally for NSM scoping — see getCurrentGTsForMrNips/
+ * getCurrentGTsForOmegaMrNips, or resolveLiveGTHolderChain for the full
+ * MR→ASM→SM→NSM chain, hospital only).
+ *
  * `?namaGT=` / `?kodeGT=` (optional, both — GT filters): `namaGT` matches
  * via normalizeGTName for hospital (spelling drift between the target sheet
  * and live Outlet — see targetHospitalValue.ts) and literally for
@@ -68,7 +78,6 @@ import {
   getCurrentGTsForOmegaMrNips,
   resolveOmegaMrNipsForOwner,
   getTargetNonHospitalValueRowsForGTs,
-  getUserProjectByNip,
 } from "@/lib/targetNonHospitalValue";
 
 const DEFAULT_LIMIT = 2000;
@@ -132,7 +141,7 @@ export async function GET(req: NextRequest) {
       if (namaGT) where.namaGT = namaGT;
       const found = await prisma.targetNonHospitalValue.findMany({
         where,
-        select: { namaGT: true, kodeGT: true, divisi: true, nipMR: true, namaMR: true, target: true, periode: true },
+        select: { namaGT: true, kodeGT: true, divisi: true, target: true, periode: true },
         orderBy: [{ periode: "asc" }, { namaGT: "asc" }],
       });
       rows = found.map((r: (typeof found)[number]) => ({ ...r, target: parseFloat(r.target.toString()) }));
@@ -145,24 +154,14 @@ export async function GET(req: NextRequest) {
       if (kodeGT) rows = rows.filter((r) => r.kodeGT === kodeGT);
     }
 
-    const projectByNip = await getUserProjectByNip(rows.map((r) => r.nipMR).filter((n): n is string => !!n));
-    // Only true OMEGA members — drop a row whose nipMR resolved to a real
-    // User but that User's CURRENT project isn't OMEGA (drifted since
-    // import; see getUserProjectByNip's doc comment). A null nipMR (vacant
-    // territory, never resolved) is kept as-is.
-    const mapped = rows
-      .filter((r) => !r.nipMR || projectByNip.get(r.nipMR) === "OMEGA")
-      .map((r) => ({
-        namaGT: r.namaGT,
-        kodeGT: r.kodeGT,
-        divisi: "non-hospital",
-        kategori: r.divisi, // r's OWN divisi (RETAIL/GROSIR_PBF) — NOT the hospital/non-hospital tag above
-        nipMR: r.nipMR,
-        namaMR: r.namaMR,
-        project: r.nipMR ? projectByNip.get(r.nipMR) ?? null : null,
-        target: r.target,
-        periode: r.periode,
-      }));
+    const mapped = rows.map((r) => ({
+      namaGT: r.namaGT,
+      kodeGT: r.kodeGT,
+      divisi: "non-hospital",
+      kategori: r.divisi, // r's OWN divisi (RETAIL/GROSIR_PBF) — NOT the hospital/non-hospital tag above
+      target: r.target,
+      periode: r.periode,
+    }));
     const { page, total } = paginate(mapped, limit, offset);
     return NextResponse.json(page, { headers: { "X-Total-Count": String(total) } });
   }
@@ -184,7 +183,7 @@ export async function GET(req: NextRequest) {
 
   const rows = await prisma.targetHospitalValue.findMany({
     where,
-    select: { namaGT: true, kodeGT: true, nipMR: true, namaMR: true, target: true, periode: true },
+    select: { namaGT: true, kodeGT: true, target: true, periode: true },
     orderBy: [{ periode: "asc" }, { namaGT: "asc" }],
   });
 
@@ -194,8 +193,6 @@ export async function GET(req: NextRequest) {
       namaGT: r.namaGT,
       kodeGT: r.kodeGT,
       divisi: "hospital",
-      nipMR: r.nipMR,
-      namaMR: r.namaMR,
       target: parseFloat(r.target.toString()),
       periode: r.periode,
     }));
