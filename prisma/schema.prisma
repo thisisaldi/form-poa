@@ -1009,6 +1009,17 @@ model OutletSalesValueMonthly {
 model TargetHospitalValue {
   id        String   @id @default(uuid())
   namaGT    String
+  // Live Outlet.kodeGT for this namaGT (see docs/target-non-hospital-value/…
+  // sibling cleanup note, 2026-09-14) — NULLABLE AND MOSTLY EMPTY IN
+  // PRACTICE: Outlet.kodeGT itself is barely populated (confirmed
+  // 2026-09-14: ~97/35000 Outlet rows have it — outletSync.ts only sets it
+  // when Nexus zone-hierarchy resolution succeeds, which mostly fails; the
+  // OTHER outlet importer, importStrukturVerifiedKAM.ts, doesn't carry a
+  // GT-code column from its source at all). Not a bug in this table's
+  // import — the upstream code source just doesn't exist reliably yet.
+  // Populate opportunistically (best-effort join to Outlet), don't rely on
+  // it being non-null.
+  kodeGT    String?
   periode   String // YYYYMM, e.g. "202608"
   target    Decimal  @db.Decimal(18, 2)
   nipMR     String?
@@ -1029,6 +1040,7 @@ model TargetHospitalValue {
   @@index([nipASM])
   @@index([nipSM])
   @@index([nipNSM])
+  @@index([kodeGT])
 }
 
 // Monthly Rupiah sales TARGET per territory (GT) for the non-hospital
@@ -1044,6 +1056,12 @@ model TargetHospitalValue {
 model TargetNonHospitalValue {
   id        String   @id @default(uuid())
   namaGT    String
+  // From the same workbook's "STRUKTUR" sheet (Kode GT column), keyed by
+  // exact Nama GT match — confirmed 2026-09-14: 347/347 distinct target-sheet
+  // GT names match a STRUKTUR row exactly (1:1 with Kode GT, zero collisions),
+  // so this is reliably populated here (unlike TargetHospitalValue.kodeGT,
+  // which is mostly null — see that field's doc comment for why).
+  kodeGT    String?
   divisi    String // "RETAIL" | "GROSIR_PBF"
   periode   String // YYYYMM, e.g. "202608"
   target    Decimal  @db.Decimal(18, 2)
@@ -1065,6 +1083,7 @@ model TargetNonHospitalValue {
   @@index([periode])
   @@index([nipMR])
   @@index([divisi])
+  @@index([kodeGT])
 }
 
 // Manual policy input ("Tambahan Target" in the source spreadsheet) — the

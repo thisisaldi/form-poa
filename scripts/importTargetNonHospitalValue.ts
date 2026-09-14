@@ -30,6 +30,12 @@
  * "GROSIR ..." rows — confirmed 2026-09-11 no synced OMEGA user currently
  * holds any grosir territory) keeps nip null, raw name always kept.
  *
+ * kodeGT: looked up from this SAME workbook's "STRUKTUR" sheet (per-outlet
+ * org structure dump, cols "Kode GT"/"Nama GT") by exact Nama GT match —
+ * confirmed 2026-09-14 all 347 distinct target-sheet GT names match a
+ * STRUKTUR row exactly with zero name/code collisions, so plain exact-match
+ * (no normalizeGTName-style fuzzing needed, unlike hospital).
+ *
  * Run: npx tsx scripts/importTargetNonHospitalValue.ts [path-to-excel]
  * Default: "internal/Target Non-Hospital (In Value).xlsx"
  */
@@ -99,6 +105,17 @@ async function main() {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(filePath);
 
+  // ── Kode GT lookup: exact Nama GT match against the STRUKTUR sheet ──
+  const strukturWs = wb.getWorksheet("STRUKTUR");
+  if (!strukturWs) { console.error('Sheet "STRUKTUR" not found'); process.exit(1); }
+  const kodeGTByNama = new Map<string, string>();
+  for (let r = 2; r <= strukturWs.rowCount; r++) {
+    const row = strukturWs.getRow(r);
+    const namaGT = String(row.getCell(16).value ?? "").trim(); // col P
+    const kodeGT = String(row.getCell(15).value ?? "").trim(); // col O
+    if (namaGT && kodeGT) kodeGTByNama.set(namaGT, kodeGT);
+  }
+
   const rows: SourceRow[] = [];
 
   for (const sheetName of AREA_SHEETS) {
@@ -159,13 +176,16 @@ async function main() {
     return { nip, name: nipToName.get(nip) ?? name };
   }
 
-  const flat: { namaGT: string; divisi: string; periode: string; target: number; nipMR: string | null; namaMR: string; nipSM: string | null; namaSM: string }[] = [];
+  let kodeGTMisses = 0;
+  const flat: { namaGT: string; kodeGT: string | null; divisi: string; periode: string; target: number; nipMR: string | null; namaMR: string; nipSM: string | null; namaSM: string }[] = [];
   for (const r of rows) {
     const mr = resolveNipAndName(mrIndex, r.namaMR);
     const sm = resolveNipAndName(smIndex, r.namaSM);
+    const kodeGT = kodeGTByNama.get(r.namaGT) ?? null;
+    if (!kodeGT) kodeGTMisses++;
     for (const [periode, target] of Object.entries(r.targets)) {
       flat.push({
-        namaGT: r.namaGT, divisi: r.divisi, periode, target,
+        namaGT: r.namaGT, kodeGT, divisi: r.divisi, periode, target,
         nipMR: mr.nip, namaMR: mr.name, nipSM: sm.nip, namaSM: sm.name,
       });
     }
@@ -179,6 +199,7 @@ async function main() {
     const values = chunk.map((r) => `(
       '${randomUUID()}',
       '${esc(r.namaGT)}',
+      ${sqlNullableStr(r.kodeGT)},
       '${esc(r.divisi)}',
       '${esc(r.periode)}',
       ${r.target},
@@ -191,10 +212,11 @@ async function main() {
     )`).join(",\n");
     await prisma.$executeRawUnsafe(`
       INSERT INTO "TargetNonHospitalValue" (
-        "id", "namaGT", "divisi", "periode", "target", "nipMR", "namaMR", "nipSM", "namaSM", "syncedAt", "updatedAt"
+        "id", "namaGT", "kodeGT", "divisi", "periode", "target", "nipMR", "namaMR", "nipSM", "namaSM", "syncedAt", "updatedAt"
       )
       VALUES ${values}
       ON CONFLICT ("namaGT", "divisi", "periode") DO UPDATE SET
+        "kodeGT" = EXCLUDED."kodeGT",
         "target" = EXCLUDED."target",
         "nipMR" = EXCLUDED."nipMR", "namaMR" = EXCLUDED."namaMR",
         "nipSM" = EXCLUDED."nipSM", "namaSM" = EXCLUDED."namaSM",
@@ -204,7 +226,8 @@ async function main() {
     process.stdout.write(`  ${Math.min(i + BATCH, flat.length)}/${flat.length}\r`);
   }
   console.log(`\n✅ TargetNonHospitalValue upserted: ${flat.length} rows.`);
-  console.log(`   (${collisions} name collisions hit during resolution — picked lowest nip deterministically.)\n`);
+  console.log(`   (${collisions} name collisions hit during resolution — picked lowest nip deterministically.)`);
+  console.log(`   (${kodeGTMisses} GT rows with no STRUKTUR kodeGT match.)\n`);
 
   console.log("✅ Import complete.");
   await prisma.$disconnect();

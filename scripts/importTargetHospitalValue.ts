@@ -59,6 +59,7 @@ import path from "path";
 import ExcelJS from "exceljs";
 import { randomUUID } from "crypto";
 import { prisma } from "../src/lib/prisma";
+import { normalizeGTName } from "../src/lib/targetHospitalValue";
 
 const BATCH = 300;
 const NSM_SHEETS = [
@@ -124,6 +125,26 @@ async function main() {
     "KOTA SERANG": "SERANG + PANDEGLANG",
   };
 
+  // ── Canonical GT master: live Outlet (namaGT, kodeGT), keyed by
+  // normalizeGTName — 2026-09-14 data cleanup, see schema doc comment on
+  // TargetHospitalValue.kodeGT. First-match-wins; confirmed zero
+  // normalizeGTName collisions across distinct live Outlet namaGT spellings
+  // (see cleanup notes in docs/target-non-hospital-value/README.md).
+  const liveOutlets = await prisma.outlet.findMany({
+    where: { namaGT: { not: null } },
+    select: { namaGT: true, kodeGT: true },
+    distinct: ["namaGT"],
+  });
+  const canonicalByNorm = new Map<string, { namaGT: string; kodeGT: string | null }>();
+  for (const o of liveOutlets) {
+    if (!o.namaGT) continue;
+    const n = normalizeGTName(o.namaGT);
+    if (!canonicalByNorm.has(n)) canonicalByNorm.set(n, { namaGT: o.namaGT, kodeGT: o.kodeGT });
+  }
+  function canonicalizeGT(namaGT: string): { namaGT: string; kodeGT: string | null } {
+    return canonicalByNorm.get(normalizeGTName(namaGT)) ?? { namaGT, kodeGT: null };
+  }
+
   // ── Identity lookup: (Nama Area, MR/SPV name) -> Nama GT, from Rekap FFMedrep ──
   const rekap = wb.getWorksheet("Rekap FFMedrep");
   if (!rekap) { console.error('Sheet "Rekap FFMedrep" not found'); process.exit(1); }
@@ -134,7 +155,12 @@ async function main() {
     const namaArea = String(row.getCell(3).value ?? "").trim();
     const mrspv = String(row.getCell(6).value ?? "").trim();
     if (!rawNamaGT) continue;
-    const namaGT = GT_NAME_ALIASES[rawNamaGT.toUpperCase()] ?? rawNamaGT;
+    const aliased = GT_NAME_ALIASES[rawNamaGT.toUpperCase()] ?? rawNamaGT;
+    // Canonicalize to the live Outlet spelling (2026-09-14) — GT_NAME_ALIASES
+    // above stays for the handful of TOTALLY different names normalizeGTName
+    // can't bridge (composition differs, not just punctuation/spacing); this
+    // catches everything else (e.g. "BANDUNG A.YANI" -> "BANDUNG A YANI").
+    const namaGT = canonicalizeGT(aliased).namaGT;
     gtByAreaAndMr.set(`${namaArea.toUpperCase()}|${mrspv.toUpperCase()}`, namaGT);
   }
 
@@ -236,20 +262,31 @@ async function main() {
     return { nip, name: nip ? (nipToName.get(nip) ?? name) : name };
   }
 
-  const flat: { namaGT: string; periode: string; target: number; nipMR: string | null; namaMR: string; nipASM: string | null; namaASM: string; nipSM: string | null; namaSM: string; nipNSM: string | null; namaNSM: string }[] = [];
+  // Keyed by (namaGT, periode) rather than pushed to a plain array — GT names
+  // are already the canonical Outlet spelling by this point, so 2 source rows
+  // COULD collapse onto the same key (e.g. 2 raw spellings both canonicalizing
+  // to the same live GT); sum their target rather than letting the later
+  // ON CONFLICT upsert hit "cannot affect row a second time" (same failure
+  // mode hit + fixed for TargetNonHospitalValue's divisi collision, 2026-09-11).
+  const flatByKey = new Map<string, { namaGT: string; kodeGT: string | null; periode: string; target: number; nipMR: string | null; namaMR: string; nipASM: string | null; namaASM: string; nipSM: string | null; namaSM: string; nipNSM: string | null; namaNSM: string }>();
   for (const r of rows) {
     const mr = resolveNipAndName(mrIndex, r.namaMR);
     const asm = resolveNipAndName(asmIndex, r.namaASM);
     const sm = resolveNipAndName(smIndex, r.namaSM);
     const nsm = resolveNipAndName(nsmIndex, r.namaNSM);
+    const kodeGT = canonicalizeGT(r.namaGT).kodeGT;
     for (const [periode, target] of Object.entries(r.targets)) {
-      flat.push({
-        namaGT: r.namaGT, periode, target,
+      const key = `${r.namaGT}|${periode}`;
+      const existing = flatByKey.get(key);
+      if (existing) { existing.target += target; continue; }
+      flatByKey.set(key, {
+        namaGT: r.namaGT, kodeGT, periode, target,
         nipMR: mr.nip, namaMR: mr.name, nipASM: asm.nip, namaASM: asm.name,
         nipSM: sm.nip, namaSM: sm.name, nipNSM: nsm.nip, namaNSM: nsm.name,
       });
     }
   }
+  const flat = [...flatByKey.values()];
 
   console.log(`Upserting ${flat.length} TargetHospitalValue rows...`);
 
@@ -259,6 +296,7 @@ async function main() {
     const values = chunk.map((r) => `(
       '${randomUUID()}',
       '${esc(r.namaGT)}',
+      ${sqlNullableStr(r.kodeGT)},
       '${esc(r.periode)}',
       ${r.target},
       ${sqlNullableStr(r.nipMR)},
@@ -274,11 +312,12 @@ async function main() {
     )`).join(",\n");
     await prisma.$executeRawUnsafe(`
       INSERT INTO "TargetHospitalValue" (
-        "id", "namaGT", "periode", "target", "nipMR", "namaMR", "nipASM", "namaASM",
+        "id", "namaGT", "kodeGT", "periode", "target", "nipMR", "namaMR", "nipASM", "namaASM",
         "nipSM", "namaSM", "nipNSM", "namaNSM", "syncedAt", "updatedAt"
       )
       VALUES ${values}
       ON CONFLICT ("namaGT", "periode") DO UPDATE SET
+        "kodeGT" = EXCLUDED."kodeGT",
         "target" = EXCLUDED."target",
         "nipMR" = EXCLUDED."nipMR", "namaMR" = EXCLUDED."namaMR",
         "nipASM" = EXCLUDED."nipASM", "namaASM" = EXCLUDED."namaASM",

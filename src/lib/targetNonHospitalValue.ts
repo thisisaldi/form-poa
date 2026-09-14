@@ -23,39 +23,27 @@ export async function getCurrentGTsForOmegaMrNips(mrNips: string[]): Promise<str
   return [...new Set(users.map((u) => u.namaWilayah).filter((g): g is string => !!g))];
 }
 
-async function findTargetNonHospitalValueRows(
+/**
+ * Per-GT rows for `gts` (as returned by getCurrentGTsForOmegaMrNips) — used
+ * for NSM session scoping (2026-09-14: GT-based query only, no more `?nip=`
+ * rollup, see docs/API.md). `gts.length === 0` means unrestricted
+ * (ADMIN/Basic Auth).
+ */
+export async function getTargetNonHospitalValueRowsForGTs(
   gts: string[],
   opts: { periode?: string; divisi?: string } = {}
-): Promise<{ namaGT: string; divisi: string; nipMR: string | null; namaMR: string; target: number; periode: string }[]> {
+): Promise<{ namaGT: string; kodeGT: string | null; divisi: string; nipMR: string | null; namaMR: string; target: number; periode: string }[]> {
   if (gts.length === 0) return [];
   const where: Record<string, unknown> = { namaGT: { in: gts } };
   if (opts.periode) where.periode = opts.periode;
   if (opts.divisi) where.divisi = opts.divisi;
   const rows = (await prisma.targetNonHospitalValue.findMany({
     where,
-    select: { namaGT: true, divisi: true, nipMR: true, namaMR: true, periode: true, target: true },
-  })) as { namaGT: string; divisi: string; nipMR: string | null; namaMR: string; periode: string; target: { toString(): string } }[];
-  return rows.map((r) => ({ ...r, target: parseFloat(r.target.toString()) }));
-}
-
-/** Sums TargetNonHospitalValue.target for every GT in `gts`, one total per periode. */
-export async function sumTargetNonHospitalValueForGTs(
-  gts: string[],
-  opts: { periode?: string; divisi?: string } = {}
-): Promise<{ periode: string; target: number }[]> {
-  const rows = await findTargetNonHospitalValueRows(gts, opts);
-  const sums = new Map<string, number>();
-  for (const r of rows) sums.set(r.periode, (sums.get(r.periode) ?? 0) + r.target);
-  return [...sums.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([periode, target]) => ({ periode, target }));
-}
-
-/** Same matching as sumTargetNonHospitalValueForGTs, raw per-GT rows instead of summed. */
-export async function getTargetNonHospitalValueRowsForGTs(
-  gts: string[],
-  opts: { periode?: string; divisi?: string } = {}
-): Promise<{ namaGT: string; divisi: string; nipMR: string | null; namaMR: string; target: number; periode: string }[]> {
-  const rows = await findTargetNonHospitalValueRows(gts, opts);
-  return rows.sort((a, b) => a.periode.localeCompare(b.periode) || a.namaGT.localeCompare(b.namaGT, "id"));
+    select: { namaGT: true, kodeGT: true, divisi: true, nipMR: true, namaMR: true, periode: true, target: true },
+  })) as { namaGT: string; kodeGT: string | null; divisi: string; nipMR: string | null; namaMR: string; periode: string; target: { toString(): string } }[];
+  return rows
+    .map((r) => ({ ...r, target: parseFloat(r.target.toString()) }))
+    .sort((a, b) => a.periode.localeCompare(b.periode) || a.namaGT.localeCompare(b.namaGT, "id"));
 }
 
 /** owner only needs nip+role (getSubordinateMRNips reads nothing else). */
