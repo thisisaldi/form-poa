@@ -135,8 +135,34 @@ async function main() {
     const n = normalizeGTName(o.namaGT);
     if (!canonicalByNorm.has(n)) canonicalByNorm.set(n, { namaGT: o.namaGT, kodeGT: o.kodeGT });
   }
+
+  // kodeGT overrides for GTs the business has confirmed were merged into a
+  // bigger live territory in MSSQL Struktur_Marketing_PI (Divisi KAM1,
+  // periode 202609) that Outlet ITSELF hasn't been resynced to reflect yet
+  // (confirmed 2026-09-14 — canonicalByNorm above has no entry for these at
+  // all, not even under the merged name, so it can't supply kodeGT on its
+  // own). namaGT is deliberately NOT renamed via GT_NAME_ALIASES for these —
+  // renaming to a spelling with zero live Outlet match would just make the
+  // Outlet lookup fail differently, not less. Keyed by RAW namaGT
+  // (pre-alias), trim+uppercase. Drop an entry once Outlet catches up (its
+  // own canonicalByNorm lookup will then take over automatically).
+  const KODE_GT_OVERRIDES: Record<string, string> = {
+    "BREBES": "2059", // merged into "BREBES + PEMALANG + PEKALONGAN + BATANG"
+    "MUNTILAN+MAGELANG": "2057", // now "MAGELANG + MUNTILAN"
+    "PADANG BARAT + SOLOK": "2010", // now "PADANG BARAT + SOLOK + PARIAMAN"
+    "MEDAN + BINJAI RS": "1905", // now "BINJAI"
+    "MEDAN TANAH KARO": "1904", // now "MEDAN SELAYANG + TANAH KARO"
+  };
+
   function canonicalizeGT(namaGT: string): { namaGT: string; kodeGT: string | null } {
-    return canonicalByNorm.get(normalizeGTName(namaGT)) ?? { namaGT, kodeGT: null };
+    const live = canonicalByNorm.get(normalizeGTName(namaGT));
+    // A live Outlet match exists but ITSELF has no kodeGT (e.g. Outlet still
+    // has the old un-merged "BREBES" row, kodeGT null) — override still
+    // applies in that case, only a live match WITH a real kodeGT wins over it.
+    if (live?.kodeGT) return live;
+    const override = KODE_GT_OVERRIDES[namaGT.toUpperCase()];
+    if (override) return { namaGT: live?.namaGT ?? namaGT, kodeGT: override };
+    return live ?? { namaGT, kodeGT: null };
   }
 
   // ── Identity lookup: (Nama Area, MR/SPV name) -> Nama GT, from Rekap FFMedrep ──
