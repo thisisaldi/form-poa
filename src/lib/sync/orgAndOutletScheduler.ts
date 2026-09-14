@@ -1,11 +1,14 @@
 /**
  * In-process daily scheduler for the org-structure → outlet → outlet-coverage
- * → pending-approval-holder sync chain (runOrgSync, then runOutletSync, then
- * runOutletCoverageSync, then runPendingApprovalHolderSync — order matters:
- * outlet sync reads its NIP list from `User`, which org sync
- * populates/refreshes; outlet-coverage sync reads both `User` and
- * `MrOutletAssignment`, which the first two steps just refreshed;
- * pending-approval-holder sync only needs fresh `User`, but runs last for
+ * → vacant-territory-coverage → pending-approval-holder sync chain
+ * (runOrgSync, then runOutletSync, then runOutletCoverageSync, then
+ * runVacantTerritoryCoverageSync, then runPendingApprovalHolderSync — order
+ * matters for the first three: outlet sync reads its NIP list from `User`,
+ * which org sync populates/refreshes; outlet-coverage sync reads both `User`
+ * and `MrOutletAssignment`, which the first two steps just refreshed.
+ * vacant-territory-coverage (MSSQL-only, skipped rather than aborting the
+ * chain if unconfigured) and pending-approval-holder sync don't depend on
+ * each other or on being in this exact order, just kept sequential for
  * simplicity, same "sequential, skip rest on failure" chain as the others;
  * see each step's own module doc comment). The first two previously had only an
  * external-cron-triggered HTTP endpoint (/api/sync/org-structure,
@@ -25,6 +28,7 @@
 import { runOrgSync } from "./orgStructureSync";
 import { runOutletSync } from "./outletSync";
 import { runOutletCoverageSync } from "./outletCoverageSync";
+import { runVacantTerritoryCoverageSync } from "./vacantTerritoryCoverageSync";
 import { runPendingApprovalHolderSync } from "./pendingApprovalHolderSync";
 import { acquireSyncLock } from "./syncLock";
 import { msUntilNextWibMidnight } from "./salesHistoryMonthlyScheduler";
@@ -75,6 +79,25 @@ async function runOnce() {
   } catch (err) {
     console.error("[scheduler] outlet-coverage sync failed, skipping pending-approval-holder sync this run:", err);
     return;
+  }
+
+  // Optional (needs MSSQL, unlike the Postgres-only steps above) — skipped
+  // rather than aborting the rest of the chain if unconfigured/failing, same
+  // tolerant pattern as salesHistoryMonthlyScheduler.ts.
+  const mssqlConnectionString = process.env.MSSQL_CONNECTION_STRING;
+  if (!mssqlConnectionString) {
+    console.log("[scheduler] vacant-territory-coverage skipped: MSSQL_CONNECTION_STRING not configured");
+  } else {
+    try {
+      const vacantResult = await runVacantTerritoryCoverageSync(mssqlConnectionString);
+      console.log(
+        `[scheduler] vacant-territory-coverage done — ${vacantResult.rowsConsidered} row(s) considered, ` +
+        `${vacantResult.outletsUpdated} updated` +
+        (vacantResult.errors.length > 0 ? `, errors: ${vacantResult.errors.join("; ")}` : "")
+      );
+    } catch (err) {
+      console.error("[scheduler] vacant-territory-coverage sync failed:", err);
+    }
   }
 
   try {
