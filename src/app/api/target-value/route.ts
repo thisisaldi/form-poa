@@ -10,8 +10,8 @@
  *
  * GT-BASED ONLY (2026-09-14): there is no `?nip=` rollup-by-person anymore —
  * every response is an array of per-GT rows, always carrying `namaGT` +
- * `kodeGT` (nullable, see the schema doc comments on each table's `kodeGT`
- * column for why hospital's is mostly empty and non-hospital's isn't).
+ * `kodeGT` (nullable, ~96% populated for hospital, ~100% for non-hospital —
+ * see the schema doc comments on each table's `kodeGT` column).
  * BREAKING CHANGE from the earlier `?nip=` contract — coordinate with any
  * existing external caller (e.g. Insentif Sales, which was using `?nip=` as
  * of 2026-09-13) before relying on this removal in production.
