@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -106,7 +106,61 @@ export function SalesCounterOutletCard({
     surveyNexusData,
     productDetailRows,
     isLoadingIncentiveHistory,
+    b3SalesMap,
   } = outletData;
+
+  const [showAllUnselected, setShowAllUnselected] = useState(false);
+
+  const unselectedProducts = useMemo(() => {
+    if (!b3SalesMap || b3SalesMap.size === 0) return [];
+    const selectedNorm = new Set<string>();
+    for (const c of selectedProductCodes) {
+      if (c) selectedNorm.add(c.replace(/^0+/, "").toUpperCase());
+    }
+
+    const results: {
+      kodeProduk: string;
+      namaProduk: string;
+      avgSalesPerMonth: number;
+      totalSalesPeriode: number;
+    }[] = [];
+
+    const seen = new Set<string>();
+    for (const [rawCode, avgSales] of Array.from(b3SalesMap.entries())) {
+      const norm = rawCode.replace(/^0+/, "").toUpperCase();
+      if (!norm || seen.has(norm)) continue;
+      seen.add(norm);
+
+      if (selectedNorm.has(norm)) continue;
+      if (avgSales <= 0) continue;
+
+      const matchedMaster = allScProducts?.find((p: any) => {
+        const c1 = (p.pro_code || p.kodeProduk || "").replace(/^0+/, "").toUpperCase();
+        const c2 = (p.kode_item || "").replace(/^0+/, "").toUpperCase();
+        return c1 === norm || c2 === norm;
+      });
+      const namaProduk =
+        matchedMaster?.pro_name ||
+        matchedMaster?.namaProduk ||
+        matchedMaster?.nama_item ||
+        `Produk (${rawCode})`;
+
+      results.push({
+        kodeProduk: rawCode,
+        namaProduk,
+        avgSalesPerMonth: avgSales,
+        totalSalesPeriode: avgSales * (lama || 1),
+      });
+    }
+
+    return results.sort((a, b) => b.avgSalesPerMonth - a.avgSalesPerMonth);
+  }, [b3SalesMap, selectedProductCodes, allScProducts, lama]);
+
+  const totalUnselectedSalesMonth = useMemo(() => {
+    return unselectedProducts.reduce((sum, p) => sum + p.avgSalesPerMonth, 0);
+  }, [unselectedProducts]);
+
+  const totalUnselectedSalesPeriod = totalUnselectedSalesMonth * (lama || 1);
 
   const strategyCounts = useMemo(() => {
     let intensifikasi = 0;
@@ -127,6 +181,53 @@ export function SalesCounterOutletCard({
     }
     return { intensifikasi, ekstensifikasi, penurunan, tetap };
   }, [productDetailRows.rows]);
+
+  const renderGrowthCell = (
+    growthPct: number | null | undefined,
+    delta: number,
+    isNew?: boolean,
+    isLoading?: boolean,
+    emptyFallback = "-"
+  ) => {
+    if (isLoading) {
+      return <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />;
+    }
+    if (isNew) {
+      return (
+        <span
+          className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border"
+          style={{
+            background: "rgba(22,163,74,0.12)",
+            color: "#16a34a",
+            borderColor: "rgba(22,163,74,0.3)",
+          }}
+        >
+          Baru
+        </span>
+      );
+    }
+    if (growthPct == null) {
+      return <span style={{ color: "var(--color-text-muted)" }}>{emptyFallback}</span>;
+    }
+
+    const isPos = growthPct >= 0;
+    const isDeltaPos = delta >= 0;
+
+    return (
+      <div className="flex flex-col items-center py-0.5 leading-tight">
+        <span className={`tabular-nums font-bold text-[11px] ${isPos ? "text-emerald-600" : "text-rose-600"}`}>
+          {isPos ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+        </span>
+        <span
+          className={`text-[10px] tabular-nums font-medium mt-0.5 ${
+            isDeltaPos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+          }`}
+        >
+          {delta > 0 ? `+${formatRp(delta)}` : delta < 0 ? `-${formatRp(Math.abs(delta))}` : "0"}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div
@@ -805,14 +906,20 @@ export function SalesCounterOutletCard({
                     )}
                   </div>
                 </div>
+                {unselectedProducts.length > 0 && (
+                  <div className="flex items-center justify-between pt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                    <span>Tidak Diajukan:</span>
+                    <span className="font-semibold" style={{ color: "var(--color-text)" }}>{unselectedProducts.length} Produk</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* Header Bar Produk SC & Tombol Analisis Produk Kompetitor */}
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
-              Daftar Produk SC ({scProducts.length})
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text)" }}>
+              Daftar Produk SC ({productDetailRows.rows.length || scProducts.length})
             </span>
             <button
               type="button"
@@ -870,37 +977,25 @@ export function SalesCounterOutletCard({
                     const numSubRows = months ? months.length + 1 : 1;
                     const isLastProduct = rowIdx === productDetailRows.rows.length - 1;
 
-                    // Shared cell style for growth columns
-                    const growthSalesCell = isLoadingB3 ? (
-                      <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                    ) : salesHistorical > 0 ? (
-                      <div className="flex flex-col items-center leading-tight">
-                        <span className={growthPct >= 0 ? "text-emerald-600 font-semibold tabular-nums" : "text-rose-600 font-semibold tabular-nums"}>
-                          {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
-                        </span>
-                        <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Histori Sales: ${formatRp(salesHistorical)} (${formatRp(salesHistorical / (lama || 1))}/bln)`}>
-                          vs {formatRp(salesHistorical)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
+                    const lamaEffective = lama || 1;
+                    const histSalesPerMonth = salesHistorical > 0 ? salesHistorical / lamaEffective : 0;
+                    const histIncPerMonth = (historyIncentive || 0) > 0 ? (historyIncentive || 0) / lamaEffective : 0;
+
+                    // Total / single-row growth cells
+                    const totDeltaSales = estSalesFull - salesHistorical;
+                    const totGrowthSalesCell = renderGrowthCell(
+                      salesHistorical > 0 ? growthPct : null,
+                      totDeltaSales,
+                      salesHistorical <= 0,
+                      isLoadingB3
                     );
 
-                    const growthInsentifCell = isLoadingIncentiveHistory ? (
-                      <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                    ) : historyIncentive && historyIncentive > 0 && growthIncentivePct != null ? (
-                      <div className="flex flex-col items-center leading-tight">
-                        <span className={growthIncentivePct >= 0 ? "text-emerald-600 font-semibold tabular-nums" : "text-rose-600 font-semibold tabular-nums"}>
-                          {growthIncentivePct >= 0 ? `+${growthIncentivePct.toFixed(1)}%` : `${growthIncentivePct.toFixed(1)}%`}
-                        </span>
-                        <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Histori Insentif: ${formatRp(historyIncentive)}`}>
-                          vs {formatRp(historyIncentive)}
-                        </span>
-                      </div>
-                    ) : isNewIncentiveProduct ? (
-                      <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
-                    ) : (
-                      <span style={{ color: "var(--color-text-muted)" }}>-</span>
+                    const totDeltaInc = (nilaiScFull || 0) - (historyIncentive || 0);
+                    const totGrowthInsentifCell = renderGrowthCell(
+                      historyIncentive && historyIncentive > 0 ? growthIncentivePct : null,
+                      totDeltaInc,
+                      isNewIncentiveProduct,
+                      isLoadingIncentiveHistory
                     );
 
                     if (!months) {
@@ -914,11 +1009,11 @@ export function SalesCounterOutletCard({
                           <td className="px-3 py-2.5 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                             {estSalesFull > 0 ? <span className="tabular-nums">{formatRp(estSalesFull)}</span> : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                           </td>
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap">{growthSalesCell}</td>
+                          <td className="px-3 py-2.5 text-center whitespace-nowrap">{totGrowthSalesCell}</td>
                           <td className="px-3 py-2.5 text-right whitespace-nowrap font-semibold" style={{ color: nilaiScFull > 0 ? "var(--color-blue)" : "var(--color-text-faint)" }}>
                             {nilaiScFull > 0 ? <span className="tabular-nums">{formatRp(nilaiScFull)}</span> : "—"}
                           </td>
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap">{growthInsentifCell}</td>
+                          <td className="px-3 py-2.5 text-center whitespace-nowrap">{totGrowthInsentifCell}</td>
                         </tr>
                       );
                     }
@@ -926,8 +1021,28 @@ export function SalesCounterOutletCard({
                     // Multi-month: product name rowspans all sub-rows
                     return months.map((mb, mIdx) => {
                       const isFirstRow = mIdx === 0;
-                      const isTotRow = false; // month rows are not tot
                       const borderTop = isFirstRow ? "2px solid var(--color-border)" : "1px solid var(--color-border)";
+
+                      const mbEst = mb.estSales ?? 0;
+                      const mbDeltaSales = mbEst - histSalesPerMonth;
+                      const mbGrowthSalesPct = histSalesPerMonth > 0 ? (mbDeltaSales / histSalesPerMonth) * 100 : null;
+                      const monthGrowthSalesCell = renderGrowthCell(
+                        salesHistorical > 0 ? mbGrowthSalesPct : null,
+                        mbDeltaSales,
+                        salesHistorical <= 0,
+                        isLoadingB3
+                      );
+
+                      const mbSc = mb.nilaiSc ?? 0;
+                      const mbDeltaInc = mbSc - histIncPerMonth;
+                      const mbGrowthIncPct = histIncPerMonth > 0 ? (mbDeltaInc / histIncPerMonth) * 100 : null;
+                      const monthGrowthInsentifCell = renderGrowthCell(
+                        historyIncentive && historyIncentive > 0 ? mbGrowthIncPct : null,
+                        mbDeltaInc,
+                        isNewIncentiveProduct,
+                        isLoadingIncentiveHistory
+                      );
+
                       return (
                         <tr key={`${p.id}-${mb.month}`} className="align-middle">
                           {isFirstRow && (
@@ -951,14 +1066,18 @@ export function SalesCounterOutletCard({
                           <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px]" style={{ color: "var(--color-text)", borderTop }}>
                             {(mb.estSales ?? 0) > 0 ? formatRp(mb.estSales!) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                           </td>
-                          {/* Growth Sales — shown empty for month rows */}
-                          <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }} />
+                          {/* Growth Sales — broken down per month */}
+                          <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }}>
+                            {monthGrowthSalesCell}
+                          </td>
                           {/* Insentif SC */}
                           <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px] font-semibold" style={{ color: (mb.nilaiSc ?? 0) > 0 ? "var(--color-blue)" : "var(--color-text-faint)", borderTop }}>
                             {(mb.nilaiSc ?? 0) > 0 ? formatRp(mb.nilaiSc!) : "—"}
                           </td>
-                          {/* Growth Insentif — shown empty for month rows */}
-                          <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }} />
+                          {/* Growth Insentif — broken down per month */}
+                          <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }}>
+                            {monthGrowthInsentifCell}
+                          </td>
                         </tr>
                       );
                     }).concat(
@@ -975,13 +1094,17 @@ export function SalesCounterOutletCard({
                             <span className="tabular-nums">{formatRp(estSalesFull)}</span>
                           ) : <span style={{ color: "var(--color-text-muted)" }}>-</span>}
                         </td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap border-t" style={{ borderColor: "var(--color-border)" }}>{growthSalesCell}</td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap border-t" style={{ borderColor: "var(--color-border)" }}>
+                          {totGrowthSalesCell}
+                        </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap border-t font-semibold" style={{ color: nilaiScFull > 0 ? "var(--color-blue)" : "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
                           {nilaiScFull > 0 ? (
                             <span className="tabular-nums">{formatRp(nilaiScFull)}</span>
                           ) : <span style={{ color: "var(--color-text-muted)" }}>-</span>}
                         </td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap border-t" style={{ borderColor: "var(--color-border)" }}>{growthInsentifCell}</td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap border-t" style={{ borderColor: "var(--color-border)" }}>
+                          {totGrowthInsentifCell}
+                        </td>
                       </tr>
                     );
                   })}
@@ -993,6 +1116,31 @@ export function SalesCounterOutletCard({
                     const mSc = productDetailRows.rows.reduce((s, r) => s + (r.monthlyBreakdown?.find((x) => x.month === mb.month)?.nilaiSc ?? 0), 0);
                     const isFirst = mIdx === 0;
                     const borderTop = isFirst ? "2px solid var(--color-border)" : "1px solid var(--color-border)";
+
+                    const lamaEffective = lama || 1;
+                    const outletHistMonth = productDetailRows.effectiveOutletSalesPerMonth > 0
+                      ? productDetailRows.effectiveOutletSalesPerMonth
+                      : (lamaEffective > 0 ? productDetailRows.sumSalesHistorical / lamaEffective : 0);
+
+                    const mDeltaSales = mEst - outletHistMonth;
+                    const mGrowthSalesPct = outletHistMonth > 0 ? (mDeltaSales / outletHistMonth) * 100 : null;
+                    const mGrowthSalesCell = renderGrowthCell(
+                      outletHistMonth > 0 ? mGrowthSalesPct : null,
+                      mDeltaSales,
+                      outletHistMonth <= 0 && productDetailRows.sumSalesHistorical <= 0,
+                      isLoadingB3
+                    );
+
+                    const outletHistIncMonth = lamaEffective > 0 ? (productDetailRows.sumHistoryIncentive || 0) / lamaEffective : 0;
+                    const mDeltaInc = mSc - outletHistIncMonth;
+                    const mGrowthIncPct = outletHistIncMonth > 0 ? (mDeltaInc / outletHistIncMonth) * 100 : null;
+                    const mGrowthIncCell = renderGrowthCell(
+                      outletHistIncMonth > 0 ? mGrowthIncPct : null,
+                      mDeltaInc,
+                      productDetailRows.isNewIncentiveTotal,
+                      isLoadingIncentiveHistory
+                    );
+
                     return (
                       <tr key={`grand-${mb.month}`} className="align-middle font-semibold" style={{ background: "var(--color-bg-subtle)" }}>
                         {isFirst && (
@@ -1013,11 +1161,15 @@ export function SalesCounterOutletCard({
                         <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px]" style={{ color: "var(--color-text)", borderTop }}>
                           {mEst > 0 ? formatRp(mEst) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
                         </td>
-                        <td style={{ borderTop }} />
+                        <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }}>
+                          {mGrowthSalesCell}
+                        </td>
                         <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px]" style={{ color: mSc > 0 ? "var(--color-blue)" : "var(--color-text-faint)", borderTop }}>
                           {mSc > 0 ? formatRp(mSc) : "—"}
                         </td>
-                        <td style={{ borderTop }} />
+                        <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }}>
+                          {mGrowthIncCell}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1038,19 +1190,13 @@ export function SalesCounterOutletCard({
                       ) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                      {isLoadingB3 ? (
-                        <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                      ) : productDetailRows.sumSalesHistorical > 0 ? (
-                        <div className="flex flex-col items-center leading-tight">
-                          <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold tabular-nums" : "text-rose-600 font-bold tabular-nums"}>
-                            {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
-                          </span>
-                          <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Total Histori Sales: ${formatRp(productDetailRows.sumSalesHistorical)}`}>
-                            vs {formatRp(productDetailRows.sumSalesHistorical)}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
+                      {renderGrowthCell(
+                        productDetailRows.effectiveOutletSalesFull > 0 || productDetailRows.sumSalesHistorical > 0
+                          ? productDetailRows.overallGrowthPct
+                          : null,
+                        productDetailRows.sumEstSales - (productDetailRows.effectiveOutletSalesFull > 0 ? productDetailRows.effectiveOutletSalesFull : productDetailRows.sumSalesHistorical),
+                        productDetailRows.effectiveOutletSalesFull <= 0 && productDetailRows.sumSalesHistorical <= 0,
+                        isLoadingB3
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right whitespace-nowrap" style={{ color: productDetailRows.sumNilaiSc > 0 ? "var(--color-blue)" : "var(--color-text-muted)" }}>
@@ -1059,21 +1205,13 @@ export function SalesCounterOutletCard({
                       ) : "-"}
                     </td>
                     <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                      {isLoadingIncentiveHistory ? (
-                        <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                      ) : productDetailRows.sumHistoryIncentive && productDetailRows.sumHistoryIncentive > 0 && productDetailRows.overallIncentiveGrowthPct != null ? (
-                        <div className="flex flex-col items-center leading-tight">
-                          <span className={productDetailRows.overallIncentiveGrowthPct >= 0 ? "text-emerald-600 font-bold tabular-nums" : "text-rose-600 font-bold tabular-nums"}>
-                            {productDetailRows.overallIncentiveGrowthPct >= 0 ? `+${productDetailRows.overallIncentiveGrowthPct.toFixed(1)}%` : `${productDetailRows.overallIncentiveGrowthPct.toFixed(1)}%`}
-                          </span>
-                          <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Total Histori Insentif: ${formatRp(productDetailRows.sumHistoryIncentive)}`}>
-                            vs {formatRp(productDetailRows.sumHistoryIncentive)}
-                          </span>
-                        </div>
-                      ) : productDetailRows.isNewIncentiveTotal ? (
-                        <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
-                      ) : (
-                        <span style={{ color: "var(--color-text-muted)" }}>-</span>
+                      {renderGrowthCell(
+                        productDetailRows.sumHistoryIncentive && productDetailRows.sumHistoryIncentive > 0 && productDetailRows.overallIncentiveGrowthPct != null
+                          ? productDetailRows.overallIncentiveGrowthPct
+                          : null,
+                        productDetailRows.sumNilaiSc - (productDetailRows.sumHistoryIncentive || 0),
+                        productDetailRows.isNewIncentiveTotal,
+                        isLoadingIncentiveHistory
                       )}
                     </td>
                   </tr>
@@ -1086,6 +1224,92 @@ export function SalesCounterOutletCard({
               </p>
             )}
           </div>
+
+          {/* Tabel Produk SC yang Tidak Diajukan */}
+          {unselectedProducts.length > 0 && (
+            <div className="space-y-2 mt-4">
+              <div
+                onClick={() => setShowAllUnselected((prev) => !prev)}
+                className="flex items-center justify-between flex-wrap gap-2 cursor-pointer select-none py-1 group"
+              >
+                <div className="flex items-center gap-2">
+                  <svg
+                    className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-500 group-hover:text-slate-800 dark:group-hover:text-slate-200 ${showAllUnselected ? "rotate-0" : "-rotate-90"}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" />
+                  </svg>
+                  <span className="text-xs font-semibold uppercase tracking-wider group-hover:opacity-80 transition-opacity" style={{ color: "var(--color-text)" }}>
+                    Produk Histori SC Tidak Diajukan ({unselectedProducts.length})
+                  </span>
+                </div>
+                <span className="text-[11px] font-medium" style={{ color: "var(--color-text-muted)" }}>
+                  {showAllUnselected ? "Tutup" : "Lihat Rincian"}
+                </span>
+              </div>
+
+              {showAllUnselected && (
+                <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                        <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--color-text-muted)", width: 44 }}>
+                          No
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                          Produk SC
+                        </th>
+                        <th className="text-right px-3 py-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                          Histori Rata-rata
+                        </th>
+                        <th className="text-right px-3 py-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                          Potensi Periode ({lama || 1} bln)
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unselectedProducts.map((p, idx) => (
+                        <tr
+                          key={p.kodeProduk}
+                          className="align-middle transition-colors"
+                          style={{ borderBottom: "1px solid var(--color-border)" }}
+                        >
+                          <td className="px-3 py-2 text-left tabular-nums text-[11px]" style={{ color: "var(--color-text-muted)" }}>
+                            {idx + 1}
+                          </td>
+                          <td className="px-3 py-2 font-medium" style={{ color: "var(--color-text)" }}>
+                            {p.namaProduk}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-mono" style={{ color: "var(--color-text)" }}>
+                            {formatRp(p.avgSalesPerMonth)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-mono font-medium" style={{ color: "var(--color-text)" }}>
+                            {formatRp(p.totalSalesPeriode)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="align-middle font-semibold" style={{ background: "var(--color-bg-subtle)" }}>
+                        <td colSpan={2} className="px-3 py-2 text-left" style={{ color: "var(--color-text)" }}>
+                          Total ({unselectedProducts.length} Produk)
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-mono font-bold" style={{ color: "var(--color-text)" }}>
+                          {formatRp(totalUnselectedSalesMonth)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-mono font-bold" style={{ color: "var(--color-text)" }}>
+                          {formatRp(totalUnselectedSalesPeriod)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Helper Sidebar: Analisis Produk Kompetitor */}
           <ProdukKompetitorSidebar

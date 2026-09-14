@@ -118,12 +118,16 @@ export function getProductPotensiDetail(
 ): ProductPotensiDetail {
   const code = String(product.kodeProduk || product.pro_code || product.kode_item || "").trim();
   const strippedCode = code.replace(/^0+/, "");
+  const altCode = String(product.kode_item || product.pro_code || "").trim();
+  const strippedAlt = altCode.replace(/^0+/, "");
   const name = String(
     product.namaProduk ||
     product.pro_name ||
     product.name ||
     FALLBACK_PRODUCT_NAMES[code] ||
     FALLBACK_PRODUCT_NAMES[strippedCode] ||
+    FALLBACK_PRODUCT_NAMES[altCode] ||
+    FALLBACK_PRODUCT_NAMES[strippedAlt] ||
     code ||
     "Produk"
   ).trim();
@@ -133,16 +137,22 @@ export function getProductPotensiDetail(
   if (!zatAktif && Array.isArray(salesOnlineItems)) {
     const matchedOnline = salesOnlineItems.find((it) => {
       const itCode = String(it.code || "").trim();
-      return itCode === code || (strippedCode && itCode.replace(/^0+/, "") === strippedCode);
+      return (
+        itCode === code ||
+        (strippedCode && itCode.replace(/^0+/, "") === strippedCode) ||
+        (altCode && (itCode === altCode || itCode.replace(/^0+/, "") === strippedAlt))
+      );
     });
     if (matchedOnline?.zat_aktif) {
       zatAktif = String(matchedOnline.zat_aktif).trim().toUpperCase();
     }
   }
 
-  // 1. Resolve Survey from real Nexus survey map (No dummy fallback)
+  // 1. Resolve Survey from real Nexus survey map: check altCode and code
   const matchedCompetitors = nexusSurveyMap
-    ? (nexusSurveyMap.get(code) || (strippedCode ? nexusSurveyMap.get(strippedCode) : undefined) || [])
+    ? (altCode ? nexusSurveyMap.get(altCode) || (strippedAlt ? nexusSurveyMap.get(strippedAlt) : undefined) : undefined) ||
+      (code ? nexusSurveyMap.get(code) || (strippedCode ? nexusSurveyMap.get(strippedCode) : undefined) : undefined) ||
+      []
     : [];
 
   const surveyCompetitors = matchedCompetitors;
