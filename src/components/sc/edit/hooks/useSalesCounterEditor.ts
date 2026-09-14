@@ -16,12 +16,14 @@ import {
   getSalesOnlineAction,
   getSurveyNexusAction,
   getScOutletBundleAction,
+  getScHistoryIncentiveCounterAction,
 } from "@/app/actions/canvasser";
 import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/ScProductRecommendationModel";
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { calculateCashbackDetails } from "./useSalesCounterCashback";
 import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
+import { extractQuarterAndYear } from "@/components/sc/detail/utils/outletCalculationUtils";
 import { useScToast } from "../../ui/ScToast";
 import { formatDiskonPct, formatCashbackPct } from "../utils/formatEditUtils";
 import { findDiskonItem, findCashbackItem } from "../utils/productMatcherUtils";
@@ -64,10 +66,13 @@ export function useSalesCounterEditor({
   const [periodeAwal, setPeriodeAwal] = useState("");
   const [lamaPeriode, setLamaPeriode] = useState(0);
 
+  const extracted = useMemo(() => {
+    return extractQuarterAndYear(poaPeriod, periodeAwal);
+  }, [poaPeriod, periodeAwal]);
+
   // Period / Quarter setup
   const [rowQuarter, setRowQuarter] = useState<number>(() => {
-    const m = poaPeriod.match(/-Q([1-4])/);
-    return m ? parseInt(m[1], 10) : 1;
+    return parseInt(extracted.quarter.replace(/^Q/i, ""), 10) || 1;
   });
 
   // Monthly Entertain Plan list
@@ -265,6 +270,60 @@ export function useSalesCounterEditor({
     }
     getScInsentifHistoryAction(outletId, targetPeriod).then((res) => setInsentifHistory(res?.data || null));
   }, [outletId, targetPeriod]);
+
+  const poaYear = parseInt(extracted.year, 10) || new Date().getFullYear();
+  const [scHistoryIncentiveData, setScHistoryIncentiveData] = useState<any[]>([]);
+  const [historyIncentiveQuarter, setHistoryIncentiveQuarter] = useState<string>("");
+  const [historyIncentiveYear, setHistoryIncentiveYear] = useState<string | number>("");
+  const [isLoadingIncentiveHistory, setIsLoadingIncentiveHistory] = useState(false);
+
+  useEffect(() => {
+    if (!outletId) {
+      setScHistoryIncentiveData([]);
+      return;
+    }
+    let isMounted = true;
+    setIsLoadingIncentiveHistory(true);
+    const effectiveQ = rowQuarter > 0 ? `Q${rowQuarter}` : extracted.quarter;
+    const effectiveYr = poaYear > 2000 ? poaYear : (parseInt(extracted.year, 10) || new Date().getFullYear());
+    getScHistoryIncentiveCounterAction(outletId, effectiveQ, effectiveYr)
+      .then((res) => {
+        if (!isMounted) return;
+        const items = res?.data && Array.isArray(res.data) ? res.data : [];
+        if (res?.quarter) setHistoryIncentiveQuarter(res.quarter);
+        if (res?.year) setHistoryIncentiveYear(res.year);
+        setScHistoryIncentiveData(items);
+      })
+      .catch(() => {
+        if (isMounted) setScHistoryIncentiveData([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingIncentiveHistory(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [outletId, rowQuarter, poaYear, extracted.quarter, extracted.year]);
+
+  const { scHistoryIncentiveMap, totalOutletHistoryIncentive } = useMemo(() => {
+    const map = new Map<string, { win_incentive: number; win_qty?: number; name?: string }>();
+    if (!scHistoryIncentiveData || scHistoryIncentiveData.length === 0) {
+      return { scHistoryIncentiveMap: map, totalOutletHistoryIncentive: 0 };
+    }
+    let sumTotal = 0;
+    for (const item of scHistoryIncentiveData) {
+      if (item.code) {
+        const val = Number(item.win_incentive) || 0;
+        const qty = Number(item.win_qty) || 0;
+        sumTotal += val;
+        const entry = { win_incentive: val, win_qty: qty, name: item.name };
+        map.set(item.code, entry);
+        map.set(item.code.replace(/^0+/, ""), entry);
+      }
+    }
+    return { scHistoryIncentiveMap: map, totalOutletHistoryIncentive: sumTotal };
+  }, [scHistoryIncentiveData]);
 
   // Find if there is an existing database draft for the selected outlet and prefill states
   useEffect(() => {
@@ -683,6 +742,11 @@ export function useSalesCounterEditor({
     cashbackData,
     cashbackDetails,
     cashbackPeriode,
+    scHistoryIncentiveMap,
+    totalOutletHistoryIncentive,
+    historyIncentiveQuarter,
+    historyIncentiveYear,
+    isLoadingIncentiveHistory,
     diskonPeriode,
     errors,
     isPending,

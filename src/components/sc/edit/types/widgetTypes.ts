@@ -34,6 +34,7 @@ export interface PerincianBudgetModalProps {
   showCashback?: boolean;
   showBlastIn?: boolean;
   showPosm?: boolean;
+  costRatio?: number;
 }
 
 export interface UnitInputProps {

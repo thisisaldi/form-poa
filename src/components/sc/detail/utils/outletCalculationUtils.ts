@@ -130,9 +130,11 @@ export function computeHistoryInsentifInfo(
  * Helper to generate YYYYMM string list for a given start month and duration.
  */
 export function getPeriodMonthList(periodeAwal?: string, lama: number = 3): string[] {
-  if (!periodeAwal || periodeAwal.length < 6) return [];
-  const startYear = parseInt(periodeAwal.slice(0, 4), 10);
-  const startMonth = parseInt(periodeAwal.slice(4, 6), 10);
+  if (!periodeAwal) return [];
+  const clean = String(periodeAwal).replace(/[^0-9]/g, "");
+  if (clean.length < 6) return [];
+  const startYear = parseInt(clean.slice(0, 4), 10);
+  const startMonth = parseInt(clean.slice(4, 6), 10);
   if (isNaN(startYear) || isNaN(startMonth)) return [];
   const list: string[] = [];
   for (let i = 0; i < (lama || 1); i++) {

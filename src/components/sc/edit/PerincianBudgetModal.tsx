@@ -18,6 +18,7 @@ export function PerincianBudgetModal({
   showCashback = true,
   showBlastIn = false,
   showPosm = false,
+  costRatio,
 }: PerincianBudgetModalProps) {
   if (!isOpen) return null;
 
@@ -61,14 +62,32 @@ export function PerincianBudgetModal({
           </button>
         </div>
 
-        {/* Total Display */}
-        <div className="space-y-0.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-            TOTAL ESTIMASI BUDGET
+        {/* Total & Cost Ratio Display */}
+        <div
+          className="flex items-start justify-between gap-4 p-3 rounded-xl border"
+          style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}
+        >
+          <div className="space-y-0.5 min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+              TOTAL ESTIMASI BUDGET
+            </div>
+            <div className="text-xl font-extrabold" style={{ color: "var(--color-blue, #2563eb)" }}>
+              Rp {formatRp(calculatedTotal)}
+            </div>
           </div>
-          <div className="text-2xl font-bold" style={{ color: "var(--color-blue, #2563eb)" }}>
-            Rp {formatRp(calculatedTotal)}
-          </div>
+          {costRatio != null && (
+            <div className="text-right space-y-0.5 shrink-0 border-l pl-3.5" style={{ borderColor: "var(--color-border)" }}>
+              <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                TOTAL % COST RATIO
+              </div>
+              <div className="text-xl font-extrabold" style={{ color: "var(--color-blue, #2563eb)" }}>
+                {costRatio.toFixed(2)}%
+              </div>
+              <div className="text-[10px] font-medium" style={{ color: "var(--color-text-muted)" }}>
+                Budget / Sales
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Items breakdown list - Free / Un-boxed */}

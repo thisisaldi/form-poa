@@ -21,10 +21,19 @@ export async function getScHistoryIncentiveCounter(
   year: string | number
 ): Promise<ScHistoryIncentiveResponse | null> {
   try {
-    const q = quarter.toUpperCase().startsWith("Q") ? quarter.toUpperCase() : `Q${quarter}`;
-    const url = `${CANVASSER_API_BASE_URL}/api/get-history-incentive-sales-counter?pi_code=${encodeURIComponent(
-      piCode
-    )}&quarter=${encodeURIComponent(q)}&year=${encodeURIComponent(String(year))}`;
+    const cleanPiCode = String(piCode || "").trim().toUpperCase();
+    const cleanQuarter = String(quarter || "").trim().toUpperCase();
+    const q = cleanQuarter.startsWith("Q") ? cleanQuarter : `Q${cleanQuarter}`;
+    const cleanYear = String(year || "").trim();
+
+    const baseUrl = (
+      CANVASSER_API_BASE_URL ||
+      "https://staging-izmo.chc.pharmalink.id/healthcare-productdetection/api"
+    ).replace(/\/+$/, "");
+
+    const url = `${baseUrl}/api/get-history-incentive-sales-counter?pi_code=${encodeURIComponent(
+      cleanPiCode
+    )}&quarter=${encodeURIComponent(q)}&year=${encodeURIComponent(cleanYear)}`;
 
     const res = await fetchWithTimeout(
       url,
@@ -35,11 +44,13 @@ export async function getScHistoryIncentiveCounter(
         },
         cache: "no-store",
       },
-      5000
+      15000
     );
 
     if (!res.ok) {
-      console.error(`Canvasser History Incentive Sales Counter API returned status ${res.status}`);
+      console.error(
+        `Canvasser History Incentive Sales Counter API returned status ${res.status} for ${url}`
+      );
       return null;
     }
 

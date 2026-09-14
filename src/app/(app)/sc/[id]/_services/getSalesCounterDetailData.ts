@@ -176,9 +176,16 @@ export async function getSalesCounterDetailData(
   const b3Info = getB3ByQuarter(targetPeriod);
   const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
 
-  const [blastInSet, rawOutlets] = await Promise.all([
+  const [blastInSet, rawOutlets, batchHistRes] = await Promise.all([
     getBlastInOutletSet(),
     getSalesCounterOutletsDirect(actor.nip),
+    outletCodes.length > 0
+      ? postHistorySales({
+          piCodes: outletCodes,
+          period: b3Info.targetPeriods,
+          agg: true,
+        }).catch(() => null)
+      : null,
   ]);
 
   await Promise.all(
@@ -199,47 +206,55 @@ export async function getSalesCounterDetailData(
         }
 
         const scProCodes = Array.from(scCodes);
-        if (scProCodes.length > 0) {
-          const histRes = await postHistorySales({
-            piCodes: [kodePI],
-            period: b3Info.targetPeriods,
-            agg: true,
-            proCodes: scProCodes,
-          }).catch(() => null);
 
-          const parsed = parseOutletHistorySales(histRes, kodePI);
-          if (parsed.totalSales > 0) {
-            outletHistorySalesQuarterMap.set(kodePI, parsed.totalSales);
-          } else {
-            // Fallback 1: getScOutletB3Sales for SC products
-            const b3Items = await getScOutletB3Sales(b3Info.period, kodePI, scProCodes).catch(() => []);
-            const activeB3 = (b3Items || []).filter((it: any) => (Number(it.average_sales) || 0) > 0 || (Number(it.average_qty) || 0) > 0);
-            if (activeB3.length > 0) {
-              const totalB3Val = activeB3.reduce((sum, it) => sum + (Number(it.average_sales) || 0), 0) * 3;
-              if (totalB3Val > 0) {
-                outletHistorySalesQuarterMap.set(kodePI, totalB3Val);
-              }
-            } else {
-              // Fallback 2: legacy getHistorySales strictly filtered by SC codes
-              const historyRes = await getHistorySales(kodePI, false).catch(() => null);
-              if (historyRes?.data && Array.isArray(historyRes.data)) {
-                let totalValSum = 0;
-                for (const it of historyRes.data) {
-                  const itemPeriod = Number(it.period);
-                  const salesVal = Number(it.sales_value) || 0;
-                  if (targetPeriodsSet.has(itemPeriod) && salesVal > 0 && it.code && scCodes.has(it.code)) {
-                    totalValSum += salesVal;
-                  }
-                }
-                if (totalValSum > 0) {
-                  outletHistorySalesQuarterMap.set(kodePI, totalValSum);
-                }
-              }
+        // Check if batchHistRes already has sales for this outlet
+        const parsed = parseOutletHistorySales(batchHistRes, kodePI);
+        if (parsed.totalSales > 0 || parsed.productSalesMap.size > 0) {
+          // Filter to SC products
+          let scTotalSales = 0;
+          for (const [code, val] of parsed.productSalesMap.entries()) {
+            const norm = code.replace(/^0+/, "");
+            if (scCodes.size === 0 || scCodes.has(code) || scCodes.has(norm)) {
+              scTotalSales += (val || 0) * 3; // 3 months total
             }
           }
-        } else {
-          outletHistorySalesQuarterMap.set(kodePI, 0);
+          if (scTotalSales > 0) {
+            outletHistorySalesQuarterMap.set(kodePI, scTotalSales);
+            return;
+          }
         }
+
+        if (scProCodes.length > 0) {
+          // Fallback 1: getScOutletB3Sales for SC products
+          const b3Items = await getScOutletB3Sales(b3Info.period, kodePI, scProCodes).catch(() => []);
+          const activeB3 = (b3Items || []).filter((it: any) => (Number(it.average_sales) || 0) > 0 || (Number(it.average_qty) || 0) > 0);
+          if (activeB3.length > 0) {
+            const totalB3Val = activeB3.reduce((sum, it) => sum + (Number(it.average_sales) || 0), 0) * 3;
+            if (totalB3Val > 0) {
+              outletHistorySalesQuarterMap.set(kodePI, totalB3Val);
+              return;
+            }
+          }
+
+          // Fallback 2: legacy getHistorySales strictly filtered by SC codes
+          const historyRes = await getHistorySales(kodePI, false).catch(() => null);
+          if (historyRes?.data && Array.isArray(historyRes.data)) {
+            let totalValSum = 0;
+            for (const it of historyRes.data) {
+              const itemPeriod = Number(it.period);
+              const salesVal = Number(it.sales_value) || 0;
+              if (targetPeriodsSet.has(itemPeriod) && salesVal > 0 && it.code && scCodes.has(it.code)) {
+                totalValSum += salesVal;
+              }
+            }
+            if (totalValSum > 0) {
+              outletHistorySalesQuarterMap.set(kodePI, totalValSum);
+              return;
+            }
+          }
+        }
+
+        outletHistorySalesQuarterMap.set(kodePI, 0);
       } catch (err) {
         console.error(`Error fetching SC data for ${kodePI}:`, err);
       }
@@ -256,7 +271,8 @@ export async function getSalesCounterDetailData(
     const scOnlyProducts = scCodes.size > 0
       ? d.products.filter((p: any) => scCodes.has(p.kodeProduk) || scCodes.has(String(p.kodeProduk || "").replace(/^0+/, "")))
       : d.products;
-    const validScProductsCount = scOnlyProducts.length;
+    const distinctScCodes = new Set(scOnlyProducts.map((p: any) => p.kodeProduk).filter(Boolean));
+    const validScProductsCount = distinctScCodes.size;
 
     return {
       id: d.id,
