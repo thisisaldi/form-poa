@@ -52,7 +52,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/sc/approvals",
-    label: "Approvals",
+    label: "Approvals SC",
     icon: <IconCheck />,
     roles: ["ASM", "SM", "NSM", "ADMIN"],
   },
@@ -155,6 +155,10 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
   const isOmega = userProject?.toUpperCase() === "OMEGA";
 
   const visibleItems = NAV_ITEMS.filter((item) => {
+    if (userRole === "ADMIN") {
+      return true;
+    }
+
     if (item.roles && !item.roles.includes(userRole)) {
       return false;
     }
@@ -172,6 +176,9 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
     }
     return true;
   }).map((item) => {
+    if (userRole === 'ADMIN') {
+      return item
+    }
     if (item.href === "/dashboard" && isOmega) {
       return { ...item, href: "/sc/dashboard" };
     }

@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
+import { resolveTargetByNipAndMonths } from "@/lib/targetHospitalValue";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { runKpiAbsensiSync, type KpiAbsensiSyncResult } from "@/lib/sync/kpiAbsensiSync";
 import { runKpiCallActivitySync, type KpiCallActivitySyncResult } from "@/lib/sync/kpiCallActivitySync";
@@ -106,17 +107,13 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
   // Sales target: TargetHospitalValue is natively monthly (periode YYYYMM,
   // same granularity as this page's period picker) — no quarter conversion
   // needed, unlike PoaForm.target which is set once per quarter and would
-  // require mapping this month back to its quarter first. Direct nipMR match
-  // (not GT-name resolution) mirrors resolveTargetHospitalValueFallback's
-  // established pattern (src/lib/targetHospitalValue.ts), same tradeoff.
-  const [entries, targets, assignments] = await Promise.all([
+  // require mapping this month back to its quarter first. Resolved LIVE via
+  // resolveTargetByNipAndMonths (2026-09-14 — TargetHospitalValue no longer
+  // has a nipMR column at all, see that function's doc comment in
+  // src/lib/targetHospitalValue.ts).
+  const [entries, targetByNipPeriode, assignments] = await Promise.all([
     prisma.kpiMonthlyEntry.findMany({ where: { nip: { in: nips }, period } }) as Promise<KpiEntryRow[]>,
-    mrNips.length > 0
-      ? (prisma.targetHospitalValue.findMany({
-          where: { nipMR: { in: mrNips }, periode: periodeYYYYMM },
-          select: { nipMR: true, target: true },
-        }) as Promise<{ nipMR: string | null; target: { toString(): string } }[]>)
-      : Promise.resolve([] as { nipMR: string | null; target: { toString(): string } }[]),
+    resolveTargetByNipAndMonths(mrNips, [periodeYYYYMM]),
     mrNips.length > 0
       ? (prisma.mrOutletAssignment.findMany({ where: { nipMR: { in: mrNips } }, select: { nipMR: true, kodePI: true } }) as Promise<{ nipMR: string; kodePI: string }[]>)
       : Promise.resolve([] as { nipMR: string; kodePI: string }[]),
@@ -125,9 +122,9 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
   const entryByNip = new Map(entries.map((e) => [e.nip, e]));
 
   const targetByMr = new Map<string, number>();
-  for (const t of targets) {
-    if (!t.nipMR) continue;
-    targetByMr.set(t.nipMR, (targetByMr.get(t.nipMR) ?? 0) + toNum(t.target));
+  for (const nip of mrNips) {
+    const v = targetByNipPeriode.get(`${nip}|${periodeYYYYMM}`);
+    if (v != null) targetByMr.set(nip, v);
   }
 
   const outletsByMr = new Map<string, string[]>();

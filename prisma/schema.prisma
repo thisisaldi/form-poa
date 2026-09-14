@@ -1009,37 +1009,39 @@ model OutletSalesValueMonthly {
 model TargetHospitalValue {
   id        String   @id @default(uuid())
   namaGT    String
-  // Live Outlet.kodeGT for this namaGT (see docs/target-non-hospital-value/…
-  // sibling cleanup note, 2026-09-14) — NULLABLE AND MOSTLY EMPTY IN
-  // PRACTICE: Outlet.kodeGT itself is barely populated (confirmed
-  // 2026-09-14: ~97/35000 Outlet rows have it — outletSync.ts only sets it
-  // when Nexus zone-hierarchy resolution succeeds, which mostly fails; the
-  // OTHER outlet importer, importStrukturVerifiedKAM.ts, doesn't carry a
-  // GT-code column from its source at all). Not a bug in this table's
-  // import — the upstream code source just doesn't exist reliably yet.
-  // Populate opportunistically (best-effort join to Outlet), don't rely on
-  // it being non-null.
+  // Live Outlet.kodeGT for this namaGT, populated via canonicalizeGT at
+  // import time (scripts/importTargetHospitalValue.ts). Originally MOSTLY
+  // NULL — outletSync.ts (Nexus) only sets Outlet.kodeGT when zone-hierarchy
+  // resolution succeeds (mostly fails), and importStrukturVerifiedKAM.ts's
+  // Excel source never carried a GT-code column at all. Fixed 2026-09-14:
+  // backfilled Outlet.kodeGT from MSSQL Struktur_Marketing_PI's raw
+  // KD_GT/NM_GT columns (Divisi KAM1) — that source always had the code,
+  // neither importer above happened to read it — see
+  // scripts/backfillOutletKodeGTFromStrukturMarketingPI.ts +
+  // scripts/cleanTargetHospitalValueGT.ts. ~96% coverage now (1250/1305
+  // rows); still nullable (~4% genuinely no live KAM1 match) and this
+  // backfill is a manual one-off, not a scheduled sync — don't assume
+  // 100%/always-fresh.
   kodeGT    String?
   periode   String // YYYYMM, e.g. "202608"
   target    Decimal  @db.Decimal(18, 2)
-  nipMR     String?
-  namaMR    String
-  nipASM    String?
-  namaASM   String
-  nipSM     String?
-  namaSM    String
-  nipNSM    String?
-  namaNSM   String
   syncedAt  DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // nipMR/namaMR/nipASM/namaASM/nipSM/namaSM/nipNSM/namaNSM DROPPED
+  // 2026-09-14 (user: "udah gaada personil mr -> nsm lagi cuma ada target by
+  // gt") — this table is GT-based only now, no personnel snapshot at all.
+  // "Who currently holds this GT" is resolved LIVE via
+  // resolveLiveGTHolderChain (src/lib/targetHospitalValue.ts) — Outlet +
+  // MrOutletAssignment + a BFS walk up User.nipAtasan — not stored here.
+  // Every consumer that used to read nipMR/etc directly off this table was
+  // rewritten the same day: resolveTargetHospitalValueFallback (dashboard/
+  // summary/POA detail/sc-approvals/kpi target fallback),
+  // src/app/actions/targetHospitalValue.ts + TargetHospitalValueForm.tsx
+  // (/admin/target-value edit page), getSalesCounterDetailData.ts, kpi.ts.
   @@unique([namaGT, periode])
   @@index([periode])
-  @@index([nipMR])
-  @@index([nipASM])
-  @@index([nipSM])
-  @@index([nipNSM])
   @@index([kodeGT])
 }
 
@@ -1065,14 +1067,15 @@ model TargetNonHospitalValue {
   divisi    String // "RETAIL" | "GROSIR_PBF"
   periode   String // YYYYMM, e.g. "202608"
   target    Decimal  @db.Decimal(18, 2)
-  nipMR     String?
-  namaMR    String
-  nipSM     String?
-  namaSM    String
   syncedAt  DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // nipMR/namaMR/nipSM/namaSM DROPPED 2026-09-14 (same cleanup as
+  // TargetHospitalValue, see its doc comment) — GT-based only, no personnel
+  // snapshot. "Who currently holds this GT" is resolved LIVE via
+  // getCurrentGTsForOmegaMrNips (src/lib/targetNonHospitalValue.ts).
+  //
   // NOT globally unique across divisi — confirmed 2026-09-11 on real import
   // data (e.g. "MEDAN 09" and "GROSIR MALANG 09" each appear as a DISTINCT
   // GT with a DIFFERENT target in both the RETAIL and GROSIR_PBF blocks of
@@ -1081,7 +1084,6 @@ model TargetNonHospitalValue {
   // assumption was wrong).
   @@unique([namaGT, divisi, periode])
   @@index([periode])
-  @@index([nipMR])
   @@index([divisi])
   @@index([kodeGT])
 }

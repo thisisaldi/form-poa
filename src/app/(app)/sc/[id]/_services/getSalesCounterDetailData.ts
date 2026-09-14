@@ -2,6 +2,7 @@ import { PoaStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getScSubordinateIdsUnder } from "@/lib/authz";
 import { getMrSalesSummary } from "@/lib/salesSummary";
+import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { getSalesCounterProduct } from "./getSalesCounterProduct";
 import { getHistorySales } from "./getHistorySales";
@@ -340,7 +341,11 @@ export async function getSalesCounterDetailData(
     ? { historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0 }
     : await getMrSalesSummary(poa.ownerId);
 
-  const targetValueFromGT: number | null = null;
+  // Live via resolveTargetHospitalValueFallback (2026-09-14 — TargetHospitalValue
+  // no longer has a nipMR column, see that function's doc comment).
+  const targetValueFromGT = /^\d{4}-Q[1-4]$/.test(poa.period)
+    ? (await resolveTargetHospitalValueFallback([{ owner: poa.owner, quarter: poa.period }])).get(`${poa.ownerId}|${poa.period}`) ?? null
+    : null;
 
   return {
     hasAccess: true,

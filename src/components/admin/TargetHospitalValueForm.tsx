@@ -80,9 +80,9 @@ export function TargetHospitalValueForm() {
     setTimeout(() => setSavedKey((k) => k === key ? null : k), 1500);
   }
 
-  const byAsm = rows ? sumBy(rows, (r) => r.namaASM) : [];
-  const bySm = rows ? sumBy(rows, (r) => r.namaSM) : [];
-  const byNsm = rows ? sumBy(rows, (r) => r.namaNSM) : [];
+  const byAsm = rows ? sumBy(rows, (r) => r.namaASM ?? "(Belum ada data)") : [];
+  const bySm = rows ? sumBy(rows, (r) => r.namaSM ?? "(Belum ada data)") : [];
+  const byNsm = rows ? sumBy(rows, (r) => r.namaNSM ?? "(Belum ada data)") : [];
 
   return (
     <div className="space-y-5">
@@ -125,10 +125,10 @@ export function TargetHospitalValueForm() {
               {rows.map((r) => (
                 <tr key={r.namaGT} style={{ borderTop: "1px solid var(--color-border)" }}>
                   <td className="py-1.5 px-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>{r.namaGT}</td>
-                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: r.nipMR ? "var(--color-text)" : "var(--color-text-faint)" }}>{r.namaMR}</td>
-                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{r.namaASM}</td>
-                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{r.namaSM}</td>
-                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: r.nipNSM ? "var(--color-text-muted)" : "var(--color-text-faint)" }}>{r.namaNSM}</td>
+                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: r.nipMR ? "var(--color-text)" : "var(--color-text-faint)" }}>{r.namaMR ?? "-"}</td>
+                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{r.namaASM ?? "-"}</td>
+                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{r.namaSM ?? "-"}</td>
+                  <td className="py-1.5 px-3 whitespace-nowrap" style={{ color: r.nipNSM ? "var(--color-text-muted)" : "var(--color-text-faint)" }}>{r.namaNSM ?? "-"}</td>
                   {TARGET_HOSPITAL_PERIODS.map((p) => {
                     const key = `${r.namaGT}|${p}`;
                     return (
