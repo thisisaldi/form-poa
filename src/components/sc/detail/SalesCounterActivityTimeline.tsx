@@ -301,12 +301,12 @@ export function SalesCounterActivityTimeline({
                           <li key={pIdx}>
                             {p.type === "add" && (
                               <span className="text-emerald-600 font-medium">
-                                Tambah: {p.personName || `ID ${p.nik_ktp}`}
+                                Tambah: {p.personName || `ID ${p.outletPersonId || p.nik_ktp}`}
                               </span>
                             )}
                             {p.type === "delete" && (
                               <span className="text-rose-600 font-medium">
-                                Hapus: {p.personName || `ID ${p.nik_ktp}`}
+                                Hapus: {p.personName || `ID ${p.outletPersonId || p.nik_ktp}`}
                               </span>
                             )}
                           </li>

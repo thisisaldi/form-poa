@@ -212,8 +212,11 @@ export function useSalesCounterDetail({
       });
 
       for (const p of draft.persons) {
-        distinctPersons.add(p.nik_ktp);
+        distinctPersons.add(p.outletPersonId || p.nik_ktp || p.id);
       }
+
+      const distinctProductMonths = new Set(draft.products.map((p) => p.periodeMonth).filter(Boolean));
+      const isMultiMonth = distinctProductMonths.size > 1;
 
       for (const p of draft.products) {
         if (!p.kodeProduk) continue;
@@ -224,7 +227,7 @@ export function useSalesCounterDetail({
         const qty = p.qtyPerBulan || 0;
 
         const estSalesPerMonth = qty * hnaSJ;
-        const estSalesFull = estSalesPerMonth * lama;
+        const estSalesFull = isMultiMonth ? estSalesPerMonth : estSalesPerMonth * lama;
 
         const pctMatriks = p.persenMatriksSc || 0;
         const scVal = p.salesCounterValue;
@@ -236,7 +239,7 @@ export function useSalesCounterDetail({
         } else {
           nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
         }
-        const nilaiScFull = nilaiScPerMonth * lama;
+        const nilaiScFull = isMultiMonth ? nilaiScPerMonth : nilaiScPerMonth * lama;
 
         const diskonFull = estSalesFull * ((p.persenDiskon || 0) / 100);
         const cashbackFull = cashbackData
@@ -254,15 +257,25 @@ export function useSalesCounterDetail({
         }
 
         // Add to monthly breakdown
-        for (let i = 0; i < lama; i++) {
-          const d = new Date(startYear, startMonth - 1 + i, 1);
-          const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-          if (monthlyBreakdownMap.has(yyyymm)) {
-            const cur = monthlyBreakdownMap.get(yyyymm)!;
-            monthlyBreakdownMap.set(yyyymm, {
+        if (isMultiMonth && p.periodeMonth) {
+          if (monthlyBreakdownMap.has(p.periodeMonth)) {
+            const cur = monthlyBreakdownMap.get(p.periodeMonth)!;
+            monthlyBreakdownMap.set(p.periodeMonth, {
               estimasiSales: cur.estimasiSales + estSalesPerMonth,
               nilaiSc: cur.nilaiSc + nilaiScPerMonth,
             });
+          }
+        } else {
+          for (let i = 0; i < lama; i++) {
+            const d = new Date(startYear, startMonth - 1 + i, 1);
+            const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+            if (monthlyBreakdownMap.has(yyyymm)) {
+              const cur = monthlyBreakdownMap.get(yyyymm)!;
+              monthlyBreakdownMap.set(yyyymm, {
+                estimasiSales: cur.estimasiSales + estSalesPerMonth,
+                nilaiSc: cur.nilaiSc + nilaiScPerMonth,
+              });
+            }
           }
         }
       }

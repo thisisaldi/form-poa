@@ -197,7 +197,8 @@ export default async function SalesCounterApprovalsPage({
       isBlastIn: blastInSet.has(d.kodePI),
       persons: d.persons.map((p: ScPerson) => ({
         id: p.id,
-        nik_ktp: p.nik_ktp,
+        outletPersonId: p.outletPersonId,
+        nik_ktp: p.outletPersonId,
         personName: p.personName,
         positionName: p.positionName,
       })),
@@ -208,6 +209,7 @@ export default async function SalesCounterApprovalsPage({
           id: p.id,
           kodeProduk: p.kodeProduk,
           namaProduk: p.namaProduk,
+          periodeMonth: p.periodeMonth,
           produkKompetitor: p.produkKompetitor || null,
           qtyPerBulan: p.qtyPerBulan,
           persenMatriksSc: Number(p.persenMatriksSc.toString()),
@@ -332,13 +334,15 @@ export default async function SalesCounterApprovalsPage({
     for (const f of g.forms) {
       if (f.kodePI) distinctOutlets.add(f.kodePI);
       const lama = f.lamaPeriode || 3;
+      const distinctProductMonths = new Set(f.products.map((p) => p.periodeMonth).filter(Boolean));
+      const isMultiMonth = distinctProductMonths.size > 1;
 
       for (const p of f.products) {
         if (p.kodeProduk) distinctProducts.add(p.kodeProduk);
         const mp = masterProductMap.get(p.kodeProduk);
         const hna = mp ? Number(mp.hna.toString()) : 0;
         const qty = p.qtyPerBulan || 0;
-        totalEstimasiSales += qty * hna * lama;
+        totalEstimasiSales += isMultiMonth ? (qty * hna) : (qty * hna * lama);
         totalBudgetSc += Number(p.rencanaTotalBiaya?.toString() || 0);
       }
 

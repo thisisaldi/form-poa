@@ -70,15 +70,17 @@ export async function getSalesCounterFormById(
     jumlahPasienResep: (form.jumlahPasienResep && form.jumlahPasienResep > 0) ? form.jumlahPasienResep : (targetOutlet?.jumlah_pasien_resep ?? form.jumlahPasienResep ?? null),
     jumlahPasienNonResep: (form.jumlahPasienNonResep && form.jumlahPasienNonResep > 0) ? form.jumlahPasienNonResep : (targetOutlet?.jumlah_pasien_non_resep ?? form.jumlahPasienNonResep ?? null),
     persons: form.persons.map((p: any) => {
+      const personIdVal = p.outletPersonId || p.nik_ktp;
       const matchedApiPerson = canvasserPersonsData?.data?.find(
         (c: any) =>
-          String(c.person_id) === String(p.nik_ktp) ||
-          String(c.nik) === String(p.nik_ktp) ||
+          String(c.person_id) === String(personIdVal) ||
+          String(c.nik) === String(personIdVal) ||
           String(c.person_id) === String(p.id)
       );
       return {
         id: p.id,
-        nik_ktp: p.nik_ktp,
+        outletPersonId: personIdVal,
+        nik_ktp: personIdVal,
         personName: p.personName,
         positionName: p.positionName,
         tipeUploadSc: matchedApiPerson?.tipe_upload_sc || "-",

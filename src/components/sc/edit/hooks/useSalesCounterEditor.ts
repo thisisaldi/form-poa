@@ -271,7 +271,7 @@ export function useSalesCounterEditor({
     if (!outletId || !savedDrafts) return;
     const draft = savedDrafts.find((d) => d.kodePI === outletId);
     if (draft) {
-      setSelectedPersonIds(draft.persons.map((p: any) => parseInt(p.nik_ktp, 10)));
+      setSelectedPersonIds(draft.persons.map((p: any) => parseInt(p.outletPersonId || p.nik_ktp, 10)));
       setPeriodeAwal(draft.periodeAwal);
       setLamaPeriode(draft.lamaPeriode);
       setPersenResepDokter(String(draft.persenResepDokter ?? draft.surveyPasienHarian ?? ""));

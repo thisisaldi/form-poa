@@ -29,3 +29,13 @@ export function formatMonthKey(key: string): string {
   if (isNaN(month) || month < 1 || month > 12) return key;
   return `${MONTH_NAMES[month - 1]} ${year}`;
 }
+
+/**
+ * Returns just the short month abbreviation (e.g. "Jul" from "202607").
+ */
+export function formatShortMonth(key: string): string {
+  if (!key || key.length < 6) return key || "";
+  const month = parseInt(key.slice(4, 6), 10);
+  if (isNaN(month) || month < 1 || month > 12) return key;
+  return MONTH_NAMES[month - 1];
+}
