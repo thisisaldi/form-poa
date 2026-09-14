@@ -36,15 +36,13 @@
  *    filter). A GT/periode already in the table from a prior import that has
  *    no Pengajuan value here is left untouched, not zeroed out.
  *
- * nip resolution: same as before — MR/SPV, ASM, SM, NSM names matched
- * case-insensitive/trimmed against non-dummy Users of the expected role;
- * VACANT/DUMMY placeholders and "A - B (SHADOW)" pairs legitimately don't
- * resolve — nip stays null, raw name is always kept regardless. When a name
- * DOES resolve, the stored nama* is the User's own canonical `name`, not the
- * raw source text — keeps casing consistent with other rows/sources for the
- * same person (e.g. this workbook's sheet tabs are "Fachriyanto", the User
- * table has "FACHRIYANTO" — storing the raw tab text split one NSM's rows
- * into two groups everywhere the app displays/groups by name).
+ * MR/SPV name (col A on each NSM sheet) is used ONLY to identify which GT a
+ * row belongs to (via gtByAreaAndMr below) — TargetHospitalValue has no
+ * personnel columns at all (2026-09-14, see schema doc comment: "udah gaada
+ * personil mr -> nsm lagi cuma ada target by gt"), so ASM/SM/NSM names
+ * aren't stored or even read past identifying the sheet/area. "Who holds
+ * this GT" is resolved LIVE elsewhere (resolveLiveGTHolderChain), never from
+ * this import.
  *
  * Effects: upserts TargetHospitalValue on (namaGT, periode) — same table,
  * same unique key as the original Rekomendasi-era import, this only changes
@@ -84,10 +82,6 @@ function sqlNullableStr(s: string | null): string {
 
 interface SourceRow {
   namaGT: string;
-  namaMR: string;
-  namaASM: string;
-  namaSM: string;
-  namaNSM: string;
   targets: Record<string, number>; // periode -> target, only for submitted months
 }
 
@@ -192,8 +186,6 @@ async function main() {
       // value" below already excludes trailing blank/summary rows.)
 
       const namaMR = String(a).trim();
-      const namaASM = String(b ?? "").trim();
-      const namaSM = String(c ?? "").trim();
 
       const namaGT = gtByAreaAndMr.get(`${curArea ?? ""}|${namaMR.toUpperCase()}`);
       if (!namaGT) { unmatchedGT++; continue; }
@@ -205,62 +197,11 @@ async function main() {
       }
       if (Object.keys(targets).length === 0) continue; // nothing submitted yet
 
-      rows.push({ namaGT, namaMR, namaASM, namaSM, namaNSM: sheetName, targets });
+      rows.push({ namaGT, targets });
     }
   }
 
   console.log(`Parsed ${rows.length} GT rows with at least one Pengajuan value (${unmatchedGT} rows skipped — no Nama GT match).\n`);
-
-  // ── Name -> nip resolution, restricted to non-dummy users of the expected role ──
-  const users = await prisma.user.findMany({ where: { isDummy: false }, select: { nip: true, name: true, role: true } });
-  function buildNameIndex(role: string): Map<string, string[]> {
-    const idx = new Map<string, string[]>();
-    for (const u of users) {
-      if (u.role !== role) continue;
-      const key = u.name.trim().toUpperCase();
-      const list = idx.get(key) ?? [];
-      list.push(u.nip);
-      idx.set(key, list);
-    }
-    return idx;
-  }
-  const mrIndex = buildNameIndex("MR");
-  const asmIndex = buildNameIndex("ASM");
-  const smIndex = buildNameIndex("SM");
-  const nsmIndex = buildNameIndex("NSM");
-
-  const nipToName = new Map(users.map((u) => [u.nip, u.name]));
-
-  // Source spelling variants confirmed 2026-09-02 (business owner) that don't
-  // normalize to the User table's canonical name via plain trim/uppercase —
-  // "DONNY  SIHOMBING" drops the middle name entirely, "MUH GUSTI BAGUS A.B"
-  // drops the periods. Keyed by trim+uppercase of the RAW source text.
-  const SOURCE_NAME_ALIASES: Record<string, string> = {
-    "DONNY  SIHOMBING": "DONNY C. SIHOMBING",
-    "MUH GUSTI BAGUS A.B": "MUH. GUSTI BAGUS A.B.",
-  };
-
-  let collisions = 0;
-  function resolveNip(index: Map<string, string[]>, name: string): string | null {
-    if (!name) return null;
-    const key = SOURCE_NAME_ALIASES[name.trim().toUpperCase()] ?? name;
-    const candidates = index.get(key.toUpperCase());
-    if (!candidates || candidates.length === 0) return null;
-    if (candidates.length > 1) collisions++;
-    return [...candidates].sort()[0];
-  }
-  // Once a name resolves to a nip, store the User's own canonical `name`
-  // instead of the raw source text — otherwise casing differences between
-  // sources (e.g. this sheet's tab title "Fachriyanto" vs the User table's
-  // "FACHRIYANTO") silently split what should be one person into two rows
-  // wherever the app groups/displays by namaMR/ASM/SM/NSM (found 2026-08-24:
-  // "TOTAL PER NSM" showing "Fachriyanto" and "FACHRIYANTO" separately).
-  // Unresolved (VACANT/DUMMY/SHADOW placeholders) keep the raw text, same as
-  // before — nothing canonical to fall back to.
-  function resolveNipAndName(index: Map<string, string[]>, name: string): { nip: string | null; name: string } {
-    const nip = resolveNip(index, name);
-    return { nip, name: nip ? (nipToName.get(nip) ?? name) : name };
-  }
 
   // Keyed by (namaGT, periode) rather than pushed to a plain array — GT names
   // are already the canonical Outlet spelling by this point, so 2 source rows
@@ -268,22 +209,14 @@ async function main() {
   // to the same live GT); sum their target rather than letting the later
   // ON CONFLICT upsert hit "cannot affect row a second time" (same failure
   // mode hit + fixed for TargetNonHospitalValue's divisi collision, 2026-09-11).
-  const flatByKey = new Map<string, { namaGT: string; kodeGT: string | null; periode: string; target: number; nipMR: string | null; namaMR: string; nipASM: string | null; namaASM: string; nipSM: string | null; namaSM: string; nipNSM: string | null; namaNSM: string }>();
+  const flatByKey = new Map<string, { namaGT: string; kodeGT: string | null; periode: string; target: number }>();
   for (const r of rows) {
-    const mr = resolveNipAndName(mrIndex, r.namaMR);
-    const asm = resolveNipAndName(asmIndex, r.namaASM);
-    const sm = resolveNipAndName(smIndex, r.namaSM);
-    const nsm = resolveNipAndName(nsmIndex, r.namaNSM);
     const kodeGT = canonicalizeGT(r.namaGT).kodeGT;
     for (const [periode, target] of Object.entries(r.targets)) {
       const key = `${r.namaGT}|${periode}`;
       const existing = flatByKey.get(key);
       if (existing) { existing.target += target; continue; }
-      flatByKey.set(key, {
-        namaGT: r.namaGT, kodeGT, periode, target,
-        nipMR: mr.nip, namaMR: mr.name, nipASM: asm.nip, namaASM: asm.name,
-        nipSM: sm.nip, namaSM: sm.name, nipNSM: nsm.nip, namaNSM: nsm.name,
-      });
+      flatByKey.set(key, { namaGT: r.namaGT, kodeGT, periode, target });
     }
   }
   const flat = [...flatByKey.values()];
@@ -299,37 +232,23 @@ async function main() {
       ${sqlNullableStr(r.kodeGT)},
       '${esc(r.periode)}',
       ${r.target},
-      ${sqlNullableStr(r.nipMR)},
-      '${esc(r.namaMR)}',
-      ${sqlNullableStr(r.nipASM)},
-      '${esc(r.namaASM)}',
-      ${sqlNullableStr(r.nipSM)},
-      '${esc(r.namaSM)}',
-      ${sqlNullableStr(r.nipNSM)},
-      '${esc(r.namaNSM)}',
       '${now.toISOString()}',
       '${now.toISOString()}'
     )`).join(",\n");
     await prisma.$executeRawUnsafe(`
       INSERT INTO "TargetHospitalValue" (
-        "id", "namaGT", "kodeGT", "periode", "target", "nipMR", "namaMR", "nipASM", "namaASM",
-        "nipSM", "namaSM", "nipNSM", "namaNSM", "syncedAt", "updatedAt"
+        "id", "namaGT", "kodeGT", "periode", "target", "syncedAt", "updatedAt"
       )
       VALUES ${values}
       ON CONFLICT ("namaGT", "periode") DO UPDATE SET
         "kodeGT" = EXCLUDED."kodeGT",
         "target" = EXCLUDED."target",
-        "nipMR" = EXCLUDED."nipMR", "namaMR" = EXCLUDED."namaMR",
-        "nipASM" = EXCLUDED."nipASM", "namaASM" = EXCLUDED."namaASM",
-        "nipSM" = EXCLUDED."nipSM", "namaSM" = EXCLUDED."namaSM",
-        "nipNSM" = EXCLUDED."nipNSM", "namaNSM" = EXCLUDED."namaNSM",
         "syncedAt" = EXCLUDED."syncedAt",
         "updatedAt" = EXCLUDED."updatedAt"
     `);
     process.stdout.write(`  ${Math.min(i + BATCH, flat.length)}/${flat.length}\r`);
   }
-  console.log(`\n✅ TargetHospitalValue upserted: ${flat.length} rows.`);
-  console.log(`   (${collisions} name collisions hit during resolution — picked lowest nip deterministically, see doc comment.)\n`);
+  console.log(`\n✅ TargetHospitalValue upserted: ${flat.length} rows.\n`);
 
   console.log("✅ Import complete.");
   await prisma.$disconnect();

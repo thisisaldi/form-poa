@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { assertWritable } from "@/lib/maintenance";
-import { TARGET_HOSPITAL_PERIODS } from "@/lib/targetHospitalValue";
+import { TARGET_HOSPITAL_PERIODS, resolveLiveGTHolderChain } from "@/lib/targetHospitalValue";
 
 interface Session { userId: string; role: string }
 
@@ -19,57 +19,76 @@ async function requireNsmOrAdmin(): Promise<Session> {
 
 export interface TargetHospitalRow {
   namaGT: string;
-  namaMR: string;
+  kodeGT: string | null;
+  namaMR: string | null;
   nipMR: string | null;
-  namaASM: string;
-  namaSM: string;
-  namaNSM: string;
+  namaASM: string | null;
+  namaSM: string | null;
+  namaNSM: string | null;
   nipNSM: string | null;
   targets: Record<string, number>; // periode -> target
-}
-
-function pivotRows(rows: { namaGT: string; periode: string; target: { toString(): string }; namaMR: string; nipMR: string | null; namaASM: string; namaSM: string; namaNSM: string; nipNSM: string | null }[]): TargetHospitalRow[] {
-  const byGT = new Map<string, TargetHospitalRow>();
-  for (const r of rows) {
-    let g = byGT.get(r.namaGT);
-    if (!g) {
-      g = { namaGT: r.namaGT, namaMR: r.namaMR, nipMR: r.nipMR, namaASM: r.namaASM, namaSM: r.namaSM, namaNSM: r.namaNSM, nipNSM: r.nipNSM, targets: {} };
-      byGT.set(r.namaGT, g);
-    }
-    g.targets[r.periode] = parseFloat(r.target.toString());
-  }
-  return [...byGT.values()].sort((a, b) => a.namaGT.localeCompare(b.namaGT, "id"));
 }
 
 /**
  * Search Target Hospital Value rows by GT/MR/ASM/SM/NSM name (case-insensitive
  * contains, blank = everyone in scope), pivoted to one row per GT with every
- * period's target as a column. An NSM only sees/edits their own subtree
- * (nipNSM = their own nip) — rows whose NSM name never resolved to a nip at
- * import time (VACANT/SHADOW placeholders) are Admin-only for that reason.
+ * period's target as a column.
+ *
+ * 2026-09-14 rewrite: TargetHospitalValue no longer stores namaMR/namaASM/.../
+ * nipNSM (dropped, see schema/migration) — "who holds this GT" is resolved
+ * LIVE via resolveLiveGTHolderChain (batched, ≤6 queries total regardless of
+ * how many GTs this returns, see that function's doc comment), not read from
+ * a stored snapshot column. Same for NSM scoping: previously `nipNSM = session
+ * .userId` on the stored column, now `chain.nipNSM === session.userId` on the
+ * LIVE-resolved chain — a GT with no live holder anywhere in the chain is
+ * ADMIN-only (matches the old behavior's "rows whose NSM name never resolved
+ * to a nip are Admin-only", same reasoning: NSM can't be scoped to something
+ * unresolvable).
+ *
+ * MR/ASM/SM/NSM name search now runs AFTER live-resolving every candidate row
+ * (in-memory `.includes()`, not a DB `WHERE...contains`) — necessary since the
+ * name to search against no longer exists as a column. Dataset here is the
+ * whole TargetHospitalValue table (~1500 rows), cheap in memory.
  */
 export async function searchTargetHospitalValueAction(query: string): Promise<TargetHospitalRow[]> {
   const session = await requireNsmOrAdmin();
-  const q = query.trim();
-  const where: Record<string, unknown> = {
-    periode: { in: TARGET_HOSPITAL_PERIODS as unknown as string[] },
-  };
-  if (session.role === "NSM") where.nipNSM = session.userId;
-  if (q) {
-    where.OR = [
-      { namaGT: { contains: q, mode: "insensitive" } },
-      { namaMR: { contains: q, mode: "insensitive" } },
-      { namaASM: { contains: q, mode: "insensitive" } },
-      { namaSM: { contains: q, mode: "insensitive" } },
-      { namaNSM: { contains: q, mode: "insensitive" } },
-    ];
-  }
+  const q = query.trim().toUpperCase();
+
   const rows = await prisma.targetHospitalValue.findMany({
-    where,
-    orderBy: [{ namaGT: "asc" }, { periode: "asc" }],
-    select: { namaGT: true, periode: true, target: true, namaMR: true, nipMR: true, namaASM: true, namaSM: true, namaNSM: true, nipNSM: true },
+    where: { periode: { in: TARGET_HOSPITAL_PERIODS as unknown as string[] } },
+    select: { namaGT: true, kodeGT: true, periode: true, target: true },
   });
-  return pivotRows(rows as unknown as Parameters<typeof pivotRows>[0]);
+
+  const byGT = new Map<string, TargetHospitalRow>();
+  for (const r of rows) {
+    let g = byGT.get(r.namaGT);
+    if (!g) {
+      g = { namaGT: r.namaGT, kodeGT: r.kodeGT, namaMR: null, nipMR: null, namaASM: null, namaSM: null, namaNSM: null, nipNSM: null, targets: {} };
+      byGT.set(r.namaGT, g);
+    }
+    g.targets[r.periode] = parseFloat(r.target.toString());
+  }
+  let allRows = [...byGT.values()];
+
+  const chains = await resolveLiveGTHolderChain(allRows.map((r) => r.namaGT));
+  for (const r of allRows) {
+    const c = chains.get(r.namaGT);
+    if (c) Object.assign(r, c);
+  }
+
+  if (session.role === "NSM") allRows = allRows.filter((r) => r.nipNSM === session.userId);
+
+  if (q) {
+    allRows = allRows.filter((r) =>
+      r.namaGT.toUpperCase().includes(q) ||
+      (r.namaMR?.toUpperCase().includes(q) ?? false) ||
+      (r.namaASM?.toUpperCase().includes(q) ?? false) ||
+      (r.namaSM?.toUpperCase().includes(q) ?? false) ||
+      (r.namaNSM?.toUpperCase().includes(q) ?? false)
+    );
+  }
+
+  return allRows.sort((a, b) => a.namaGT.localeCompare(b.namaGT, "id"));
 }
 
 export interface TargetHospitalActionResult {
@@ -87,8 +106,12 @@ export async function updateTargetHospitalValueAction(namaGT: string, periode: s
 
     const existing = await prisma.targetHospitalValue.findUnique({ where: { namaGT_periode: { namaGT, periode } } });
     if (!existing) return { ok: false, error: "Baris GT/periode tidak ditemukan." };
-    if (session.role === "NSM" && existing.nipNSM !== session.userId) {
-      return { ok: false, error: "GT ini bukan bagian dari struktur Anda." };
+    if (session.role === "NSM") {
+      // Live scope check (2026-09-14) — see searchTargetHospitalValueAction's doc comment.
+      const chain = (await resolveLiveGTHolderChain([namaGT])).get(namaGT);
+      if (chain?.nipNSM !== session.userId) {
+        return { ok: false, error: "GT ini bukan bagian dari struktur Anda." };
+      }
     }
 
     await prisma.targetHospitalValue.update({

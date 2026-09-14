@@ -1022,24 +1022,23 @@ model TargetHospitalValue {
   kodeGT    String?
   periode   String // YYYYMM, e.g. "202608"
   target    Decimal  @db.Decimal(18, 2)
-  nipMR     String?
-  namaMR    String
-  nipASM    String?
-  namaASM   String
-  nipSM     String?
-  namaSM    String
-  nipNSM    String?
-  namaNSM   String
   syncedAt  DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // nipMR/namaMR/nipASM/namaASM/nipSM/namaSM/nipNSM/namaNSM DROPPED
+  // 2026-09-14 (user: "udah gaada personil mr -> nsm lagi cuma ada target by
+  // gt") — this table is GT-based only now, no personnel snapshot at all.
+  // "Who currently holds this GT" is resolved LIVE via
+  // resolveLiveGTHolderChain (src/lib/targetHospitalValue.ts) — Outlet +
+  // MrOutletAssignment + a BFS walk up User.nipAtasan — not stored here.
+  // Every consumer that used to read nipMR/etc directly off this table was
+  // rewritten the same day: resolveTargetHospitalValueFallback (dashboard/
+  // summary/POA detail/sc-approvals/kpi target fallback),
+  // src/app/actions/targetHospitalValue.ts + TargetHospitalValueForm.tsx
+  // (/admin/target-value edit page), getSalesCounterDetailData.ts, kpi.ts.
   @@unique([namaGT, periode])
   @@index([periode])
-  @@index([nipMR])
-  @@index([nipASM])
-  @@index([nipSM])
-  @@index([nipNSM])
   @@index([kodeGT])
 }
 
@@ -1065,14 +1064,15 @@ model TargetNonHospitalValue {
   divisi    String // "RETAIL" | "GROSIR_PBF"
   periode   String // YYYYMM, e.g. "202608"
   target    Decimal  @db.Decimal(18, 2)
-  nipMR     String?
-  namaMR    String
-  nipSM     String?
-  namaSM    String
   syncedAt  DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // nipMR/namaMR/nipSM/namaSM DROPPED 2026-09-14 (same cleanup as
+  // TargetHospitalValue, see its doc comment) — GT-based only, no personnel
+  // snapshot. "Who currently holds this GT" is resolved LIVE via
+  // getCurrentGTsForOmegaMrNips (src/lib/targetNonHospitalValue.ts).
+  //
   // NOT globally unique across divisi — confirmed 2026-09-11 on real import
   // data (e.g. "MEDAN 09" and "GROSIR MALANG 09" each appear as a DISTINCT
   // GT with a DIFFERENT target in both the RETAIL and GROSIR_PBF blocks of
@@ -1081,7 +1081,6 @@ model TargetNonHospitalValue {
   // assumption was wrong).
   @@unique([namaGT, divisi, periode])
   @@index([periode])
-  @@index([nipMR])
   @@index([divisi])
   @@index([kodeGT])
 }
