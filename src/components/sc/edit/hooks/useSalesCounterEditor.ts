@@ -225,6 +225,9 @@ export function useSalesCounterEditor({
         if (latestSurvey?.avg_patient != null) {
           setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
         }
+        if (latestSurvey?.avg_recipes_in != null) {
+          setJumlahPasienResep((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_recipes_in) : prev));
+        }
         const totalEmp = latestSurvey?.total_outlet_employees ?? (bundle.surveyNexusData?.data as any)?.total_outlet_employees;
         if (totalEmp != null) {
           setJumlahKaryawan((prev) => (!prev || prev === "0" ? String(totalEmp) : prev));

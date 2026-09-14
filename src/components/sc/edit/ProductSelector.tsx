@@ -7,7 +7,11 @@ import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
 import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
 import { UnitInput } from "./UnitInput";
-import { getLossSalesAnalysisAction, getRecommendedProCodesAction } from "@/app/actions/canvasser";
+import {
+  getLossSalesAnalysisAction,
+  getRecommendedProCodesAction,
+  getScHistoryIncentiveCounterAction,
+} from "@/app/actions/canvasser";
 import { aggregateHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "./hooks/useSalesCounterCashback";
 
@@ -34,6 +38,7 @@ export function ProductSelector({
   kodePI,
   surveyNexusData,
   historySalesData,
+  historyIncentiveData,
 }: ProductSelectorProps) {
   const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
@@ -118,6 +123,59 @@ export function ProductSelector({
 
     return { historySalesMap: hMap, historyPeriodRange: periodRange };
   }, [historySalesData]);
+
+  const [fetchedIncentiveItems, setFetchedIncentiveItems] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (historyIncentiveData?.data && Array.isArray(historyIncentiveData.data)) {
+      setFetchedIncentiveItems(historyIncentiveData.data);
+      return;
+    }
+    if (!kodePI) {
+      setFetchedIncentiveItems([]);
+      return;
+    }
+    let isMounted = true;
+    const cleanPeriod = (periodeAwal || "").replace(/[^0-9]/g, "");
+    const year = cleanPeriod.length >= 4 ? cleanPeriod.slice(0, 4) : String(new Date().getFullYear());
+    const month = cleanPeriod.length >= 6 ? parseInt(cleanPeriod.slice(4, 6), 10) : new Date().getMonth() + 1;
+    const quarter = `Q${Math.floor((month - 1) / 3) + 1}`;
+
+    getScHistoryIncentiveCounterAction(kodePI, quarter, year)
+      .then((res) => {
+        if (!isMounted) return;
+        const items = res?.data && Array.isArray(res.data) ? res.data : [];
+        setFetchedIncentiveItems(items);
+      })
+      .catch((err) => {
+        console.error("Failed fetching SC history incentive counter:", err);
+        if (isMounted) setFetchedIncentiveItems([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [kodePI, periodeAwal, historyIncentiveData]);
+
+  const historyIncentiveMap = useMemo(() => {
+    const map = new Map<string, { win_incentive: number; win_qty: number; name: string }>();
+    const items = historyIncentiveData?.data && Array.isArray(historyIncentiveData.data)
+      ? historyIncentiveData.data
+      : fetchedIncentiveItems;
+
+    for (const item of items) {
+      const code = String(item.code || "").trim();
+      const stripped = code.replace(/^0+/, "");
+      const val = {
+        win_incentive: Number(item.win_incentive) || 0,
+        win_qty: Number(item.win_qty) || 0,
+        name: item.name || "",
+      };
+      if (code) map.set(code, val);
+      if (stripped) map.set(stripped, val);
+    }
+    return map;
+  }, [historyIncentiveData, fetchedIncentiveItems]);
 
   const getCompetitorsForRow = (kodeProduk: string) => {
     if (!kodeProduk) return [];
@@ -247,11 +305,13 @@ export function ProductSelector({
 
   const monthNamesStr = monthLabels.join("+");
 
-  // Calculate grand totals for table footer
-  let grandTotalQtyUb = 0;
-  let grandTotalEstSalesBln = 0;
-  let grandTotalNilaiScBln = 0;
-  let grandTotalPotensiBln = 0;
+  // Calculate grand totals for table footer (Total Akumulasi Periode)
+  let grandTotalQtySwitch = 0;
+  let grandTotalEstSalesPeriode = 0;
+  let grandTotalNilaiScPeriode = 0;
+  let grandTotalPotensi = 0;
+
+  const numMonthsTotal = Math.max(1, lamaPeriode || 3);
 
   rows.forEach((row) => {
     const masterProduct = masterProducts.find((p) => p.kodeProduk === row.kodeProduk);
@@ -261,26 +321,44 @@ export function ProductSelector({
         p.pro_code?.replace(/^0+/, "") === row.kodeProduk?.replace(/^0+/, "")
     );
     const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
-    const qtyUb = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qtyUb * hnaSJ;
     const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
     const scVal = canvasserProduct?.sales_counter_value;
-    const scMin = canvasserProduct?.sales_counter_minimum || 0;
+    const scMin = canvasserProduct?.sales_counter_minimum != null ? Number(canvasserProduct.sales_counter_minimum) : 0;
 
-    let nilaiScBln = 0;
-    if (scVal != null && scVal > 0) {
-      nilaiScBln = qtyUb >= scMin ? qtyUb * scVal : 0;
-    } else {
-      nilaiScBln = estSalesBln * (pctMatriks / 100);
+    const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonthsTotal
+      ? row.monthlyQty
+      : Array.from({ length: numMonthsTotal }, (_, mIdx) => {
+          if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
+            return String(row.monthlyQty[mIdx]);
+          }
+          return row.qtyPerBulan || "";
+        });
+
+    let rowQtyTotal = 0;
+    let rowEstSalesTotal = 0;
+    let rowNilaiScTotal = 0;
+
+    for (let m = 0; m < numMonthsTotal; m++) {
+      const mQty = parseFloat(currentMonthly[m]) || 0;
+      const mEstSales = mQty * hnaSJ;
+      let mNilaiSc = 0;
+      if (scVal != null && scVal > 0) {
+        mNilaiSc = mQty >= scMin ? mQty * scVal : 0;
+      } else {
+        mNilaiSc = mEstSales * (pctMatriks / 100);
+      }
+      rowQtyTotal += mQty;
+      rowEstSalesTotal += mEstSales;
+      rowNilaiScTotal += mNilaiSc;
     }
 
     const rowComps = getCompetitorsForRow(row.kodeProduk);
     const rowPotensi = rowComps.reduce((s, c) => s + c.salesForecast, 0);
 
-    grandTotalQtyUb += qtyUb;
-    grandTotalEstSalesBln += estSalesBln;
-    grandTotalNilaiScBln += nilaiScBln;
-    grandTotalPotensiBln += rowPotensi;
+    grandTotalQtySwitch += rowQtyTotal;
+    grandTotalEstSalesPeriode += rowEstSalesTotal;
+    grandTotalNilaiScPeriode += rowNilaiScTotal;
+    grandTotalPotensi += rowPotensi;
   });
 
   const cashbackDetails = calculateCashbackDetails({
@@ -290,15 +368,14 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = !readOnly ? "w-[20%] min-w-[160px]" : "w-[21%] min-w-[170px]";
-  const colPotensiWidth = !readOnly ? "w-[8%] min-w-[70px]" : "w-[8%] min-w-[70px]";
-  const colSwitchWidth = !readOnly ? "w-[16%] min-w-[130px]" : "w-[16%] min-w-[130px]";
-  const colDiskonWidth = !readOnly ? "w-[6%] min-w-[50px]" : "w-[6%] min-w-[50px]";
-  const colEstSalesWidth = !readOnly ? "w-[20%] min-w-[160px]" : "w-[21%] min-w-[170px]";
+  const colProdukWidth = "w-[220px] min-w-[210px] max-w-[240px]";
+  const colSwitchWidth = !readOnly ? "w-[15%] min-w-[120px]" : "w-[15%] min-w-[120px]";
+  const colDiskonWidth = !readOnly ? "w-[7%] min-w-[50px]" : "w-[7%] min-w-[50px]";
+  const colEstSalesWidth = !readOnly ? "w-[12%] min-w-[115px]" : "w-[12%] min-w-[115px]";
   const colNilaiScWidth = !readOnly ? "w-[15%] min-w-[130px]" : "w-[15%] min-w-[130px]";
-  const colCashbackWidth = !readOnly ? "w-[10%] min-w-[90px]" : "w-[11%] min-w-[100px]";
-  const colActionWidth = "w-[5%] min-w-[36px]";
-  const tableMinWidth = "min-w-[960px]";
+  const colCashbackWidth = !readOnly ? "w-[11%] min-w-[100px]" : "w-[11%] min-w-[100px]";
+  const colActionWidth = "w-[6%] min-w-[36px]";
+  const tableMinWidth = "min-w-[880px]";
 
   return (
     <div className="space-y-4">
@@ -323,22 +400,37 @@ export function ProductSelector({
       {/* Main Product Table Container */}
       <div className="rounded-lg border shadow-xs overflow-hidden" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
         <div className="overflow-x-auto w-full">
-          <table className={`w-full text-left text-xs border-collapse table-fixed ${tableMinWidth}`}>
+          <table className={`w-full text-left text-xs border-collapse ${tableMinWidth}`}>
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
                 <th className={`py-2 pl-3 pr-2 font-semibold text-[11px] text-left ${colProdukWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   Produk <Req />
                 </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colPotensiWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="leading-tight">
-                    <div>Potensi</div>
-                    <div className="text-[9px] font-normal opacity-75">/ Bln</div>
-                  </div>
-                </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   <div className="leading-none space-y-0.5">
                     <div>Est. Switch<Req /></div>
                     <div className="text-[9px] font-normal opacity-75">/ Bln</div>
+                  </div>
+                </th>
+                <th className={`py-2 px-2 font-semibold text-[11px] text-left ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="leading-none space-y-0.5">
+                    <div>Est. Sales</div>
+                    <div className="text-[9px] font-normal opacity-75">/ Bln</div>
+                  </div>
+                </th>
+                <th className={`py-2 px-2 font-semibold text-[11px] text-left ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="leading-none space-y-0.5">
+                    <div>Est. Insentif</div>
+                    <div className="text-[9px] font-normal opacity-75">SC / Bln</div>
+                  </div>
+                </th>
+                <th className={`py-2 px-2 font-semibold text-[11px] text-left ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
+                  <div className="inline-flex items-center gap-1">
+                    <div className="leading-none space-y-0.5">
+                      <div>Est. Cashback</div>
+                      <div className="text-[9px] font-normal opacity-75">/ Bln</div>
+                    </div>
+                    <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
                   </div>
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
@@ -349,27 +441,6 @@ export function ProductSelector({
                         ({diskonPeriode})
                       </div>
                     )}
-                  </div>
-                </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="leading-none space-y-0.5">
-                    <div>Est. Sales</div>
-                    <div className="text-[9px] font-normal opacity-75">/ Bln</div>
-                  </div>
-                </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="leading-none space-y-0.5">
-                    <div>Est. Insentif</div>
-                    <div className="text-[9px] font-normal opacity-75">SC / Bln</div>
-                  </div>
-                </th>
-                <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="inline-flex items-center justify-center gap-1">
-                    <div className="leading-none space-y-0.5 text-center">
-                      <div>Est. Cashback</div>
-                      <div className="text-[9px] font-normal opacity-75">/ Bln</div>
-                    </div>
-                    <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
                   </div>
                 </th>
                 {!readOnly && (
@@ -386,9 +457,6 @@ export function ProductSelector({
                     <td className="py-3 pl-4 pr-2.5">
                       <div className="h-7 bg-slate-200 dark:bg-slate-700/50 rounded w-full mb-1.5" />
                       <div className="h-3 bg-slate-200 dark:bg-slate-700/50 rounded w-2/3" />
-                    </td>
-                    <td className="py-3 px-1 text-center">
-                      <div className="h-6 bg-slate-200 dark:bg-slate-700/50 rounded w-full" />
                     </td>
                     <td className="py-3 px-1 text-center">
                       <div className="h-6 bg-slate-200 dark:bg-slate-700/50 rounded w-full" />
@@ -416,7 +484,7 @@ export function ProductSelector({
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={readOnly ? 7 : 8} className="py-6 text-center text-xs" style={{ color: "var(--color-text-muted)" }}>
+                  <td colSpan={readOnly ? 6 : 7} className="py-6 text-center text-xs" style={{ color: "var(--color-text-muted)" }}>
                     Belum ada produk yang ditambahkan. Klik tombol <strong>+ Tambah Produk</strong> di bawah untuk memilih produk.
                   </td>
                 </tr>
@@ -430,7 +498,30 @@ export function ProductSelector({
                   );
 
                   const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
-                  const qtyUb = parseFloat(row.qtyPerBulan) || 0;
+                  const numMonths = Math.max(1, lamaPeriode || 3);
+                  const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonths
+                    ? row.monthlyQty
+                    : Array.from({ length: numMonths }, (_, mIdx) => {
+                        if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
+                          return String(row.monthlyQty[mIdx]);
+                        }
+                        return row.qtyPerBulan || "";
+                      });
+
+                  let totalQtySwitch = 0;
+                  let hasAnyMonthlyVal = false;
+                  for (const v of currentMonthly) {
+                    if (v !== "" && !isNaN(parseFloat(v))) {
+                      totalQtySwitch += parseFloat(v);
+                      hasAnyMonthlyVal = true;
+                    }
+                  }
+
+                  const effectiveQtyUb = hasAnyMonthlyVal
+                    ? (numMonths > 0 ? totalQtySwitch / numMonths : 0)
+                    : (parseFloat(row.qtyPerBulan) || 0);
+
+                  const qtyUb = effectiveQtyUb;
                   const estSalesBln = qtyUb * hnaSJ;
                   const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
@@ -448,20 +539,10 @@ export function ProductSelector({
                     nilaiScBln = estSalesBln * (pctMatriks / 100);
                   }
 
-                  const numMonths = Math.max(1, lamaPeriode || 3);
-                  const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonths
-                    ? row.monthlyQty
-                    : Array.from({ length: numMonths }, (_, mIdx) => {
-                        if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
-                          return row.monthlyQty[mIdx];
-                        }
-                        return row.qtyPerBulan || "";
-                      });
-
                   return (
                     <tr key={idx} id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`} className="align-top hover:bg-[var(--color-bg-subtle)] transition-colors">
-                      {/* Column 1: Product Selection & Competitor */}
-                      <td className="py-2.5 pl-4 pr-2.5 space-y-2">
+                      {/* Column 1: Product Selection, Competitor & Potensi */}
+                      <td className={`py-2.5 pl-4 pr-2.5 space-y-2 ${colProdukWidth}`}>
                         <Combobox
                           name={`product-${idx}`}
                           options={productsOptions.filter((option: any) => {
@@ -500,57 +581,61 @@ export function ProductSelector({
                             )}
                           </div>
                         )}
-                      </td>
 
-                      {/* Column 2: Potensi / UB */}
-                      {(() => {
-                        const comps = getCompetitorsForRow(row.kodeProduk);
-                        const totalPotensi = comps.reduce((sum, c) => sum + c.salesForecast, 0);
+                        {/* Potensi dipindahkan ke bawah Zat dengan garis pembatas */}
+                        {row.kodeProduk && (() => {
+                          const comps = getCompetitorsForRow(row.kodeProduk);
+                          const totalPotensi = comps.reduce((sum, c) => sum + c.salesForecast, 0);
+                          const hasMoreThan4 = comps.length > 4;
+                          const visibleComps = hasMoreThan4 ? comps.slice(0, 4) : comps;
+                          const otherComps = hasMoreThan4 ? comps.slice(4) : [];
+                          const qtyOthers = otherComps.reduce((sum, c) => sum + c.salesForecast, 0);
 
-                        const hasMoreThan4 = comps.length > 4;
-                        const visibleComps = hasMoreThan4 ? comps.slice(0, 4) : comps;
-                        const otherComps = hasMoreThan4 ? comps.slice(4) : [];
-                        const qtyOthers = otherComps.reduce((sum, c) => sum + c.salesForecast, 0);
-
-                        return (
-                          <td className="py-2.5 px-1 text-center align-top">
-                            <div className="font-bold text-sm" style={{ color: "var(--color-text)" }}>
-                              {totalPotensi}
-                            </div>
-                            {comps.length > 0 && (
-                              <div className="text-[10px] space-y-0.5 mt-1 text-left px-0.5" style={{ color: "var(--color-text-muted)" }}>
-                                {visibleComps.map((comp, cIdx) => (
-                                  <div
-                                    key={cIdx}
-                                    className="flex items-center justify-between gap-1 text-[10px]"
-                                    title={`${comp.namaKompetitor}: ${comp.salesForecast}`}
-                                  >
-                                    <span className="truncate max-w-[65px] text-left" style={{ color: "var(--color-text-muted)" }}>
-                                      {comp.namaKompetitor}:
-                                    </span>
-                                    <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
-                                      {comp.salesForecast}
-                                    </strong>
-                                  </div>
-                                ))}
-                                {hasMoreThan4 && (
-                                  <div
-                                    className="flex items-center justify-between gap-1 text-[10px]"
-                                    title={otherComps.map((c) => `${c.namaKompetitor}: ${c.salesForecast}`).join(", ")}
-                                  >
-                                    <span className="truncate max-w-[65px] text-left" style={{ color: "var(--color-text-muted)" }}>
-                                      lainnya :
-                                    </span>
-                                    <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
-                                      {qtyOthers}
-                                    </strong>
-                                  </div>
-                                )}
+                          return (
+                            <div className="pt-1.5 mt-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }}>
+                              <div className="flex items-center gap-1.5 text-[11px] leading-tight">
+                                <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                                  Potensi:
+                                </span>
+                                <span className="font-bold text-xs" style={{ color: "var(--color-text)" }}>
+                                  {totalPotensi} / bln
+                                </span>
                               </div>
-                            )}
-                          </td>
-                        );
-                      })()}
+                              {comps.length > 0 && (
+                                <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-muted)" }}>
+                                  {visibleComps.map((comp, cIdx) => (
+                                    <div
+                                      key={cIdx}
+                                      className="flex items-center gap-1 text-[10px] min-w-0"
+                                      title={`${comp.namaKompetitor}: ${comp.salesForecast}`}
+                                    >
+                                      <span className="truncate text-left" style={{ color: "var(--color-text-muted)" }}>
+                                        {comp.namaKompetitor}:
+                                      </span>
+                                      <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
+                                        {comp.salesForecast}
+                                      </strong>
+                                    </div>
+                                  ))}
+                                  {hasMoreThan4 && (
+                                    <div
+                                      className="flex items-center gap-1 text-[10px] min-w-0"
+                                      title={otherComps.map((c) => `${c.namaKompetitor}: ${c.salesForecast}`).join(", ")}
+                                    >
+                                      <span className="truncate text-left" style={{ color: "var(--color-text-muted)" }}>
+                                        lainnya:
+                                      </span>
+                                      <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
+                                        {qtyOthers}
+                                      </strong>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
 
                       {/* Column 3: Quantity Input per Bulan (Estimasi Switching / UB) */}
                       <td className="py-2.5 px-1 text-center align-top">
@@ -606,29 +691,38 @@ export function ProductSelector({
                           const periodLabel = b3RangeLabel || historyPeriodRange || "B3";
 
                           return (
-                            <div className="space-y-1.5">
-                              {/* Top Card: Total Est Switch */}
+                            <div>
+                              {/* Top Card: Total Est Switch with bottom border */}
                               <div
-                                className="rounded px-2 py-1 text-center mb-1.5"
-                                style={{
-                                  border: "1px solid var(--color-blue-light, #c8e1f5)",
-                                  background: "var(--color-blue-light, #E6F0F8)",
-                                }}
+                                className="-mx-1 px-1 h-[38px] flex items-center justify-center border-b border-solid"
+                                style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                               >
-                                <div className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "var(--color-text-muted)" }}>
-                                  TOTAL EST. SWITCH
-                                </div>
-                                <div className="text-xs font-bold" style={{ color: "var(--color-blue)" }}>
-                                  {totalQtySwitch} {unitStr}
+                                <div
+                                  className="w-full h-[30px] rounded px-2 flex flex-col justify-center text-center"
+                                  style={{
+                                    border: "1px solid var(--color-blue-light, #c8e1f5)",
+                                    background: "var(--color-blue-light, #E6F0F8)",
+                                  }}
+                                >
+                                  <div className="text-[9px] font-semibold tracking-wider uppercase leading-none" style={{ color: "var(--color-text-muted)" }}>
+                                    TOTAL EST. SWITCH
+                                  </div>
+                                  <div className="text-xs font-bold leading-tight" style={{ color: "var(--color-blue)" }}>
+                                    {totalQtySwitch} {unitStr}
+                                  </div>
                                 </div>
                               </div>
 
                               {/* Input per bulan (Sep, Okt, Nov, ...) */}
-                              <div className="space-y-1.5">
+                              <div>
                                 {Array.from({ length: numMonths }, (_, mIdx) => (
-                                  <div key={mIdx} className="h-[32px] flex items-center gap-1.5">
+                                  <div
+                                    key={mIdx}
+                                    className="-mx-1 px-1 h-[36px] flex items-center gap-1.5 border-b border-solid"
+                                    style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
+                                  >
                                     <span
-                                      className="text-[11px] font-medium w-7 shrink-0 text-right select-none"
+                                      className="text-[11px] font-medium w-7 shrink-0 text-left select-none"
                                       style={{ color: "var(--color-text-muted)" }}
                                     >
                                       {monthLabels[mIdx]}
@@ -649,7 +743,7 @@ export function ProductSelector({
 
                               {/* Bottom: Avg. History & Sales */}
                               {row.kodeProduk && (
-                                <div className="pt-2 flex items-center justify-center text-[10px]">
+                                <div className="pt-1.5 flex items-center justify-start text-[10px]">
                                   <InfoTooltip
                                     align="left"
                                     trigger={
@@ -710,15 +804,8 @@ export function ProductSelector({
                         })()}
                       </td>
 
-                      {/* Column 4: Diskon */}
-                      <td className="py-2.5 px-1 text-center align-top">
-                        <div className="font-semibold text-xs pt-1" style={{ color: "var(--color-text-muted)" }}>
-                          {row.persenDiskon ? `${row.persenDiskon}%` : (diskonPeriode ? `${diskonPeriode}%` : "-")}
-                        </div>
-                      </td>
-
-                      {/* Column 5: Est Sales per Bulan */}
-                      <td className="py-2.5 px-2 text-left align-top">
+                      {/* Column 4: Est Sales per Bulan */}
+                      <td className={`py-2.5 px-2 text-left align-top ${colEstSalesWidth}`}>
                         {(() => {
                           const historyData = historySalesMap.get(row.kodeProduk);
                           const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
@@ -742,81 +829,229 @@ export function ProductSelector({
                           });
 
                           const totalEstSalesPeriode = monthlyEstSales.reduce((s, v) => s + v, 0);
+                          const avgEstSalesBln = numMonths > 0 ? (totalEstSalesPeriode / numMonths) : estSalesBln;
 
                           const overallGrowthPct = avgSalesBln > 0
-                            ? ((estSalesBln - avgSalesBln) / avgSalesBln) * 100
+                            ? ((avgEstSalesBln - avgSalesBln) / avgSalesBln) * 100
                             : null;
 
                           return (
-                            <div className="space-y-1.5">
-                              {/* Header: Rp Total & Growth */}
-                              <div className="flex items-start justify-between gap-1">
-                                <div className="leading-tight">
-                                  <div className="text-[10px] font-bold" style={{ color: "var(--color-text)" }}>Rp</div>
-                                  <div className="text-sm font-extrabold" style={{ color: "var(--color-text)" }}>
-                                    {formatRp(totalEstSalesPeriode)}
-                                  </div>
+                            <div>
+                              {/* Header: Rp Total & Growth with bottom border */}
+                              <div
+                                className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-left border-b border-solid"
+                                style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
+                              >
+                                <div
+                                  className="text-sm font-extrabold whitespace-nowrap leading-none"
+                                  style={{ color: "var(--color-text)" }}
+                                >
+                                  Rp {formatRp(totalEstSalesPeriode)}
                                 </div>
-                                <div className="text-right leading-tight">
-                                  <div className="text-[10px] font-semibold" style={{ color: "var(--color-green)" }}>Growth:</div>
-                                  {isAboveOrEqualTarget ? (
-                                    overallGrowthPct != null ? (
-                                      <div
-                                        className="text-xs font-bold leading-tight"
-                                        style={{ color: overallGrowthPct >= 0 ? "var(--color-green)" : "var(--color-red)" }}
-                                      >
-                                        {overallGrowthPct >= 0 ? "+" : ""}{overallGrowthPct.toFixed(1)}%
-                                      </div>
-                                    ) : (
-                                      <span
-                                        className="text-[9px] font-semibold px-1 rounded border leading-none"
-                                        style={{
-                                          color: "var(--color-green)",
-                                          borderColor: "var(--color-green)",
-                                          background: "var(--color-green-light)",
-                                        }}
-                                      >
-                                        Baru
-                                      </span>
-                                    )
-                                  ) : null}
+                                <div className="flex items-center gap-1 leading-none text-[10px]">
+                                  <span className="font-semibold" style={{ color: "var(--color-green)" }}>Growth:</span>
+                                  {overallGrowthPct != null ? (
+                                    <span
+                                      className="font-bold leading-none whitespace-nowrap text-[11px]"
+                                      style={{ color: overallGrowthPct >= 0 ? "var(--color-green)" : "var(--color-red)" }}
+                                    >
+                                      {overallGrowthPct >= 0 ? "+" : ""}{overallGrowthPct.toFixed(1)}%
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="text-[9px] font-semibold px-1 rounded border leading-none whitespace-nowrap"
+                                      style={{
+                                        color: "var(--color-green)",
+                                        borderColor: "var(--color-green)",
+                                        background: "var(--color-green-light)",
+                                      }}
+                                    >
+                                      Baru
+                                    </span>
+                                  )}
                                 </div>
                               </div>
 
-                              {/* Dashed divider */}
-                              <div className="my-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }} />
-
                               {/* Monthly breakdown */}
-                              <div className="space-y-1 my-1.5 text-[11px]">
+                              <div>
                                 {Array.from({ length: numMonths }, (_, mIdx) => (
-                                  <div key={mIdx} className="flex justify-between items-center">
-                                    <span style={{ color: "var(--color-text-muted)" }}>{monthLabels[mIdx]}</span>
-                                    <span className="font-semibold" style={{ color: "var(--color-text)" }}>
+                                  <div
+                                    key={mIdx}
+                                    className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap"
+                                    style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
+                                  >
+                                    <span className="font-bold text-[13px] whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                                       Rp {formatRp(monthlyEstSales[mIdx])}
                                     </span>
                                   </div>
                                 ))}
                               </div>
 
-                              {/* Target Sell-in */}
-                              <div
-                                className="text-[10px] leading-tight pt-1 space-y-0.5"
-                                style={{ borderTop: "1px solid var(--color-border)" }}
-                              >
-                                <div style={{ color: "var(--color-text-muted)" }}>Target Sell-in Ins SC / bln :</div>
-                                <div className="font-bold text-[11px]" style={{ color: "var(--color-text)" }}>
-                                  Rp {formatRp(targetSellInBln)}
-                                </div>
-                              </div>
+                              {/* Alert under target per bulan */}
+                              {(() => {
+                                const underTargetMonths = Array.from({ length: numMonths }, (_, mIdx) => {
+                                  const mSales = monthlyEstSales[mIdx];
+                                  return targetSellInBln > 0 && mSales < targetSellInBln ? monthLabels[mIdx] : null;
+                                }).filter(Boolean) as string[];
 
-                              {/* Alert under target */}
-                              {isUnderTarget && (
-                                <div
-                                  className="text-[10px] leading-tight font-medium mt-1 flex items-center gap-1"
-                                  style={{ color: "var(--color-red)" }}
-                                >
-                                  <span className="shrink-0 text-xs">⚠</span>
-                                  <span>Di bawah target</span>
+                                if (underTargetMonths.length === 0) return null;
+
+                                return (
+                                  <div
+                                    className="text-[10px] leading-tight font-medium pt-1 flex items-start gap-1"
+                                    style={{ color: "var(--color-red)" }}
+                                  >
+                                    <span className="shrink-0 text-xs leading-none">⚠</span>
+                                    <span>Di bawah target: {underTargetMonths.join(", ")}</span>
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Bottom: Rincian Estimasi Sales (seperti Avg. History & Sales pada Est. Switch) */}
+                              {row.kodeProduk && (
+                                <div className="pt-1.5 flex items-center justify-start text-[10px]">
+                                  <InfoTooltip
+                                    align="left"
+                                    width={290}
+                                    trigger={
+                                      <span
+                                        className="inline-flex items-center gap-1 hover:underline font-medium text-[10px] cursor-pointer leading-tight whitespace-nowrap"
+                                        style={{ color: "var(--color-text-muted)" }}
+                                      >
+                                        <span>Rincian Est. Sales</span>
+                                        <span
+                                          className="w-3.5 h-3.5 text-[9px] inline-flex items-center justify-center rounded-full font-bold border shrink-0"
+                                          style={{
+                                            borderColor: "var(--color-border)",
+                                            background: "var(--color-bg)",
+                                            color: "var(--color-text-muted)",
+                                          }}
+                                        >
+                                          i
+                                        </span>
+                                      </span>
+                                    }
+                                    content={
+                                      <div className="space-y-2 text-xs">
+                                        <div className="font-semibold text-white border-b border-slate-700/80 pb-1 flex items-center justify-between gap-2">
+                                          <span>Rincian Estimasi Sales</span>
+                                          <span className="text-slate-300 text-[10px]">({numMonths} Bulan)</span>
+                                        </div>
+                                        <div className="space-y-1 text-[11px]">
+                                          <div className="flex justify-between items-center gap-3">
+                                            <span className="text-slate-300">Total Periode:</span>
+                                            <strong className="text-white font-semibold whitespace-nowrap">
+                                              Rp {formatRp(totalEstSalesPeriode)}
+                                            </strong>
+                                          </div>
+                                          <div className="flex justify-between items-center gap-3 text-slate-400 text-[10px]">
+                                            <span>Hitungan Total:</span>
+                                            <span className="whitespace-nowrap font-mono">
+                                              {totalQtySwitch} UB × Rp {formatRp(hnaSJ)}
+                                            </span>
+                                          </div>
+                                          <div className="flex justify-between items-center gap-3">
+                                            <span className="text-slate-300">Rata-rata / Bulan:</span>
+                                            <strong className="text-white font-semibold whitespace-nowrap">
+                                              Rp {formatRp(avgEstSalesBln)}
+                                            </strong>
+                                          </div>
+                                          {targetSellInBln > 0 && (
+                                            <div className="flex justify-between items-center gap-3">
+                                              <span className="text-slate-300">Target Sell-in / bln:</span>
+                                              <strong className="text-white font-semibold whitespace-nowrap">
+                                                Rp {formatRp(targetSellInBln)}
+                                              </strong>
+                                            </div>
+                                          )}
+                                          {avgSalesBln > 0 && (
+                                            <div className="flex justify-between items-center gap-3">
+                                              <span className="text-slate-300">Rata-rata Historis B3:</span>
+                                              <strong className="text-white font-semibold whitespace-nowrap">
+                                                Rp {formatRp(avgSalesBln)}
+                                              </strong>
+                                            </div>
+                                          )}
+                                          {overallGrowthPct != null && (
+                                            <div className="flex justify-between items-center gap-3">
+                                              <span className="text-slate-300">Total Growth vs Historis:</span>
+                                              <strong
+                                                className="font-semibold whitespace-nowrap"
+                                                style={{ color: overallGrowthPct >= 0 ? "#4ade80" : "#f87171" }}
+                                              >
+                                                {overallGrowthPct >= 0 ? "+" : ""}{overallGrowthPct.toFixed(1)}%
+                                              </strong>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Growth per Bulan */}
+                                        <div className="pt-1.5 border-t border-slate-700/80 space-y-1">
+                                          <div className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">
+                                            Growth per Bulan:
+                                          </div>
+                                          <div className="space-y-1 text-[11px]">
+                                            {Array.from({ length: numMonths }, (_, mIdx) => {
+                                              const mQty = parseFloat(currentMonthly[mIdx]) || 0;
+                                              const mSales = monthlyEstSales[mIdx];
+                                              const mGrowthPct = avgSalesBln > 0
+                                                ? ((mSales - avgSalesBln) / avgSalesBln) * 100
+                                                : null;
+
+                                              const isMonthUnderTarget = targetSellInBln > 0 && mSales < targetSellInBln;
+
+                                              return (
+                                                <div
+                                                  key={mIdx}
+                                                  className="flex items-center justify-between gap-2 bg-slate-800/70 px-2 py-1 rounded border border-slate-700/40"
+                                                >
+                                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="w-7 font-semibold text-slate-200">{monthLabels[mIdx]}</span>
+                                                    <span className="text-white font-medium whitespace-nowrap">
+                                                      Rp {formatRp(mSales)}
+                                                    </span>
+                                                    <span className="text-slate-400 text-[10px]">({mQty} UB)</span>
+                                                    {isMonthUnderTarget && (
+                                                      <span className="text-[9px] text-red-400 font-semibold flex items-center gap-0.5">
+                                                        <span>⚠</span>
+                                                        <span>&lt; target</span>
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  <div className="text-right whitespace-nowrap">
+                                                    {mGrowthPct != null ? (
+                                                      <span
+                                                        className="font-bold text-[10px] px-1 py-0.5 rounded"
+                                                        style={{
+                                                          color: mGrowthPct >= 0 ? "#4ade80" : "#f87171",
+                                                          background: mGrowthPct >= 0 ? "rgba(74, 222, 128, 0.12)" : "rgba(248, 113, 113, 0.12)",
+                                                        }}
+                                                      >
+                                                        {mGrowthPct >= 0 ? "+" : ""}{mGrowthPct.toFixed(1)}%
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-[9px] text-emerald-400 font-semibold px-1 py-0.5 rounded bg-emerald-950/40">
+                                                        Baru
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+
+                                        {targetSellInBln > 0 && (
+                                          <div className="flex justify-between items-center gap-3 pt-1 border-t border-slate-700/80 text-[11px]">
+                                            <span className="text-slate-300">Target {numMonths} Bulan:</span>
+                                            <strong className="text-white font-semibold whitespace-nowrap">
+                                              Rp {formatRp(targetSellInBln * numMonths)}
+                                            </strong>
+                                          </div>
+                                        )}
+                                      </div>
+                                    }
+                                  />
                                 </div>
                               )}
                             </div>
@@ -824,8 +1059,8 @@ export function ProductSelector({
                         })()}
                       </td>
 
-                      {/* Column 6: Nilai SC / Bln (Est. Insentif) */}
-                      <td className="py-2.5 px-2 text-left align-top">
+                      {/* Column 5: Nilai SC / Bln (Est. Insentif) */}
+                      <td className={`py-2.5 px-2 text-left align-top ${colNilaiScWidth}`}>
                         {(() => {
                           const historyData = historySalesMap.get(row.kodeProduk);
                           const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
@@ -852,43 +1087,210 @@ export function ProductSelector({
                           });
 
                           const totalNilaiScPeriode = monthlyNilaiSc.reduce((s, v) => s + v, 0);
+                          const avgNilaiScBln = numMonths > 0 ? (totalNilaiScPeriode / numMonths) : 0;
 
-                          const historyInsentifVal = scVal != null && scVal > 0
-                            ? (avgQtyB3 >= scMin ? avgQtyB3 * scVal : 0)
-                            : avgSalesBln * (pctMatriks / 100);
+                          // Lookup win_incentive strictly from get-history-incentive-sales-counter API (no fallback)
+                          const code = String(row.kodeProduk || "").trim();
+                          const strippedCode = code.replace(/^0+/, "");
+                          const historyIncentiveEntry = historyIncentiveMap.get(code) || (strippedCode ? historyIncentiveMap.get(strippedCode) : undefined);
+
+                          const historyIncentiveVal = historyIncentiveEntry != null
+                            ? Number(historyIncentiveEntry.win_incentive) || 0
+                            : 0;
+
+                          const overallGrowthPct = historyIncentiveVal > 0
+                            ? ((avgNilaiScBln - historyIncentiveVal) / historyIncentiveVal) * 100
+                            : null;
 
                           return (
-                            <div className="space-y-1.5">
-                              {/* Total Insentif */}
-                              <div className="text-sm font-extrabold leading-tight" style={{ color: "var(--color-blue)" }}>
-                                Rp {formatRp(totalNilaiScPeriode)}
+                            <div>
+                              {/* Header: Rp Total & Growth with bottom border */}
+                              <div
+                                className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-left border-b border-solid"
+                                style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
+                              >
+                                <div
+                                  className="text-sm font-extrabold whitespace-nowrap leading-none"
+                                  style={{ color: "var(--color-blue)" }}
+                                >
+                                  Rp {formatRp(totalNilaiScPeriode)}
+                                </div>
+                                <div className="flex items-center gap-1 leading-none text-[10px]">
+                                  <span className="font-semibold" style={{ color: "var(--color-green)" }}>Growth:</span>
+                                  {overallGrowthPct != null ? (
+                                    <span
+                                      className="font-bold leading-none whitespace-nowrap text-[11px]"
+                                      style={{ color: overallGrowthPct >= 0 ? "var(--color-green)" : "var(--color-red)" }}
+                                    >
+                                      {overallGrowthPct >= 0 ? "+" : ""}{overallGrowthPct.toFixed(1)}%
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="text-[9px] font-semibold px-1 rounded border leading-none whitespace-nowrap"
+                                      style={{
+                                        color: "var(--color-green)",
+                                        borderColor: "var(--color-green)",
+                                        background: "var(--color-green-light)",
+                                      }}
+                                    >
+                                      Baru
+                                    </span>
+                                  )}
+                                </div>
                               </div>
 
-                              {/* Dashed divider */}
-                              <div className="my-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }} />
-
                               {/* Monthly breakdown */}
-                              <div className="space-y-1 text-[11px]">
+                              <div>
                                 {Array.from({ length: numMonths }, (_, mIdx) => (
-                                  <div key={mIdx} className="flex justify-between items-center">
-                                    <span style={{ color: "var(--color-text-muted)" }}>{monthLabels[mIdx]}</span>
-                                    <span className="font-semibold" style={{ color: "var(--color-blue)" }}>
+                                  <div
+                                    key={mIdx}
+                                    className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap"
+                                    style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
+                                  >
+                                    <span className="font-bold text-[13px] whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
                                       Rp {formatRp(monthlyNilaiSc[mIdx])}
                                     </span>
                                   </div>
                                 ))}
                               </div>
 
-                              {/* Historis Insentif */}
-                              <div className="text-[10px] leading-tight pt-1" style={{ color: "var(--color-text-muted)" }}>
-                                Historis Insentif: <strong style={{ color: "var(--color-text)" }}>Rp {formatRp(historyInsentifVal)}</strong>
-                              </div>
+                              {/* Bottom: Rincian Estimasi Insentif (seperti Avg. History & Sales pada Est. Switch) */}
+                              {row.kodeProduk && (
+                                <div className="pt-1.5 flex items-center justify-start text-[10px]">
+                                  <InfoTooltip
+                                    align="left"
+                                    width={290}
+                                    trigger={
+                                      <span
+                                        className="inline-flex items-center gap-1 hover:underline font-medium text-[10px] cursor-pointer leading-tight whitespace-nowrap"
+                                        style={{ color: "var(--color-text-muted)" }}
+                                      >
+                                        <span>Rincian Est. Insentif</span>
+                                        <span
+                                          className="w-3.5 h-3.5 text-[9px] inline-flex items-center justify-center rounded-full font-bold border shrink-0"
+                                          style={{
+                                            borderColor: "var(--color-border)",
+                                            background: "var(--color-bg)",
+                                            color: "var(--color-text-muted)",
+                                          }}
+                                        >
+                                          i
+                                        </span>
+                                      </span>
+                                    }
+                                    content={
+                                      <div className="space-y-2 text-xs">
+                                        <div className="font-semibold text-white border-b border-slate-700/80 pb-1 flex items-center justify-between gap-2">
+                                          <span>Rincian Estimasi Insentif</span>
+                                          <span className="text-slate-300 text-[10px]">({numMonths} Bulan)</span>
+                                        </div>
+                                        <div className="space-y-1 text-[11px]">
+                                          <div className="flex justify-between items-center gap-3">
+                                            <span className="text-slate-300">Total Periode:</span>
+                                            <strong className="text-white font-semibold whitespace-nowrap">
+                                              Rp {formatRp(totalNilaiScPeriode)}
+                                            </strong>
+                                          </div>
+                                          <div className="flex justify-between items-center gap-3 text-slate-400 text-[10px]">
+                                            <span>Skema:</span>
+                                            <span className="whitespace-nowrap font-mono">
+                                              {scVal != null && scVal > 0
+                                                ? `Rp ${formatRp(scVal)} / UB (Min ${scMin})`
+                                                : `${pctMatriks}% Matriks`}
+                                            </span>
+                                          </div>
+                                          <div className="flex justify-between items-center gap-3">
+                                            <span className="text-slate-300">Rata-rata / Bulan:</span>
+                                            <strong className="text-white font-semibold whitespace-nowrap">
+                                              Rp {formatRp(avgNilaiScBln)}
+                                            </strong>
+                                          </div>
+                                          <div className="flex justify-between items-center gap-3">
+                                            <span className="text-slate-300">Historis Insentif:</span>
+                                            <strong className="text-white font-semibold whitespace-nowrap">
+                                              {historyIncentiveVal > 0 ? (
+                                                <>
+                                                  Rp {formatRp(historyIncentiveVal)}
+                                                  {historyIncentiveEntry?.win_qty != null && historyIncentiveEntry.win_qty > 0
+                                                    ? ` (${historyIncentiveEntry.win_qty} UB)`
+                                                    : ""}
+                                                </>
+                                              ) : (
+                                                <span className="text-slate-400 font-normal">-</span>
+                                              )}
+                                            </strong>
+                                          </div>
+                                          {overallGrowthPct != null && (
+                                            <div className="flex justify-between items-center gap-3">
+                                              <span className="text-slate-300">Total Growth vs Historis:</span>
+                                              <strong
+                                                className="font-semibold whitespace-nowrap"
+                                                style={{ color: overallGrowthPct >= 0 ? "#4ade80" : "#f87171" }}
+                                              >
+                                                {overallGrowthPct >= 0 ? "+" : ""}{overallGrowthPct.toFixed(1)}%
+                                              </strong>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Growth per Bulan */}
+                                        <div className="pt-1.5 border-t border-slate-700/80 space-y-1">
+                                          <div className="text-[10px] font-semibold text-slate-300 uppercase tracking-wider">
+                                            Growth Insentif per Bulan:
+                                          </div>
+                                          <div className="space-y-1 text-[11px]">
+                                            {Array.from({ length: numMonths }, (_, mIdx) => {
+                                              const mQty = parseFloat(currentMonthly[mIdx]) || 0;
+                                              const mIns = monthlyNilaiSc[mIdx];
+                                              const mGrowthPct = historyIncentiveVal > 0
+                                                ? ((mIns - historyIncentiveVal) / historyIncentiveVal) * 100
+                                                : null;
+
+                                              return (
+                                                <div
+                                                  key={mIdx}
+                                                  className="flex items-center justify-between gap-2 bg-slate-800/70 px-2 py-1 rounded border border-slate-700/40"
+                                                >
+                                                  <div className="flex items-center gap-1.5">
+                                                    <span className="w-7 font-semibold text-slate-200">{monthLabels[mIdx]}</span>
+                                                    <span className="text-white font-medium whitespace-nowrap">
+                                                      Rp {formatRp(mIns)}
+                                                    </span>
+                                                    <span className="text-slate-400 text-[10px]">({mQty} UB)</span>
+                                                  </div>
+                                                  <div className="text-right whitespace-nowrap">
+                                                    {mGrowthPct != null ? (
+                                                      <span
+                                                        className="font-bold text-[10px] px-1 py-0.5 rounded"
+                                                        style={{
+                                                          color: mGrowthPct >= 0 ? "#4ade80" : "#f87171",
+                                                          background: mGrowthPct >= 0 ? "rgba(74, 222, 128, 0.12)" : "rgba(248, 113, 113, 0.12)",
+                                                        }}
+                                                      >
+                                                        {mGrowthPct >= 0 ? "+" : ""}{mGrowthPct.toFixed(1)}%
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-[9px] text-emerald-400 font-semibold px-1 py-0.5 rounded bg-emerald-950/40">
+                                                        Baru
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    }
+                                  />
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
                       </td>
 
-                      {/* Column 7: Nilai Cashback / Bln */}
+                      {/* Column 6: Nilai Cashback / Bln */}
                       <td className="py-2.5 px-2 text-left align-top">
                         {isCashbackNotFound ? (
                           <div className="text-[11px] py-1 text-center" style={{ color: "var(--color-text-muted)" }}>
@@ -901,32 +1303,36 @@ export function ProductSelector({
                             const rawCbPct = parseFloat(String(row.persenCashback || "0")) || 0;
                             const displayPct = isEligible && cbMonthly > 0 ? rawCbPct : 0;
 
-                            const monthlyCashback = Array.from({ length: numMonths }, (_, mIdx) => {
-                              const mQty = parseFloat(currentMonthly[mIdx]) || 0;
-                              const mEstSales = mQty * hnaSJ;
-                              const limitVal = cashbackData?.limit?.[0]?.limit ?? 100000;
-                              const isMonthEligible = mEstSales >= limitVal && mEstSales > 0;
-                              return isMonthEligible ? mEstSales * (rawCbPct / 100) : 0;
-                            });
+                            const monthlyCashback = cashbackDetails.monthlyBreakdownMap?.get(row.kodeProduk) ??
+                              Array(numMonths).fill(0);
 
-                            const totalCashbackPeriode = monthlyCashback.reduce((s, v) => s + v, 0);
+                            const totalCashbackPeriode = cashbackDetails.resultMap.get(row.kodeProduk) ??
+                              monthlyCashback.reduce((s: number, v: number) => s + v, 0);
 
                             return (
-                              <div className="space-y-1.5">
-                                {/* Total Cashback */}
-                                <div className="text-sm font-extrabold leading-tight" style={{ color: "var(--color-green)" }}>
-                                  Rp {formatRp(totalCashbackPeriode)}
+                              <div>
+                                {/* Total Cashback with bottom border */}
+                                <div
+                                  className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-left border-b border-solid"
+                                  style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
+                                >
+                                  <div className="text-sm font-extrabold leading-tight whitespace-nowrap" style={{ color: "var(--color-green)" }}>
+                                    Rp {formatRp(totalCashbackPeriode)}
+                                  </div>
+                                  <div className="text-[10px] leading-none opacity-0 select-none pointer-events-none">
+                                    -
+                                  </div>
                                 </div>
 
-                                {/* Dashed divider */}
-                                <div className="my-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }} />
-
                                 {/* Monthly breakdown */}
-                                <div className="space-y-1 text-[11px]">
+                                <div>
                                   {Array.from({ length: numMonths }, (_, mIdx) => (
-                                    <div key={mIdx} className="flex justify-between items-center">
-                                      <span style={{ color: "var(--color-text-muted)" }}>{monthLabels[mIdx]}</span>
-                                      <span className="font-semibold" style={{ color: "var(--color-green)" }}>
+                                    <div
+                                      key={mIdx}
+                                      className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap"
+                                      style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
+                                    >
+                                      <span className="font-bold text-[13px] whitespace-nowrap" style={{ color: "var(--color-green)" }}>
                                         Rp {formatRp(monthlyCashback[mIdx])}
                                       </span>
                                     </div>
@@ -936,6 +1342,14 @@ export function ProductSelector({
                             );
                           })()
                         )}
+                      </td>
+
+                      
+                      {/* Column 7: Diskon */}
+                      <td className="py-2.5 px-1 text-center align-top">
+                        <div className="font-semibold text-xs pt-1" style={{ color: "var(--color-text-muted)" }}>
+                          {row.persenDiskon ? `${row.persenDiskon}%` : (diskonPeriode ? `${diskonPeriode}%` : "-")}
+                        </div>
                       </td>
 
                       {/* Column 8: Delete Action */}
@@ -974,25 +1388,95 @@ export function ProductSelector({
             {rows.length > 0 && (
               <tfoot>
                 <tr className="border-t font-semibold" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                  <td className="py-2.5 pl-4 pr-2 text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                    Total ({rows.length} produk)
+                  <td className={`py-2.5 pl-4 pr-2 text-xs whitespace-nowrap ${colProdukWidth}`} style={{ color: "var(--color-text)" }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Total ({rows.length} produk)</span>
+                      {grandTotalPotensi > 0 && (
+                        <span className="text-[11px] font-normal" style={{ color: "var(--color-text-muted)" }}>
+                          Potensi: <strong style={{ color: "var(--color-text)" }}>{grandTotalPotensi}</strong>
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                    {grandTotalPotensiBln}
+                    {grandTotalQtySwitch % 1 === 0 ? grandTotalQtySwitch : parseFloat(grandTotalQtySwitch.toFixed(2))} UB
                   </td>
-                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                    {grandTotalQtyUb} UB
+                  <td className={`py-2.5 px-2 text-left text-xs whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text)" }}>
+                    <InfoTooltip
+                      align="left"
+                      trigger={
+                        <span
+                          className="cursor-pointer border-b border-dotted transition-colors hover:opacity-80"
+                          style={{ borderColor: "var(--color-border-strong, #94a3b8)" }}
+                          title="Klik/hover untuk melihat rincian"
+                        >
+                          Rp {formatRp(grandTotalEstSalesPeriode)}
+                        </span>
+                      }
+                      content={
+                        <div className="space-y-1.5 text-xs">
+                          <div className="font-semibold text-white border-b border-slate-700/80 pb-1 flex items-center justify-between gap-2">
+                            <span>Total Estimasi Sales</span>
+                            <span className="text-slate-300 text-[10px]">({rows.length} Produk)</span>
+                          </div>
+                          <div className="space-y-1 pt-0.5 text-[11px]">
+                            <div className="flex justify-between items-center gap-3">
+                              <span className="text-slate-300">Total Periode ({numMonths} Bulan):</span>
+                              <strong className="text-white font-semibold whitespace-nowrap">
+                                Rp {formatRp(grandTotalEstSalesPeriode)}
+                              </strong>
+                            </div>
+                            <div className="flex justify-between items-center gap-3">
+                              <span className="text-slate-300">Rata-rata / Bulan:</span>
+                              <strong className="text-white font-semibold whitespace-nowrap">
+                                Rp {formatRp(numMonths > 0 ? grandTotalEstSalesPeriode / numMonths : 0)}
+                              </strong>
+                            </div>
+                          </div>
+                        </div>
+                      }
+                    />
+                  </td>
+                  <td className={`py-2.5 px-2 text-left text-xs whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-blue)" }}>
+                    <InfoTooltip
+                      align="left"
+                      trigger={
+                        <span
+                          className="cursor-pointer border-b border-dotted transition-colors hover:opacity-80"
+                          style={{ borderColor: "var(--color-border-strong, #94a3b8)" }}
+                          title="Klik/hover untuk melihat rincian"
+                        >
+                          Rp {formatRp(grandTotalNilaiScPeriode)}
+                        </span>
+                      }
+                      content={
+                        <div className="space-y-1.5 text-xs">
+                          <div className="font-semibold text-white border-b border-slate-700/80 pb-1 flex items-center justify-between gap-2">
+                            <span>Total Estimasi Insentif</span>
+                            <span className="text-slate-300 text-[10px]">({rows.length} Produk)</span>
+                          </div>
+                          <div className="space-y-1 pt-0.5 text-[11px]">
+                            <div className="flex justify-between items-center gap-3">
+                              <span className="text-slate-300">Total Periode ({numMonths} Bulan):</span>
+                              <strong className="text-white font-semibold whitespace-nowrap">
+                                Rp {formatRp(grandTotalNilaiScPeriode)}
+                              </strong>
+                            </div>
+                            <div className="flex justify-between items-center gap-3">
+                              <span className="text-slate-300">Rata-rata / Bulan:</span>
+                              <strong className="text-white font-semibold whitespace-nowrap">
+                                Rp {formatRp(numMonths > 0 ? grandTotalNilaiScPeriode / numMonths : 0)}
+                              </strong>
+                            </div>
+                          </div>
+                        </div>
+                      }
+                    />
+                  </td>
+                  <td className="py-2.5 px-2 text-left text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-muted)" : "var(--color-green)" }}>
+                    {isCashbackNotFound ? "-" : `Rp ${formatRp(cashbackDetails.totalFinalCashback)}`}
                   </td>
                   <td className="py-2.5 px-1"></td>
-                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                    Rp {formatRp(grandTotalEstSalesBln)}
-                  </td>
-                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
-                    Rp {formatRp(grandTotalNilaiScBln)}
-                  </td>
-                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-muted)" : "var(--color-green)" }}>
-                    {isCashbackNotFound ? "-" : `Rp ${formatRp(cashbackDetails.totalFinalCashbackMonthly)}`}
-                  </td>
                   {!readOnly && <td className="py-2.5 px-1 text-center"></td>}
                 </tr>
               </tfoot>

@@ -89,4 +89,5 @@ export interface ProductSelectorProps {
   kodePI?: string;
   surveyNexusData?: any;
   historySalesData?: any;
+  historyIncentiveData?: any;
 }

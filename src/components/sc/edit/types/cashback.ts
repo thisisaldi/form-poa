@@ -35,19 +35,38 @@ export interface CashbackData {
 
 export interface CashbackItemDetail {
   kodeProduk: string;
+  estimasiSalesMonthly: number;
   estimasiSales: number;
   rawCashbackPct: number;
   eligible: boolean;
-  rawCashbackVal: number;
+  rawCashbackValMonthly: number;
   finalCashbackVal: number;
+  monthlyBreakdown?: number[];
+}
+
+export interface CashbackMonthStat {
+  mIdx: number;
+  productStats: any[];
+  eligibleVariantCount: number;
+  totalEligibleSalesMonthly: number;
+  variantMultiplier: number;
+  piMultiplier: number;
+  totalCashbackThisMonth: number;
 }
 
 export interface CashbackCalculationResult {
-  totalEstimasiSales: number;
-  variantCount: number;
+  limitVal: number;
+  eligibleVariantCount: number;
+  totalEligibleSales: number;
+  totalEligibleSalesMonthly: number;
   variantMultiplier: number;
   piMultiplier: number;
-  totalCashback: number;
   items: CashbackItemDetail[];
-  limitVal: number;
+  itemEligibilityMap: Map<string, boolean>;
+  resultMap: Map<string, number>;
+  monthlyResultMap: Map<string, number>;
+  monthlyBreakdownMap: Map<string, number[]>;
+  monthlyStats: CashbackMonthStat[];
+  totalFinalCashback: number;
+  totalFinalCashbackMonthly: number;
 }
