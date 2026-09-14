@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +12,7 @@ import { REJECT_CATEGORY_LABELS, REJECT_CATEGORY_OPTIONS } from "./constants/rej
 import { useSalesCounterOutletActions } from "./hooks/useSalesCounterOutletActions";
 import { useSalesCounterOutletData } from "./hooks/useSalesCounterOutletData";
 import { formatMonthLabel } from "./utils/formatDateUtils";
+import { SalesCounterProductBreakdownTable } from "./SalesCounterProductBreakdownTable";
 import type { SalesCounterOutletCardProps } from "./types";
 
 export function SalesCounterOutletCard({
@@ -82,6 +83,7 @@ export function SalesCounterOutletCard({
     draft,
     poaId,
     isExpanded: detailOpen,
+    isKompetitorOpen,
   });
 
   const {
@@ -105,7 +107,62 @@ export function SalesCounterOutletCard({
     isLoadingSalesOnline,
     surveyNexusData,
     productDetailRows,
+    isLoadingIncentiveHistory,
+    b3SalesMap,
   } = outletData;
+
+  const [showAllUnselected, setShowAllUnselected] = useState(false);
+
+  const unselectedProducts = useMemo(() => {
+    if (!b3SalesMap || b3SalesMap.size === 0) return [];
+    const selectedNorm = new Set<string>();
+    for (const c of selectedProductCodes) {
+      if (c) selectedNorm.add(c.replace(/^0+/, "").toUpperCase());
+    }
+
+    const results: {
+      kodeProduk: string;
+      namaProduk: string;
+      avgSalesPerMonth: number;
+      totalSalesPeriode: number;
+    }[] = [];
+
+    const seen = new Set<string>();
+    for (const [rawCode, avgSales] of Array.from(b3SalesMap.entries())) {
+      const norm = rawCode.replace(/^0+/, "").toUpperCase();
+      if (!norm || seen.has(norm)) continue;
+      seen.add(norm);
+
+      if (selectedNorm.has(norm)) continue;
+      if (avgSales <= 0) continue;
+
+      const matchedMaster = allScProducts?.find((p: any) => {
+        const c1 = (p.pro_code || p.kodeProduk || "").replace(/^0+/, "").toUpperCase();
+        const c2 = (p.kode_item || "").replace(/^0+/, "").toUpperCase();
+        return c1 === norm || c2 === norm;
+      });
+      const namaProduk =
+        matchedMaster?.pro_name ||
+        matchedMaster?.namaProduk ||
+        matchedMaster?.nama_item ||
+        `Produk (${rawCode})`;
+
+      results.push({
+        kodeProduk: rawCode,
+        namaProduk,
+        avgSalesPerMonth: avgSales,
+        totalSalesPeriode: avgSales * (lama || 1),
+      });
+    }
+
+    return results.sort((a, b) => b.avgSalesPerMonth - a.avgSalesPerMonth);
+  }, [b3SalesMap, selectedProductCodes, allScProducts, lama]);
+
+  const totalUnselectedSalesMonth = useMemo(() => {
+    return unselectedProducts.reduce((sum, p) => sum + p.avgSalesPerMonth, 0);
+  }, [unselectedProducts]);
+
+  const totalUnselectedSalesPeriod = totalUnselectedSalesMonth * (lama || 1);
 
   const strategyCounts = useMemo(() => {
     let intensifikasi = 0;
@@ -126,6 +183,53 @@ export function SalesCounterOutletCard({
     }
     return { intensifikasi, ekstensifikasi, penurunan, tetap };
   }, [productDetailRows.rows]);
+
+  const renderGrowthCell = (
+    growthPct: number | null | undefined,
+    delta: number,
+    isNew?: boolean,
+    isLoading?: boolean,
+    emptyFallback = "-"
+  ) => {
+    if (isLoading) {
+      return <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />;
+    }
+    if (isNew) {
+      return (
+        <span
+          className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border"
+          style={{
+            background: "rgba(22,163,74,0.12)",
+            color: "#16a34a",
+            borderColor: "rgba(22,163,74,0.3)",
+          }}
+        >
+          Baru
+        </span>
+      );
+    }
+    if (growthPct == null) {
+      return <span style={{ color: "var(--color-text-muted)" }}>{emptyFallback}</span>;
+    }
+
+    const isPos = growthPct >= 0;
+    const isDeltaPos = delta >= 0;
+
+    return (
+      <div className="flex flex-col items-center py-0.5 leading-tight">
+        <span className={`tabular-nums font-bold text-[11px] ${isPos ? "text-emerald-600" : "text-rose-600"}`}>
+          {isPos ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+        </span>
+        <span
+          className={`text-[10px] tabular-nums font-medium mt-0.5 ${
+            isDeltaPos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+          }`}
+        >
+          {delta > 0 ? `+${formatRp(delta)}` : delta < 0 ? `-${formatRp(Math.abs(delta))}` : "0"}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div
@@ -646,7 +750,19 @@ export function SalesCounterOutletCard({
                   Histori Insentif (B-3):
                 </div>
                 <div className="font-semibold text-xs" style={{ color: "var(--color-text)" }}>
-                  {historyInsentifInfo && historyInsentifInfo.avgB3Insentif > 0 ? (
+                  {productDetailRows.sumHistoryIncentive && productDetailRows.sumHistoryIncentive > 0 ? (
+                    <>
+                      {formatRp(productDetailRows.sumHistoryIncentive / (lama || 3))}
+                      <span className="font-normal text-[11px] ml-1" style={{ color: "var(--color-text-muted)" }}>
+                        / bln
+                      </span>
+                      {b3RangeLabel && (
+                        <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                          ({b3RangeLabel})
+                        </span>
+                      )}
+                    </>
+                  ) : historyInsentifInfo && historyInsentifInfo.avgB3Insentif > 0 ? (
                     <>
                       {formatRp(historyInsentifInfo.avgB3Insentif)}
                       <span className="font-normal text-[11px] ml-1" style={{ color: "var(--color-text-muted)" }}>
@@ -760,7 +876,7 @@ export function SalesCounterOutletCard({
                 </span>
               </div>
               <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>
-                {draft.products.length} <span className="text-xs font-normal" style={{ color: "var(--color-text-muted)" }}>Produk Diajukan</span>
+                {validScCount} <span className="text-xs font-normal" style={{ color: "var(--color-text-muted)" }}>Produk Diajukan</span>
               </div>
               <div className="pt-1.5 border-t text-[11px] space-y-1" style={{ borderColor: "var(--color-border)" }}>
                 <div className="flex items-center justify-between">
@@ -792,14 +908,20 @@ export function SalesCounterOutletCard({
                     )}
                   </div>
                 </div>
+                {unselectedProducts.length > 0 && (
+                  <div className="flex items-center justify-between pt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                    <span>Tidak Diajukan:</span>
+                    <span className="font-semibold" style={{ color: "var(--color-text)" }}>{unselectedProducts.length} Produk</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
           {/* Header Bar Produk SC & Tombol Analisis Produk Kompetitor */}
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
-              Daftar Produk SC ({scProducts.length})
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text)" }}>
+              Daftar Produk SC ({productDetailRows.rows.length || scProducts.length})
             </span>
             <button
               type="button"
@@ -815,222 +937,14 @@ export function SalesCounterOutletCard({
             </button>
           </div>
 
-          {/* Hint geser untuk mobile */}
-          <div className="sm:hidden -mt-1 text-[11px] flex items-center gap-1" style={{ color: "var(--color-text-faint)" }}>
-            <span>↔</span> Geser tabel untuk melihat rincian angka &amp; growth
-          </div>
-
-          {/* Products table container */}
-          <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr style={{ background: "var(--color-bg-subtle)" }}>
-                    <th className="text-left px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Produk SC</th>
-                    <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      Qty ST
-                    </th>
-                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      <div className="leading-tight">
-                        <div>Estimasi</div>
-                        <div>Sales</div>
-                      </div>
-                    </th>
-                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      <div className="leading-tight">
-                        <div>Insentif</div>
-                        <div>SC</div>
-                      </div>
-                    </th>
-                    {!isCashbackNotFound && (
-                      <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                        <div className="inline-flex items-center justify-end gap-1">
-                          <div className="leading-tight text-right">
-                            <div>Value</div>
-                            <div>Cashback</div>
-                          </div>
-                          <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
-                        </div>
-                      </th>
-                    )}
-                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Growth</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {productDetailRows.rows.map(({ product: p, qty, totalQty, monthlyBreakdown, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, valCashbackFull, salesHistorical, growthPct }) => (
-                    <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                      <td className="px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
-                        <div className="max-w-[150px] sm:max-w-none truncate sm:whitespace-normal font-semibold">
-                          {p.namaProduk}
-                        </div>
-                      </td>
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        <div className="flex flex-col items-end gap-0.5">
-                          {monthlyBreakdown && monthlyBreakdown.length > 1 ? (
-                            <>
-                              {monthlyBreakdown.map((m) => (
-                                <div key={m.month} className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
-                                  <span style={{ color: "var(--color-text-muted)" }}>{m.monthLabel}:</span>
-                                  <span className="font-semibold">{m.qty}</span>
-                                </div>
-                              ))}
-                              <div className="mt-0.5 pt-0.5 border-t border-[var(--color-border)] flex items-center justify-end gap-1 text-[11px] font-bold font-mono">
-                                <span className="text-[10px] font-normal" style={{ color: "var(--color-text-muted)" }}>Tot:</span>
-                                <span>{totalQty}</span>
-                              </div>
-                            </>
-                          ) : monthlyBreakdown && monthlyBreakdown.length === 1 ? (
-                            <div className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
-                              <span style={{ color: "var(--color-text-muted)" }}>{monthlyBreakdown[0].monthLabel}:</span>
-                              <span className="font-semibold">{monthlyBreakdown[0].qty}</span>
-                            </div>
-                          ) : (
-                            <span className="font-semibold text-xs">{totalQty || qty || 0}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        {estSalesFull > 0 ? (
-                          <div>
-                            <span>{formatRp(estSalesFull)}</span>
-                            {lama > 1 && (
-                              <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                                ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(estSalesMonth)}/bln)
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap font-semibold" style={{ color: "var(--color-blue)" }}>
-                        {nilaiScFull > 0 ? (
-                          <div>
-                            <span>{formatRp(nilaiScFull)}</span>
-                            {lama > 1 && (
-                              <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                                ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(nilaiScPerMonth)}/bln)
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      {!isCashbackNotFound && (
-                        <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                          {valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}
-                        </td>
-                      )}
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap">
-                        {isLoadingB3 ? (
-                          <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                        ) : salesHistorical > 0 ? (
-                          <span className={growthPct >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>
-                            {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
-                          </span>
-                        ) : (
-                          <span
-                            className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded border"
-                            style={{
-                              background: "rgba(22, 163, 74, 0.12)",
-                              color: "#16a34a",
-                              borderColor: "rgba(22, 163, 74, 0.3)",
-                            }}
-                          >
-                            Baru
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="font-semibold border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                    <td className="px-2.5 py-2 sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Total</td>
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      <div className="flex flex-col items-end gap-0.5">
-                        {productDetailRows.monthlyTotalBreakdown && productDetailRows.monthlyTotalBreakdown.length > 1 ? (
-                          <>
-                            {productDetailRows.monthlyTotalBreakdown.map((m) => (
-                              <div key={m.month} className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
-                                <span style={{ color: "var(--color-text-muted)" }}>{m.monthLabel}:</span>
-                                <span className="font-semibold">{m.qty}</span>
-                              </div>
-                            ))}
-                            <div className="mt-0.5 pt-0.5 border-t border-[var(--color-border)] flex items-center justify-end gap-1 text-[11px] font-bold font-mono">
-                              <span className="text-[10px] font-normal" style={{ color: "var(--color-text-muted)" }}>Tot:</span>
-                              <span>{productDetailRows.sumTotalQty} ST</span>
-                            </div>
-                          </>
-                        ) : (
-                          <span className="font-semibold text-xs">{productDetailRows.sumTotalQty} ST</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      {productDetailRows.sumEstSales > 0 ? (
-                        <div>
-                          <span>{formatRp(productDetailRows.sumEstSales)}</span>
-                          {lama > 1 && (
-                            <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(productDetailRows.sumEstSalesPerMonth)}/bln)
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
-                      {productDetailRows.sumNilaiSc > 0 ? (
-                        <div>
-                          <span>{formatRp(productDetailRows.sumNilaiSc)}</span>
-                          {lama > 1 && (
-                            <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(productDetailRows.sumNilaiScPerMonth)}/bln)
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    {!isCashbackNotFound && (
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        {productDetailRows.sumCashback > 0 ? formatRp(productDetailRows.sumCashback) : "-"}
-                      </td>
-                    )}
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap">
-                      {isLoadingB3 ? (
-                        <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                      ) : productDetailRows.sumSalesHistorical > 0 ? (
-                        <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
-                          {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded border"
-                          style={{
-                            background: "rgba(22, 163, 74, 0.12)",
-                            color: "#16a34a",
-                            borderColor: "rgba(22, 163, 74, 0.3)",
-                          }}
-                        >
-                          Baru
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            {b3RangeLabel && (
-              <p className="text-[11px] px-3 py-2 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                * Growth Dihitung dari Histori Rata-Rata Penjualan Quarter ({b3RangeLabel})
-              </p>
-            )}
-          </div>
+          <SalesCounterProductBreakdownTable
+            productDetailRows={productDetailRows}
+            lama={lama}
+            b3RangeLabel={b3RangeLabel}
+            isLoadingB3={isLoadingB3}
+            isLoadingIncentiveHistory={isLoadingIncentiveHistory}
+            unselectedProducts={unselectedProducts}
+          />
 
           {/* Helper Sidebar: Analisis Produk Kompetitor */}
           <ProdukKompetitorSidebar

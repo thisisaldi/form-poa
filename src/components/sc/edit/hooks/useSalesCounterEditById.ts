@@ -21,6 +21,7 @@ import {
   getSalesOnlineAction,
   getHistoryEntertainAction,
   getSurveyNexusAction,
+  getScHistoryIncentiveCounterAction,
 } from "@/app/actions/canvasser";
 import { getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
@@ -33,16 +34,18 @@ import { formatDiskonPct, formatCashbackPct } from "../utils/formatEditUtils";
 import { findDiskonItem, findCashbackItem } from "../utils/productMatcherUtils";
 import { formatMonthLabel } from "../utils/periodUtils";
 import { buildScProductOptions } from "../utils/productOptionBuilder";
+import { extractQuarterAndYear } from "@/components/sc/detail/utils/outletCalculationUtils";
 
 interface UseSalesCounterEditByIdParams {
   poaPeriod: string;
   kodePI: string;
   persons: Person[];
   initialProducts: Array<{
-    id: string;
+    id?: string;
     kodeProduk: string;
-    namaProduk: string;
+    namaProduk?: string;
     produkKompetitor: string | null;
+    periodeMonth?: string;
     qtyPerBulan: number;
     persenMatriksSc: number;
     persenDiskon: number;
@@ -77,9 +80,11 @@ export function useSalesCounterEditById({
   const selectedPersonIds = persons.map((p) => parseInt(p.outletPersonId || p.nik_ktp, 10));
 
   // Quarter & period setup
-  const poaYear = parseInt(poaPeriod.slice(0, 4), 10) || new Date().getFullYear();
-  const quarterMatch = poaPeriod.match(/-Q([1-4])/);
-  const initialRowQuarter = quarterMatch ? parseInt(quarterMatch[1], 10) : 1;
+  const extracted = useMemo(() => {
+    return extractQuarterAndYear(poaPeriod, initialPeriodeAwal);
+  }, [poaPeriod, initialPeriodeAwal]);
+  const poaYear = parseInt(extracted.year, 10) || new Date().getFullYear();
+  const initialRowQuarter = parseInt(extracted.quarter.replace(/^Q/i, ""), 10) || 1;
 
   const [rowQuarter, setRowQuarter] = useState(initialRowQuarter);
   const [periodeAwal, setPeriodeAwal] = useState(initialPeriodeAwal);
@@ -102,20 +107,74 @@ export function useSalesCounterEditById({
     return String(initialJumlahPasienNonResep ?? "0");
   }, [jumlahPasien, jumlahPasienResep, initialJumlahPasienNonResep]);
 
-  // Products editable
-  const [products, setProducts] = useState<SelectedProductRow[]>(() =>
-    initialProducts.length > 0
-      ? initialProducts.map((p) => ({
-          kodeProduk: p.kodeProduk,
-          produkKompetitor: p.produkKompetitor || "",
-          qtyPerBulan: String(p.qtyPerBulan ?? ""),
-          persenMatriksSc: String(p.persenMatriksSc),
-          persenDiskon: String(p.persenDiskon),
-          persenCashback: String(p.persenCashback),
-          rencanaTotalBiaya: p.rencanaTotalBiaya,
-        }))
-      : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }]
-  );
+  // Products editable - group multi-month items by kodeProduk
+  const [products, setProducts] = useState<SelectedProductRow[]>(() => {
+    if (initialProducts.length === 0) {
+      return [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
+    }
+
+    const groupMap = new Map<string, typeof initialProducts>();
+    for (const p of initialProducts) {
+      if (!groupMap.has(p.kodeProduk)) {
+        groupMap.set(p.kodeProduk, []);
+      }
+      groupMap.get(p.kodeProduk)!.push(p);
+    }
+
+    const startYear = parseInt(initialPeriodeAwal.slice(0, 4), 10);
+    const startMonth = parseInt(initialPeriodeAwal.slice(4, 6), 10);
+    const numMonths = Math.max(1, initialLamaPeriode || 3);
+    const periodMonths: string[] = [];
+    for (let i = 0; i < numMonths; i++) {
+      const d = new Date(startYear, startMonth - 1 + i, 1);
+      periodMonths.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+
+    const groupedRows: SelectedProductRow[] = [];
+    for (const [, items] of groupMap.entries()) {
+      const primary = items[0];
+      const monthMap = new Map<string, number>();
+      for (const it of items) {
+        if (it.periodeMonth) {
+          monthMap.set(it.periodeMonth, it.qtyPerBulan);
+        }
+      }
+
+      const hasMultipleMonths = items.some((it) => it.periodeMonth);
+      let monthlyQty: string[] | undefined = undefined;
+      let totalQty = 0;
+
+      if (hasMultipleMonths && periodMonths.length > 1) {
+        monthlyQty = periodMonths.map((m) => {
+          if (monthMap.has(m)) {
+            const q = monthMap.get(m)!;
+            totalQty += q;
+            return String(q);
+          }
+          return String(primary.qtyPerBulan ?? "");
+        });
+      } else {
+        totalQty = (primary.qtyPerBulan || 0) * numMonths;
+      }
+
+      const avgQty = numMonths > 0 ? totalQty / numMonths : (primary.qtyPerBulan || 0);
+      const formattedAvg = avgQty % 1 === 0 ? avgQty.toString() : parseFloat(avgQty.toFixed(2)).toString();
+      const totalRencana = items.reduce((sum, it) => sum + (it.rencanaTotalBiaya || 0), 0);
+
+      groupedRows.push({
+        kodeProduk: primary.kodeProduk,
+        produkKompetitor: primary.produkKompetitor || "",
+        qtyPerBulan: formattedAvg,
+        monthlyQty,
+        persenMatriksSc: String(primary.persenMatriksSc),
+        persenDiskon: String(primary.persenDiskon),
+        persenCashback: String(primary.persenCashback),
+        rencanaTotalBiaya: totalRencana,
+      });
+    }
+
+    return groupedRows.length > 0 ? groupedRows : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
+  });
 
   // Entertain
   const [entertainList, setEntertainList] = useState<EntertainRow[]>(() => {
@@ -354,6 +413,9 @@ export function useSalesCounterEditById({
         if (latestSurvey?.avg_patient != null) {
           setJumlahPasien((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_patient) : prev));
         }
+        if (latestSurvey?.avg_recipes_in != null) {
+          setJumlahPasienResep((prev) => (!prev || prev === "0" ? String(latestSurvey.avg_recipes_in) : prev));
+        }
         const totalEmp = latestSurvey?.total_outlet_employees ?? (bundle.surveyNexusData?.data as any)?.total_outlet_employees;
         if (totalEmp != null) {
           setJumlahKaryawan((prev) => (!prev || prev === "0" ? String(totalEmp) : prev));
@@ -397,6 +459,59 @@ export function useSalesCounterEditById({
     if (!kodePI) return;
     getScInsentifHistoryAction(kodePI, targetPeriod).then((res) => setInsentifHistory(res?.data || null));
   }, [kodePI, targetPeriod]);
+
+  const [scHistoryIncentiveData, setScHistoryIncentiveData] = useState<any[]>([]);
+  const [historyIncentiveQuarter, setHistoryIncentiveQuarter] = useState<string>("");
+  const [historyIncentiveYear, setHistoryIncentiveYear] = useState<string | number>("");
+  const [isLoadingIncentiveHistory, setIsLoadingIncentiveHistory] = useState(false);
+
+  useEffect(() => {
+    if (!kodePI) {
+      setScHistoryIncentiveData([]);
+      return;
+    }
+    let isMounted = true;
+    setIsLoadingIncentiveHistory(true);
+    const effectiveQ = rowQuarter > 0 ? `Q${rowQuarter}` : extracted.quarter;
+    const effectiveYr = poaYear > 2000 ? poaYear : (parseInt(extracted.year, 10) || new Date().getFullYear());
+    getScHistoryIncentiveCounterAction(kodePI, effectiveQ, effectiveYr)
+      .then((res) => {
+        if (!isMounted) return;
+        const items = res?.data && Array.isArray(res.data) ? res.data : [];
+        if (res?.quarter) setHistoryIncentiveQuarter(res.quarter);
+        if (res?.year) setHistoryIncentiveYear(res.year);
+        setScHistoryIncentiveData(items);
+      })
+      .catch(() => {
+        if (isMounted) setScHistoryIncentiveData([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingIncentiveHistory(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [kodePI, rowQuarter, poaYear, extracted.quarter, extracted.year]);
+
+  const { scHistoryIncentiveMap, totalOutletHistoryIncentive } = useMemo(() => {
+    const map = new Map<string, { win_incentive: number; win_qty?: number; name?: string }>();
+    if (!scHistoryIncentiveData || scHistoryIncentiveData.length === 0) {
+      return { scHistoryIncentiveMap: map, totalOutletHistoryIncentive: 0 };
+    }
+    let sumTotal = 0;
+    for (const item of scHistoryIncentiveData) {
+      if (item.code) {
+        const val = Number(item.win_incentive) || 0;
+        const qty = Number(item.win_qty) || 0;
+        sumTotal += val;
+        const entry = { win_incentive: val, win_qty: qty, name: item.name };
+        map.set(item.code, entry);
+        map.set(item.code.replace(/^0+/, ""), entry);
+      }
+    }
+    return { scHistoryIncentiveMap: map, totalOutletHistoryIncentive: sumTotal };
+  }, [scHistoryIncentiveData]);
 
   useEffect(() => {
     if (cashbackMatrix.length === 0) return;
@@ -598,7 +713,7 @@ export function useSalesCounterEditById({
   }, [quarterMonths, periodeAwal, lamaPeriode]);
 
   const monthlyBreakdown = useMemo(() => {
-    return monthlyMonths.map((m: string) => {
+    return monthlyMonths.map((m: string, mIdx: number) => {
       let monthlyEstimasiSales = 0;
       let monthlyNilaiSc = 0;
 
@@ -609,7 +724,9 @@ export function useSalesCounterEditById({
         const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
 
         const hnaSJ = parseFloat(masterProduct.hna) || 0;
-        const qty = parseFloat(row.qtyPerBulan) || 0;
+        const qty = (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined && row.monthlyQty[mIdx] !== "")
+          ? (parseFloat(row.monthlyQty[mIdx]) || 0)
+          : (parseFloat(row.qtyPerBulan) || 0);
         const estSalesPerMonth = qty * hnaSJ;
         const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
@@ -747,6 +864,11 @@ export function useSalesCounterEditById({
     b3QtyMap,
     b3RangeLabel,
     outletTotalAvgB3Sales,
+    scHistoryIncentiveMap,
+    totalOutletHistoryIncentive,
+    historyIncentiveQuarter,
+    historyIncentiveYear,
+    isLoadingIncentiveHistory,
     diskonList,
     diskonPeriode,
     productOptions,

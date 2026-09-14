@@ -10,6 +10,7 @@ export interface SalesCounterEditByIdInitialProduct {
   kodeProduk: string;
   namaProduk: string;
   produkKompetitor: string | null;
+  periodeMonth?: string;
   qtyPerBulan: number;
   persenMatriksSc: number;
   persenDiskon: number;
@@ -88,4 +89,5 @@ export interface ProductSelectorProps {
   kodePI?: string;
   surveyNexusData?: any;
   historySalesData?: any;
+  historyIncentiveData?: any;
 }

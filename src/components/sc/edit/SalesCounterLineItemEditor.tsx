@@ -27,6 +27,9 @@ import { satuanLabel } from "./utils/productMatcherUtils";
 import { formatMonthLabel } from "./utils/periodUtils";
 import { Req, SectionLabel } from "./ui";
 import { ERR_RING } from "./constants/uiConstants";
+import { SalesCounterProductBreakdownTable } from "../detail/SalesCounterProductBreakdownTable";
+import { calculateProductDetailRows } from "../detail/utils/outletCalculationUtils";
+import type { ScProductItemData } from "../types";
 
 export function SalesCounterLineItemEditor({
   poaId,
@@ -81,6 +84,11 @@ export function SalesCounterLineItemEditor({
     cashbackData,
     cashbackDetails,
     cashbackPeriode,
+    scHistoryIncentiveMap,
+    totalOutletHistoryIncentive,
+    historyIncentiveQuarter,
+    historyIncentiveYear,
+    isLoadingIncentiveHistory,
     diskonPeriode,
     errors,
     isPending,
@@ -590,6 +598,138 @@ export function SalesCounterLineItemEditor({
     new Set(productGrowthAnalysis.selectedItems.map((it) => it.satuan).filter(Boolean))
   );
   const commonUnit = distinctUnits.length === 1 ? distinctUnits[0] : "UB";
+
+  const monthlyMonths = useMemo(() => {
+    if (periodeAwal && /^\d{6}$/.test(periodeAwal.replace(/[^0-9]/g, "")) && lamaPeriode > 0) {
+      return expandPeriodeMonths(periodeAwal.replace(/[^0-9]/g, ""), lamaPeriode);
+    }
+    return quarterToMonths(rowQuarterPeriod);
+  }, [rowQuarterPeriod, periodeAwal, lamaPeriode]);
+
+  const scProductItems: ScProductItemData[] = useMemo(() => {
+    const items: ScProductItemData[] = [];
+    selectedProducts.forEach((row, idx) => {
+      if (!row.kodeProduk) return;
+      const master = products.find((p) => p.kodeProduk === row.kodeProduk);
+      const canvasser = canvasserProducts?.find((cp) => cp.pro_code === row.kodeProduk);
+      const hnaSJ = parseFloat(master?.hna || "0") || 0;
+      const scVal = canvasser?.sales_counter_value;
+      const scMin = canvasser?.sales_counter_minimum || 0;
+      const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
+      const pctDiskon = parseFloat(row.persenDiskon) || 0;
+      const pctCashback = parseFloat(row.persenCashback) || 0;
+
+      if (Array.isArray(row.monthlyQty) && row.monthlyQty.length > 0 && monthlyMonths && monthlyMonths.length > 0) {
+        monthlyMonths.forEach((m: string, mIdx: number) => {
+          const q = parseFloat(row.monthlyQty?.[mIdx] || "") || 0;
+          items.push({
+            id: `${row.kodeProduk}-${m}`,
+            kodeProduk: row.kodeProduk,
+            namaProduk: master?.namaProduk || canvasser?.pro_name || row.kodeProduk,
+            periodeMonth: m,
+            produkKompetitor: row.produkKompetitor || null,
+            qtyPerBulan: q,
+            persenMatriksSc: pctMatriks,
+            persenDiskon: pctDiskon,
+            persenCashback: pctCashback,
+            rencanaTotalBiaya: row.rencanaTotalBiaya,
+            hnaSJ,
+            salesCounterValue: scVal,
+            salesCounterMinimum: scMin,
+          });
+        });
+      } else {
+        const q = parseFloat(row.qtyPerBulan) || 0;
+        items.push({
+          id: `${row.kodeProduk}-${idx}`,
+          kodeProduk: row.kodeProduk,
+          namaProduk: master?.namaProduk || canvasser?.pro_name || row.kodeProduk,
+          produkKompetitor: row.produkKompetitor || null,
+          qtyPerBulan: q,
+          persenMatriksSc: pctMatriks,
+          persenDiskon: pctDiskon,
+          persenCashback: pctCashback,
+          rencanaTotalBiaya: row.rencanaTotalBiaya,
+          hnaSJ,
+          salesCounterValue: scVal,
+          salesCounterMinimum: scMin,
+        });
+      }
+    });
+    return items;
+  }, [selectedProducts, products, canvasserProducts, monthlyMonths]);
+
+  const productDetailRows = useMemo(() => {
+    return calculateProductDetailRows({
+      scProducts: scProductItems,
+      lama: lamaPeriode,
+      periodeAwal,
+      cashbackData,
+      cbDetails: cashbackDetails,
+      b3SalesMap,
+      b3TotalOutletSalesPerMonth: outletTotalAvgB3Sales,
+      scHistoryIncentiveMap,
+      totalOutletHistoryIncentive,
+    });
+  }, [
+    scProductItems,
+    lamaPeriode,
+    periodeAwal,
+    cashbackData,
+    cashbackDetails,
+    b3SalesMap,
+    outletTotalAvgB3Sales,
+    scHistoryIncentiveMap,
+    totalOutletHistoryIncentive,
+  ]);
+
+  const unselectedProducts = useMemo(() => {
+    if (!b3SalesMap || b3SalesMap.size === 0) return [];
+    const selectedNorm = new Set<string>();
+    for (const p of selectedProducts) {
+      if (p.kodeProduk) selectedNorm.add(p.kodeProduk.replace(/^0+/, "").toUpperCase());
+    }
+
+    const results: {
+      kodeProduk: string;
+      namaProduk: string;
+      avgSalesPerMonth: number;
+      totalSalesPeriode: number;
+    }[] = [];
+
+    const seen = new Set<string>();
+    for (const [rawCode, avgSales] of Array.from(b3SalesMap.entries())) {
+      const norm = rawCode.replace(/^0+/, "").toUpperCase();
+      if (!norm || seen.has(norm)) continue;
+      seen.add(norm);
+
+      if (selectedNorm.has(norm)) continue;
+      if (avgSales <= 0) continue;
+
+      const matchedMaster = products?.find((p: any) => {
+        const c1 = (p.kodeProduk || "").replace(/^0+/, "").toUpperCase();
+        return c1 === norm;
+      });
+      const matchedCanvasser = canvasserProducts?.find((cp: any) => {
+        const c1 = (cp.pro_code || "").replace(/^0+/, "").toUpperCase();
+        return c1 === norm;
+      });
+
+      const namaProduk =
+        matchedMaster?.namaProduk ||
+        matchedCanvasser?.pro_name ||
+        `Produk (${rawCode})`;
+
+      results.push({
+        kodeProduk: rawCode,
+        namaProduk,
+        avgSalesPerMonth: avgSales,
+        totalSalesPeriode: avgSales * (lamaPeriode || 1),
+      });
+    }
+
+    return results.sort((a, b) => b.avgSalesPerMonth - a.avgSalesPerMonth);
+  }, [b3SalesMap, selectedProducts, products, canvasserProducts, lamaPeriode]);
 
   return (
     <>
@@ -1215,250 +1355,58 @@ export function SalesCounterLineItemEditor({
                   )}
                 </div>
 
-                {/* 3. TOTAL % COST RATIO + NILAI INSENTIF SC POINT OUT */}
+                {/* 3. NILAI INSENTIF SC */}
                 <div
-                  className="shrink-0 min-w-[180px] border-t pt-4 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-6"
+                  className="shrink-0 min-w-[200px] border-t pt-4 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-6"
                   style={{ borderColor: "var(--color-border)" }}
                 >
                   <div className="text-xs font-semibold whitespace-nowrap uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                    TOTAL % COST RATIO
+                    NILAI INSENTIF SC
                   </div>
                   <div className="text-2xl sm:text-3xl font-extrabold whitespace-nowrap mt-1" style={{ color: "var(--color-blue)" }}>
-                    {costRatio.toFixed(2)}%
+                    Rp {Math.round(totalNilaiSc).toLocaleString("id-ID")}
                   </div>
                   <div className="text-xs mt-1 whitespace-nowrap font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    Total Budget / Total Sales
+                    Rp {Math.round(totalNilaiSc / (lamaPeriode > 0 ? lamaPeriode : 1)).toLocaleString("id-ID")} / Bln
                   </div>
 
-                  {/* Point out Nilai Insentif SC */}
-                  <div
-                    className="mt-2.5 px-3 py-1.5 rounded-lg border inline-block"
-                    style={{
-                      background: "#fef9c3",
-                      borderColor: "#fde047",
-                    }}
-                  >
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
-                      NILAI INSENTIF SC
+                  {/* History Insentif SC & Period */}
+                  {isLoadingIncentiveHistory ? (
+                    <div className="text-xs mt-2 whitespace-nowrap text-slate-400">
+                      Memuat history insentif...
                     </div>
-                    <div className="text-sm sm:text-base font-extrabold text-amber-950 mt-0.5">
-                      Rp {Math.round(totalNilaiSc).toLocaleString("id-ID")}
+                  ) : totalOutletHistoryIncentive > 0 ? (
+                    <div className="mt-2 space-y-0.5">
+                      <div className="text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                        History Insentif SC Rp {Math.round(totalOutletHistoryIncentive).toLocaleString("id-ID")}
+                      </div>
+                      <div className="text-[11px] whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                        ({historyIncentiveQuarter && historyIncentiveYear ? `${historyIncentiveQuarter} ${historyIncentiveYear}` : b3RangeLabel || "Kuartal Sebelumnya"})
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="text-xs mt-2 whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      Belum ada data history insentif
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
             {/* TABEL ESTIMASI & INSENTIF SC PER PRODUK */}
-            {(selectedProducts.some((p) => p.kodeProduk) || productGrowthAnalysis.unselectedItems.length > 0) && (
+            {(selectedProducts.some((p) => p.kodeProduk) || unselectedProducts.length > 0) && (
               <div className="space-y-3 pt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
                 <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
                   Estimasi &amp; Insentif SC Per Produk
                 </p>
-                <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}>
-                  <table className="w-full text-xs text-left" style={{ borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                        <th className="px-3 py-2 font-medium whitespace-nowrap min-w-[160px]">PRODUK</th>
-                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">QTY</th>
-                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">ESTIMASI SALES</th>
-                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap">INSENTIF SC</th>
-                        {!isCashbackNotFound && (
-                          <th className="px-3 py-2 font-medium text-right whitespace-nowrap">
-                            <div className="leading-tight">
-                              <div>VALUE</div>
-                              <div>CASHBACK</div>
-                            </div>
-                          </th>
-                        )}
-                        <th className="px-3 py-2 font-medium text-right whitespace-nowrap min-w-[130px]">GROWTH</th>
-                        <th className="px-3 py-2 font-medium text-center whitespace-nowrap min-w-[120px]">LABEL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* 1. Baris Produk yang Diajukan */}
-                      {productGrowthAnalysis.selectedItems.map((item, idx) => (
-                        <tr key={`selected-${item.kodeProduk}-${idx}`} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                          <td className="px-3 py-2.5 font-medium align-middle" style={{ color: "var(--color-text)" }}>
-                            {item.namaProduk}
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
-                            {item.qtyTotal > 0 ? `${Math.round(item.qtyTotal).toLocaleString("id-ID")} ${item.satuan}` : "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
-                            {item.estimasiSales > 0 ? `Rp ${Math.round(item.estimasiSales).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap font-bold align-middle" style={{ color: "var(--color-blue)" }}>
-                            {item.nilaiSc > 0 ? `Rp ${Math.round(item.nilaiSc).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                          {!isCashbackNotFound && (
-                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-muted)" }}>
-                              {item.valCashback > 0 ? `Rp ${Math.round(item.valCashback).toLocaleString("id-ID")}` : "-"}
-                            </td>
-                          )}
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle">
-                            {loadingOutletData ? (
-                              <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                            ) : item.growthType === "ekstensifikasi" ? (
-                              <span
-                                className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-                                style={{
-                                  background: "rgba(22, 163, 74, 0.12)",
-                                  color: "#16a34a",
-                                  borderColor: "rgba(22, 163, 74, 0.3)",
-                                }}
-                              >
-                                Baru
-                              </span>
-                            ) : item.growthType === "intensifikasi" ? (
-                              <div className="flex items-center justify-end gap-1">
-                                <span className="text-emerald-600 font-bold">
-                                  +{item.growthPct != null ? item.growthPct.toFixed(1) : "0.0"}%
-                                </span>
-                                <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
-                                  (+{item.deltaUb} UB)
-                                </span>
-                              </div>
-                            ) : item.growthType === "penurunan" ? (
-                              <div className="flex items-center justify-end gap-1">
-                                <span className="text-rose-600 font-bold">
-                                  {item.growthPct != null ? item.growthPct.toFixed(1) : "0.0"}%
-                                </span>
-                                <span className="text-[11px] text-rose-600 dark:text-rose-400 font-medium">
-                                  (-{item.deltaUb} UB)
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-600 font-medium">0.0% (0 UB)</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap align-middle">
-                            {loadingOutletData ? (
-                              <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                            ) : item.growthType === "ekstensifikasi" ? (
-                              <span
-                                className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-                                style={{
-                                  background: "rgba(37, 99, 235, 0.12)",
-                                  color: "#1d4ed8",
-                                  borderColor: "rgba(37, 99, 235, 0.3)",
-                                }}
-                              >
-                                Ekstensifikasi
-                              </span>
-                            ) : item.growthType === "intensifikasi" ? (
-                              <span
-                                className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-                                style={{
-                                  background: "rgba(147, 51, 234, 0.12)",
-                                  color: "#7e22ce",
-                                  borderColor: "rgba(147, 51, 234, 0.3)",
-                                }}
-                              >
-                                Intensifikasi
-                              </span>
-                            ) : item.growthType === "penurunan" ? (
-                              <span
-                                className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-                                style={{
-                                  background: "rgba(225, 29, 72, 0.12)",
-                                  color: "#be123c",
-                                  borderColor: "rgba(225, 29, 72, 0.3)",
-                                }}
-                              >
-                                Penurunan
-                              </span>
-                            ) : (
-                              <span className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-600">
-                                Tetap
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-
-                      {/* 2. Baris Produk Histori yang TIDAK Diajukan pada POA ini */}
-                      {productGrowthAnalysis.unselectedItems.map((item, idx) => (
-                        <tr
-                          key={`unselected-${item.kodeProduk}-${idx}`}
-                          style={{ borderBottom: "1px solid var(--color-border)", background: "rgba(244, 63, 94, 0.03)" }}
-                        >
-                          <td className="px-3 py-2.5 font-medium align-middle" style={{ color: "var(--color-text-muted)" }}>
-                            <div className="flex items-center gap-1.5">
-                              <span>{item.namaProduk}</span>
-                              <span className="text-[9px] font-medium px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 border border-slate-200">
-                                Histori
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-faint)" }}>
-                            0 {item.satuan}
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-faint)" }}>
-                            Rp 0
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-faint)" }}>
-                            Rp 0
-                          </td>
-                          {!isCashbackNotFound && (
-                            <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text-faint)" }}>
-                              -
-                            </td>
-                          )}
-                          <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap align-middle">
-                            <span className="text-rose-600 dark:text-rose-400 font-semibold text-xs">
-                              (-{item.deltaUb} UB)
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-center whitespace-nowrap align-middle">
-                            <span
-                              className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full border"
-                              style={{
-                                background: "rgba(225, 29, 72, 0.08)",
-                                color: "#be123c",
-                                borderColor: "rgba(225, 29, 72, 0.25)",
-                              }}
-                            >
-                              Tidak Diajukan
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="font-semibold" style={{ background: "var(--color-bg-subtle)", borderTop: "2px solid var(--color-border)" }}>
-                        <td className="px-3 py-2.5" style={{ color: "var(--color-text)" }}>
-                          Total ({productGrowthAnalysis.selectedItems.length} produk real)
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                          {totalRealQty > 0 ? `${Math.round(totalRealQty).toLocaleString("id-ID")} ${commonUnit}` : "-"}
-                        </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                          Rp {Math.round(totalEstimasiSales).toLocaleString("id-ID")}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-bold tabular-nums whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
-                          Rp {Math.round(totalNilaiSc).toLocaleString("id-ID")}
-                        </td>
-                        {!isCashbackNotFound && (
-                          <td className="px-3 py-2.5 text-right font-bold tabular-nums whitespace-nowrap" style={{ color: "var(--color-green, #16a34a)" }}>
-                            {totalCashbackVal > 0 ? `Rp ${Math.round(totalCashbackVal).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                        )}
-                        <td className="px-3 py-2.5 text-right text-xs" style={{ color: "var(--color-text-faint)" }}>
-                          -
-                        </td>
-                        <td className="px-3 py-2.5 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
-                          -
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                  {b3RangeLabel && (
-                    <p className="text-[11px] px-3 py-1.5 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                      * Growth Dihitung dari Histori Rata-Rata Penjualan Quarter ({b3RangeLabel})
-                    </p>
-                  )}
-                </div>
+                <SalesCounterProductBreakdownTable
+                  productDetailRows={productDetailRows}
+                  lama={lamaPeriode}
+                  b3RangeLabel={b3RangeLabel}
+                  isLoadingB3={loadingOutletData}
+                  isLoadingIncentiveHistory={isLoadingIncentiveHistory}
+                  unselectedProducts={unselectedProducts}
+                />
               </div>
             )}
           </div>
@@ -1580,6 +1528,7 @@ export function SalesCounterLineItemEditor({
         showCashback={!isCashbackNotFound}
         showBlastIn={!!selectedOutlet?.isBlastIn}
         showPosm={!!selectedOutlet?.isPosm}
+        costRatio={costRatio}
       />
     </>
   );

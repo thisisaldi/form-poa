@@ -21,6 +21,7 @@ ALTER TABLE "PoaScProductItem" ALTER COLUMN "periodeMonth" SET NOT NULL;
 
 -- 1.4 Drop unique constraint lama & index redundant pada PoaScProductItem
 ALTER TABLE "PoaScProductItem" DROP CONSTRAINT IF EXISTS "PoaScProductItem_poaScId_kodeProduk_key";
+DROP INDEX IF EXISTS "PoaScProductItem_poaScId_kodeProduk_key";
 ALTER TABLE "PoaScProductItem" DROP CONSTRAINT IF EXISTS "PoaScProductItem_poaScId_kodeProduk_periodeMonth_key";
 DROP INDEX IF EXISTS "PoaScProductItem_poaScId_idx";
 DROP INDEX IF EXISTS "PoaScProductItem_poaScId_periodeMonth_idx";

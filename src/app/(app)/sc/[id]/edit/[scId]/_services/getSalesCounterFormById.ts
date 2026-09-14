@@ -91,6 +91,7 @@ export async function getSalesCounterFormById(
       kodeProduk: p.kodeProduk,
       namaProduk: p.namaProduk,
       produkKompetitor: p.produkKompetitor,
+      periodeMonth: p.periodeMonth,
       qtyPerBulan: p.qtyPerBulan,
       persenMatriksSc: Number(p.persenMatriksSc.toString()),
       persenDiskon: Number(p.persenDiskon.toString()),

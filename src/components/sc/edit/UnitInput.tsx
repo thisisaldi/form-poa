@@ -13,6 +13,7 @@ interface UnitInputProps {
   /** When set, typing/stepping past this value is clamped down to it (e.g. Hari Praktek ≤ 31, no month has more days). */
   max?: number;
   disabled?: boolean;
+  className?: string;
 }
 
 export function UnitInput({
@@ -24,6 +25,7 @@ export function UnitInput({
   min = 0,
   max,
   disabled = false,
+  className,
 }: UnitInputProps) {
   const isCurrency = unit === "Rp";
   const displayValue = isCurrency ? formatRp(value) : value;
@@ -65,7 +67,7 @@ export function UnitInput({
 
   return (
     <div
-      className="flex items-stretch rounded-md overflow-hidden h-[32px]"
+      className={`flex items-stretch rounded-md overflow-hidden ${className ?? "h-[32px]"}`}
       style={{ border: "1px solid var(--color-border-strong)", background: "var(--color-surface)" }}
     >
       <input
