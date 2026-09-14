@@ -22,9 +22,28 @@
  * row's asmNip/smNip/nsmNip columns — so it naturally covers every outlet
  * with a current MrOutletAssignment, not just KAM.
  *
+ * Second root cause fixed (2026-09-14): the query below originally scoped
+ * MrOutletAssignment to THIS CALENDAR MONTH's periode only. outletSync.ts
+ * only ever syncs assignments for CURRENTLY ACTIVE MRs (see its own
+ * `role: "MR", isActive: true` query) — so the moment an MR goes inactive,
+ * their outlets stop getting a fresh row for the current month entirely.
+ * That silently dropped those outlets out of THIS function's `assignments`
+ * result from then on, so coveredByNip/coveredByRole for them was NEVER
+ * recomputed again — stuck forever at whatever it was the last time that MR
+ * was still active (typically the MR's own nip/role "MR", since they were
+ * their own coverage back then). Confirmed live (2026-09-14 bug report): an
+ * ASM whose one MR went vacant could open "create POA" (first bug, fixed
+ * separately) but saw an EMPTY outlet dropdown — canCreatePoa's covered-outlet
+ * check found rows, but getOutletsByUser's `coveredByRole: { not: "MR" }`
+ * filter never matched because coveredByNip/coveredByRole were still frozen
+ * on the vacant MR themselves. Fixed by taking each outlet's LATEST
+ * assignment ever synced (any period), not "this month's", via a
+ * `DISTINCT ON` query — same "most recent wins" idea getOutletsForMrSubtree
+ * (masterData.ts) already uses per-MR, just per-outlet here instead.
+ *
  * Wired into orgAndOutletScheduler.ts as the step after org+outlet sync
- * (needs both fresh — reads MrOutletAssignment's CURRENT periode and every
- * User's nipAtasan/isActive).
+ * (needs both fresh — reads MrOutletAssignment's latest-per-outlet rows and
+ * every User's nipAtasan/isActive).
  */
 import { prisma } from "@/lib/prisma";
 import { Role } from "@prisma/client";
@@ -67,22 +86,25 @@ export interface OutletCoverageSyncResult {
 }
 
 export async function runOutletCoverageSync(): Promise<OutletCoverageSyncResult> {
-  const now = new Date();
-  const periode = now.getFullYear() * 100 + (now.getMonth() + 1);
-
-  const [users, assignments] = await Promise.all([
-    prisma.user.findMany({ select: { nip: true, role: true, isActive: true, nipAtasan: true } }),
-    prisma.mrOutletAssignment.findMany({ where: { periode }, select: { kodePI: true, nipMR: true } }),
-  ]);
+  const usersPromise = prisma.user.findMany({ select: { nip: true, role: true, isActive: true, nipAtasan: true } });
+  // DISTINCT ON (kodePI) ... ORDER BY kodePI, periode DESC — the single
+  // LATEST-synced assignment per outlet, regardless of which calendar month
+  // it's from (see module doc comment's "second root cause"). Two plain
+  // awaits, not Promise.all([...]) destructured directly, matching this
+  // repo's established workaround for that pattern's TS7053 element-type
+  // inference loss (see this function's own git history).
+  const assignmentsPromise = prisma.$queryRaw<{ kodePI: string; nipMR: string }[]>`
+    SELECT DISTINCT ON ("kodePI") "kodePI", "nipMR"
+    FROM "MrOutletAssignment"
+    ORDER BY "kodePI", "periode" DESC
+  `;
+  const users = await usersPromise;
+  const assignments = await assignmentsPromise;
   const userByNip = new Map<string, UserLite>(users.map((u: UserLite) => [u.nip, u]));
 
-  // Outlet.coveredByNip is singular — first assignment per outlet wins, same
-  // "representative holder" convention as importStrukturVerifiedKAM.ts's
-  // effectiveMrNip (a SHADOW-pair outlet still gets one representative here).
-  const mrByOutlet = new Map<string, string>();
-  for (const a of assignments) {
-    if (!mrByOutlet.has(a.kodePI)) mrByOutlet.set(a.kodePI, a.nipMR);
-  }
+  // One row per outlet already (DISTINCT ON above) — no further "first wins"
+  // dedup needed here, unlike the old current-month-only query.
+  const mrByOutlet = new Map<string, string>(assignments.map((a: { kodePI: string; nipMR: string }) => [a.kodePI, a.nipMR]));
 
   const entries = [...mrByOutlet.entries()];
   let updated = 0;
