@@ -224,6 +224,29 @@ export function ProductSelector({
     setExpandedRows((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
+  const numMonths = Math.max(1, lamaPeriode || 3);
+  const monthNamesIndo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+  const monthLabels: string[] = useMemo(() => {
+    if (!periodeAwal) {
+      return Array.from({ length: numMonths }, (_, mIdx) => `B${mIdx + 1}`);
+    }
+    const clean = periodeAwal.replace(/[^0-9]/g, "");
+    if (clean.length < 6) {
+      return Array.from({ length: numMonths }, (_, mIdx) => `B${mIdx + 1}`);
+    }
+    const year = parseInt(clean.slice(0, 4), 10);
+    const month = parseInt(clean.slice(4, 6), 10); // 1-based
+    const startMonths = year * 12 + (month - 1);
+    return Array.from({ length: numMonths }, (_, i) => {
+      const m = startMonths + i;
+      const monthIndex = m % 12;
+      return monthNamesIndo[monthIndex] || `B${i + 1}`;
+    });
+  }, [periodeAwal, numMonths]);
+
+  const monthNamesStr = monthLabels.join("+");
+
   // Calculate grand totals for table footer
   let grandTotalQtyUb = 0;
   let grandTotalEstSalesBln = 0;
@@ -267,15 +290,15 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = !readOnly ? "w-[23%] min-w-[170px]" : "w-[24%] min-w-[185px]";
-  const colPotensiWidth = !readOnly ? "w-[8%] min-w-[65px]" : "w-[9%] min-w-[70px]";
-  const colSwitchWidth = !readOnly ? "w-[14%] min-w-[110px]" : "w-[15%] min-w-[115px]";
-  const colDiskonWidth = !readOnly ? "w-[8%] min-w-[65px]" : "w-[9%] min-w-[70px]";
-  const colEstSalesWidth = !readOnly ? "w-[14%] min-w-[115px]" : "w-[14%] min-w-[115px]";
-  const colNilaiScWidth = !readOnly ? "w-[14%] min-w-[115px]" : "w-[14%] min-w-[115px]";
-  const colCashbackWidth = !readOnly ? "w-[13%] min-w-[110px]" : "w-[15%] min-w-[115px]";
-  const colActionWidth = "w-[6%] min-w-[36px]";
-  const tableMinWidth = "min-w-[760px]";
+  const colProdukWidth = !readOnly ? "w-[20%] min-w-[160px]" : "w-[21%] min-w-[170px]";
+  const colPotensiWidth = !readOnly ? "w-[8%] min-w-[70px]" : "w-[8%] min-w-[70px]";
+  const colSwitchWidth = !readOnly ? "w-[16%] min-w-[130px]" : "w-[16%] min-w-[130px]";
+  const colDiskonWidth = !readOnly ? "w-[6%] min-w-[50px]" : "w-[6%] min-w-[50px]";
+  const colEstSalesWidth = !readOnly ? "w-[20%] min-w-[160px]" : "w-[21%] min-w-[170px]";
+  const colNilaiScWidth = !readOnly ? "w-[15%] min-w-[130px]" : "w-[15%] min-w-[130px]";
+  const colCashbackWidth = !readOnly ? "w-[10%] min-w-[90px]" : "w-[11%] min-w-[100px]";
+  const colActionWidth = "w-[5%] min-w-[36px]";
+  const tableMinWidth = "min-w-[960px]";
 
   return (
     <div className="space-y-4">
@@ -313,13 +336,13 @@ export function ProductSelector({
                   </div>
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colSwitchWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="leading-tight">
+                  <div className="leading-none space-y-0.5">
                     <div>Est. Switch<Req /></div>
                     <div className="text-[9px] font-normal opacity-75">/ Bln</div>
                   </div>
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colDiskonWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="leading-tight">
+                  <div className="leading-none space-y-0.5">
                     <div>Diskon</div>
                     {diskonPeriode && (
                       <div className="text-[9px] font-normal opacity-75">
@@ -329,20 +352,20 @@ export function ProductSelector({
                   </div>
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colEstSalesWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="leading-tight">
+                  <div className="leading-none space-y-0.5">
                     <div>Est. Sales</div>
                     <div className="text-[9px] font-normal opacity-75">/ Bln</div>
                   </div>
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colNilaiScWidth}`} style={{ color: "var(--color-text-muted)" }}>
-                  <div className="leading-tight">
+                  <div className="leading-none space-y-0.5">
                     <div>Est. Insentif</div>
                     <div className="text-[9px] font-normal opacity-75">SC / Bln</div>
                   </div>
                 </th>
                 <th className={`py-2 px-1 font-semibold text-[11px] text-center ${colCashbackWidth}`} style={{ color: "var(--color-text-muted)" }}>
                   <div className="inline-flex items-center justify-center gap-1">
-                    <div className="leading-tight text-center">
+                    <div className="leading-none space-y-0.5 text-center">
                       <div>Est. Cashback</div>
                       <div className="text-[9px] font-normal opacity-75">/ Bln</div>
                     </div>
@@ -393,7 +416,7 @@ export function ProductSelector({
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={readOnly ? 7 : 8} className="py-6 text-center text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  <td colSpan={readOnly ? 7 : 8} className="py-6 text-center text-xs" style={{ color: "var(--color-text-muted)" }}>
                     Belum ada produk yang ditambahkan. Klik tombol <strong>+ Tambah Produk</strong> di bawah untuk memilih produk.
                   </td>
                 </tr>
@@ -425,8 +448,18 @@ export function ProductSelector({
                     nilaiScBln = estSalesBln * (pctMatriks / 100);
                   }
 
+                  const numMonths = Math.max(1, lamaPeriode || 3);
+                  const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonths
+                    ? row.monthlyQty
+                    : Array.from({ length: numMonths }, (_, mIdx) => {
+                        if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
+                          return row.monthlyQty[mIdx];
+                        }
+                        return row.qtyPerBulan || "";
+                      });
+
                   return (
-                    <tr key={idx} id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`} className="align-top hover:bg-slate-50/50 transition-colors">
+                    <tr key={idx} id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`} className="align-top hover:bg-[var(--color-bg-subtle)] transition-colors">
                       {/* Column 1: Product Selection & Competitor */}
                       <td className="py-2.5 pl-4 pr-2.5 space-y-2">
                         <Combobox
@@ -456,12 +489,12 @@ export function ProductSelector({
                           emptyMessage="Tidak ada produk."
                         />
                         {masterProduct && (
-                          <div className="text-[11px] leading-tight space-y-0.5" style={{ color: "var(--color-text-faint)" }}>
+                          <div className="text-[11px] leading-tight space-y-0.5" style={{ color: "var(--color-text-muted)" }}>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span>{formatHnaLabel(masterProduct)}: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(masterProduct.hna)}</strong></span>
+                              <span>{formatHnaLabel(masterProduct)}: <strong style={{ color: "var(--color-text)" }}>Rp {formatRp(masterProduct.hna)}</strong></span>
                             </div>
                             {masterProduct.zatAktif && (
-                              <div className="truncate text-[10px]" style={{ color: "var(--color-text-faint)" }}>
+                              <div className="truncate text-[10px]" style={{ color: "var(--color-text-muted)" }}>
                                 Zat: {masterProduct.zatAktif}
                               </div>
                             )}
@@ -474,20 +507,18 @@ export function ProductSelector({
                         const comps = getCompetitorsForRow(row.kodeProduk);
                         const totalPotensi = comps.reduce((sum, c) => sum + c.salesForecast, 0);
 
-                        // If <= 4 competitors: show each competitor product that exists.
-                        // If > 4 competitors (5, 6, 7, etc.): show the first 4, and sum the rest (5, 6, 7, ...) into "lainnya".
                         const hasMoreThan4 = comps.length > 4;
                         const visibleComps = hasMoreThan4 ? comps.slice(0, 4) : comps;
                         const otherComps = hasMoreThan4 ? comps.slice(4) : [];
                         const qtyOthers = otherComps.reduce((sum, c) => sum + c.salesForecast, 0);
 
                         return (
-                          <td className="py-2 px-1 text-center align-top">
-                            <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
+                          <td className="py-2.5 px-1 text-center align-top">
+                            <div className="font-bold text-sm" style={{ color: "var(--color-text)" }}>
                               {totalPotensi}
                             </div>
                             {comps.length > 0 && (
-                              <div className="text-[10px] space-y-0.5 mt-1 text-center" style={{ color: "var(--color-text-faint)" }}>
+                              <div className="text-[10px] space-y-0.5 mt-1 text-left px-0.5" style={{ color: "var(--color-text-muted)" }}>
                                 {visibleComps.map((comp, cIdx) => (
                                   <div
                                     key={cIdx}
@@ -497,7 +528,7 @@ export function ProductSelector({
                                     <span className="truncate max-w-[65px] text-left" style={{ color: "var(--color-text-muted)" }}>
                                       {comp.namaKompetitor}:
                                     </span>
-                                    <strong className="shrink-0" style={{ color: "var(--color-text-muted)" }}>
+                                    <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
                                       {comp.salesForecast}
                                     </strong>
                                   </div>
@@ -507,10 +538,10 @@ export function ProductSelector({
                                     className="flex items-center justify-between gap-1 text-[10px]"
                                     title={otherComps.map((c) => `${c.namaKompetitor}: ${c.salesForecast}`).join(", ")}
                                   >
-                                    <span className="truncate max-w-[65px] text-left" style={{ color: "var(--color-text-faint)" }}>
-                                      lainnya:
+                                    <span className="truncate max-w-[65px] text-left" style={{ color: "var(--color-text-muted)" }}>
+                                      lainnya :
                                     </span>
-                                    <strong className="shrink-0" style={{ color: "var(--color-text-muted)" }}>
+                                    <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
                                       {qtyOthers}
                                     </strong>
                                   </div>
@@ -521,17 +552,50 @@ export function ProductSelector({
                         );
                       })()}
 
-                      {/* Column 3: Quantity Input (Estimasi Switching / UB) */}
-                      <td className="py-2 px-1 text-center align-top">
-                        <UnitInput
-                          value={row.qtyPerBulan}
-                          onChange={(val) => onUpdateRow(idx, { qtyPerBulan: val })}
-                          unit={satuanLabel(masterProduct)}
-                          placeholder="0"
-                          disabled={readOnly}
-                        />
+                      {/* Column 3: Quantity Input per Bulan (Estimasi Switching / UB) */}
+                      <td className="py-2.5 px-1 text-center align-top">
                         {(() => {
+                          const handleMonthChange = (mIdx: number, newVal: string) => {
+                            const nextMonthly = [...currentMonthly];
+                            nextMonthly[mIdx] = newVal;
+
+                            let totalQty = 0;
+                            let hasAnyValue = false;
+                            for (const v of nextMonthly) {
+                              if (v !== "" && !isNaN(parseFloat(v))) {
+                                totalQty += parseFloat(v);
+                                hasAnyValue = true;
+                              }
+                            }
+                            const avgQty = numMonths > 0 ? totalQty / numMonths : 0;
+                            const formattedAvg = hasAnyValue
+                              ? (avgQty % 1 === 0 ? avgQty.toString() : parseFloat(avgQty.toFixed(2)).toString())
+                              : "";
+
+                            onUpdateRow(idx, {
+                              monthlyQty: nextMonthly,
+                              qtyPerBulan: formattedAvg,
+                            });
+                          };
+
+                          const unitStr = satuanLabel(masterProduct);
+
+                          let totalQtySwitch = 0;
+                          for (const v of currentMonthly) {
+                            if (v !== "" && !isNaN(parseFloat(v))) {
+                              totalQtySwitch += parseFloat(v);
+                            }
+                          }
+
                           const historyData = historySalesMap.get(row.kodeProduk);
+                          const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
+                          const b1 = Number(historyData?.sales_b1) || 0;
+                          const b2 = Number(historyData?.sales_b2) || 0;
+                          const b3 = Number(historyData?.sales_b3) || 0;
+                          const totalQtyB3 = b1 + b2 + b3;
+                          const avgQtyB3 = historyData ? (totalQtyB3 / 3) : 0;
+                          const historyDisplayVal = historyData?.history_sales ?? avgQtyB3 ?? 0;
+
                           const formatHistoryValue = (value: number) => {
                             if (!value) return "0";
                             return value % 1 === 0
@@ -539,185 +603,336 @@ export function ProductSelector({
                               : (Math.round(value * 10) / 10).toString();
                           };
 
-                          const labelPrefix = historyPeriodRange
-                            ? `Avg. History (${historyPeriodRange}):`
-                            : "Avg. History / Bln:";
+                          const periodLabel = b3RangeLabel || historyPeriodRange || "B3";
 
                           return (
-                            <div
-                              className="text-[10px] leading-tight mt-1 space-y-0.5"
-                              style={{ color: "var(--color-text-faint)" }}
-                            >
-                              <div>
-                                {labelPrefix}{" "}
-                                <strong style={{ color: "var(--color-text-muted)" }}>
-                                  {formatHistoryValue(historyData?.history_sales ?? 0)}
-                                </strong>
+                            <div className="space-y-1.5">
+                              {/* Top Card: Total Est Switch */}
+                              <div
+                                className="rounded px-2 py-1 text-center mb-1.5"
+                                style={{
+                                  border: "1px solid var(--color-blue-light, #c8e1f5)",
+                                  background: "var(--color-blue-light, #E6F0F8)",
+                                }}
+                              >
+                                <div className="text-[9px] font-semibold tracking-wider uppercase" style={{ color: "var(--color-text-muted)" }}>
+                                  TOTAL EST. SWITCH
+                                </div>
+                                <div className="text-xs font-bold" style={{ color: "var(--color-blue)" }}>
+                                  {totalQtySwitch} {unitStr}
+                                </div>
                               </div>
 
-                              <div>
-                                Sales B1:{" "}
-                                <strong style={{ color: "var(--color-text-muted)" }}>
-                                  {formatHistoryValue(historyData?.sales_b1 ?? 0)}
-                                </strong>
+                              {/* Input per bulan (Sep, Okt, Nov, ...) */}
+                              <div className="space-y-1.5">
+                                {Array.from({ length: numMonths }, (_, mIdx) => (
+                                  <div key={mIdx} className="h-[32px] flex items-center gap-1.5">
+                                    <span
+                                      className="text-[11px] font-medium w-7 shrink-0 text-right select-none"
+                                      style={{ color: "var(--color-text-muted)" }}
+                                    >
+                                      {monthLabels[mIdx]}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <UnitInput
+                                        value={currentMonthly[mIdx] ?? ""}
+                                        onChange={(val) => handleMonthChange(mIdx, val)}
+                                        unit={unitStr}
+                                        placeholder="0"
+                                        disabled={readOnly}
+                                        className="h-[28px]"
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
 
-                              <div>
-                                Sales B2:{" "}
-                                <strong style={{ color: "var(--color-text-muted)" }}>
-                                  {formatHistoryValue(historyData?.sales_b2 ?? 0)}
-                                </strong>
-                              </div>
-
-                              <div>
-                                Sales B3:{" "}
-                                <strong style={{ color: "var(--color-text-muted)" }}>
-                                  {formatHistoryValue(historyData?.sales_b3 ?? 0)}
-                                </strong>
-                              </div>
+                              {/* Bottom: Avg. History & Sales */}
+                              {row.kodeProduk && (
+                                <div className="pt-2 flex items-center justify-center text-[10px]">
+                                  <InfoTooltip
+                                    align="left"
+                                    trigger={
+                                      <span
+                                        className="inline-flex items-center gap-1 hover:underline font-medium text-[10px] cursor-pointer leading-tight"
+                                        style={{ color: "var(--color-text-muted)" }}
+                                      >
+                                        <span>Avg. History & Sales</span>
+                                        <span
+                                          className="w-3.5 h-3.5 text-[9px] inline-flex items-center justify-center rounded-full font-bold border shrink-0"
+                                          style={{
+                                            borderColor: "var(--color-border)",
+                                            background: "var(--color-bg)",
+                                            color: "var(--color-text-muted)",
+                                          }}
+                                        >
+                                          i
+                                        </span>
+                                      </span>
+                                    }
+                                    content={
+                                      <div className="space-y-1 text-xs">
+                                        <div className="flex justify-between items-center gap-3 border-b border-slate-700/80 pb-1">
+                                          <span className="font-semibold text-white">Avg. History & Sales</span>
+                                          <span className="text-slate-300 text-[10px]">({periodLabel})</span>
+                                        </div>
+                                        <div className="flex justify-between items-center gap-3 pt-0.5">
+                                          <span className="text-slate-300">Avg. History ({periodLabel}):</span>
+                                          <strong className="text-white font-semibold">
+                                            {formatHistoryValue(historyDisplayVal)}
+                                          </strong>
+                                        </div>
+                                        <div className="flex justify-between items-center gap-3">
+                                          <span className="text-slate-300">Sales B1:</span>
+                                          <strong className="text-white font-semibold">
+                                            {formatHistoryValue(historyData?.sales_b1 ?? 0)}
+                                          </strong>
+                                        </div>
+                                        <div className="flex justify-between items-center gap-3">
+                                          <span className="text-slate-300">Sales B2:</span>
+                                          <strong className="text-white font-semibold">
+                                            {formatHistoryValue(historyData?.sales_b2 ?? 0)}
+                                          </strong>
+                                        </div>
+                                        <div className="flex justify-between items-center gap-3">
+                                          <span className="text-slate-300">Sales B3:</span>
+                                          <strong className="text-white font-semibold">
+                                            {formatHistoryValue(historyData?.sales_b3 ?? 0)}
+                                          </strong>
+                                        </div>
+                                      </div>
+                                    }
+                                  />
+                                </div>
+                              )}
                             </div>
                           );
-
                         })()}
                       </td>
 
                       {/* Column 4: Diskon */}
-                      <td className="py-2 px-1 text-center align-top">
-                        <div className="font-semibold text-[11px] py-1" style={{ color: "var(--color-text-muted)" }}>
-                          {row.persenDiskon || 0}%
+                      <td className="py-2.5 px-1 text-center align-top">
+                        <div className="font-semibold text-xs pt-1" style={{ color: "var(--color-text-muted)" }}>
+                          {row.persenDiskon ? `${row.persenDiskon}%` : (diskonPeriode ? `${diskonPeriode}%` : "-")}
                         </div>
                       </td>
 
-                      {/* Column 5: Est Sales / Bln */}
-                      <td className="py-2 px-1 text-center align-top">
-                        <div className="font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
-                          Rp {formatRp(estSalesBln)}
-                        </div>
-                        {isAboveOrEqualTarget && qtyUb > 0 && (
-                          <div className="text-[10px] mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                            3 Bln: Rp {formatRp(estSalesBln * 3)}
-                          </div>
-                        )}
-                        {row.kodeProduk && (
-                          <div className="text-[10px] mt-1 space-y-0.5 leading-tight" style={{ color: "var(--color-text-faint)" }}>
-                            <div>Target Sell-in / bln:</div>
-                            <div
-                              className="font-semibold"
-                              style={{ color: "var(--color-text-muted)" }}
-                              title={scMin > 0 ? `${scMin} UB × Rp ${formatRp(hnaSJ)} = Rp ${formatRp(targetSellInBln)}` : undefined}
-                            >
-                              {targetSellInBln > 0 ? `Rp ${formatRp(targetSellInBln)}` : (canvasserProduct ? "Rp 0" : "-")}
-                            </div>
+                      {/* Column 5: Est Sales per Bulan */}
+                      <td className="py-2.5 px-2 text-left align-top">
+                        {(() => {
+                          const historyData = historySalesMap.get(row.kodeProduk);
+                          const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
 
-                            {(() => {
-                              const estSalesMonthly = estSalesBln;
-                              const historyData = historySalesMap.get(row.kodeProduk);
-                              const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
+                          const b1 = Number(historyData?.sales_b1) || 0;
+                          const b2 = Number(historyData?.sales_b2) || 0;
+                          const b3 = Number(historyData?.sales_b3) || 0;
+                          const totalQtyB3 = b1 + b2 + b3;
+                          const avgQtyB3 = historyData ? (totalQtyB3 / 3) : 0;
 
-                              // Rumus per arahan user:
-                              // Rata-rata Qty B3 = (B1 + B2 + B3) / 3
-                              // Historis Sales = Rata-rata Qty B3 * HNA
-                              // Contoh: B1=2, B2=0, B3=0 -> (2 / 3) * 176.000 = Rp 117.333
-                              const b1 = Number(historyData?.sales_b1) || 0;
-                              const b2 = Number(historyData?.sales_b2) || 0;
-                              const b3 = Number(historyData?.sales_b3) || 0;
-                              const totalQtyB3 = b1 + b2 + b3;
-                              const avgQtyB3 = historyData ? (totalQtyB3 / 3) : 0;
+                          let avgSalesBln = 0;
+                          if (historyData != null && hnaSJ > 0) {
+                            avgSalesBln = avgQtyB3 * hnaSJ;
+                          } else if (rawB3Sales > 0) {
+                            avgSalesBln = rawB3Sales;
+                          }
 
-                              let avgSalesBln = 0;
-                              if (historyData != null && hnaSJ > 0) {
-                                avgSalesBln = avgQtyB3 * hnaSJ;
-                              } else if (rawB3Sales > 0) {
-                                avgSalesBln = rawB3Sales;
-                              }
+                          const monthlyEstSales = Array.from({ length: numMonths }, (_, mIdx) => {
+                            const mQty = parseFloat(currentMonthly[mIdx]) || 0;
+                            return mQty * hnaSJ;
+                          });
 
-                              let growthPct: number | null = null;
-                              if (avgSalesBln > 0) {
-                                growthPct = ((estSalesMonthly - avgSalesBln) / avgSalesBln) * 100;
-                              }
+                          const totalEstSalesPeriode = monthlyEstSales.reduce((s, v) => s + v, 0);
 
-                              return (
-                                <div className="space-y-0.5 pt-1">
-                                  <div>
-                                    <div>Historis Sales:</div>
-                                    <div><strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}</strong></div>
+                          const overallGrowthPct = avgSalesBln > 0
+                            ? ((estSalesBln - avgSalesBln) / avgSalesBln) * 100
+                            : null;
+
+                          return (
+                            <div className="space-y-1.5">
+                              {/* Header: Rp Total & Growth */}
+                              <div className="flex items-start justify-between gap-1">
+                                <div className="leading-tight">
+                                  <div className="text-[10px] font-bold" style={{ color: "var(--color-text)" }}>Rp</div>
+                                  <div className="text-sm font-extrabold" style={{ color: "var(--color-text)" }}>
+                                    {formatRp(totalEstSalesPeriode)}
                                   </div>
-
-                                  {isAboveOrEqualTarget && (
-                                    growthPct != null ? (
-                                      <div className="font-semibold" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red, #dc2626)" }}>
-                                        Growth: {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+                                </div>
+                                <div className="text-right leading-tight">
+                                  <div className="text-[10px] font-semibold" style={{ color: "var(--color-green)" }}>Growth:</div>
+                                  {isAboveOrEqualTarget ? (
+                                    overallGrowthPct != null ? (
+                                      <div
+                                        className="text-xs font-bold leading-tight"
+                                        style={{ color: overallGrowthPct >= 0 ? "var(--color-green)" : "var(--color-red)" }}
+                                      >
+                                        {overallGrowthPct >= 0 ? "+" : ""}{overallGrowthPct.toFixed(1)}%
                                       </div>
                                     ) : (
-                                      <div className="flex items-center justify-center gap-1">
-                                        <span>Growth:</span>
-                                        <span
-                                          className="inline-block text-[9px] font-semibold px-1 py-0.2 rounded border leading-none"
-                                          style={{
-                                            background: "rgba(22, 163, 74, 0.12)",
-                                            color: "#16a34a",
-                                            borderColor: "rgba(22, 163, 74, 0.3)",
-                                          }}
-                                        >
-                                          Baru
-                                        </span>
-                                      </div>
+                                      <span
+                                        className="text-[9px] font-semibold px-1 rounded border leading-none"
+                                        style={{
+                                          color: "var(--color-green)",
+                                          borderColor: "var(--color-green)",
+                                          background: "var(--color-green-light)",
+                                        }}
+                                      >
+                                        Baru
+                                      </span>
                                     )
-                                  )}
+                                  ) : null}
                                 </div>
-                              );
-                            })()}
-                          </div>
-                        )}
-                        {isUnderTarget && (
-                          <div
-                            className="text-[10px] leading-tight font-medium mt-1.5 flex items-center justify-center gap-1 text-center"
-                            style={{ color: "var(--color-red, #dc2626)" }}
-                          >
-                            <span className="shrink-0 text-xs">⚠</span>
-                            <span className="text-center">Estimasi lebih rendah dari Target</span>
-                          </div>
-                        )}
+                              </div>
+
+                              {/* Dashed divider */}
+                              <div className="my-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }} />
+
+                              {/* Monthly breakdown */}
+                              <div className="space-y-1 my-1.5 text-[11px]">
+                                {Array.from({ length: numMonths }, (_, mIdx) => (
+                                  <div key={mIdx} className="flex justify-between items-center">
+                                    <span style={{ color: "var(--color-text-muted)" }}>{monthLabels[mIdx]}</span>
+                                    <span className="font-semibold" style={{ color: "var(--color-text)" }}>
+                                      Rp {formatRp(monthlyEstSales[mIdx])}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Target Sell-in */}
+                              <div
+                                className="text-[10px] leading-tight pt-1 space-y-0.5"
+                                style={{ borderTop: "1px solid var(--color-border)" }}
+                              >
+                                <div style={{ color: "var(--color-text-muted)" }}>Target Sell-in Ins SC / bln :</div>
+                                <div className="font-bold text-[11px]" style={{ color: "var(--color-text)" }}>
+                                  Rp {formatRp(targetSellInBln)}
+                                </div>
+                              </div>
+
+                              {/* Alert under target */}
+                              {isUnderTarget && (
+                                <div
+                                  className="text-[10px] leading-tight font-medium mt-1 flex items-center gap-1"
+                                  style={{ color: "var(--color-red)" }}
+                                >
+                                  <span className="shrink-0 text-xs">⚠</span>
+                                  <span>Di bawah target</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
 
-                      {/* Column 6: Nilai SC / Bln */}
-                      <td className="py-2 px-1 text-center align-top">
-                        <div
-                          className="font-semibold text-[11px]"
-                          style={{
-                            color: nilaiScBln > 0 ? "var(--color-blue, #2563eb)" : "var(--color-text-muted)",
-                          }}
-                        >
-                          Rp {formatRp(nilaiScBln)}
-                        </div>
-                        <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-faint)" }}>
-                          <div>% Insentif: <strong style={{ color: "var(--color-text-muted)" }}>{pctMatriks}%</strong></div>
-                        </div>
+                      {/* Column 6: Nilai SC / Bln (Est. Insentif) */}
+                      <td className="py-2.5 px-2 text-left align-top">
+                        {(() => {
+                          const historyData = historySalesMap.get(row.kodeProduk);
+                          const rawB3Sales = b3SalesMap?.get(row.kodeProduk) ?? 0;
+                          const b1 = Number(historyData?.sales_b1) || 0;
+                          const b2 = Number(historyData?.sales_b2) || 0;
+                          const b3 = Number(historyData?.sales_b3) || 0;
+                          const totalQtyB3 = b1 + b2 + b3;
+                          const avgQtyB3 = historyData ? (totalQtyB3 / 3) : 0;
+
+                          let avgSalesBln = 0;
+                          if (historyData != null && hnaSJ > 0) {
+                            avgSalesBln = avgQtyB3 * hnaSJ;
+                          } else if (rawB3Sales > 0) {
+                            avgSalesBln = rawB3Sales;
+                          }
+
+                          const monthlyNilaiSc = Array.from({ length: numMonths }, (_, mIdx) => {
+                            const mQty = parseFloat(currentMonthly[mIdx]) || 0;
+                            const mEstSales = mQty * hnaSJ;
+                            if (scVal != null && scVal > 0) {
+                              return mQty >= scMin ? mQty * scVal : 0;
+                            }
+                            return mEstSales * (pctMatriks / 100);
+                          });
+
+                          const totalNilaiScPeriode = monthlyNilaiSc.reduce((s, v) => s + v, 0);
+
+                          const historyInsentifVal = scVal != null && scVal > 0
+                            ? (avgQtyB3 >= scMin ? avgQtyB3 * scVal : 0)
+                            : avgSalesBln * (pctMatriks / 100);
+
+                          return (
+                            <div className="space-y-1.5">
+                              {/* Total Insentif */}
+                              <div className="text-sm font-extrabold leading-tight" style={{ color: "var(--color-blue)" }}>
+                                Rp {formatRp(totalNilaiScPeriode)}
+                              </div>
+
+                              {/* Dashed divider */}
+                              <div className="my-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }} />
+
+                              {/* Monthly breakdown */}
+                              <div className="space-y-1 text-[11px]">
+                                {Array.from({ length: numMonths }, (_, mIdx) => (
+                                  <div key={mIdx} className="flex justify-between items-center">
+                                    <span style={{ color: "var(--color-text-muted)" }}>{monthLabels[mIdx]}</span>
+                                    <span className="font-semibold" style={{ color: "var(--color-blue)" }}>
+                                      Rp {formatRp(monthlyNilaiSc[mIdx])}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Historis Insentif */}
+                              <div className="text-[10px] leading-tight pt-1" style={{ color: "var(--color-text-muted)" }}>
+                                Historis Insentif: <strong style={{ color: "var(--color-text)" }}>Rp {formatRp(historyInsentifVal)}</strong>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* Column 7: Nilai Cashback / Bln */}
-                      <td className="py-2 px-1 text-center align-top">
+                      <td className="py-2.5 px-2 text-left align-top">
                         {isCashbackNotFound ? (
-                          <div className="text-[11px] py-1" style={{ color: "var(--color-text-faint)" }}>
+                          <div className="text-[11px] py-1 text-center" style={{ color: "var(--color-text-muted)" }}>
                             -
                           </div>
                         ) : (
                           (() => {
                             const cbMonthly = cashbackDetails.monthlyResultMap.get(row.kodeProduk) ?? 0;
                             const isEligible = cashbackDetails.itemEligibilityMap?.get(row.kodeProduk) ?? false;
-                            const displayPct = isEligible && cbMonthly > 0 ? (row.persenCashback || 0) : 0;
+                            const rawCbPct = parseFloat(String(row.persenCashback || "0")) || 0;
+                            const displayPct = isEligible && cbMonthly > 0 ? rawCbPct : 0;
+
+                            const monthlyCashback = Array.from({ length: numMonths }, (_, mIdx) => {
+                              const mQty = parseFloat(currentMonthly[mIdx]) || 0;
+                              const mEstSales = mQty * hnaSJ;
+                              const limitVal = cashbackData?.limit?.[0]?.limit ?? 100000;
+                              const isMonthEligible = mEstSales >= limitVal && mEstSales > 0;
+                              return isMonthEligible ? mEstSales * (rawCbPct / 100) : 0;
+                            });
+
+                            const totalCashbackPeriode = monthlyCashback.reduce((s, v) => s + v, 0);
+
                             return (
-                              <>
-                                <div className="font-semibold text-[11px]" style={{ color: "var(--color-green, #16a34a)" }}>
-                                  Rp {formatRp(cbMonthly)}
+                              <div className="space-y-1.5">
+                                {/* Total Cashback */}
+                                <div className="text-sm font-extrabold leading-tight" style={{ color: "var(--color-green)" }}>
+                                  Rp {formatRp(totalCashbackPeriode)}
                                 </div>
-                                <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-green, #16a34a)" }}>
-                                  <div>Cashback: <strong style={{ color: "var(--color-green, #16a34a)" }}>{displayPct}%</strong></div>
-                                  {cbMonthly > 0 && (
-                                    <div>3 Bln: Rp {formatRp(cbMonthly * 3)}</div>
-                                  )}
+
+                                {/* Dashed divider */}
+                                <div className="my-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }} />
+
+                                {/* Monthly breakdown */}
+                                <div className="space-y-1 text-[11px]">
+                                  {Array.from({ length: numMonths }, (_, mIdx) => (
+                                    <div key={mIdx} className="flex justify-between items-center">
+                                      <span style={{ color: "var(--color-text-muted)" }}>{monthLabels[mIdx]}</span>
+                                      <span className="font-semibold" style={{ color: "var(--color-green)" }}>
+                                        Rp {formatRp(monthlyCashback[mIdx])}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
-                              </>
+                              </div>
                             );
                           })()
                         )}
@@ -772,10 +987,10 @@ export function ProductSelector({
                   <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Rp {formatRp(grandTotalEstSalesBln)}
                   </td>
-                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
                     Rp {formatRp(grandTotalNilaiScBln)}
                   </td>
-                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-faint)" : "var(--color-green, #16a34a)" }}>
+                  <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-muted)" : "var(--color-green)" }}>
                     {isCashbackNotFound ? "-" : `Rp ${formatRp(cashbackDetails.totalFinalCashbackMonthly)}`}
                   </td>
                   {!readOnly && <td className="py-2.5 px-1 text-center"></td>}
@@ -842,7 +1057,7 @@ export function ProductSelector({
           <div key={`detail-${idx}`} className="p-3 rounded-lg border space-y-3 text-xs animate-fade-in" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
             <div className="flex items-center justify-between font-semibold" style={{ color: "var(--color-text)" }}>
               <span>Detail Analisis Produk #{idx + 1}: {masterProduct?.namaProduk || row.kodeProduk}</span>
-              <button type="button" onClick={() => toggleRowDetail(idx)} className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer">✕ Tutup</button>
+              <button type="button" onClick={() => toggleRowDetail(idx)} className="text-xs hover:underline cursor-pointer" style={{ color: "var(--color-text-muted)" }}>✕ Tutup</button>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -850,14 +1065,14 @@ export function ProductSelector({
               <div className="p-2.5 rounded border bg-white space-y-1" style={{ borderColor: "var(--color-border)" }}>
                 <div className="font-semibold text-[11px]" style={{ color: "var(--color-text-muted)" }}>Growth Estimasi Sales</div>
                 {avgSalesBln > 0 ? (
-                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                    Sales Sebelumnya: <strong style={{ color: "var(--color-text-muted)" }}>Rp {formatRp(Math.round(avgSalesBln))}/bln</strong> {b3RangeLabel ? `(${b3RangeLabel})` : ""}
+                  <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                    Sales Sebelumnya: <strong style={{ color: "var(--color-text)" }}>Rp {formatRp(Math.round(avgSalesBln))}/bln</strong> {b3RangeLabel ? `(${b3RangeLabel})` : ""}
                   </div>
                 ) : (
-                  <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>Belum ada data sales sebelumnya</div>
+                  <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>Belum ada data sales sebelumnya</div>
                 )}
                 {growthPct != null && (
-                  <div className="text-xs font-semibold" style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-warning, #f59e0b)" }}>
+                  <div className="text-xs font-semibold" style={{ color: growthPct > 0 ? "var(--color-green)" : "var(--color-warning)" }}>
                     Growth: {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}% — {growthPct > 0 ? "✓ Intensifikasi tercapai" : "⚠️ Intensifikasi kurang"}
                   </div>
                 )}
@@ -871,7 +1086,7 @@ export function ProductSelector({
                     <div key={item.code || itemIdx} className="flex items-center justify-between text-xs pt-1 border-t" style={{ borderColor: "var(--color-border)" }}>
                       <div>
                         <div className="font-medium">{item.name || item.code}</div>
-                        <div className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>Sales 3 Bln: {item.qty} (Total: Rp {formatRp(item.total_sales)})</div>
+                        <div className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>Sales 3 Bln: {item.qty} (Total: Rp {formatRp(item.total_sales)})</div>
                       </div>
                       {!readOnly && (
                         <button

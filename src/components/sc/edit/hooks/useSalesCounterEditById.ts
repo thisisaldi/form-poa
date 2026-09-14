@@ -598,7 +598,7 @@ export function useSalesCounterEditById({
   }, [quarterMonths, periodeAwal, lamaPeriode]);
 
   const monthlyBreakdown = useMemo(() => {
-    return monthlyMonths.map((m: string) => {
+    return monthlyMonths.map((m: string, mIdx: number) => {
       let monthlyEstimasiSales = 0;
       let monthlyNilaiSc = 0;
 
@@ -609,7 +609,9 @@ export function useSalesCounterEditById({
         const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
 
         const hnaSJ = parseFloat(masterProduct.hna) || 0;
-        const qty = parseFloat(row.qtyPerBulan) || 0;
+        const qty = (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined && row.monthlyQty[mIdx] !== "")
+          ? (parseFloat(row.monthlyQty[mIdx]) || 0)
+          : (parseFloat(row.qtyPerBulan) || 0);
         const estSalesPerMonth = qty * hnaSJ;
         const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
