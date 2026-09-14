@@ -10,6 +10,7 @@ export interface SalesCounterEditByIdInitialProduct {
   kodeProduk: string;
   namaProduk: string;
   produkKompetitor: string | null;
+  periodeMonth?: string;
   qtyPerBulan: number;
   persenMatriksSc: number;
   persenDiskon: number;

@@ -144,6 +144,36 @@ export function getPeriodMonthList(periodeAwal?: string, lama: number = 3): stri
 }
 
 /**
+ * Extracts quarter (e.g. "Q3") and year (e.g. "2026") from period strings or poaId.
+ */
+export function extractQuarterAndYear(
+  period?: string | null,
+  periodeAwal?: string | null,
+  poaId?: string | null
+): { quarter: string; year: string } {
+  const sources = [period, periodeAwal, poaId].filter(Boolean) as string[];
+  for (const src of sources) {
+    const m1 = src.match(/(\d{4})[-_ ]?Q([1-4])/i);
+    if (m1) return { year: m1[1], quarter: `Q${m1[2]}` };
+
+    const m2 = src.match(/Q([1-4])[-_ ]?(\d{4})/i);
+    if (m2) return { year: m2[2], quarter: `Q${m2[1]}` };
+
+    const m3 = src.match(/^(\d{4})(\d{2})$/);
+    if (m3) {
+      const yr = m3[1];
+      const mo = parseInt(m3[2], 10);
+      const q = Math.ceil(mo / 3);
+      return { year: yr, quarter: `Q${q}` };
+    }
+  }
+
+  const now = new Date();
+  const q = Math.ceil((now.getMonth() + 1) / 3);
+  return { year: String(now.getFullYear()), quarter: `Q${q}` };
+}
+
+/**
  * Calculates per-product metrics, totals, and growth for the products table.
  * Supports multi-month entries (e.g. 202607: 3, 202608: 4, 202609: 5) grouped by product.
  */
@@ -155,6 +185,8 @@ export function calculateProductDetailRows({
   cbDetails,
   b3SalesMap,
   b3TotalOutletSalesPerMonth,
+  scHistoryIncentiveMap,
+  totalOutletHistoryIncentive,
 }: {
   scProducts: ScProductItemData[];
   lama: number;
@@ -163,6 +195,8 @@ export function calculateProductDetailRows({
   cbDetails: any;
   b3SalesMap: Map<string, number>;
   b3TotalOutletSalesPerMonth: number;
+  scHistoryIncentiveMap?: Map<string, { win_incentive: number; win_qty?: number }>;
+  totalOutletHistoryIncentive?: number;
 }): ProductDetailRowsSummary {
   let sumEstSales = 0;
   let sumEstSalesPerMonth = 0;
@@ -247,6 +281,10 @@ export function calculateProductDetailRows({
           scMonth = estMonth * (pctMatriks / 100);
         }
         nilaiScFull += scMonth;
+
+        // Store per-month values in breakdown for display
+        mb.estSales = estMonth;
+        mb.nilaiSc = scMonth;
       }
     } else {
       // Legacy flat mono row
@@ -261,6 +299,12 @@ export function calculateProductDetailRows({
         scMonth = estMonth * (pctMatriks / 100);
       }
       nilaiScFull = scMonth * lama;
+
+      // For mono-month legacy rows, distribute evenly to each period slot
+      for (const mb of monthlyBreakdown) {
+        mb.estSales = estMonth;
+        mb.nilaiSc = scMonth;
+      }
     }
 
     const estSalesMonth = lama > 0 ? estSalesFull / lama : estSalesFull;
@@ -298,6 +342,31 @@ export function calculateProductDetailRows({
       growthPct = ((estSalesFull - salesHistorical) / salesHistorical) * 100;
     }
 
+    const histIncentiveInfo = scHistoryIncentiveMap
+      ? (scHistoryIncentiveMap.get(primary.kodeProduk) ??
+         scHistoryIncentiveMap.get(primary.kodeProduk.replace(/^0+/, "")))
+      : undefined;
+
+    const historyIncentive = histIncentiveInfo ? histIncentiveInfo.win_incentive : 0;
+    const historyQty = histIncentiveInfo ? histIncentiveInfo.win_qty : 0;
+
+    let growthIncentivePct: number | null = null;
+    let isNewIncentiveProduct = false;
+
+    if (historyIncentive > 0) {
+      if (nilaiScFull > 0) {
+        growthIncentivePct = ((nilaiScFull - historyIncentive) / historyIncentive) * 100;
+      } else {
+        growthIncentivePct = -100;
+      }
+    } else {
+      if (nilaiScFull > 0) {
+        isNewIncentiveProduct = true;
+      } else {
+        growthIncentivePct = null;
+      }
+    }
+
     return {
       product: primary,
       qty: isMultiMonth ? Math.round(qtyAvgPerMonth) : (primary.qtyPerBulan || 0),
@@ -310,6 +379,10 @@ export function calculateProductDetailRows({
       valCashbackFull,
       salesHistorical,
       growthPct,
+      historyIncentive,
+      historyQty,
+      growthIncentivePct,
+      isNewIncentiveProduct,
     };
   });
 
@@ -328,6 +401,26 @@ export function calculateProductDetailRows({
       ? ((sumEstSales - effectiveOutletSalesFull) / effectiveOutletSalesFull) * 100
       : 0;
 
+  const sumHistoryIncentive =
+    totalOutletHistoryIncentive !== undefined && totalOutletHistoryIncentive > 0
+      ? totalOutletHistoryIncentive
+      : rows.reduce((s, r) => s + (r.historyIncentive || 0), 0);
+
+  let overallIncentiveGrowthPct: number | null = null;
+  let isNewIncentiveTotal = false;
+
+  if (sumHistoryIncentive > 0) {
+    if (sumNilaiSc > 0) {
+      overallIncentiveGrowthPct = ((sumNilaiSc - sumHistoryIncentive) / sumHistoryIncentive) * 100;
+    } else {
+      overallIncentiveGrowthPct = -100;
+    }
+  } else {
+    if (sumNilaiSc > 0) {
+      isNewIncentiveTotal = true;
+    }
+  }
+
   return {
     rows,
     distinctMonths: periodMonths,
@@ -344,6 +437,9 @@ export function calculateProductDetailRows({
     effectiveOutletSalesPerMonth,
     effectiveOutletSalesFull,
     overallGrowthPct,
+    sumHistoryIncentive,
+    overallIncentiveGrowthPct,
+    isNewIncentiveTotal,
     repeatCount,
     newCount,
   };

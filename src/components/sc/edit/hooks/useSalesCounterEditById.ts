@@ -39,10 +39,11 @@ interface UseSalesCounterEditByIdParams {
   kodePI: string;
   persons: Person[];
   initialProducts: Array<{
-    id: string;
+    id?: string;
     kodeProduk: string;
-    namaProduk: string;
+    namaProduk?: string;
     produkKompetitor: string | null;
+    periodeMonth?: string;
     qtyPerBulan: number;
     persenMatriksSc: number;
     persenDiskon: number;
@@ -102,20 +103,74 @@ export function useSalesCounterEditById({
     return String(initialJumlahPasienNonResep ?? "0");
   }, [jumlahPasien, jumlahPasienResep, initialJumlahPasienNonResep]);
 
-  // Products editable
-  const [products, setProducts] = useState<SelectedProductRow[]>(() =>
-    initialProducts.length > 0
-      ? initialProducts.map((p) => ({
-          kodeProduk: p.kodeProduk,
-          produkKompetitor: p.produkKompetitor || "",
-          qtyPerBulan: String(p.qtyPerBulan ?? ""),
-          persenMatriksSc: String(p.persenMatriksSc),
-          persenDiskon: String(p.persenDiskon),
-          persenCashback: String(p.persenCashback),
-          rencanaTotalBiaya: p.rencanaTotalBiaya,
-        }))
-      : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }]
-  );
+  // Products editable - group multi-month items by kodeProduk
+  const [products, setProducts] = useState<SelectedProductRow[]>(() => {
+    if (initialProducts.length === 0) {
+      return [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
+    }
+
+    const groupMap = new Map<string, typeof initialProducts>();
+    for (const p of initialProducts) {
+      if (!groupMap.has(p.kodeProduk)) {
+        groupMap.set(p.kodeProduk, []);
+      }
+      groupMap.get(p.kodeProduk)!.push(p);
+    }
+
+    const startYear = parseInt(initialPeriodeAwal.slice(0, 4), 10);
+    const startMonth = parseInt(initialPeriodeAwal.slice(4, 6), 10);
+    const numMonths = Math.max(1, initialLamaPeriode || 3);
+    const periodMonths: string[] = [];
+    for (let i = 0; i < numMonths; i++) {
+      const d = new Date(startYear, startMonth - 1 + i, 1);
+      periodMonths.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+
+    const groupedRows: SelectedProductRow[] = [];
+    for (const [, items] of groupMap.entries()) {
+      const primary = items[0];
+      const monthMap = new Map<string, number>();
+      for (const it of items) {
+        if (it.periodeMonth) {
+          monthMap.set(it.periodeMonth, it.qtyPerBulan);
+        }
+      }
+
+      const hasMultipleMonths = items.some((it) => it.periodeMonth);
+      let monthlyQty: string[] | undefined = undefined;
+      let totalQty = 0;
+
+      if (hasMultipleMonths && periodMonths.length > 1) {
+        monthlyQty = periodMonths.map((m) => {
+          if (monthMap.has(m)) {
+            const q = monthMap.get(m)!;
+            totalQty += q;
+            return String(q);
+          }
+          return String(primary.qtyPerBulan ?? "");
+        });
+      } else {
+        totalQty = (primary.qtyPerBulan || 0) * numMonths;
+      }
+
+      const avgQty = numMonths > 0 ? totalQty / numMonths : (primary.qtyPerBulan || 0);
+      const formattedAvg = avgQty % 1 === 0 ? avgQty.toString() : parseFloat(avgQty.toFixed(2)).toString();
+      const totalRencana = items.reduce((sum, it) => sum + (it.rencanaTotalBiaya || 0), 0);
+
+      groupedRows.push({
+        kodeProduk: primary.kodeProduk,
+        produkKompetitor: primary.produkKompetitor || "",
+        qtyPerBulan: formattedAvg,
+        monthlyQty,
+        persenMatriksSc: String(primary.persenMatriksSc),
+        persenDiskon: String(primary.persenDiskon),
+        persenCashback: String(primary.persenCashback),
+        rencanaTotalBiaya: totalRencana,
+      });
+    }
+
+    return groupedRows.length > 0 ? groupedRows : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
+  });
 
   // Entertain
   const [entertainList, setEntertainList] = useState<EntertainRow[]>(() => {

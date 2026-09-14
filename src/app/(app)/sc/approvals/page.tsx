@@ -11,7 +11,6 @@ import { ScToastProvider } from "@/components/sc/ui/ScToast";
 import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
-import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { Role, Prisma, type PoaStatus } from "@prisma/client";
 
@@ -292,12 +291,6 @@ export default async function SalesCounterApprovalsPage({
     }
   }
 
-  // Resolve target fallback per group
-  const targetEntries = Array.from(groupedMap.values()).map((g) => ({
-    owner: { nip: g.nip, role: (g.groupType === "ASM" ? Role.ASM : Role.MR) },
-    quarter: g.period,
-  }));
-  const targetFallbackMap = await resolveTargetHospitalValueFallback(targetEntries);
 
   // Query all non-draft forms for these owner+period pairs to calculate approvedCount & belumCount
   const allOwnerNips = Array.from(new Set(Array.from(groupedMap.values()).flatMap((g) => g.ownerNips)));
@@ -351,8 +344,8 @@ export default async function SalesCounterApprovalsPage({
       }
     }
 
-    const targetValue = targetFallbackMap.get(`${g.nip}|${g.period}`) ?? null;
-    const targetRatio = targetValue != null && targetValue > 0 ? (totalEstimasiSales / targetValue) * 100 : null;
+    const targetValue = null;
+    const targetRatio = null;
 
     return {
       groupKey: g.groupKey,

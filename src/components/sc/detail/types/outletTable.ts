@@ -4,6 +4,8 @@ export interface ProductMonthlyQty {
   month: string;      // e.g. "202607"
   monthLabel: string; // e.g. "Jul"
   qty: number;
+  estSales?: number;  // estimated sales for this month
+  nilaiSc?: number;   // insentif SC for this month
 }
 
 export interface ProductDetailRowItem {
@@ -18,6 +20,10 @@ export interface ProductDetailRowItem {
   valCashbackFull: number;
   salesHistorical: number;
   growthPct: number;
+  historyIncentive?: number;
+  historyQty?: number;
+  growthIncentivePct?: number | null;
+  isNewIncentiveProduct?: boolean;
 }
 
 export interface ProductDetailRowsSummary {
@@ -36,6 +42,9 @@ export interface ProductDetailRowsSummary {
   effectiveOutletSalesPerMonth: number;
   effectiveOutletSalesFull: number;
   overallGrowthPct: number;
+  sumHistoryIncentive?: number;
+  overallIncentiveGrowthPct?: number | null;
+  isNewIncentiveTotal?: boolean;
   repeatCount: number;
   newCount: number;
 }

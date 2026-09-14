@@ -1,8 +1,7 @@
 import { PoaStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getSubordinateMRNips, getScSubordinateIdsUnder } from "@/lib/authz";
+import { getScSubordinateIdsUnder } from "@/lib/authz";
 import { getMrSalesSummary } from "@/lib/salesSummary";
-import { quarterToMonths } from "@/lib/quarterUtils";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { getSalesCounterProduct } from "./getSalesCounterProduct";
 import { getHistorySales } from "./getHistorySales";
@@ -341,20 +340,7 @@ export async function getSalesCounterDetailData(
     ? { historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0 }
     : await getMrSalesSummary(poa.ownerId);
 
-  let targetValueFromGT: number | null = null;
-  if (/^\d{4}-Q[1-4]$/.test(poa.period)) {
-    const months = quarterToMonths(poa.period);
-    const targetNips = await getSubordinateMRNips(poa.owner);
-    const rows = targetNips.length > 0
-      ? await prisma.targetHospitalValue.findMany({
-          where: { nipMR: { in: targetNips }, periode: { in: months } },
-          select: { target: true },
-        })
-      : [];
-    if (rows.length > 0) {
-      targetValueFromGT = rows.reduce((sum: number, r: any) => sum + parseFloat(r.target.toString()), 0);
-    }
-  }
+  const targetValueFromGT: number | null = null;
 
   return {
     hasAccess: true,

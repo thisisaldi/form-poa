@@ -26,6 +26,8 @@ export async function saveSalesCounterFormAction(
     kodeProduk: string;
     produkKompetitor: string;
     qtyPerBulan: string;
+    periodeMonth?: string;
+    monthlyQty?: string[];
     persenMatriksSc: string;
     persenDiskon: string;
     persenCashback: string;
@@ -62,7 +64,11 @@ export async function saveSalesCounterFormAction(
     ? products.filter((p) => validScCodes.has(p.kodeProduk) || validScCodes.has(p.kodeProduk.replace(/^0+/, "")))
     : products;
 
-  const hasValidProduct = validProducts.some((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0);
+  const hasValidProduct = validProducts.some((p) => {
+    const avg = parseFloat(p.qtyPerBulan) || 0;
+    const hasMonthly = Array.isArray(p.monthlyQty) && p.monthlyQty.some((q) => (parseFloat(q) || 0) > 0);
+    return Boolean(p.kodeProduk && (avg > 0 || hasMonthly));
+  });
   if (!hasValidProduct) {
     return { ok: false, error: "Minimal pilih 1 produk SC dengan kuantitas > 0." };
   }
@@ -104,6 +110,90 @@ export async function saveSalesCounterFormAction(
     const endMonth = quarter * 3;
     const calcDuration = (parseInt(year, 10) - startYear) * 12 + (endMonth - startMonth + 1);
     lamaPeriode = calcDuration > 0 ? calcDuration : defaultLamaPeriode;
+  }
+
+  // Generate calendar months for this period
+  const startYear = parseInt(periodeAwal.slice(0, 4), 10);
+  const startMonth = parseInt(periodeAwal.slice(4, 6), 10);
+  const periodMonths: string[] = [];
+  for (let i = 0; i < (lamaPeriode || 1); i++) {
+    const d = new Date(startYear, startMonth - 1 + i, 1);
+    const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+    periodMonths.push(yyyymm);
+  }
+
+  // Build full list of product items across months
+  const productItemsToInsert: Array<{
+    kodeProduk: string;
+    produkKompetitor: string | null;
+    periodeMonth: string;
+    qtyPerBulan: number;
+    persenMatriksSc: number;
+    persenDiskon: number;
+    persenCashback: number;
+    rencanaTotalBiaya: number;
+  }> = [];
+
+  for (const p of validProducts) {
+    if (!p.kodeProduk) continue;
+
+    const hasMonthly = Array.isArray(p.monthlyQty) && p.monthlyQty.length > 0;
+    const avgQty = parseFloat(p.qtyPerBulan) || 0;
+    const hasAnyQty = avgQty > 0 || (hasMonthly && p.monthlyQty!.some((q) => (parseFloat(q) || 0) > 0));
+    if (!hasAnyQty) continue;
+
+    let totalQty = 0;
+    if (hasMonthly) {
+      totalQty = p.monthlyQty!.reduce((sum, q) => sum + (parseFloat(q) || 0), 0);
+    } else {
+      totalQty = avgQty * (periodMonths.length || 1);
+    }
+
+    const totalCost = p.rencanaTotalBiaya || 0;
+
+    if (periodMonths.length > 1) {
+      for (let mIdx = 0; mIdx < periodMonths.length; mIdx++) {
+        const mMonth = periodMonths[mIdx];
+        let mQty = 0;
+        if (hasMonthly) {
+          mQty = p.monthlyQty![mIdx] !== undefined && p.monthlyQty![mIdx] !== ""
+            ? parseInt(p.monthlyQty![mIdx], 10) || 0
+            : parseInt(p.qtyPerBulan, 10) || 0;
+        } else {
+          mQty = parseInt(p.qtyPerBulan, 10) || 0;
+        }
+
+        const mCost = totalQty > 0
+          ? parseFloat(((totalCost / totalQty) * mQty).toFixed(2))
+          : parseFloat((totalCost / periodMonths.length).toFixed(2));
+
+        productItemsToInsert.push({
+          kodeProduk: p.kodeProduk,
+          produkKompetitor: p.produkKompetitor || null,
+          periodeMonth: mMonth,
+          qtyPerBulan: mQty,
+          persenMatriksSc: parseFloat(p.persenMatriksSc) || 0,
+          persenDiskon: parseFloat(p.persenDiskon) || 0,
+          persenCashback: parseFloat(p.persenCashback) || 0,
+          rencanaTotalBiaya: mCost,
+        });
+      }
+    } else {
+      const mQty = hasMonthly && p.monthlyQty![0] !== undefined
+        ? parseInt(p.monthlyQty![0], 10) || 0
+        : parseInt(p.qtyPerBulan, 10) || 0;
+
+      productItemsToInsert.push({
+        kodeProduk: p.kodeProduk,
+        produkKompetitor: p.produkKompetitor || null,
+        periodeMonth: p.periodeMonth || periodeAwal,
+        qtyPerBulan: mQty,
+        persenMatriksSc: parseFloat(p.persenMatriksSc) || 0,
+        persenDiskon: parseFloat(p.persenDiskon) || 0,
+        persenCashback: parseFloat(p.persenCashback) || 0,
+        rencanaTotalBiaya: totalCost,
+      });
+    }
   }
 
   try {
@@ -172,30 +262,31 @@ export async function saveSalesCounterFormAction(
 
         // Compare products
         if (!hasChanges) {
-          const newProds = validProducts
-            .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
+          const newProds = productItemsToInsert
             .map((p) => ({
               kodeProduk: p.kodeProduk,
+              periodeMonth: p.periodeMonth,
+              qtyPerBulan: p.qtyPerBulan,
               produkKompetitor: p.produkKompetitor || null,
-              qtyPerBulan: parseInt(p.qtyPerBulan, 10) || 0,
-              persenMatriksSc: parseFloat(parseFloat(p.persenMatriksSc || "0").toFixed(2)),
-              persenDiskon: parseFloat(parseFloat(p.persenDiskon || "0").toFixed(2)),
-              persenCashback: parseFloat(parseFloat(p.persenCashback || "0").toFixed(2)),
+              persenMatriksSc: parseFloat(p.persenMatriksSc.toFixed(2)),
+              persenDiskon: parseFloat(p.persenDiskon.toFixed(2)),
+              persenCashback: parseFloat(p.persenCashback.toFixed(2)),
               rencanaTotalBiaya: parseFloat(p.rencanaTotalBiaya.toFixed(2)),
             }))
-            .sort((a, b) => a.kodeProduk.localeCompare(b.kodeProduk));
+            .sort((a, b) => a.kodeProduk.localeCompare(b.kodeProduk) || a.periodeMonth.localeCompare(b.periodeMonth));
 
           const oldProds = existing.products
             .map((p: any) => ({
               kodeProduk: p.kodeProduk,
-              produkKompetitor: p.produkKompetitor || null,
+              periodeMonth: p.periodeMonth || periodeAwal,
               qtyPerBulan: p.qtyPerBulan,
+              produkKompetitor: p.produkKompetitor || null,
               persenMatriksSc: parseFloat(Number(p.persenMatriksSc).toFixed(2)),
               persenDiskon: parseFloat(Number(p.persenDiskon).toFixed(2)),
               persenCashback: parseFloat(Number(p.persenCashback).toFixed(2)),
               rencanaTotalBiaya: parseFloat(Number(p.rencanaTotalBiaya).toFixed(2)),
             }))
-            .sort((a: any, b: any) => a.kodeProduk.localeCompare(b.kodeProduk));
+            .sort((a: any, b: any) => a.kodeProduk.localeCompare(b.kodeProduk) || (a.periodeMonth || "").localeCompare(b.periodeMonth || ""));
 
           if (JSON.stringify(newProds) !== JSON.stringify(oldProds)) {
             hasChanges = true;
@@ -372,24 +463,23 @@ export async function saveSalesCounterFormAction(
         select: { kodeProduk: true, namaProduk: true },
       });
 
-      // 6. Insert new product items
+      // 6. Insert new product items (with per-month records)
       await tx.poaScProductItem.createMany({
-        data: validProducts
-          .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
-          .map((p) => {
-            const master = masterProducts.find((mp: any) => mp.kodeProduk === p.kodeProduk);
-            return {
-              poaScId: poaSc.id,
-              kodeProduk: p.kodeProduk,
-              namaProduk: master?.namaProduk || p.kodeProduk,
-              produkKompetitor: p.produkKompetitor || null,
-              qtyPerBulan: parseInt(p.qtyPerBulan, 10) || 0,
-              persenMatriksSc: parseFloat(p.persenMatriksSc) || 0,
-              persenDiskon: parseFloat(p.persenDiskon) || 0,
-              persenCashback: parseFloat(p.persenCashback) || 0,
-              rencanaTotalBiaya: p.rencanaTotalBiaya || 0,
-            };
-          }),
+        data: productItemsToInsert.map((item) => {
+          const master = masterProducts.find((mp: any) => mp.kodeProduk === item.kodeProduk);
+          return {
+            poaScId: poaSc.id,
+            kodeProduk: item.kodeProduk,
+            namaProduk: master?.namaProduk || item.kodeProduk,
+            produkKompetitor: item.produkKompetitor || null,
+            periodeMonth: item.periodeMonth,
+            qtyPerBulan: item.qtyPerBulan,
+            persenMatriksSc: item.persenMatriksSc,
+            persenDiskon: item.persenDiskon,
+            persenCashback: item.persenCashback,
+            rencanaTotalBiaya: item.rencanaTotalBiaya,
+          };
+        }),
       });
 
       // 7. Insert new entertain items
@@ -758,6 +848,11 @@ export async function updateSalesCounterPeriodAction(
             data: { periodeMonth: newPeriodeMonth },
           });
         }
+
+        await tx.poaScProductItem.updateMany({
+          where: { poaScId: draft.id },
+          data: { periodeMonth: newPeriodeAwal },
+        });
       }
     });
 

@@ -8,6 +8,7 @@ import {
   getScCashbackPoaAction,
   getSalesCounterProductsAction,
   getScInsentifHistoryAction,
+  getScHistoryIncentiveCounterAction,
   getHistorySalesAction,
   postHistorySalesAction,
   getSalesOnlineAction,
@@ -20,6 +21,7 @@ import {
   calculateOutletTotals,
   computeHistoryInsentifInfo,
   calculateProductDetailRows,
+  extractQuarterAndYear,
 } from "../utils/outletCalculationUtils";
 
 export function useSalesCounterOutletData({
@@ -41,9 +43,15 @@ export function useSalesCounterOutletData({
   const [b3TotalOutletSalesPerMonth, setB3TotalOutletSalesPerMonth] = useState<number>(0);
 
   const [insentifHistoryData, setInsentifHistoryData] = useState<any>(null);
+  const [scHistoryIncentiveData, setScHistoryIncentiveData] = useState<any[] | null>(null);
+  const [isLoadingIncentiveHistory, setIsLoadingIncentiveHistory] = useState<boolean>(true);
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [isLoadingSalesOnline, setIsLoadingSalesOnline] = useState<boolean>(false);
   const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
+
+  const { quarter: poaQuarter, year: poaYear } = useMemo(() => {
+    return extractQuarterAndYear(draft.period, draft.periodeAwal, poaId);
+  }, [draft.period, draft.periodeAwal, poaId]);
 
   const b3Info = useMemo(() => {
     return getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
@@ -208,10 +216,29 @@ export function useSalesCounterOutletData({
 
   // Fetch insentif history and sales online
   useEffect(() => {
-    if (!draft.kodePI) return;
+    if (!draft.kodePI) {
+      setIsLoadingIncentiveHistory(false);
+      return;
+    }
+    let isMounted = true;
     setIsLoadingSalesOnline(true);
+    setIsLoadingIncentiveHistory(true);
+
+    getScHistoryIncentiveCounterAction(draft.kodePI, poaQuarter, poaYear)
+      .then((res) => {
+        if (!isMounted) return;
+        const items = res?.data && Array.isArray(res.data) ? res.data : [];
+        setScHistoryIncentiveData(items);
+      })
+      .catch(() => {
+        if (isMounted) setScHistoryIncentiveData([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingIncentiveHistory(false);
+      });
+
     getScInsentifHistoryAction(draft.kodePI).then((res) => {
-      setInsentifHistoryData(res?.data || null);
+      if (isMounted) setInsentifHistoryData(res?.data || null);
     });
     getSalesOnlineAction(draft.kodePI)
       .then((res) => {
@@ -230,7 +257,11 @@ export function useSalesCounterOutletData({
       .catch(() => {
         setSurveyNexusData(null);
       });
-  }, [draft.kodePI]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [draft.kodePI, poaQuarter, poaYear]);
 
   // Filter products to strictly SC products
   const scProducts = useMemo(() => {
@@ -281,6 +312,23 @@ export function useSalesCounterOutletData({
     return computeHistoryInsentifInfo(insentifHistoryData, draft.period || draft.periodeAwal, poaId);
   }, [insentifHistoryData, draft.periodeAwal, draft.period, poaId]);
 
+  const { scHistoryIncentiveMap, totalOutletHistoryIncentive } = useMemo(() => {
+    const map = new Map<string, { win_incentive: number; win_qty?: number; name?: string }>();
+    if (!scHistoryIncentiveData) return { scHistoryIncentiveMap: map, totalOutletHistoryIncentive: 0 };
+    let sumTotal = 0;
+    for (const item of scHistoryIncentiveData) {
+      if (item.code) {
+        const val = Number(item.win_incentive) || 0;
+        const qty = Number(item.win_qty) || 0;
+        sumTotal += val;
+        const entry = { win_incentive: val, win_qty: qty, name: item.name };
+        map.set(item.code, entry);
+        map.set(item.code.replace(/^0+/, ""), entry);
+      }
+    }
+    return { scHistoryIncentiveMap: map, totalOutletHistoryIncentive: sumTotal };
+  }, [scHistoryIncentiveData]);
+
   const productDetailRows = useMemo(() => {
     return calculateProductDetailRows({
       scProducts,
@@ -290,17 +338,32 @@ export function useSalesCounterOutletData({
       cbDetails,
       b3SalesMap,
       b3TotalOutletSalesPerMonth,
+      scHistoryIncentiveMap,
+      totalOutletHistoryIncentive,
     });
-  }, [scProducts, lama, draft.periodeAwal, cashbackData, cbDetails, b3SalesMap, b3TotalOutletSalesPerMonth]);
+  }, [
+    scProducts,
+    lama,
+    draft.periodeAwal,
+    cashbackData,
+    cbDetails,
+    b3SalesMap,
+    b3TotalOutletSalesPerMonth,
+    scHistoryIncentiveMap,
+    totalOutletHistoryIncentive,
+  ]);
 
   const insentifGrowthPct = useMemo(() => {
+    if (productDetailRows.overallIncentiveGrowthPct != null) {
+      return productDetailRows.overallIncentiveGrowthPct;
+    }
     if (!historyInsentifInfo || historyInsentifInfo.avgB3Insentif <= 0) return null;
     return (
       ((productDetailRows.sumNilaiScPerMonth - historyInsentifInfo.avgB3Insentif) /
         historyInsentifInfo.avgB3Insentif) *
       100
     );
-  }, [productDetailRows.sumNilaiScPerMonth, historyInsentifInfo]);
+  }, [productDetailRows.overallIncentiveGrowthPct, productDetailRows.sumNilaiScPerMonth, historyInsentifInfo]);
 
   const selectedProductCodes = useMemo(() => {
     return new Set<string>(
@@ -329,6 +392,9 @@ export function useSalesCounterOutletData({
     totalEntertain,
     canvasserNames,
     insentifHistoryData,
+    scHistoryIncentiveData,
+    scHistoryIncentiveMap,
+    isLoadingIncentiveHistory,
     historyInsentifInfo,
     insentifGrowthPct,
     salesOnlineData,

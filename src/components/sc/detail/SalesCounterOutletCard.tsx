@@ -105,6 +105,7 @@ export function SalesCounterOutletCard({
     isLoadingSalesOnline,
     surveyNexusData,
     productDetailRows,
+    isLoadingIncentiveHistory,
   } = outletData;
 
   const strategyCounts = useMemo(() => {
@@ -646,7 +647,19 @@ export function SalesCounterOutletCard({
                   Histori Insentif (B-3):
                 </div>
                 <div className="font-semibold text-xs" style={{ color: "var(--color-text)" }}>
-                  {historyInsentifInfo && historyInsentifInfo.avgB3Insentif > 0 ? (
+                  {productDetailRows.sumHistoryIncentive && productDetailRows.sumHistoryIncentive > 0 ? (
+                    <>
+                      {formatRp(productDetailRows.sumHistoryIncentive / (lama || 3))}
+                      <span className="font-normal text-[11px] ml-1" style={{ color: "var(--color-text-muted)" }}>
+                        / bln
+                      </span>
+                      {b3RangeLabel && (
+                        <span className="font-normal text-[10px] ml-1.5" style={{ color: "var(--color-text-muted)" }}>
+                          ({b3RangeLabel})
+                        </span>
+                      )}
+                    </>
+                  ) : historyInsentifInfo && historyInsentifInfo.avgB3Insentif > 0 ? (
                     <>
                       {formatRp(historyInsentifInfo.avgB3Insentif)}
                       <span className="font-normal text-[11px] ml-1" style={{ color: "var(--color-text-muted)" }}>
@@ -823,202 +836,244 @@ export function SalesCounterOutletCard({
           {/* Products table container */}
           <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr style={{ background: "var(--color-bg-subtle)" }}>
-                    <th className="text-left px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Produk SC</th>
-                    <th className="text-right px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      Qty ST
+                    <th className="text-left px-3 py-2.5 font-semibold sticky left-0 z-10 border-r border-b" style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
+                      Produk SC
                     </th>
-                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      <div className="leading-tight">
-                        <div>Estimasi</div>
-                        <div>Sales</div>
-                      </div>
-                    </th>
-                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                      <div className="leading-tight">
-                        <div>Insentif</div>
-                        <div>SC</div>
-                      </div>
-                    </th>
-                    {!isCashbackNotFound && (
-                      <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                        <div className="inline-flex items-center justify-end gap-1">
-                          <div className="leading-tight text-right">
-                            <div>Value</div>
-                            <div>Cashback</div>
-                          </div>
-                          <InfoTooltip text="Nilai Cashback akan diterima oleh outlet jika belanja lewat Pharmanet" />
-                        </div>
+                    {productDetailRows.distinctMonths.length > 1 && (
+                      <th className="text-left px-3 py-2.5 font-semibold border-r border-b" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                        Bulan
                       </th>
                     )}
-                    <th className="text-right px-2 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>Growth</th>
+                    <th className="text-right px-3 py-2.5 font-semibold border-b whitespace-nowrap" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>Qty ST</th>
+                    <th className="text-right px-3 py-2.5 font-semibold border-b" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                      <div className="leading-tight"><div>Estimasi</div><div>Sales</div></div>
+                    </th>
+                    <th className="text-center px-3 py-2.5 font-semibold border-b" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                      <div className="leading-tight"><div>Growth</div><div>Sales</div></div>
+                    </th>
+                    <th className="text-right px-3 py-2.5 font-semibold border-b" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                      <div className="leading-tight"><div>Insentif</div><div>SC</div></div>
+                    </th>
+                    <th className="text-center px-3 py-2.5 font-semibold border-b" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                      <div className="leading-tight"><div>Growth</div><div>Insentif SC</div></div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {productDetailRows.rows.map(({ product: p, qty, totalQty, monthlyBreakdown, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, valCashbackFull, salesHistorical, growthPct }) => (
-                    <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                      <td className="px-2.5 py-2 font-medium sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
-                        <div className="max-w-[150px] sm:max-w-none truncate sm:whitespace-normal font-semibold">
-                          {p.namaProduk}
-                        </div>
-                      </td>
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        <div className="flex flex-col items-end gap-0.5">
-                          {monthlyBreakdown && monthlyBreakdown.length > 1 ? (
-                            <>
-                              {monthlyBreakdown.map((m) => (
-                                <div key={m.month} className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
-                                  <span style={{ color: "var(--color-text-muted)" }}>{m.monthLabel}:</span>
-                                  <span className="font-semibold">{m.qty}</span>
-                                </div>
-                              ))}
-                              <div className="mt-0.5 pt-0.5 border-t border-[var(--color-border)] flex items-center justify-end gap-1 text-[11px] font-bold font-mono">
-                                <span className="text-[10px] font-normal" style={{ color: "var(--color-text-muted)" }}>Tot:</span>
-                                <span>{totalQty}</span>
-                              </div>
-                            </>
-                          ) : monthlyBreakdown && monthlyBreakdown.length === 1 ? (
-                            <div className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
-                              <span style={{ color: "var(--color-text-muted)" }}>{monthlyBreakdown[0].monthLabel}:</span>
-                              <span className="font-semibold">{monthlyBreakdown[0].qty}</span>
-                            </div>
-                          ) : (
-                            <span className="font-semibold text-xs">{totalQty || qty || 0}</span>
+                  {productDetailRows.rows.map(({ product: p, qty, totalQty, monthlyBreakdown, estSalesMonth, estSalesFull, nilaiScPerMonth, nilaiScFull, salesHistorical, growthPct, historyIncentive, growthIncentivePct, isNewIncentiveProduct }, rowIdx) => {
+                    const isMultiMonth = productDetailRows.distinctMonths.length > 1 && monthlyBreakdown && monthlyBreakdown.length > 1;
+                    const months = isMultiMonth ? monthlyBreakdown! : null;
+                    // +1 for the "Total" sub-row
+                    const numSubRows = months ? months.length + 1 : 1;
+                    const isLastProduct = rowIdx === productDetailRows.rows.length - 1;
+
+                    // Shared cell style for growth columns
+                    const growthSalesCell = isLoadingB3 ? (
+                      <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                    ) : salesHistorical > 0 ? (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className={growthPct >= 0 ? "text-emerald-600 font-semibold tabular-nums" : "text-rose-600 font-semibold tabular-nums"}>
+                          {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
+                        </span>
+                        <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Histori Sales: ${formatRp(salesHistorical)} (${formatRp(salesHistorical / (lama || 1))}/bln)`}>
+                          vs {formatRp(salesHistorical)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
+                    );
+
+                    const growthInsentifCell = isLoadingIncentiveHistory ? (
+                      <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                    ) : historyIncentive && historyIncentive > 0 && growthIncentivePct != null ? (
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className={growthIncentivePct >= 0 ? "text-emerald-600 font-semibold tabular-nums" : "text-rose-600 font-semibold tabular-nums"}>
+                          {growthIncentivePct >= 0 ? `+${growthIncentivePct.toFixed(1)}%` : `${growthIncentivePct.toFixed(1)}%`}
+                        </span>
+                        <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Histori Insentif: ${formatRp(historyIncentive)}`}>
+                          vs {formatRp(historyIncentive)}
+                        </span>
+                      </div>
+                    ) : isNewIncentiveProduct ? (
+                      <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
+                    ) : (
+                      <span style={{ color: "var(--color-text-muted)" }}>-</span>
+                    );
+
+                    if (!months) {
+                      // Single-month flat row
+                      return (
+                        <tr key={p.id} className="align-middle" style={{ borderTop: "1px solid var(--color-border)" }}>
+                          <td className="px-3 py-2.5 sticky left-0 z-10 border-r font-semibold" style={{ color: "var(--color-text)", background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+                            <div className="max-w-[160px] sm:max-w-[200px] whitespace-normal leading-snug">{p.namaProduk}</div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums font-mono whitespace-nowrap" style={{ color: "var(--color-text)" }}>{totalQty || qty || 0}</td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                            {estSalesFull > 0 ? <span className="tabular-nums">{formatRp(estSalesFull)}</span> : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                          </td>
+                          <td className="px-3 py-2.5 text-center whitespace-nowrap">{growthSalesCell}</td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap font-semibold" style={{ color: nilaiScFull > 0 ? "var(--color-blue)" : "var(--color-text-faint)" }}>
+                            {nilaiScFull > 0 ? <span className="tabular-nums">{formatRp(nilaiScFull)}</span> : "—"}
+                          </td>
+                          <td className="px-3 py-2.5 text-center whitespace-nowrap">{growthInsentifCell}</td>
+                        </tr>
+                      );
+                    }
+
+                    // Multi-month: product name rowspans all sub-rows
+                    return months.map((mb, mIdx) => {
+                      const isFirstRow = mIdx === 0;
+                      const isTotRow = false; // month rows are not tot
+                      const borderTop = isFirstRow ? "2px solid var(--color-border)" : "1px solid var(--color-border)";
+                      return (
+                        <tr key={`${p.id}-${mb.month}`} className="align-middle">
+                          {isFirstRow && (
+                            <td
+                              rowSpan={numSubRows}
+                              className="px-3 py-2.5 sticky left-0 z-10 border-r font-semibold align-top"
+                              style={{ color: "var(--color-text)", background: "var(--color-surface)", borderColor: "var(--color-border)", borderTop, paddingTop: "10px" }}
+                            >
+                              <div className="max-w-[160px] sm:max-w-[200px] whitespace-normal leading-snug">{p.namaProduk}</div>
+                            </td>
                           )}
-                        </div>
-                      </td>
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        {estSalesFull > 0 ? (
-                          <div>
-                            <span>{formatRp(estSalesFull)}</span>
-                            {lama > 1 && (
-                              <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                                ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(estSalesMonth)}/bln)
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap font-semibold" style={{ color: "var(--color-blue)" }}>
-                        {nilaiScFull > 0 ? (
-                          <div>
-                            <span>{formatRp(nilaiScFull)}</span>
-                            {lama > 1 && (
-                              <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                                ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(nilaiScPerMonth)}/bln)
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      {!isCashbackNotFound && (
-                        <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                          {valCashbackFull > 0 ? formatRp(valCashbackFull) : "-"}
+                          {/* Month label */}
+                          <td className="px-3 py-1.5 border-r whitespace-nowrap text-[11px] font-medium" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)", borderTop }}>
+                            {mb.monthLabel}
+                          </td>
+                          {/* Qty */}
+                          <td className="px-3 py-1.5 text-right tabular-nums font-mono whitespace-nowrap text-[11px]" style={{ color: "var(--color-text)", borderTop }}>
+                            {mb.qty > 0 ? mb.qty : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                          </td>
+                          {/* Est Sales */}
+                          <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px]" style={{ color: "var(--color-text)", borderTop }}>
+                            {(mb.estSales ?? 0) > 0 ? formatRp(mb.estSales!) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                          </td>
+                          {/* Growth Sales — shown empty for month rows */}
+                          <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }} />
+                          {/* Insentif SC */}
+                          <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px] font-semibold" style={{ color: (mb.nilaiSc ?? 0) > 0 ? "var(--color-blue)" : "var(--color-text-faint)", borderTop }}>
+                            {(mb.nilaiSc ?? 0) > 0 ? formatRp(mb.nilaiSc!) : "—"}
+                          </td>
+                          {/* Growth Insentif — shown empty for month rows */}
+                          <td className="px-3 py-1.5 text-center whitespace-nowrap" style={{ borderTop }} />
+                        </tr>
+                      );
+                    }).concat(
+                      // "Tot" summary sub-row
+                      <tr key={`${p.id}-tot`} className="align-middle font-semibold" style={{ background: "var(--color-bg-subtle)" }}>
+                        <td className="px-3 py-2 border-r border-t whitespace-nowrap text-[11px]" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                          Tot
                         </td>
-                      )}
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap">
-                        {isLoadingB3 ? (
-                          <span className="inline-block h-3.5 w-10 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
-                        ) : salesHistorical > 0 ? (
-                          <span className={growthPct >= 0 ? "text-emerald-600 font-semibold" : "text-rose-600 font-semibold"}>
-                            {growthPct >= 0 ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
-                          </span>
-                        ) : (
-                          <span
-                            className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded border"
-                            style={{
-                              background: "rgba(22, 163, 74, 0.12)",
-                              color: "#16a34a",
-                              borderColor: "rgba(22, 163, 74, 0.3)",
-                            }}
-                          >
-                            Baru
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="px-3 py-2 text-right tabular-nums font-mono whitespace-nowrap border-t" style={{ color: "var(--color-text)", borderColor: "var(--color-border)" }}>
+                          {totalQty} ST
+                        </td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap border-t" style={{ color: "var(--color-text)", borderColor: "var(--color-border)" }}>
+                          {estSalesFull > 0 ? (
+                            <span className="tabular-nums">{formatRp(estSalesFull)}</span>
+                          ) : <span style={{ color: "var(--color-text-muted)" }}>-</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap border-t" style={{ borderColor: "var(--color-border)" }}>{growthSalesCell}</td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap border-t font-semibold" style={{ color: nilaiScFull > 0 ? "var(--color-blue)" : "var(--color-text-muted)", borderColor: "var(--color-border)" }}>
+                          {nilaiScFull > 0 ? (
+                            <span className="tabular-nums">{formatRp(nilaiScFull)}</span>
+                          ) : <span style={{ color: "var(--color-text-muted)" }}>-</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap border-t" style={{ borderColor: "var(--color-border)" }}>{growthInsentifCell}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
-                  <tr className="font-semibold border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                    <td className="px-2.5 py-2 sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Total</td>
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      <div className="flex flex-col items-end gap-0.5">
-                        {productDetailRows.monthlyTotalBreakdown && productDetailRows.monthlyTotalBreakdown.length > 1 ? (
-                          <>
-                            {productDetailRows.monthlyTotalBreakdown.map((m) => (
-                              <div key={m.month} className="flex items-center justify-end gap-1.5 text-[11px] font-mono leading-tight">
-                                <span style={{ color: "var(--color-text-muted)" }}>{m.monthLabel}:</span>
-                                <span className="font-semibold">{m.qty}</span>
-                              </div>
-                            ))}
-                            <div className="mt-0.5 pt-0.5 border-t border-[var(--color-border)] flex items-center justify-end gap-1 text-[11px] font-bold font-mono">
-                              <span className="text-[10px] font-normal" style={{ color: "var(--color-text-muted)" }}>Tot:</span>
-                              <span>{productDetailRows.sumTotalQty} ST</span>
-                            </div>
-                          </>
-                        ) : (
-                          <span className="font-semibold text-xs">{productDetailRows.sumTotalQty} ST</span>
+                  {/* Grand total — same month-row pattern */}
+                  {productDetailRows.distinctMonths.length > 1 && productDetailRows.monthlyTotalBreakdown?.map((mb, mIdx) => {
+                    const mEst = productDetailRows.rows.reduce((s, r) => s + (r.monthlyBreakdown?.find((x) => x.month === mb.month)?.estSales ?? 0), 0);
+                    const mSc = productDetailRows.rows.reduce((s, r) => s + (r.monthlyBreakdown?.find((x) => x.month === mb.month)?.nilaiSc ?? 0), 0);
+                    const isFirst = mIdx === 0;
+                    const borderTop = isFirst ? "2px solid var(--color-border)" : "1px solid var(--color-border)";
+                    return (
+                      <tr key={`grand-${mb.month}`} className="align-middle font-semibold" style={{ background: "var(--color-bg-subtle)" }}>
+                        {isFirst && (
+                          <td
+                            rowSpan={(productDetailRows.monthlyTotalBreakdown?.length ?? 0) + 1}
+                            className="px-3 py-2.5 sticky left-0 z-10 border-r align-top"
+                            style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)", borderTop, paddingTop: "10px" }}
+                          >
+                            Total
+                          </td>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                      {productDetailRows.sumEstSales > 0 ? (
-                        <div>
-                          <span>{formatRp(productDetailRows.sumEstSales)}</span>
-                          {lama > 1 && (
-                            <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(productDetailRows.sumEstSalesPerMonth)}/bln)
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
-                      {productDetailRows.sumNilaiSc > 0 ? (
-                        <div>
-                          <span>{formatRp(productDetailRows.sumNilaiSc)}</span>
-                          {lama > 1 && (
-                            <span className="block text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }}>
-                              ({productDetailRows.distinctMonths.length > 1 ? "avg " : ""}{formatRp(productDetailRows.sumNilaiScPerMonth)}/bln)
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    {!isCashbackNotFound && (
-                      <td className="px-2.5 py-2 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        {productDetailRows.sumCashback > 0 ? formatRp(productDetailRows.sumCashback) : "-"}
-                      </td>
+                        <td className="px-3 py-1.5 border-r whitespace-nowrap text-[11px]" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)", borderTop }}>
+                          {mb.monthLabel}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-mono whitespace-nowrap text-[11px]" style={{ color: "var(--color-text)", borderTop }}>
+                          {mb.qty > 0 ? mb.qty : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px]" style={{ color: "var(--color-text)", borderTop }}>
+                          {mEst > 0 ? formatRp(mEst) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                        </td>
+                        <td style={{ borderTop }} />
+                        <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-[11px]" style={{ color: mSc > 0 ? "var(--color-blue)" : "var(--color-text-faint)", borderTop }}>
+                          {mSc > 0 ? formatRp(mSc) : "—"}
+                        </td>
+                        <td style={{ borderTop }} />
+                      </tr>
+                    );
+                  })}
+                  {/* Grand total "Tot" row */}
+                  <tr className="align-middle font-semibold" style={{ background: "var(--color-bg-subtle)", borderTop: productDetailRows.distinctMonths.length > 1 ? "1px solid var(--color-border)" : "2px solid var(--color-border)" }}>
+                    {productDetailRows.distinctMonths.length <= 1 && (
+                      <td className="px-3 py-2.5 sticky left-0 z-10 border-r" style={{ color: "var(--color-text)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>Total</td>
                     )}
-                    <td className="px-2.5 py-2 text-right whitespace-nowrap">
+                    {productDetailRows.distinctMonths.length > 1 && (
+                      <td className="px-3 py-2 border-r whitespace-nowrap text-[11px]" style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}>Tot</td>
+                    )}
+                    <td className="px-3 py-2.5 text-right tabular-nums font-mono whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                      {productDetailRows.sumTotalQty} ST
+                    </td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                      {productDetailRows.sumEstSales > 0 ? (
+                        <span className="tabular-nums font-bold">{formatRp(productDetailRows.sumEstSales)}</span>
+                      ) : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
                       {isLoadingB3 ? (
                         <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
                       ) : productDetailRows.sumSalesHistorical > 0 ? (
-                        <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>
-                          {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
-                        </span>
+                        <div className="flex flex-col items-center leading-tight">
+                          <span className={productDetailRows.overallGrowthPct >= 0 ? "text-emerald-600 font-bold tabular-nums" : "text-rose-600 font-bold tabular-nums"}>
+                            {productDetailRows.overallGrowthPct >= 0 ? `+${productDetailRows.overallGrowthPct.toFixed(1)}%` : `${productDetailRows.overallGrowthPct.toFixed(1)}%`}
+                          </span>
+                          <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Total Histori Sales: ${formatRp(productDetailRows.sumSalesHistorical)}`}>
+                            vs {formatRp(productDetailRows.sumSalesHistorical)}
+                          </span>
+                        </div>
                       ) : (
-                        <span
-                          className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded border"
-                          style={{
-                            background: "rgba(22, 163, 74, 0.12)",
-                            color: "#16a34a",
-                            borderColor: "rgba(22, 163, 74, 0.3)",
-                          }}
-                        >
-                          Baru
-                        </span>
+                        <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap" style={{ color: productDetailRows.sumNilaiSc > 0 ? "var(--color-blue)" : "var(--color-text-muted)" }}>
+                      {productDetailRows.sumNilaiSc > 0 ? (
+                        <span className="tabular-nums font-bold">{formatRp(productDetailRows.sumNilaiSc)}</span>
+                      ) : "-"}
+                    </td>
+                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                      {isLoadingIncentiveHistory ? (
+                        <span className="inline-block h-3.5 w-12 bg-slate-200 dark:bg-slate-700/60 rounded animate-pulse" />
+                      ) : productDetailRows.sumHistoryIncentive && productDetailRows.sumHistoryIncentive > 0 && productDetailRows.overallIncentiveGrowthPct != null ? (
+                        <div className="flex flex-col items-center leading-tight">
+                          <span className={productDetailRows.overallIncentiveGrowthPct >= 0 ? "text-emerald-600 font-bold tabular-nums" : "text-rose-600 font-bold tabular-nums"}>
+                            {productDetailRows.overallIncentiveGrowthPct >= 0 ? `+${productDetailRows.overallIncentiveGrowthPct.toFixed(1)}%` : `${productDetailRows.overallIncentiveGrowthPct.toFixed(1)}%`}
+                          </span>
+                          <span className="text-[10px] font-normal" style={{ color: "var(--color-text-faint)" }} title={`Total Histori Insentif: ${formatRp(productDetailRows.sumHistoryIncentive)}`}>
+                            vs {formatRp(productDetailRows.sumHistoryIncentive)}
+                          </span>
+                        </div>
+                      ) : productDetailRows.isNewIncentiveTotal ? (
+                        <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border" style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", borderColor: "rgba(22,163,74,0.3)" }}>Baru</span>
+                      ) : (
+                        <span style={{ color: "var(--color-text-muted)" }}>-</span>
                       )}
                     </td>
                   </tr>
@@ -1027,7 +1082,7 @@ export function SalesCounterOutletCard({
             </div>
             {b3RangeLabel && (
               <p className="text-[11px] px-3 py-2 border-t" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)", background: "var(--color-bg-subtle)" }}>
-                * Growth Dihitung dari Histori Rata-Rata Penjualan Quarter ({b3RangeLabel})
+                * Growth Sales &amp; Insentif SC Dihitung dari Histori Quarter ({b3RangeLabel})
               </p>
             )}
           </div>

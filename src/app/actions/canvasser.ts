@@ -5,6 +5,7 @@ import { getSalesCounterProduct } from "@/app/(app)/sc/[id]/_services/getSalesCo
 import { getScProductMenang } from "@/app/(app)/sc/[id]/_services/getScProductMenang";
 import { getScProductWithInsentif } from "@/app/(app)/sc/[id]/_services/getScProductWithInsentif";
 import { getScInsentifHistory } from "@/app/(app)/sc/[id]/_services/getScInsentifHistory";
+import { getScHistoryIncentiveCounter } from "@/app/(app)/sc/[id]/_services/getScHistoryIncentiveCounter";
 import { getPrincodeProducts } from "@/app/(app)/sc/[id]/_services/getPrincodeProducts";
 import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa";
 import { getScOutletB3Sales } from "@/app/(app)/sc/[id]/_services/getScOutletB3Sales";
@@ -100,6 +101,16 @@ export async function getScInsentifHistoryAction(piCode: string, period?: string
   if (!piCode) return { data: {} };
   const res = await getScInsentifHistory(piCode, period);
   return res || { data: {} };
+}
+
+export async function getScHistoryIncentiveCounterAction(
+  piCode: string,
+  quarter: string,
+  year: string | number
+) {
+  if (!piCode || !quarter || !year) return { data: [] };
+  const res = await getScHistoryIncentiveCounter(piCode, quarter, year);
+  return res || { data: [] };
 }
 
 export async function getPrincodeProductsAction() {
