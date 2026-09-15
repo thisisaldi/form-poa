@@ -330,7 +330,7 @@ export function useScSidebar({
           targetCode: code,
           salesQty: agg.avgQty,
           salesVal: agg.avgValue,
-          item: agg,
+          item: { ...cp, ...agg },
         });
       }
     }

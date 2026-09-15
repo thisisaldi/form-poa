@@ -600,9 +600,10 @@ export function SalesCounterProductBreakdownTable({
           >
             <div className="flex items-center gap-2">
               <svg
-                className={`w-3.5 h-3.5 transition-transform duration-200 text-slate-500 group-hover:text-slate-800 dark:group-hover:text-slate-200 ${
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${
                   showAllUnselected ? "rotate-0" : "-rotate-90"
                 }`}
+                style={{ color: "var(--color-red)" }}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -612,9 +613,9 @@ export function SalesCounterProductBreakdownTable({
               </svg>
               <span
                 className="text-xs font-semibold uppercase tracking-wider group-hover:opacity-80 transition-opacity"
-                style={{ color: "var(--color-text)" }}
+                style={{ color: "var(--color-red)" }}
               >
-                Produk Histori SC Tidak Diajukan ({unselectedProducts.length})
+                Produk SC dengan Sales yang Tidak Diajukan ({unselectedProducts.length})
               </span>
             </div>
             <span className="text-[11px] font-medium" style={{ color: "var(--color-text-muted)" }}>

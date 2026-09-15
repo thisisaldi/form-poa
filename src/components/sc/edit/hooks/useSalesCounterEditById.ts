@@ -17,7 +17,6 @@ import {
   getScOutletB3SalesAction,
   postHistorySalesAction,
   getRekomendasiProdukAction,
-  getHistorySalesAction,
   getSalesOnlineAction,
   getHistoryEntertainAction,
   getSurveyNexusAction,
@@ -266,6 +265,7 @@ export function useSalesCounterEditById({
   const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
   const [historySalesData, setHistorySalesData] = useState<any>(null);
+  const [b3HistorySalesData, setB3HistorySalesData] = useState<any>(null);
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
   const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
@@ -364,6 +364,7 @@ export function useSalesCounterEditById({
 
         // B3 sales
         if (bundle.b3SalesResponse) {
+          setB3HistorySalesData(bundle.b3SalesResponse);
           const parsed = parseOutletHistorySales(bundle.b3SalesResponse, kodePI);
           if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
             setB3SalesMap(parsed.productSalesMap);
@@ -855,6 +856,7 @@ export function useSalesCounterEditById({
     productsInsentif,
     insentifHistory,
     historySalesData,
+    b3HistorySalesData,
     salesOnlineData,
     surveyData,
     surveyNexusData,

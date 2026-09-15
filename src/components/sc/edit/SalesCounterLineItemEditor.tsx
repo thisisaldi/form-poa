@@ -161,6 +161,7 @@ export function SalesCounterLineItemEditor({
 
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
   const [b3QtyMap, setB3QtyMap] = useState<Map<string, number>>(new Map());
+  const [b3HistorySalesData, setB3HistorySalesData] = useState<any>(null);
   const [b3RangeLabel, setB3RangeLabel] = useState<string>("");
   const [outletTotalAvgB3Sales, setOutletTotalAvgB3Sales] = useState<number>(0);
   const [isEntertainOpen, setIsEntertainOpen] = useState(false);
@@ -168,6 +169,7 @@ export function SalesCounterLineItemEditor({
   useEffect(() => {
     setB3SalesMap(new Map());
     setB3QtyMap(new Map());
+    setB3HistorySalesData(null);
     setOutletTotalAvgB3Sales(0);
 
     if (!outletId) {
@@ -182,12 +184,13 @@ export function SalesCounterLineItemEditor({
       return;
     }
 
-    postHistorySalesAction([outletId], b3Info.targetPeriods, scProCodes).then((res) => {
+    postHistorySalesAction([outletId], b3Info.targetPeriods, scProCodes, false).then((res) => {
       const parsed = parseOutletHistorySales(res, outletId);
       if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
         setB3SalesMap(parsed.productSalesMap);
         setB3QtyMap(parsed.productQtyMap);
         setOutletTotalAvgB3Sales(parsed.averageSales);
+        setB3HistorySalesData(res);
       } else {
         // Fallback to getScOutletB3SalesAction for all SC products
         getScOutletB3SalesAction(b3Info.period, outletId, scProCodes).then((fallbackRes) => {
@@ -1130,9 +1133,10 @@ export function SalesCounterLineItemEditor({
                 isLoading={loadingOutletData}
                 error={errors.products}
                 b3SalesMap={b3SalesMap}
+                b3QtyMap={b3QtyMap}
                 b3RangeLabel={b3RangeLabel}
                 surveyNexusData={surveyNexusData}
-                historySalesData={historySalesData}
+                historySalesData={b3HistorySalesData || historySalesData}
               />
             </div>
 

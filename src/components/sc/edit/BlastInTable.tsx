@@ -162,12 +162,12 @@ export function BlastInTable({
                       key={qIdx}
                       className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1"
                       style={{
-                        background: isEstimatedWin ? "rgba(254, 243, 199, 0.5)" : "rgba(100, 116, 139, 0.08)",
-                        color: isEstimatedWin ? "#b45309" : "#64748b",
-                        border: `1px solid ${isEstimatedWin ? "rgba(245, 158, 11, 0.5)" : "rgba(100, 116, 139, 0.2)"}`,
+                        background: "rgba(100, 116, 139, 0.08)",
+                        color: "#64748b",
+                        border: "1px solid rgba(100, 116, 139, 0.2)",
                       }}
                     >
-                      {isEstimatedWin ? `Estimasi Menang Q${qIdx}` : `Estimasi Q${qIdx}`}
+                      Est Q{qIdx}
                     </span>
                   );
                 }
@@ -375,12 +375,12 @@ export function BlastInTable({
                       <span
                         className="inline-block text-[10px] font-semibold px-2.5 py-0.5 rounded-full"
                         style={{
-                          background: isEstimatedWin ? "rgba(254, 243, 199, 0.5)" : "rgba(100, 116, 139, 0.08)",
-                          color: isEstimatedWin ? "#b45309" : "#64748b",
-                          border: `1px solid ${isEstimatedWin ? "rgba(245, 158, 11, 0.5)" : "rgba(100, 116, 139, 0.2)"}`,
+                          background: "rgba(100, 116, 139, 0.08)",
+                          color: "#64748b",
+                          border: "1px solid rgba(100, 116, 139, 0.2)",
                         }}
                       >
-                        {isEstimatedWin ? "Estimasi Menang" : "Estimasi"}
+                        Estimasi
                       </span>
                     );
                   }

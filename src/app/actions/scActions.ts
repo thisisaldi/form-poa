@@ -134,7 +134,22 @@ export async function saveSalesCounterFormAction(
     rencanaTotalBiaya: number;
   }> = [];
 
+  // Deduplicate products by kodeProduk to safeguard against duplicate entries
+  const uniqueProductsMap = new Map<string, typeof validProducts[0]>();
   for (const p of validProducts) {
+    if (!p.kodeProduk) continue;
+    if (!uniqueProductsMap.has(p.kodeProduk)) {
+      uniqueProductsMap.set(p.kodeProduk, p);
+    } else {
+      const existing = uniqueProductsMap.get(p.kodeProduk)!;
+      if (Array.isArray(p.monthlyQty) && p.monthlyQty.some((q) => (parseFloat(q) || 0) > 0)) {
+        uniqueProductsMap.set(p.kodeProduk, p);
+      }
+    }
+  }
+  const deduplicatedProducts = Array.from(uniqueProductsMap.values());
+
+  for (const p of deduplicatedProducts) {
     if (!p.kodeProduk) continue;
 
     const hasMonthly = Array.isArray(p.monthlyQty) && p.monthlyQty.length > 0;

@@ -324,13 +324,17 @@ export function ScSidebar({
                         </div>
 
                         {(() => {
-                          const hna = getHnaForProduct(entry.code, masterProducts) || parseFloat(String(entry.item?.hna || entry.item?.pro_hna || 0)) || 0;
+                          const cp = canvasserProducts?.find(
+                            (p: any) =>
+                              p.pro_code === entry.code ||
+                              p.pro_code?.replace(/^0+/, "") === entry.code.replace(/^0+/, "")
+                          ) || entry.item;
+
+                          const hna = getHnaForProduct(entry.code, masterProducts) || parseFloat(String(cp?.hna || cp?.pro_hna || 0)) || 0;
                           const salesVal = entry.salesVal > 0 ? entry.salesVal : entry.salesQty * hna;
                           const formattedQty = entry.salesQty % 1 === 0 ? entry.salesQty.toString() : (Math.round(entry.salesQty * 10) / 10).toString();
-                          const minTarget = entry.item?.sales_counter_minimum != null ? Number(entry.item.sales_counter_minimum) : null;
-                          const baseInsentif = entry.item?.sales_counter_value != null ? Number(entry.item.sales_counter_value) : null;
-                          const multiplier = minTarget != null && !isNaN(minTarget) && minTarget > 0 ? minTarget : 1;
-                          const totalInsentif = baseInsentif != null ? baseInsentif * multiplier : null;
+                          const minTarget = cp?.sales_counter_minimum != null ? Number(cp.sales_counter_minimum) : null;
+                          const insentif = cp?.sales_counter_value != null ? Number(cp.sales_counter_value) : null;
 
                           return (
                             <div className="space-y-1 pt-0.5 text-[9.5px]">
@@ -356,18 +360,17 @@ export function ScSidebar({
                                   </span>
                                 </div>
                               )}
-                              {totalInsentif != null && !isNaN(totalInsentif) && (
+                              {insentif != null && !isNaN(insentif) && (
                                 <div className="flex items-center">
                                   <span
                                     className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
-                                    title={minTarget && minTarget > 1 && baseInsentif ? `${formatRp(baseInsentif)} x ${minTarget} UB = ${formatRp(totalInsentif)}` : undefined}
                                     style={{
                                       background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
                                       color: "var(--color-success, #16a34a)",
                                       border: "1px solid rgba(22, 163, 74, 0.25)",
                                     }}
                                   >
-                                    Nilai Insentif SC: {formatRp(totalInsentif)}
+                                    Nilai Insentif SC: {formatRp(insentif)}
                                   </span>
                                 </div>
                               )}
