@@ -253,10 +253,11 @@ export function calculateProductDetailRows({
       }
     }
 
+    const hasAnyPeriodeMonth = items.some((it) => Boolean(it.periodeMonth));
     const monthlyBreakdown: ProductMonthlyQty[] = periodMonths.map((m) => {
       const q = itemMonthMap.has(m)
         ? (itemMonthMap.get(m) || 0)
-        : (isMultiMonth ? 0 : (primary.qtyPerBulan || 0));
+        : (hasAnyPeriodeMonth || isMultiMonth || periodMonths.length > 1 ? 0 : (primary.qtyPerBulan || 0));
       return {
         month: m,
         monthLabel: formatShortMonth(m) || m,

@@ -1067,52 +1067,8 @@ export function SalesCounterLineItemEditor({
             </div>
           </div>
 
-          {/* 3. RENCANA POA */}
+          {/* 3. PRODUK YANG DIPROMOSIKAN */}
           <div>
-            <SectionLabel>Rencana SC</SectionLabel>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium" style={{ color: errors.periodeAwal ? "var(--color-red)" : "var(--color-text-muted)" }}>
-                  Periode Awal <Req />
-                </span>
-                <select
-                  value={periodeAwal}
-                  onChange={(e) => setPeriodeAwal(e.target.value)}
-                  className="input-field font-mono w-full text-sm"
-                  style={{
-                    background: "var(--color-bg)",
-                    borderColor: "var(--color-border)",
-                    color: periodeAwal ? "var(--color-text)" : "var(--color-text-faint)",
-                    outline: errors.periodeAwal ? "1px solid var(--color-red)" : undefined,
-                  }}
-                  required>
-                  <option value="">YYYYMM</option>
-                  {quarterMonths.map((m) => {
-                    const year = m.slice(0, 4);
-                    const monthIndex = parseInt(m.slice(4)) - 1;
-                    const label = new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "long", year: "numeric" });
-                    return (
-                      <option key={m} value={m}>
-                        {m} · {label}
-                      </option>
-                    );
-                  })}
-                </select>
-                {errors.periodeAwal && <span className="text-xs" style={{ color: "var(--color-red)" }}>{errors.periodeAwal}</span>}
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                  Lama Periode
-                </span>
-                <div className="input-field flex items-center bg-transparent" style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 32, cursor: "not-allowed" }}>
-                  <span className="text-xs font-semibold px-1">{lamaPeriode} bulan</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 4. PRODUK YANG DIPROMOSIKAN */}
             <div>
               <SectionLabel>Produk yang Dipromosikan</SectionLabel>
               <ProductSelector

@@ -6,6 +6,7 @@ import { Req, InfoTooltip } from "./ui";
 import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
 import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { UnitInput } from "./UnitInput";
 import {
   getLossSalesAnalysisAction,
@@ -56,6 +57,7 @@ export function ProductSelector({
 }: ProductSelectorProps) {
   const [lossSalesItems, setLossSalesItems] = useState<any[]>([]);
   const [expandedRows, setExpandedRows] = useState<Record<number, boolean>>({});
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
 
   const nexusSurveyMap = useMemo(() => {
     const map = new Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>();
@@ -414,13 +416,13 @@ export function ProductSelector({
     lamaPeriode,
   });
 
-  const colProdukWidth = "w-[220px] min-w-[210px] max-w-[240px]";
-  const colSwitchWidth = !readOnly ? "w-[15%] min-w-[120px]" : "w-[15%] min-w-[120px]";
-  const colEstSalesWidth = !readOnly ? "w-[12%] min-w-[115px]" : "w-[12%] min-w-[115px]";
-  const colNilaiScWidth = !readOnly ? "w-[15%] min-w-[130px]" : "w-[15%] min-w-[130px]";
-  const colCashbackWidth = !readOnly ? "w-[11%] min-w-[100px]" : "w-[11%] min-w-[100px]";
-  const colActionWidth = "w-[6%] min-w-[36px]";
-  const tableMinWidth = "min-w-[840px]";
+  const colProdukWidth = "w-[28%] min-w-[250px]";
+  const colSwitchWidth = "w-[16%] min-w-[130px]";
+  const colEstSalesWidth = "w-[18%] min-w-[145px]";
+  const colNilaiScWidth = "w-[18%] min-w-[145px]";
+  const colCashbackWidth = "w-[14%] min-w-[115px]";
+  const colActionWidth = "w-[6%] min-w-[44px]";
+  const tableMinWidth = "min-w-[880px]";
 
   return (
     <div className="space-y-4">
@@ -542,7 +544,7 @@ export function ProductSelector({
                         if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
                           return String(row.monthlyQty[mIdx]);
                         }
-                        return row.qtyPerBulan || "";
+                        return row.qtyPerBulan ? String(row.qtyPerBulan) : "0";
                       });
 
                   let totalQtySwitch = 0;
@@ -565,6 +567,16 @@ export function ProductSelector({
                   const scVal = canvasserProduct?.sales_counter_value;
                   const scMin = canvasserProduct?.sales_counter_minimum != null ? Number(canvasserProduct.sales_counter_minimum) : 0;
                   const targetSellInBln = scMin * hnaSJ;
+
+                  const monthlyEstSales = Array.from({ length: numMonths }, (_, mIdx) => {
+                    const mQty = parseFloat(currentMonthly[mIdx]) || 0;
+                    return mQty * hnaSJ;
+                  });
+
+                  const underTargetMonths = Array.from({ length: numMonths }, (_, mIdx) => {
+                    const mSales = monthlyEstSales[mIdx];
+                    return targetSellInBln > 0 && mSales < targetSellInBln ? monthLabels[mIdx] : null;
+                  }).filter(Boolean) as string[];
 
                   const isUnderTarget = targetSellInBln > 0 && estSalesBln < targetSellInBln;
                   const isAboveOrEqualTarget = !isUnderTarget;
@@ -621,15 +633,31 @@ export function ProductSelector({
                               </>
                             )}
                             <div
-                              className="pt-1.5 mt-1 border-t border-dashed flex items-center gap-1.5 text-[11px] leading-tight"
+                              className="pt-1.5 mt-1 border-t border-dashed flex items-center justify-between gap-2 flex-wrap"
                               style={{ borderColor: "var(--color-border)" }}
                             >
-                              <span className="font-bold" style={{ color: "var(--color-text-muted)" }}>
-                                Diskon:
-                              </span>
-                              <span className="font-bold text-xs" style={{ color: "var(--color-text)" }}>
-                                {row.persenDiskon ? `${row.persenDiskon}%` : (diskonPeriode ? `${diskonPeriode}%` : "-")}
-                              </span>
+                              <div className="flex items-center gap-1.5 text-[11px] leading-tight">
+                                <span className="font-bold" style={{ color: "var(--color-text-muted)" }}>
+                                  Diskon:
+                                </span>
+                                <span className="font-bold text-xs" style={{ color: "var(--color-text)" }}>
+                                  {row.persenDiskon ? `${row.persenDiskon}%` : (diskonPeriode ? `${diskonPeriode}%` : "-")}
+                                </span>
+                              </div>
+                              {underTargetMonths.length > 0 && (
+                                <span
+                                  className="text-[10px] leading-tight font-semibold px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0"
+                                  style={{
+                                    color: "var(--color-red, #dc2626)",
+                                    background: "rgba(239, 68, 68, 0.1)",
+                                    border: "1px solid rgba(239, 68, 68, 0.25)",
+                                  }}
+                                  title={`Di bawah target sell-in: ${underTargetMonths.join(", ")}`}
+                                >
+                                  <span className="text-xs leading-none">⚠</span>
+                                  <span>Di bawah target: {underTargetMonths.join(", ")}</span>
+                                </span>
+                              )}
                             </div>
                           </div>
                         )}
@@ -1088,26 +1116,6 @@ export function ProductSelector({
                                   />
                                 </div>
                               )}
-
-                              {/* Alert under target per bulan */}
-                              {(() => {
-                                const underTargetMonths = Array.from({ length: numMonths }, (_, mIdx) => {
-                                  const mSales = monthlyEstSales[mIdx];
-                                  return targetSellInBln > 0 && mSales < targetSellInBln ? monthLabels[mIdx] : null;
-                                }).filter(Boolean) as string[];
-
-                                if (underTargetMonths.length === 0) return null;
-
-                                return (
-                                  <div
-                                    className="text-[10px] leading-tight font-medium pt-1 flex items-start gap-1"
-                                    style={{ color: "var(--color-red)" }}
-                                  >
-                                    <span className="shrink-0 text-xs leading-none">⚠</span>
-                                    <span>Di bawah target: {underTargetMonths.join(", ")}</span>
-                                  </div>
-                                );
-                              })()}
                             </div>
                           );
                         })()}
@@ -1403,7 +1411,15 @@ export function ProductSelector({
                         <td className="py-2 px-2 text-center align-middle">
                           <button
                             type="button"
-                            onClick={() => onRemoveRow(idx)}
+                            onClick={() => {
+                              const r = rows[idx];
+                              const hasQty = (parseFloat(r.qtyPerBulan) || 0) > 0 || (Array.isArray(r.monthlyQty) && r.monthlyQty.some((q) => (parseFloat(q) || 0) > 0));
+                              if (!r.kodeProduk && !hasQty) {
+                                onRemoveRow(idx);
+                              } else {
+                                setDeleteIndex(idx);
+                              }
+                            }}
                             className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-red-500 hover:text-red-700 bg-red-50/70 hover:bg-red-100 border border-red-200/70 hover:border-red-300 transition-all cursor-pointer shadow-2xs"
                             title="Hapus produk"
                           >
@@ -1633,6 +1649,29 @@ export function ProductSelector({
           </div>
         );
       })}
+
+      {/* Double verification dialog for deleting a product */}
+      {deleteIndex !== null && (() => {
+        const rowToDelete = rows[deleteIndex];
+        const prod = masterProducts.find((p) => p.kodeProduk === rowToDelete?.kodeProduk);
+        const prodName = prod?.namaProduk || rowToDelete?.kodeProduk || "produk ini";
+
+        return (
+          <ConfirmDialog
+            open={true}
+            title="Hapus Produk?"
+            message={`Apakah Anda yakin ingin menghapus "${prodName}" dari daftar rencana SC? Seluruh data isian kuantitas untuk produk ini akan dihapus.`}
+            confirmLabel="Hapus Produk"
+            cancelLabel="Batal"
+            tone="danger"
+            onConfirm={() => {
+              onRemoveRow(deleteIndex);
+              setDeleteIndex(null);
+            }}
+            onCancel={() => setDeleteIndex(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

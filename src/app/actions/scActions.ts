@@ -178,6 +178,9 @@ export async function saveSalesCounterFormAction(
           mQty = parseInt(p.qtyPerBulan, 10) || 0;
         }
 
+        // Only insert active/non-zero periods to keep database clean
+        if (mQty <= 0) continue;
+
         const mCost = totalQty > 0
           ? parseFloat(((totalCost / totalQty) * mQty).toFixed(2))
           : parseFloat((totalCost / periodMonths.length).toFixed(2));
@@ -198,16 +201,19 @@ export async function saveSalesCounterFormAction(
         ? parseInt(p.monthlyQty![0], 10) || 0
         : parseInt(p.qtyPerBulan, 10) || 0;
 
-      productItemsToInsert.push({
-        kodeProduk: p.kodeProduk,
-        produkKompetitor: p.produkKompetitor || null,
-        periodeMonth: p.periodeMonth || periodeAwal,
-        qtyPerBulan: mQty,
-        persenMatriksSc: parseFloat(p.persenMatriksSc) || 0,
-        persenDiskon: parseFloat(p.persenDiskon) || 0,
-        persenCashback: parseFloat(p.persenCashback) || 0,
-        rencanaTotalBiaya: totalCost,
-      });
+      // Only insert active/non-zero periods to keep database clean
+      if (mQty > 0) {
+        productItemsToInsert.push({
+          kodeProduk: p.kodeProduk,
+          produkKompetitor: p.produkKompetitor || null,
+          periodeMonth: p.periodeMonth || periodeAwal,
+          qtyPerBulan: mQty,
+          persenMatriksSc: parseFloat(p.persenMatriksSc) || 0,
+          persenDiskon: parseFloat(p.persenDiskon) || 0,
+          persenCashback: parseFloat(p.persenCashback) || 0,
+          rencanaTotalBiaya: totalCost,
+        });
+      }
     }
   }
 
