@@ -23,7 +23,7 @@ export interface AggregatedProductHistory {
  */
 export function aggregateHistorySales(rawResponse: any): Map<string, AggregatedProductHistory> {
   const map = new Map<string, AggregatedProductHistory>();
-  if (!rawResponse?.data || !Array.isArray(rawResponse.data)) return map;
+  if (!rawResponse?.data) return map;
 
   const rawPeriods = Array.isArray(rawResponse.period) ? [...rawResponse.period] : [];
   const validPeriods = rawPeriods
@@ -35,9 +35,87 @@ export function aggregateHistorySales(rawResponse: any): Map<string, AggregatedP
   const p2 = validPeriods[validPeriods.length - 2]; // Month before latest (B2)
   const p3 = validPeriods[validPeriods.length - 3]; // 2 months before latest (B3)
 
+  // 1. If API already aggregated (e.g. from post-history-sales with agg: true)
+  // Format: rawResponse.data[piCode][proCode] = { sales_value, sales_qty, sales_value_avg, history_sales_avg }
+  if (rawResponse.aggregated && typeof rawResponse.data === "object" && !Array.isArray(rawResponse.data)) {
+    const addProductItem = (proCode: string, item: any) => {
+      if (proCode === "total_sales" || proCode === "average_sales") return;
+      const code = String(proCode).trim();
+      if (!code || !item || typeof item !== "object") return;
+
+      const totalQty = Number(item.sales_qty ?? item.history_sales_sum) || 0;
+      const totalValue = Number(item.sales_value ?? item.sales_value_sum) || 0;
+      const avgQty = Number(item.history_sales_avg ?? item.history_sales) || 0;
+      const avgValue = Number(item.sales_value_avg ?? item.sales_value) || 0;
+
+      const aggRecord: AggregatedProductHistory = {
+        code,
+        totalQty,
+        totalValue,
+        activeMonths: validPeriods.length || 12,
+        avgQty,
+        avgValue,
+        sales_b1: Number(item.sales_b1) || 0,
+        sales_b2: Number(item.sales_b2) || 0,
+        sales_b3: Number(item.sales_b3) || 0,
+        sales_val_b1: Number(item.sales_val_b1 ?? item.sales_value_b1) || 0,
+        sales_val_b2: Number(item.sales_val_b2 ?? item.sales_value_b2) || 0,
+        sales_val_b3: Number(item.sales_val_b3 ?? item.sales_value_b3) || 0,
+        activeMonthsB3: 0,
+        avgQtyB3: avgQty,
+        avgQtyB3Active: avgQty,
+        avgValueB3Active: avgValue,
+      };
+
+      map.set(code, aggRecord);
+      map.set(code.replace(/^0+/, ""), aggRecord);
+    };
+
+    for (const [k1, v1] of Object.entries(rawResponse.data)) {
+      if (k1 === "total_sales" || k1 === "average_sales") continue;
+      if (v1 && typeof v1 === "object") {
+        if ("sales_qty" in (v1 as any) || "history_sales_avg" in (v1 as any)) {
+          addProductItem(k1, v1);
+        } else {
+          for (const [proCode, item] of Object.entries(v1 as Record<string, any>)) {
+            addProductItem(proCode, item);
+          }
+        }
+      }
+    }
+    return map;
+  }
+
+  let rawRows: any[] = [];
+  if (Array.isArray(rawResponse.data)) {
+    rawRows = rawResponse.data;
+  } else if (typeof rawResponse.data === "object") {
+    // Format dari post-history-sales dengan aggregated: false
+    // rawResponse.data[period][piCode][proCode] = { sales_value, sales_qty }
+    for (const [periodKey, piObj] of Object.entries(rawResponse.data)) {
+      if (piObj && typeof piObj === "object") {
+        for (const [piKey, proObj] of Object.entries(piObj as Record<string, any>)) {
+          if (proObj && typeof proObj === "object") {
+            for (const [proCode, val] of Object.entries(proObj as Record<string, any>)) {
+              if (proCode === "total_sales" || proCode === "average_sales") continue;
+              if (val && typeof val === "object") {
+                rawRows.push({
+                  code: proCode,
+                  period: periodKey,
+                  history_sales: Number((val as any).sales_qty ?? (val as any).history_sales) || 0,
+                  sales_value: Number((val as any).sales_value) || 0,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Group raw rows by product code
   const productRows = new Map<string, any[]>();
-  for (const row of rawResponse.data) {
+  for (const row of rawRows) {
     const code = String(row.code || "").trim();
     if (!code) continue;
     const existing = productRows.get(code) || [];
@@ -175,6 +253,56 @@ export function parseOutletHistorySales(
   if (!response?.data || typeof response.data !== "object") return result;
 
   const rawPi = String(piCode || "").trim();
+  const firstKey = Object.keys(response.data)[0];
+  const isPeriodNested = firstKey && /^\d{6}$/.test(firstKey);
+
+  if (isPeriodNested) {
+    const numMonths = Array.isArray(response.period) && response.period.length > 0 ? response.period.length : 3;
+    let sumTotalSales = 0;
+    const proQtyTotal = new Map<string, number>();
+    const proValTotal = new Map<string, number>();
+
+    for (const [pKey, pObj] of Object.entries(response.data)) {
+      if (!pObj || typeof pObj !== "object") continue;
+      const outletObj: any = (pObj as any)[rawPi] || (pObj as any)[rawPi.toUpperCase()] || (pObj as any)[rawPi.toLowerCase()] || Object.values(pObj)[0];
+      if (!outletObj || typeof outletObj !== "object") continue;
+
+      if (outletObj.total_sales != null) {
+        sumTotalSales += Number(outletObj.total_sales) || 0;
+      }
+
+      for (const [proCode, val] of Object.entries(outletObj)) {
+        if (proCode === "total_sales" || proCode === "average_sales") continue;
+        if (val && typeof val === "object") {
+          const item = val as any;
+          const q = Number(item.sales_qty ?? item.history_sales) || 0;
+          const v = Number(item.sales_value) || 0;
+          proQtyTotal.set(proCode, (proQtyTotal.get(proCode) || 0) + q);
+          proValTotal.set(proCode, (proValTotal.get(proCode) || 0) + v);
+        }
+      }
+    }
+
+    result.totalSales = sumTotalSales;
+    result.averageSales = numMonths > 0 ? sumTotalSales / numMonths : 0;
+
+    for (const [code, qTotal] of proQtyTotal.entries()) {
+      const vTotal = proValTotal.get(code) || 0;
+      const qAvg = numMonths > 0 ? qTotal / numMonths : 0;
+      const vAvg = numMonths > 0 ? vTotal / numMonths : 0;
+
+      result.productQtyMap.set(code, qAvg);
+      result.productQtyMap.set(code.replace(/^0+/, ""), qAvg);
+      result.productSalesMap.set(code, vAvg);
+      result.productSalesMap.set(code.replace(/^0+/, ""), vAvg);
+      if (qTotal > 0 || vTotal > 0) {
+        result.productCount++;
+      }
+    }
+
+    return result;
+  }
+
   const outletData =
     response.data[rawPi] ||
     response.data[rawPi.toUpperCase()] ||

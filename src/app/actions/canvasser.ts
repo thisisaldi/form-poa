@@ -138,13 +138,14 @@ export async function getHistorySalesAction(piCode: string, agg: boolean = true)
 export async function postHistorySalesAction(
   piCodes: string[],
   period?: (number | string)[],
-  proCodes?: string[]
+  proCodes?: string[],
+  agg: boolean = true
 ) {
   if (!piCodes || piCodes.length === 0) return { data: null };
   const res = await postHistorySales({
     piCodes,
     period,
-    agg: true,
+    agg,
     proCodes,
   });
   return res || { data: null };
@@ -398,18 +399,23 @@ export async function getScOutletBundleAction(params: {
     cashbackRes,
     rekomendasiRes,
     entertainRes,
+    b3SalesRes,
   ] = await Promise.allSettled([
     getSalesCountersAction(outletId),
     getSalesCounterProductsAction(outletId),
     getScProductMenangAction(outletId),
     getScProductWithInsentifAction(outletId),
-    getHistorySalesAction(outletId, false),
+    // Retain 12-month data retrieval for Produk Rekomendasi (sidebar) with agg: true to get monthly average
+    postHistorySalesAction([outletId], undefined, undefined, true),
     getSalesOnlineAction(outletId),
     getSurveyNexusAction(outletId),
     getSurveyRekomendasiByOutletAggregate(outletId),
     getScCashbackPoaAction(outletId),
     getRekomendasiProdukAction(outletId),
     includeEntertain ? getHistoryEntertainAction(outletId) : Promise.resolve(null),
+    b3TargetPeriods && b3TargetPeriods.length > 0
+      ? postHistorySalesAction([outletId], b3TargetPeriods, undefined, false)
+      : Promise.resolve(null),
   ]);
 
   const personsList = personsRes.status === "fulfilled" && personsRes.value?.data ? personsRes.value.data : [];
@@ -423,6 +429,7 @@ export async function getScOutletBundleAction(params: {
   const cashbackData = cashbackRes.status === "fulfilled" ? cashbackRes.value : null;
   const rawRekomendasi = rekomendasiRes.status === "fulfilled" && rekomendasiRes.value?.data ? rekomendasiRes.value.data : [];
   const historyEntertain = entertainRes.status === "fulfilled" ? entertainRes.value : null;
+  let b3SalesResponse: any | null = b3SalesRes.status === "fulfilled" ? b3SalesRes.value : null;
 
   let rekomendasiProduk: any[] = [];
   if (Array.isArray(rawRekomendasi)) {
@@ -435,13 +442,12 @@ export async function getScOutletBundleAction(params: {
     rekomendasiProduk = (rawRekomendasi as any).products;
   }
 
-  // 2. Fetch B3 sales in parallel if target periods are provided
-  let b3SalesResponse: any | null = null;
-  if (b3TargetPeriods && b3TargetPeriods.length > 0) {
+  // 2. Fetch B3 sales fallback if target periods are provided and b3SalesResponse has no data
+  if (b3TargetPeriods && b3TargetPeriods.length > 0 && !b3SalesResponse?.data) {
     try {
       const scProCodes = Array.from(new Set(canvasserProducts.map((cp: any) => cp.pro_code).filter(Boolean))) as string[];
       if (scProCodes.length > 0) {
-        b3SalesResponse = await postHistorySalesAction([outletId], b3TargetPeriods, scProCodes);
+        b3SalesResponse = await postHistorySalesAction([outletId], b3TargetPeriods, scProCodes, false);
       }
     } catch (err) {
       console.error("Error fetching b3 history sales in bundle:", err);

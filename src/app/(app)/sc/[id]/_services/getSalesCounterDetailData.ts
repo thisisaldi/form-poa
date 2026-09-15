@@ -5,7 +5,6 @@ import { getMrSalesSummary } from "@/lib/salesSummary";
 import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { getSalesCounterProduct } from "./getSalesCounterProduct";
-import { getHistorySales } from "./getHistorySales";
 import { postHistorySales } from "./postHistorySales";
 import { getScOutletB3Sales } from "./getScOutletB3Sales";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
@@ -232,23 +231,6 @@ export async function getSalesCounterDetailData(
             const totalB3Val = activeB3.reduce((sum, it) => sum + (Number(it.average_sales) || 0), 0) * 3;
             if (totalB3Val > 0) {
               outletHistorySalesQuarterMap.set(kodePI, totalB3Val);
-              return;
-            }
-          }
-
-          // Fallback 2: legacy getHistorySales strictly filtered by SC codes
-          const historyRes = await getHistorySales(kodePI, false).catch(() => null);
-          if (historyRes?.data && Array.isArray(historyRes.data)) {
-            let totalValSum = 0;
-            for (const it of historyRes.data) {
-              const itemPeriod = Number(it.period);
-              const salesVal = Number(it.sales_value) || 0;
-              if (targetPeriodsSet.has(itemPeriod) && salesVal > 0 && it.code && scCodes.has(it.code)) {
-                totalValSum += salesVal;
-              }
-            }
-            if (totalValSum > 0) {
-              outletHistorySalesQuarterMap.set(kodePI, totalValSum);
               return;
             }
           }

@@ -83,6 +83,7 @@ export function SalesCounterEditByIdEditor({
     productsInsentif,
     insentifHistory,
     historySalesData,
+    b3HistorySalesData,
     salesOnlineData,
     surveyData,
     surveyNexusData,
@@ -785,9 +786,10 @@ export function SalesCounterEditByIdEditor({
               error={errors.products}
               readOnly={readOnly}
               b3SalesMap={b3SalesMap}
+              b3QtyMap={b3QtyMap}
               b3RangeLabel={b3RangeLabel}
               surveyNexusData={surveyNexusData}
-              historySalesData={historySalesData}
+              historySalesData={b3HistorySalesData || historySalesData}
             />
           </div>
 

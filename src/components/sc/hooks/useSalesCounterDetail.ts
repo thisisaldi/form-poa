@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useTransition } from "react";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { getB3ByQuarter } from "@/lib/b3Utils";
 import type { ScDraftFormItem } from "../types";
-import { getScCashbackPoaAction, getHistorySalesAction, postHistorySalesAction } from "@/app/actions/canvasser";
+import { getScCashbackPoaAction, postHistorySalesAction } from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 
@@ -13,15 +13,17 @@ export function useSalesCounterDetail({
   userRole,
   canApprove,
   canFastTrack,
+  onRefetch,
 }: {
   scDrafts?: ScDraftFormItem[];
-  poaPeriod: string;
+  poaPeriod?: string;
   showSubmit?: boolean;
   userRole?: string;
   canApprove?: boolean;
   canFastTrack?: boolean;
+  onRefetch?: () => void;
 }) {
-  const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
+  const [isPending, startTransition] = useTransition();
   const [cashbackData, setCashbackData] = useState<any>(null);
   const [historySalesMap, setHistorySalesMap] = useState<Map<string, number>>(new Map());
 
@@ -29,7 +31,10 @@ export function useSalesCounterDetail({
     getScCashbackPoaAction().then((res) => setCashbackData(res));
   }, []);
 
+  const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
+
   const b3Info = useMemo(() => {
+    if (!poaPeriod) return null;
     try {
       return getB3ByQuarter(poaPeriod);
     } catch {
@@ -37,15 +42,14 @@ export function useSalesCounterDetail({
     }
   }, [poaPeriod]);
 
+  // Fetch B3 history sales for each draft in parallel
   useEffect(() => {
-    if (!b3Info) return;
-    const missingDrafts = safeScDrafts.filter(
-      (d) => d.kodePI && d.historySalesQuarter == null && !historySalesMap.has(d.kodePI)
-    );
-    if (missingDrafts.length === 0) return;
+    if (!b3Info?.targetPeriods || b3Info.targetPeriods.length === 0) return;
 
-    missingDrafts.forEach((draft) => {
+    safeScDrafts.forEach((draft) => {
       if (!draft.kodePI) return;
+      if (historySalesMap.has(draft.kodePI)) return;
+
       const scProCodes = (draft.products || [])
         .filter((p: any) => p.isScProduct !== false)
         .map((p: any) => p.kodeProduk)
@@ -60,25 +64,6 @@ export function useSalesCounterDetail({
         const parsed = parseOutletHistorySales(res, draft.kodePI);
         if (parsed.totalSales > 0) {
           setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, parsed.totalSales));
-        } else {
-          // Fallback to legacy getHistorySalesAction strictly filtered by SC codes
-          const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
-          const scCodesSet = new Set(scProCodes);
-          getHistorySalesAction(draft.kodePI, false).then((legacyRes) => {
-            if (legacyRes?.data && Array.isArray(legacyRes.data)) {
-              let total = 0;
-              for (const it of legacyRes.data) {
-                const itemPeriod = Number(it.period);
-                const salesVal = Number(it.sales_value) || 0;
-                if (targetPeriodsSet.has(itemPeriod) && salesVal > 0 && it.code && scCodesSet.has(it.code)) {
-                  total += salesVal;
-                }
-              }
-              if (total > 0) {
-                setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, total));
-              }
-            }
-          });
         }
       });
     });
@@ -146,6 +131,7 @@ export function useSalesCounterDetail({
   }
 
   const quarterMonths = useMemo(() => {
+    if (!poaPeriod) return [];
     try {
       return quarterToMonths(poaPeriod);
     } catch {

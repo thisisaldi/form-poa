@@ -12,7 +12,6 @@ import {
   getScInsentifHistoryAction,
   getScCashbackPoaAction,
   getRekomendasiProdukAction,
-  getHistorySalesAction,
   getSalesOnlineAction,
   getSurveyNexusAction,
   getScOutletBundleAction,
@@ -23,6 +22,7 @@ import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { calculateCashbackDetails } from "./useSalesCounterCashback";
 import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
+import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { extractQuarterAndYear } from "@/components/sc/detail/utils/outletCalculationUtils";
 import { useScToast } from "../../ui/ScToast";
 import { formatDiskonPct, formatCashbackPct } from "../utils/formatEditUtils";
@@ -200,16 +200,24 @@ export function useSalesCounterEditor({
     setLoadingPersons(true);
     setLoadingSurvey(true);
 
-    getScOutletBundleAction({ outletId })
+    const b3Info = getB3RollingPeriodInfo(poaPeriod);
+    getScOutletBundleAction({
+      outletId,
+      b3TargetPeriods: b3Info?.targetPeriods,
+    })
       .then((bundle) => {
         if (isCancelled) return;
         setPersonsList(bundle.personsList);
         setCanvasserProducts(bundle.canvasserProducts);
         const validCodes = new Set(bundle.canvasserProducts.map((cp: any) => cp.pro_code));
         setProducts((prev) => {
-          const filtered = prev.filter(
-            (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""))
-          );
+          const seen = new Set<string>();
+          const filtered = prev.filter((r) => {
+            if (!r.kodeProduk) return true;
+            if (seen.has(r.kodeProduk)) return false;
+            seen.add(r.kodeProduk);
+            return validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""));
+          });
           return filtered.length > 0
             ? filtered
             : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
@@ -340,17 +348,93 @@ export function useSalesCounterEditor({
       setJumlahKaryawan(draft.jumlahKaryawan != null ? String(draft.jumlahKaryawan) : "");
       setJumlahPasien(draft.jumlahPasien != null ? String(draft.jumlahPasien) : "");
       setJumlahPasienResep(draft.jumlahPasienResep != null ? String(draft.jumlahPasienResep) : "");
-      setProducts(
-        draft.products.map((p: any) => ({
-          kodeProduk: p.kodeProduk,
-          produkKompetitor: p.produkKompetitor || "",
-          qtyPerBulan: String(p.qtyPerBulan ?? p.qtyCustomerBaru ?? ""),
-          persenMatriksSc: String(p.persenMatriksSc),
-          persenDiskon: String(p.persenDiskon),
-          persenCashback: String(p.persenCashback),
-          rencanaTotalBiaya: Number(p.rencanaTotalBiaya),
-        }))
-      );
+      // Group multi-month items by kodeProduk and reconstruct monthlyQty
+      if (Array.isArray(draft.products) && draft.products.length > 0) {
+        const groupMap = new Map<string, any[]>();
+        for (const p of draft.products) {
+          if (!p.kodeProduk) continue;
+          if (!groupMap.has(p.kodeProduk)) {
+            groupMap.set(p.kodeProduk, []);
+          }
+          groupMap.get(p.kodeProduk)!.push(p);
+        }
+
+        const startYear = parseInt(draft.periodeAwal?.slice(0, 4) || "2026", 10);
+        const startMonth = parseInt(draft.periodeAwal?.slice(4, 6) || "1", 10);
+        const numMonths = Math.max(1, draft.lamaPeriode || 3);
+        const periodMonths: string[] = [];
+        for (let i = 0; i < numMonths; i++) {
+          const d = new Date(startYear, startMonth - 1 + i, 1);
+          periodMonths.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+        }
+
+        const groupedRows: SelectedProductRow[] = [];
+        for (const [, items] of groupMap.entries()) {
+          const primary = items[0];
+          const monthMap = new Map<string, number>();
+          for (const it of items) {
+            if (it.periodeMonth) {
+              monthMap.set(it.periodeMonth, Number(it.qtyPerBulan) || 0);
+            }
+          }
+
+          const hasMultipleMonths = items.some((it) => it.periodeMonth);
+          let monthlyQty: string[] | undefined = undefined;
+          let totalQty = 0;
+
+          if (hasMultipleMonths && periodMonths.length > 1) {
+            monthlyQty = periodMonths.map((m) => {
+              if (monthMap.has(m)) {
+                const q = monthMap.get(m)!;
+                totalQty += q;
+                return String(q);
+              }
+              const def = Number(primary.qtyPerBulan) || 0;
+              totalQty += def;
+              return String(def || "");
+            });
+          } else {
+            const def = Number(primary.qtyPerBulan) || 0;
+            totalQty = def * numMonths;
+            if (periodMonths.length > 1) {
+              monthlyQty = Array(numMonths).fill(String(def || ""));
+            }
+          }
+
+          const avgQty = numMonths > 0 ? totalQty / numMonths : (Number(primary.qtyPerBulan) || 0);
+          const formattedAvg = avgQty % 1 === 0 ? avgQty.toString() : parseFloat(avgQty.toFixed(2)).toString();
+          const totalRencana = items.reduce((sum, it) => sum + (Number(it.rencanaTotalBiaya) || 0), 0);
+
+          groupedRows.push({
+            kodeProduk: primary.kodeProduk,
+            produkKompetitor: primary.produkKompetitor || "",
+            qtyPerBulan: formattedAvg,
+            monthlyQty,
+            persenMatriksSc: String(primary.persenMatriksSc ?? ""),
+            persenDiskon: String(primary.persenDiskon ?? ""),
+            persenCashback: String(primary.persenCashback ?? ""),
+            rencanaTotalBiaya: totalRencana,
+          });
+        }
+
+        setProducts(
+          groupedRows.length > 0
+            ? groupedRows
+            : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }]
+        );
+      } else {
+        setProducts([
+          {
+            kodeProduk: "",
+            produkKompetitor: "",
+            qtyPerBulan: "",
+            persenMatriksSc: "",
+            persenDiskon: "",
+            persenCashback: "",
+            rencanaTotalBiaya: 0,
+          },
+        ]);
+      }
     } else {
       setSelectedPersonIds([]);
       setPeriodeAwal("");

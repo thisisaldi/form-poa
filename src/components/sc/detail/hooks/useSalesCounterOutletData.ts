@@ -9,7 +9,6 @@ import {
   getSalesCounterProductsAction,
   getScInsentifHistoryAction,
   getScHistoryIncentiveCounterAction,
-  getHistorySalesAction,
   postHistorySalesAction,
   getSalesOnlineAction,
   getSurveyNexusAction,
@@ -221,64 +220,17 @@ export function useSalesCounterOutletData({
               return;
             }
 
-            // Fallback 2: legacy getHistorySalesAction strictly filtered by SC codes
-            getHistorySalesAction(draft.kodePI, false)
-              .then((legacyRes) => {
-                if (!isMounted) return;
-                if (legacyRes?.data && Array.isArray(legacyRes.data)) {
-                  const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
-                  const uniqueCodes = new Set<string>();
-                  const productSalesSum = new Map<string, number>();
-
-                  for (const it of legacyRes.data) {
-                    const itemPeriod = Number(it.period);
-                    const historyQty = Number(it.history_sales) || 0;
-                    const salesVal = Number(it.sales_value) || 0;
-
-                    if (targetPeriodsSet.has(itemPeriod) && (historyQty > 0 || salesVal > 0)) {
-                      if (it.code && scCodes.has(it.code)) {
-                        uniqueCodes.add(it.code);
-                        const cur = productSalesSum.get(it.code) || 0;
-                        productSalesSum.set(it.code, cur + salesVal);
-                      }
-                    }
-                  }
-
-                  let totalValSum = 0;
-                  const avgMap = new Map<string, number>();
-                  for (const [code, sumVal] of productSalesSum.entries()) {
-                    avgMap.set(code, sumVal / 3);
-                    totalValSum += sumVal;
-                  }
-
-                  const finalTotalCount = uniqueCodes.size;
-                  const finalAvgSales = totalValSum > 0 ? totalValSum / 3 : 0;
-                  setB3TotalCount(finalTotalCount);
-                  setB3SalesMap(avgMap);
-                  setB3TotalOutletSalesPerMonth(finalAvgSales);
-                  b3Cache.set(b3CacheKey, {
-                    b3SalesMap: avgMap,
-                    b3TotalOutletSalesPerMonth: finalAvgSales,
-                    b3TotalCount: finalTotalCount,
-                    allScProducts: products,
-                    clientScData: clientSc,
-                  });
-                } else {
-                  setB3TotalCount(0);
-                  setB3TotalOutletSalesPerMonth(0);
-                  b3Cache.set(b3CacheKey, {
-                    b3SalesMap: new Map(),
-                    b3TotalOutletSalesPerMonth: 0,
-                    b3TotalCount: 0,
-                    allScProducts: products,
-                    clientScData: clientSc,
-                  });
-                }
-                setIsLoadingB3(false);
-              })
-              .catch(() => {
-                if (isMounted) setIsLoadingB3(false);
-              });
+            setB3SalesMap(new Map());
+            setB3TotalOutletSalesPerMonth(0);
+            setB3TotalCount(0);
+            setIsLoadingB3(false);
+            b3Cache.set(b3CacheKey, {
+              b3SalesMap: new Map(),
+              b3TotalOutletSalesPerMonth: 0,
+              b3TotalCount: 0,
+              allScProducts: products,
+              clientScData: clientSc,
+            });
           })
           .catch(() => {
             if (isMounted) setIsLoadingB3(false);
