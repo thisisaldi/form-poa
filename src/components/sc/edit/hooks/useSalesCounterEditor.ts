@@ -21,7 +21,7 @@ import type { LossSalesRekomendasiProduct } from "@/app/(app)/sc/[id]/_models/Sc
 import type { Product } from "@/lib/masterData";
 import { saveSalesCounterFormAction, getDiskonDplDpfByPeriodeAction } from "@/app/actions/scActions";
 import { calculateCashbackDetails } from "./useSalesCounterCashback";
-import { resolvePeriodForQuarter } from "@/lib/quarterUtils";
+import { resolvePeriodForQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { extractQuarterAndYear } from "@/components/sc/detail/utils/outletCalculationUtils";
 import { useScToast } from "../../ui/ScToast";
@@ -63,17 +63,25 @@ export function useSalesCounterEditor({
   }, [initialOutletId]);
   const [personId, setPersonId] = useState<number | null>(null);
   const [selectedPersonIds, setSelectedPersonIds] = useState<number[]>([]);
-  const [periodeAwal, setPeriodeAwal] = useState("");
-  const [lamaPeriode, setLamaPeriode] = useState(0);
 
   const extracted = useMemo(() => {
-    return extractQuarterAndYear(poaPeriod, periodeAwal);
-  }, [poaPeriod, periodeAwal]);
+    return extractQuarterAndYear(poaPeriod, "");
+  }, [poaPeriod]);
 
   // Period / Quarter setup
   const [rowQuarter, setRowQuarter] = useState<number>(() => {
     return parseInt(extracted.quarter.replace(/^Q/i, ""), 10) || 1;
   });
+
+  const quarterDefaultMonths = useMemo(() => {
+    const yr = parseInt(extracted.year, 10) || new Date().getFullYear();
+    return quarterToMonths(`${yr}-Q${rowQuarter}`);
+  }, [extracted.year, rowQuarter]);
+
+  const defaultPeriodeAwal = quarterDefaultMonths[0] || "";
+
+  const [periodeAwal, setPeriodeAwal] = useState<string>(defaultPeriodeAwal);
+  const [lamaPeriode, setLamaPeriode] = useState<number>(3);
 
   // Monthly Entertain Plan list
   const [entertainList, setEntertainList] = useState<EntertainRow[]>([]);
@@ -389,15 +397,13 @@ export function useSalesCounterEditor({
                 totalQty += q;
                 return String(q);
               }
-              const def = Number(primary.qtyPerBulan) || 0;
-              totalQty += def;
-              return String(def || "");
+              return "0";
             });
           } else {
             const def = Number(primary.qtyPerBulan) || 0;
             totalQty = def * numMonths;
             if (periodMonths.length > 1) {
-              monthlyQty = Array(numMonths).fill(String(def || ""));
+              monthlyQty = Array(numMonths).fill(String(def || "0"));
             }
           }
 
@@ -437,8 +443,8 @@ export function useSalesCounterEditor({
       }
     } else {
       setSelectedPersonIds([]);
-      setPeriodeAwal("");
-      setLamaPeriode(0);
+      setPeriodeAwal(defaultPeriodeAwal);
+      setLamaPeriode(3);
       setPersenResepDokter("");
       setJumlahKaryawan("");
       setJumlahPasien("");
@@ -559,7 +565,8 @@ export function useSalesCounterEditor({
       {
         kodeProduk: "",
         produkKompetitor: "",
-        qtyPerBulan: "",
+        qtyPerBulan: "0",
+        monthlyQty: Array(lamaPeriode || 3).fill("0"),
         persenMatriksSc: "",
         persenDiskon: "",
         persenCashback: "",

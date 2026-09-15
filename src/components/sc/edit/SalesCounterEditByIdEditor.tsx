@@ -713,59 +713,8 @@ export function SalesCounterEditByIdEditor({
           </div>
         </div>
 
-        {/* RENCANA SC */}
+        {/* PRODUK YANG DIPROMOSIKAN */}
         <div>
-          <SectionLabel>Rencana SC</SectionLabel>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Periode Awal</span>
-              {readOnly ? (
-                <div
-                  className="input-field flex items-center"
-                  style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 38, cursor: "not-allowed" }}
-                >
-                  <span className="text-xs font-semibold px-1">{periodeAwal}</span>
-                </div>
-              ) : (
-                <select
-                  value={periodeAwal}
-                  onChange={(e) => handlePeriodeAwalChange(e.target.value)}
-                  className="input-field font-mono w-full text-xs h-[38px] rounded-md border"
-                  style={{
-                    background: "var(--color-bg)",
-                    borderColor: "var(--color-border)",
-                    color: periodeAwal ? "var(--color-text)" : "var(--color-text-faint)",
-                  }}
-                  required
-                >
-                  <option value="">YYYYMM</option>
-                  {quarterMonths.map((m) => {
-                    const year = m.slice(0, 4);
-                    const monthIndex = parseInt(m.slice(4)) - 1;
-                    const label = new Date(parseInt(year), monthIndex).toLocaleString("id-ID", { month: "long", year: "numeric" });
-                    return (
-                      <option key={m} value={m}>
-                        {m} · {label}
-                      </option>
-                    );
-                  })}
-                </select>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>Lama Periode</span>
-              <div
-                className="input-field flex items-center"
-                style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 38, cursor: "not-allowed" }}
-              >
-                <span className="text-xs font-semibold px-1">{lamaPeriode} bulan</span>
-              </div>
-            </div>
-          </div>
-
-          {/* PRODUK YANG DIPROMOSIKAN */}
           <div>
             <SectionLabel>Produk yang Dipromosikan</SectionLabel>
             <ProductSelector

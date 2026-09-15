@@ -178,7 +178,7 @@ export async function GET(
   const RP_FMT = "#,##0";
   const PCT_FMT = "0.0%";
 
-  // ─── Sheet 1: DATA INPUT POA ─────────────────────────────────────────────
+  // ─── Sheet 1: DATA INPUT POA (Detail per Bulan) ───────────────────────────
   const formSheet = wb.addWorksheet("DATA INPUT POA");
   formSheet.columns = [
     { header: "No. Form SC", key: "formNo", width: 12 },
@@ -186,24 +186,20 @@ export async function GET(
     { header: "Nama MR", key: "namaMr", width: 24 },
     { header: "KodePI Outlet", key: "kodePI", width: 14 },
     { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
-    { header: "% Resep Dokter", key: "persenResepDokter", width: 16 },
+    { header: "Periode", key: "periode", width: 14 },
     { header: "Sales Counter", key: "scPersonNames", width: 32 },
     { header: "Kode Produk", key: "kodeProduk", width: 14 },
     { header: "Nama Produk SC", key: "namaProduk", width: 30 },
     { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
     { header: "Qty ST / Bulan", key: "qtyPerBulan", width: 16 },
     { header: "Estimasi Sales / Bln (Rp)", key: "estSalesBulan", width: 22 },
-    { header: "Estimasi Sales / Periode (Rp)", key: "estSalesPeriode", width: 24 },
     { header: "% Matriks SC (Insentif)", key: "persenMatriksSc", width: 18 },
     { header: "Insentif SC / Bln (Rp)", key: "nilaiScBulan", width: 20 },
-    { header: "Insentif SC / Periode (Rp)", key: "nilaiScPeriode", width: 22 },
     { header: "% Diskon SC", key: "persenDiskon", width: 14 },
-    { header: "Diskon SC / Periode (Rp)", key: "diskonPeriode", width: 22 },
+    { header: "Diskon SC / Bln (Rp)", key: "diskonBulan", width: 22 },
     { header: "% Cashback SC", key: "persenCashback", width: 14 },
-    { header: "Cashback SC / Periode (Rp)", key: "cashbackPeriode", width: 22 },
+    { header: "Cashback SC / Bln (Rp)", key: "cashbackBulan", width: 22 },
     { header: "Total Rencana Biaya SC (Rp)", key: "rencanaTotalBiaya", width: 24 },
-    { header: "Periode Awal", key: "periodeAwal", width: 14 },
-    { header: "Lama Periode (Bulan)", key: "lamaPeriode", width: 16 },
     { header: "Status", key: "status", width: 16 },
   ];
 
@@ -211,27 +207,62 @@ export async function GET(
   formSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
   formSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
 
+  // ─── Sheet 2: DATA POA PER PERIODE (Rekap Akumulasi per Periode) ───────────
+  const periodSheet = wb.addWorksheet("DATA POA PER PERIODE");
+  periodSheet.columns = [
+    { header: "No. Form SC", key: "formNo", width: 12 },
+    { header: "NIP MR", key: "nipMr", width: 14 },
+    { header: "Nama MR", key: "namaMr", width: 24 },
+    { header: "KodePI Outlet", key: "kodePI", width: 14 },
+    { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
+    { header: "Periode", key: "periode", width: 14 },
+    { header: "Sales Counter", key: "scPersonNames", width: 32 },
+    { header: "Kode Produk", key: "kodeProduk", width: 14 },
+    { header: "Nama Produk SC", key: "namaProduk", width: 30 },
+    { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
+    { header: "Total Qty ST", key: "totalQty", width: 16 },
+    { header: "Total Estimasi Sales (Rp)", key: "totalEstSales", width: 24 },
+    { header: "% Matriks SC (Insentif)", key: "persenMatriksSc", width: 18 },
+    { header: "Total Insentif SC (Rp)", key: "totalNilaiSc", width: 22 },
+    { header: "% Diskon SC", key: "persenDiskon", width: 14 },
+    { header: "Total Diskon SC (Rp)", key: "totalDiskon", width: 22 },
+    { header: "% Cashback SC", key: "persenCashback", width: 14 },
+    { header: "Total Cashback SC (Rp)", key: "totalCashback", width: 22 },
+    { header: "Total Rencana Biaya SC (Rp)", key: "totalRencanaBiaya", width: 24 },
+    { header: "Status", key: "status", width: 16 },
+  ];
+
+  periodSheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
+  periodSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+  periodSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
+
   let formCounter = 1;
   for (const draft of drafts) {
-    const lama = draft.lamaPeriode || 3;
     const scPersonStr = draft.persons.map((p: any) => `${p.personName} (${p.positionName})`).join(", ") || "-";
-
     const scCodes = outletScProductCodesMap.get(draft.kodePI);
-    for (const p of draft.products) {
-      if (!p.kodeProduk) continue;
-      if (scCodes && scCodes.size > 0 && !scCodes.has(p.kodeProduk) && !scCodes.has(p.kodeProduk.replace(/^0+/, ""))) {
-        continue;
-      }
 
+    const validProducts = draft.products.filter((p: any) => {
+      if (!p.kodeProduk) return false;
+      if (scCodes && scCodes.size > 0 && !scCodes.has(p.kodeProduk) && !scCodes.has(p.kodeProduk.replace(/^0+/, ""))) {
+        return false;
+      }
+      return true;
+    });
+
+    // Sort products by kodeProduk then periodeMonth
+    validProducts.sort((a: any, b: any) =>
+      a.kodeProduk.localeCompare(b.kodeProduk) || (a.periodeMonth || "").localeCompare(b.periodeMonth || "")
+    );
+
+    // Populate Sheet 1: Detail per Bulan
+    for (const p of validProducts) {
       const mp = masterMap.get(p.kodeProduk);
       const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
       const konv = mp?.konversiPembagi ? parseFloat(mp.konversiPembagi.toString()) : 1;
       const hnaST = hnaSJ / konv;
 
       const qty = p.qtyPerBulan || 0;
-
       const estSalesBulan = qty * hnaST;
-      const estSalesPeriode = estSalesBulan * lama;
       const pctMatriks = (parseFloat(p.persenMatriksSc.toString()) || 0) / 100;
       const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
       const qtySjBln = konv > 0 ? qty / konv : 0;
@@ -244,15 +275,15 @@ export async function GET(
       } else {
         nilaiScBulan = estSalesBulan * pctMatriks;
       }
-      const nilaiScPeriode = nilaiScBulan * lama;
 
       const pctDiskon = (parseFloat(p.persenDiskon.toString()) || 0) / 100;
-      const diskonPeriode = estSalesPeriode * pctDiskon;
+      const diskonBulan = estSalesBulan * pctDiskon;
 
       const pctCashback = (parseFloat(p.persenCashback.toString()) || 0) / 100;
-      const cashbackPeriode = estSalesPeriode * pctCashback;
+      const cashbackBulan = estSalesBulan * pctCashback;
 
-      const totalBiayaProduk = parseFloat(p.rencanaTotalBiaya.toString()) || (nilaiScPeriode + diskonPeriode + cashbackPeriode);
+      const totalBiayaProduk =
+        parseFloat(p.rencanaTotalBiaya.toString()) || (nilaiScBulan + diskonBulan + cashbackBulan);
 
       formSheet.addRow({
         formNo: formCounter,
@@ -260,44 +291,133 @@ export async function GET(
         namaMr: owner.name,
         kodePI: draft.kodePI,
         namaOutlet: draft.namaOutlet || draft.kodePI,
-        persenResepDokter: draft.persenResepDokter || 0,
+        periode: p.periodeMonth || draft.period || draft.periodeAwal || targetPeriod,
         scPersonNames: scPersonStr,
         kodeProduk: p.kodeProduk,
         namaProduk: p.namaProduk,
         produkKompetitor: p.produkKompetitor || "-",
         qtyPerBulan: qty,
         estSalesBulan: Math.round(estSalesBulan),
-        estSalesPeriode: Math.round(estSalesPeriode),
         persenMatriksSc: pctMatriks,
         nilaiScBulan: Math.round(nilaiScBulan),
-        nilaiScPeriode: Math.round(nilaiScPeriode),
         persenDiskon: pctDiskon,
-        diskonPeriode: Math.round(diskonPeriode),
+        diskonBulan: Math.round(diskonBulan),
         persenCashback: pctCashback,
-        cashbackPeriode: Math.round(cashbackPeriode),
+        cashbackBulan: Math.round(cashbackBulan),
         rencanaTotalBiaya: Math.round(totalBiayaProduk),
-        periodeAwal: draft.periodeAwal,
-        lamaPeriode: lama,
         status: draft.status.replace(/_/g, " "),
       });
     }
+
+    // Populate Sheet 2: Rekap / Sum per Produk untuk Satu Periode
+    const productGroups = new Map<string, typeof validProducts>();
+    for (const p of validProducts) {
+      if (!productGroups.has(p.kodeProduk)) {
+        productGroups.set(p.kodeProduk, []);
+      }
+      productGroups.get(p.kodeProduk)!.push(p);
+    }
+
+    for (const [, items] of productGroups.entries()) {
+      const primary = items[0];
+      const mp = masterMap.get(primary.kodeProduk);
+      const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
+      const konv = mp?.konversiPembagi ? parseFloat(mp.konversiPembagi.toString()) : 1;
+      const hnaST = hnaSJ / konv;
+      const pctMatriks = (parseFloat(primary.persenMatriksSc.toString()) || 0) / 100;
+      const pctDiskon = (parseFloat(primary.persenDiskon.toString()) || 0) / 100;
+      const pctCashback = (parseFloat(primary.persenCashback.toString()) || 0) / 100;
+
+      const cp = canvasserProductMap.get(`${draft.kodePI}_${primary.kodeProduk}`);
+      const scVal = cp?.sales_counter_value;
+      const scMin = cp?.sales_counter_minimum || 0;
+
+      let totalQty = 0;
+      let totalEstSales = 0;
+      let totalNilaiSc = 0;
+      let totalDiskon = 0;
+      let totalCashback = 0;
+      let totalBiaya = 0;
+
+      for (const it of items) {
+        const q = it.qtyPerBulan || 0;
+        const estMonth = q * hnaST;
+        const qtySj = konv > 0 ? q / konv : 0;
+
+        let scMonth = 0;
+        if (scVal != null && scVal > 0) {
+          scMonth = qtySj >= scMin ? qtySj * scVal : 0;
+        } else {
+          scMonth = estMonth * pctMatriks;
+        }
+
+        const dMonth = estMonth * pctDiskon;
+        const cbMonth = estMonth * pctCashback;
+        const bMonth = parseFloat(it.rencanaTotalBiaya.toString()) || (scMonth + dMonth + cbMonth);
+
+        totalQty += q;
+        totalEstSales += estMonth;
+        totalNilaiSc += scMonth;
+        totalDiskon += dMonth;
+        totalCashback += cbMonth;
+        totalBiaya += bMonth;
+      }
+
+      periodSheet.addRow({
+        formNo: formCounter,
+        nipMr: owner.nip,
+        namaMr: owner.name,
+        kodePI: draft.kodePI,
+        namaOutlet: draft.namaOutlet || draft.kodePI,
+        periode: draft.period || targetPeriod,
+        scPersonNames: scPersonStr,
+        kodeProduk: primary.kodeProduk,
+        namaProduk: primary.namaProduk,
+        produkKompetitor: primary.produkKompetitor || "-",
+        totalQty,
+        totalEstSales: Math.round(totalEstSales),
+        persenMatriksSc: pctMatriks,
+        totalNilaiSc: Math.round(totalNilaiSc),
+        persenDiskon: pctDiskon,
+        totalDiskon: Math.round(totalDiskon),
+        persenCashback: pctCashback,
+        totalCashback: Math.round(totalCashback),
+        totalRencanaBiaya: Math.round(totalBiaya),
+        status: draft.status.replace(/_/g, " "),
+      });
+    }
+
     formCounter++;
   }
 
+  // Format Sheet 1
   ["persenMatriksSc", "persenDiskon", "persenCashback"].forEach((k) => {
     formSheet.getColumn(k).numFmt = PCT_FMT;
   });
 
   [
     "estSalesBulan",
-    "estSalesPeriode",
     "nilaiScBulan",
-    "nilaiScPeriode",
-    "diskonPeriode",
-    "cashbackPeriode",
+    "diskonBulan",
+    "cashbackBulan",
     "rencanaTotalBiaya",
   ].forEach((k) => {
     formSheet.getColumn(k).numFmt = RP_FMT;
+  });
+
+  // Format Sheet 2
+  ["persenMatriksSc", "persenDiskon", "persenCashback"].forEach((k) => {
+    periodSheet.getColumn(k).numFmt = PCT_FMT;
+  });
+
+  [
+    "totalEstSales",
+    "totalNilaiSc",
+    "totalDiskon",
+    "totalCashback",
+    "totalRencanaBiaya",
+  ].forEach((k) => {
+    periodSheet.getColumn(k).numFmt = RP_FMT;
   });
 
   // ─── Sheet 2: BIAYA ENTERTAIN OUTLET (Jika ada data entertain) ───────────

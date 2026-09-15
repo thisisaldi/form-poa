@@ -150,10 +150,14 @@ export function useSalesCounterEditById({
             totalQty += q;
             return String(q);
           }
-          return String(primary.qtyPerBulan ?? "");
+          return "0";
         });
       } else {
-        totalQty = (primary.qtyPerBulan || 0) * numMonths;
+        const def = primary.qtyPerBulan || 0;
+        totalQty = def * numMonths;
+        if (periodMonths.length > 1) {
+          monthlyQty = Array(numMonths).fill(String(def || "0"));
+        }
       }
 
       const avgQty = numMonths > 0 ? totalQty / numMonths : (primary.qtyPerBulan || 0);
@@ -760,7 +764,8 @@ export function useSalesCounterEditById({
       {
         kodeProduk: "",
         produkKompetitor: "",
-        qtyPerBulan: "",
+        qtyPerBulan: "0",
+        monthlyQty: Array(lamaPeriode || 3).fill("0"),
         persenMatriksSc: "",
         persenDiskon: "",
         persenCashback: "",

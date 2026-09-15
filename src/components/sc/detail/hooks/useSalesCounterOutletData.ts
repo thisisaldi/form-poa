@@ -429,7 +429,7 @@ export function useSalesCounterOutletData({
     return calculateProductDetailRows({
       scProducts,
       lama,
-      periodeAwal: draft.periodeAwal,
+      periodeAwal: draft.periodeAwal || draft.period,
       cashbackData,
       cbDetails,
       b3SalesMap,
@@ -441,6 +441,7 @@ export function useSalesCounterOutletData({
     scProducts,
     lama,
     draft.periodeAwal,
+    draft.period,
     cashbackData,
     cbDetails,
     b3SalesMap,
