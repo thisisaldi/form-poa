@@ -462,19 +462,19 @@ export function ProductSelector({
                 Est. Switch<Req />
               </th>
               <th
-                className={`py-2 px-2 font-semibold text-[11px] text-left border-b ${colEstSalesWidth}`}
+                className={`py-2 px-2 font-semibold text-[11px] text-center border-b ${colEstSalesWidth}`}
                 style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}
               >
                 Est. Sales
               </th>
               <th
-                className={`py-2 px-2 font-semibold text-[11px] text-left border-b ${colNilaiScWidth}`}
+                className={`py-2 px-2 font-semibold text-[11px] text-center border-b ${colNilaiScWidth}`}
                 style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}
               >
                 Est. Insentif
               </th>
               <th
-                className={`py-2 px-2 font-semibold text-[11px] text-left border-b ${readOnly ? "rounded-tr-lg" : ""} ${colCashbackWidth}`}
+                className={`py-2 px-2 font-semibold text-[11px] text-center border-b ${readOnly ? "rounded-tr-lg" : ""} ${colCashbackWidth}`}
                 style={{ color: "var(--color-text-muted)", background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}
               >
                 <div className="inline-flex items-center gap-1">
@@ -921,7 +921,7 @@ export function ProductSelector({
                             <div>
                               {/* Header: Rp Total & Growth with bottom border */}
                               <div
-                                className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-left border-b border-solid"
+                                className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-center border-b border-solid"
                                 style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                               >
                                 <div
@@ -930,7 +930,7 @@ export function ProductSelector({
                                 >
                                   Rp {formatRp(totalEstSalesPeriode)}
                                 </div>
-                                <div className="flex items-center gap-1 leading-none text-[10px]">
+                                <div className="flex items-center gap-1 leading-none text-[10px] justify-center">
                                   <span className="font-semibold" style={{ color: "var(--color-green)" }}>Growth:</span>
                                   {overallGrowthPct != null ? (
                                     <span
@@ -959,7 +959,7 @@ export function ProductSelector({
                                 {Array.from({ length: numMonths }, (_, mIdx) => (
                                   <div
                                     key={mIdx}
-                                    className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap"
+                                    className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap justify-center"
                                     style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                                   >
                                     <span className="font-bold text-[13px] whitespace-nowrap" style={{ color: "var(--color-text)" }}>
@@ -971,7 +971,7 @@ export function ProductSelector({
 
                               {/* Bottom: Rincian Estimasi Sales (seperti Avg. History & Sales pada Est. Switch) */}
                               {row.kodeProduk && (
-                                <div className="pt-1.5 flex items-center justify-start text-[10px]">
+                                <div className="pt-1.5 flex items-center text-[10px] justify-center">
                                   <InfoTooltip
                                     align="left"
                                     width={290}
@@ -1168,7 +1168,7 @@ export function ProductSelector({
                             <div>
                               {/* Header: Rp Total & Growth with bottom border */}
                               <div
-                                className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-left border-b border-solid"
+                                className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-center border-b border-solid"
                                 style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                               >
                                 <div
@@ -1177,7 +1177,7 @@ export function ProductSelector({
                                 >
                                   Rp {formatRp(totalNilaiScPeriode)}
                                 </div>
-                                <div className="flex items-center gap-1 leading-none text-[10px]">
+                                <div className="flex items-center gap-1 leading-none text-[10px] justify-center">
                                   <span className="font-semibold" style={{ color: "var(--color-green)" }}>Growth:</span>
                                   {overallGrowthPct != null ? (
                                     <span
@@ -1206,7 +1206,7 @@ export function ProductSelector({
                                 {Array.from({ length: numMonths }, (_, mIdx) => (
                                   <div
                                     key={mIdx}
-                                    className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap"
+                                    className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap justify-center"
                                     style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                                   >
                                     <span className="font-bold text-[13px] whitespace-nowrap" style={{ color: "var(--color-blue)" }}>
@@ -1218,7 +1218,7 @@ export function ProductSelector({
 
                               {/* Bottom: Rincian Estimasi Insentif (seperti Avg. History & Sales pada Est. Switch) */}
                               {row.kodeProduk && (
-                                <div className="pt-1.5 flex items-center justify-start text-[10px]">
+                                <div className="pt-1.5 flex items-center text-[10px] justify-center">
                                   <InfoTooltip
                                     align="left"
                                     width={290}
@@ -1378,7 +1378,7 @@ export function ProductSelector({
                                   className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-left border-b border-solid"
                                   style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                                 >
-                                  <div className="text-sm font-extrabold leading-tight whitespace-nowrap" style={{ color: "var(--color-green)" }}>
+                                  <div className="text-sm font-extrabold leading-tight whitespace-nowrap text-center" style={{ color: "var(--color-green)" }}>
                                     Rp {formatRp(totalCashbackPeriode)}
                                   </div>
                                   <div className="text-[10px] leading-none opacity-0 select-none pointer-events-none">
@@ -1391,7 +1391,7 @@ export function ProductSelector({
                                   {Array.from({ length: numMonths }, (_, mIdx) => (
                                     <div
                                       key={mIdx}
-                                      className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap"
+                                      className="-mx-2 px-2 h-[36px] flex items-center border-b border-solid whitespace-nowrap justify-center"
                                       style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                                     >
                                       <span className="font-bold text-[13px] whitespace-nowrap" style={{ color: "var(--color-green)" }}>
@@ -1453,17 +1453,12 @@ export function ProductSelector({
                   <td className={`py-2.5 pl-4 pr-2 text-xs whitespace-nowrap ${colProdukWidth}`} style={{ color: "var(--color-text)" }}>
                     <div className="flex items-center justify-between gap-2">
                       <span>Total ({rows.length} produk)</span>
-                      {grandTotalPotensi > 0 && (
-                        <span className="text-[11px] font-normal" style={{ color: "var(--color-text-muted)" }}>
-                          Potensi: <strong style={{ color: "var(--color-text)" }}>{grandTotalPotensi}</strong>
-                        </span>
-                      )}
                     </div>
                   </td>
                   <td className="py-2.5 px-1 text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     {grandTotalQtySwitch % 1 === 0 ? grandTotalQtySwitch : parseFloat(grandTotalQtySwitch.toFixed(2))} UB
                   </td>
-                  <td className={`py-2.5 px-2 text-left text-xs whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text)" }}>
+                  <td className={`py-2.5 px-2 text-center text-xs whitespace-nowrap ${colEstSalesWidth}`} style={{ color: "var(--color-text)" }}>
                     <InfoTooltip
                       align="left"
                       trigger={
@@ -1499,7 +1494,7 @@ export function ProductSelector({
                       }
                     />
                   </td>
-                  <td className={`py-2.5 px-2 text-left text-xs whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-blue)" }}>
+                  <td className={`py-2.5 px-2 text-center text-xs whitespace-nowrap ${colNilaiScWidth}`} style={{ color: "var(--color-blue)" }}>
                     <InfoTooltip
                       align="left"
                       trigger={
@@ -1535,7 +1530,7 @@ export function ProductSelector({
                       }
                     />
                   </td>
-                  <td className="py-2.5 px-2 text-left text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-muted)" : "var(--color-green)" }}>
+                  <td className="py-2.5 px-2 text-center text-xs whitespace-nowrap" style={{ color: isCashbackNotFound ? "var(--color-text-muted)" : "var(--color-green)" }}>
                     {isCashbackNotFound ? "-" : `Rp ${formatRp(cashbackDetails.totalFinalCashback)}`}
                   </td>
                   {!readOnly && <td className="py-2.5 px-1 text-center"></td>}

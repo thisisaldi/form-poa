@@ -129,7 +129,7 @@ export function SalesCounterProductBreakdownTable({
                   className="text-right px-3 py-2.5 font-semibold border-b"
                   style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                 >
-                  <div className="leading-tight">
+                  <div className="leading-tight text-center">
                     <div>Estimasi</div>
                     <div>Sales</div>
                   </div>
@@ -147,7 +147,7 @@ export function SalesCounterProductBreakdownTable({
                   className="text-right px-3 py-2.5 font-semibold border-b"
                   style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                 >
-                  <div className="leading-tight">
+                  <div className="leading-tight text-center">
                     <div>Insentif</div>
                     <div>SC</div>
                   </div>
