@@ -241,7 +241,7 @@ export function SalesCounterOutletCard({
     >
       {/* Top Section: Checkbox + Outlet Name & Status */}
       <div className="flex items-start gap-3 justify-between">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
           {selectable && (
             <input
               type="checkbox"
@@ -253,28 +253,47 @@ export function SalesCounterOutletCard({
             />
           )}
 
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
-                {draft.kodePI ? `${draft.kodePI} · ` : ""}{draft.namaOutlet}
-              </span>
-            </div>
-
+          <div className="min-w-0 flex-1">
+            <span className="text-sm font-semibold leading-snug break-words block" style={{ color: "var(--color-text)" }}>
+              {draft.kodePI ? `${draft.kodePI} · ` : ""}{draft.namaOutlet}
+            </span>
             <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
               SC: {canvasserNames || "Tidak ada SC"}
-            </p>
-            <p className="text-[11px] truncate flex items-center gap-2 flex-wrap mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-              <span>Karyawan: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahKaryawan ?? 0}</strong></span>
-              <span>· Pasien: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasien ?? 0}</strong></span>
-              <span>· Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienResep ?? 0}</strong></span>
-              <span>· Non-Resep: <strong style={{ color: "var(--color-text-muted)" }}>{draft.jumlahPasienNonResep ?? (draft.jumlahPasien != null && draft.jumlahPasienResep != null ? Math.max(0, draft.jumlahPasien - draft.jumlahPasienResep) : 0)}</strong></span>
             </p>
           </div>
         </div>
 
-        <div className="shrink-0">
+        <div className="shrink-0 pt-0.5">
           <StatusBadge status={draft.status} version={draft.version} />
         </div>
+      </div>
+
+      {/* Outlet Demographics: Full-width row across the card */}
+      <div
+        className="flex items-center justify-between sm:justify-start gap-x-2.5 sm:gap-x-4 text-xs pt-0.5 flex-wrap"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+          <span>Karyawan:</span>
+          <strong className="font-semibold" style={{ color: "var(--color-text)" }}>{draft.jumlahKaryawan ?? 0}</strong>
+        </span>
+        <span className="text-slate-300 dark:text-slate-600 select-none">•</span>
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+          <span>Pasien:</span>
+          <strong className="font-semibold" style={{ color: "var(--color-text)" }}>{draft.jumlahPasien ?? 0}</strong>
+        </span>
+        <span className="text-slate-300 dark:text-slate-600 select-none">•</span>
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+          <span>Resep:</span>
+          <strong className="font-semibold" style={{ color: "var(--color-text)" }}>{draft.jumlahPasienResep ?? 0}</strong>
+        </span>
+        <span className="text-slate-300 dark:text-slate-600 select-none">•</span>
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+          <span>Non-Resep:</span>
+          <strong className="font-semibold" style={{ color: "var(--color-text)" }}>
+            {draft.jumlahPasienNonResep ?? (draft.jumlahPasien != null && draft.jumlahPasienResep != null ? Math.max(0, draft.jumlahPasien - draft.jumlahPasienResep) : 0)}
+          </strong>
+        </span>
       </div>
 
       {/* Metrics: minimal, modern 4-column summary */}
@@ -441,7 +460,7 @@ export function SalesCounterOutletCard({
             </button>
           )}
 
-          {userCanEdit && (
+          {userCanEdit && draft.status !== "APPROVED_BY_NSM" && (
             <button
               type="button"
               disabled={isDeleting}

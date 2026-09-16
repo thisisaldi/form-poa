@@ -19,6 +19,7 @@ import { PosmTable } from "./PosmTable";
 import { PerincianBudgetModal } from "./PerincianBudgetModal";
 import { OnlineApotekSalesWidget } from "./OnlineApotekSalesWidget";
 import { KomposisiSalesWidget } from "./KomposisiSalesWidget";
+import { MonthlyBreakdownTable } from "./MonthlyBreakdownTable";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
 import type { SalesCounterLineItemEditorProps } from "./types/editorProps";
@@ -151,10 +152,12 @@ export function SalesCounterLineItemEditor({
     [savedDrafts, outletId]
   );
 
+  const isFullyApproved = activeDraft?.status === "APPROVED_BY_NSM";
   const isSubmittingEditRequest =
     activeDraft &&
     activeDraft.status !== "DRAFT" &&
-    activeDraft.status !== "REVISI";
+    activeDraft.status !== "REVISI" &&
+    !isFullyApproved;
 
   const currentStatus = activeDraft ? activeDraft.status : "DRAFT";
   const currentVersion = activeDraft ? activeDraft.version : 1;
@@ -736,12 +739,14 @@ export function SalesCounterLineItemEditor({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl">
+      <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl w-full max-w-full overflow-hidden">
         <div className="space-y-6">
           <div className="flex items-start justify-between flex-wrap gap-3">
             <div>
               <h2 className="text-xl font-bold" style={{ color: "var(--color-text)" }}>
-                {activeDraft
+                {isFullyApproved
+                  ? `Detail Rencana POA (${activeDraft?.namaOutlet || outletId})`
+                  : activeDraft
                   ? `Edit Rencana POA (${activeDraft.namaOutlet || outletId})`
                   : outletId
                   ? `Tambah Rencana POA (${selectedOutlet?.namaOutlet || outletId})`
@@ -778,6 +783,19 @@ export function SalesCounterLineItemEditor({
             </div>
           </div>
 
+          {isFullyApproved && (
+            <div
+              className="rounded-md px-4 py-3 text-sm font-medium"
+              style={{
+                background: "var(--color-blue-light, #eff6ff)",
+                color: "var(--color-blue)",
+                border: "1px solid var(--color-blue)",
+              }}
+            >
+              Outlet ini sudah berstatus <strong>Fully Approved</strong> pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja).
+            </div>
+          )}
+
           {isSubmittingEditRequest && (
             <div
               className="rounded-md px-4 py-3 text-sm font-medium"
@@ -787,7 +805,7 @@ export function SalesCounterLineItemEditor({
                 border: "1px solid var(--color-warning, #f59e0b)",
               }}
             >
-              Outlet ini sudah berstatus <strong>{formatHumanStatus(activeDraft?.status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {activeDraft?.status === "SUBMITTED_TO_NSM" || activeDraft?.status === "APPROVED_BY_NSM" ? "NSM" : activeDraft?.status === "SUBMITTED_TO_SM" || activeDraft?.status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
+              Outlet ini sudah berstatus <strong>{formatHumanStatus(activeDraft?.status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {activeDraft?.status === "SUBMITTED_TO_NSM" ? "NSM" : activeDraft?.status === "SUBMITTED_TO_SM" || activeDraft?.status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
             </div>
           )}
 
@@ -881,7 +899,10 @@ export function SalesCounterLineItemEditor({
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Sektor
                 </span>
-                <div className="input-field flex items-center px-3 bg-transparent text-xs font-medium uppercase tracking-wider" style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 32, cursor: "not-allowed" }}>
+                <div
+                  className="input-field flex items-center px-3 text-sm h-[38px]"
+                  style={{ background: "var(--color-bg-subtle)", opacity: 0.85, cursor: "not-allowed" }}
+                >
                   {selectedOutlet?.sector || "-"}
                 </div>
               </div>
@@ -890,7 +911,10 @@ export function SalesCounterLineItemEditor({
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Subsektor
                 </span>
-                <div className="input-field flex items-center px-3 bg-transparent text-xs font-medium uppercase tracking-wider" style={{ background: "var(--color-bg-subtle)", opacity: 0.85, height: 32, cursor: "not-allowed" }}>
+                <div
+                  className="input-field flex items-center px-3 text-sm h-[38px]"
+                  style={{ background: "var(--color-bg-subtle)", opacity: 0.85, cursor: "not-allowed" }}
+                >
                   {selectedOutlet?.subSektor || "-"}
                 </div>
               </div>
@@ -989,7 +1013,7 @@ export function SalesCounterLineItemEditor({
 
           {/* Statistik Karyawan & Pasien */}
           <div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="flex flex-col gap-1">
                 <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                   Jumlah Karyawan
@@ -1080,6 +1104,7 @@ export function SalesCounterLineItemEditor({
                 productsOptions={productOptions}
                 canvasserProducts={canvasserProducts}
                 masterProducts={products}
+                readOnly={isFullyApproved}
                 lamaPeriode={lamaPeriode}
                 periodeAwal={periodeAwal}
                 diskonPeriode={diskonPeriode}
@@ -1366,6 +1391,7 @@ export function SalesCounterLineItemEditor({
                   isLoadingB3={loadingOutletData}
                   isLoadingIncentiveHistory={isLoadingIncentiveHistory}
                   unselectedProducts={unselectedProducts}
+                  isForm={true}
                 />
               </div>
             )}
@@ -1373,61 +1399,14 @@ export function SalesCounterLineItemEditor({
 
           {/* ESTIMASI & INSENTIF SC/CASHBACK PER BULAN */}
           {monthlyBreakdown.length > 0 && selectedProducts.some(p => p.kodeProduk) && (
-            <div className="rounded-xl border px-4 py-3 space-y-3"
-              style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
-              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-                {isCashbackNotFound ? "Estimasi & Insentif SC per Bulan" : "Estimasi & Insentif SC/Cashback per Bulan"}
-              </p>
-              <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
-                <table className="w-full text-xs min-w-[460px]">
-                  <thead>
-                    <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                      <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
-                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
-                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
-                      {!isCashbackNotFound && (
-                        <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlyBreakdown.map((m) => {
-                      const mCashback = totalCashbackVal / (lamaPeriode || 1);
-                      return (
-                        <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                          <td className="px-3 py-1.5 align-middle whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
-                          <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                            {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                          <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                            {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                          {!isCashbackNotFound && (
-                            <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                              {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                    <tr style={{ fontWeight: 600 }}>
-                      <td className="px-3 py-1.5 align-middle whitespace-nowrap" style={{ color: "var(--color-text)" }}>Total</td>
-                      <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                        Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
-                      </td>
-                      <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                        Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
-                      </td>
-                      {!isCashbackNotFound && (
-                        <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                          Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
-                        </td>
-                      )}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <MonthlyBreakdownTable
+              monthlyBreakdown={monthlyBreakdown}
+              totalMonthlyEstimasiSales={totalMonthlyEstimasiSales}
+              totalMonthlyNilaiSc={totalMonthlyNilaiSc}
+              totalCashbackVal={totalCashbackVal}
+              lamaPeriode={lamaPeriode}
+              isCashbackHidden={isCashbackNotFound}
+            />
           )}
         </div>
 
@@ -1444,17 +1423,19 @@ export function SalesCounterLineItemEditor({
         )}
 
         {/* Action Buttons */}
-        <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: "var(--color-border)" }}>
-          <Button type="button" variant="ghost" onClick={handleCancel} disabled={isPending}>
-            Batal
+        <div className="flex justify-end gap-3 pt-4 pb-10 md:pb-0 border-t" style={{ borderColor: "var(--color-border)" }}>
+          <Button type="button" variant={isFullyApproved ? "secondary" : "ghost"} onClick={handleCancel} disabled={isPending}>
+            {isFullyApproved ? "Kembali" : "Batal"}
           </Button>
-          <Button type="submit" disabled={isPending}>
-            {isPending
-              ? "Menyimpan..."
-              : isSubmittingEditRequest
-              ? "Ajukan Edit"
-              : "Simpan Rencana"}
-          </Button>
+          {!isFullyApproved && (
+            <Button type="submit" disabled={isPending}>
+              {isPending
+                ? "Menyimpan..."
+                : isSubmittingEditRequest
+                ? "Ajukan Edit"
+                : "Simpan Rencana"}
+            </Button>
+          )}
         </div>
       </form>
       {outletId && (

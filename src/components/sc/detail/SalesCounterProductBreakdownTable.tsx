@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import { formatRp } from "./SalesCounterStatsPanel";
 import { formatShortMonth } from "./utils/formatDateUtils";
 import type { ProductDetailRowsSummary } from "./types/outletTable";
+import { ProductBreakdownMobileView } from "../edit/ProductBreakdownMobileView";
 
 export interface UnselectedProductItem {
   kodeProduk: string;
@@ -20,6 +21,7 @@ export interface SalesCounterProductBreakdownTableProps {
   isLoadingIncentiveHistory?: boolean;
   unselectedProducts?: UnselectedProductItem[];
   showHintMobile?: boolean;
+  isForm?: boolean;
 }
 
 export function SalesCounterProductBreakdownTable({
@@ -30,8 +32,19 @@ export function SalesCounterProductBreakdownTable({
   isLoadingIncentiveHistory = false,
   unselectedProducts = [],
   showHintMobile = true,
+  isForm = false,
 }: SalesCounterProductBreakdownTableProps) {
   const [showAllUnselected, setShowAllUnselected] = useState(false);
+
+  const fontSizeBase = isForm ? "text-xs" : "text-[11px]";
+  const fontSizeHeader = isForm ? "text-xs font-semibold" : "font-semibold";
+  const fontSizeSubtotal = isForm ? "text-xs" : "text-[11px]";
+  const fontSizeTotal = isForm ? "text-xs font-bold sm:text-[13px]" : "text-[11px] font-bold";
+  const fontSizeBadge = isForm ? "text-[10px] sm:text-[11px] font-semibold px-1.5 py-0.5" : "text-[10px] font-semibold px-1.5 py-0.5";
+  const fontSizeGrowthPct = isForm ? "text-xs font-bold" : "text-[11px] font-bold";
+  const fontSizeGrowthDelta = isForm ? "text-[10px] sm:text-[11px] font-medium mt-0.5" : "text-[10px] tabular-nums font-medium mt-0.5";
+  const prodNameMaxWidth = isForm ? "max-w-[180px] sm:max-w-[240px]" : "max-w-[160px] sm:max-w-[200px]";
+  const cellPadding = "px-3 py-2";
 
   const totalUnselectedSalesMonth = useMemo(() => {
     return unselectedProducts.reduce((sum, p) => sum + p.avgSalesPerMonth, 0);
@@ -52,7 +65,7 @@ export function SalesCounterProductBreakdownTable({
     if (isNew) {
       return (
         <span
-          className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border"
+          className={`inline-block rounded border ${fontSizeBadge}`}
           style={{
             background: "rgba(22,163,74,0.12)",
             color: "#16a34a",
@@ -72,11 +85,11 @@ export function SalesCounterProductBreakdownTable({
 
     return (
       <div className="flex flex-col items-center py-0.5 leading-tight">
-        <span className={`tabular-nums font-bold text-[11px] ${isPos ? "text-emerald-600" : "text-rose-600"}`}>
+        <span className={`tabular-nums ${fontSizeGrowthPct} ${isPos ? "text-emerald-600" : "text-rose-600"}`}>
           {isPos ? `+${growthPct.toFixed(1)}%` : `${growthPct.toFixed(1)}%`}
         </span>
         <span
-          className={`text-[10px] tabular-nums font-medium mt-0.5 ${
+          className={`tabular-nums ${fontSizeGrowthDelta} ${
             isDeltaPos ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
           }`}
         >
@@ -88,21 +101,35 @@ export function SalesCounterProductBreakdownTable({
 
   return (
     <div className="space-y-4">
-      {/* Hint geser untuk mobile */}
-      {showHintMobile && (
-        <div className="sm:hidden -mt-1 text-[11px] flex items-center gap-1" style={{ color: "var(--color-text-faint)" }}>
-          <span>↔</span> Geser tabel untuk melihat rincian angka &amp; growth
-        </div>
-      )}
+      {/* Mobile View: Phone-friendly cards with zero horizontal scroll */}
+      <div className="md:hidden">
+        <ProductBreakdownMobileView
+          productDetailRows={productDetailRows}
+          lama={lama}
+          b3RangeLabel={b3RangeLabel}
+          isLoadingB3={isLoadingB3}
+          isLoadingIncentiveHistory={isLoadingIncentiveHistory}
+          unselectedProducts={unselectedProducts}
+        />
+      </div>
 
-      {/* Products table container */}
-      <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse">
+      {/* Desktop View: Existing Table */}
+      <div className="hidden md:block space-y-4">
+        {/* Hint geser untuk mobile */}
+        {showHintMobile && (
+          <div className={`sm:hidden -mt-1 flex items-center gap-1 ${isForm ? "text-xs" : "text-[11px]"}`} style={{ color: "var(--color-text-faint)" }}>
+            <span>↔</span> Geser tabel untuk melihat rincian angka &amp; growth
+          </div>
+        )}
+
+        {/* Products table container */}
+        <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--color-border)" }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
             <thead>
               <tr style={{ background: "var(--color-bg-subtle)" }}>
                 <th
-                  className="text-left px-3 py-2.5 font-semibold sticky left-0 z-10 border-r border-b"
+                  className={`text-left ${cellPadding} sticky left-0 z-10 border-r border-b ${fontSizeHeader}`}
                   style={{
                     color: "var(--color-text-muted)",
                     background: "var(--color-bg-subtle)",
@@ -113,20 +140,20 @@ export function SalesCounterProductBreakdownTable({
                 </th>
                 {productDetailRows.distinctMonths.length > 0 && (
                   <th
-                    className="text-left px-3 py-2.5 font-semibold border-r border-b"
+                    className={`text-left ${cellPadding} border-r border-b ${fontSizeHeader}`}
                     style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                   >
                     Bulan
                   </th>
                 )}
                 <th
-                  className="text-right px-3 py-2.5 font-semibold border-b whitespace-nowrap"
+                  className={`text-right ${cellPadding} border-b whitespace-nowrap ${fontSizeHeader}`}
                   style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                 >
                   Qty
                 </th>
                 <th
-                  className="text-right px-3 py-2.5 font-semibold border-b"
+                  className={`text-right ${cellPadding} border-b ${fontSizeHeader}`}
                   style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                 >
                   <div className="leading-tight text-center">
@@ -135,7 +162,7 @@ export function SalesCounterProductBreakdownTable({
                   </div>
                 </th>
                 <th
-                  className="text-center px-3 py-2.5 font-semibold border-b"
+                  className={`text-center ${cellPadding} border-b ${fontSizeHeader}`}
                   style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                 >
                   <div className="leading-tight">
@@ -144,7 +171,7 @@ export function SalesCounterProductBreakdownTable({
                   </div>
                 </th>
                 <th
-                  className="text-right px-3 py-2.5 font-semibold border-b"
+                  className={`text-right ${cellPadding} border-b ${fontSizeHeader}`}
                   style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                 >
                   <div className="leading-tight text-center">
@@ -153,7 +180,7 @@ export function SalesCounterProductBreakdownTable({
                   </div>
                 </th>
                 <th
-                  className="text-center px-3 py-2.5 font-semibold border-b"
+                  className={`text-center ${cellPadding} border-b ${fontSizeHeader}`}
                   style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                 >
                   <div className="leading-tight">
@@ -220,49 +247,49 @@ export function SalesCounterProductBreakdownTable({
                     return (
                       <tr key={p.id} className="align-middle" style={{ borderTop: "1px solid var(--color-border)" }}>
                         <td
-                          className="px-3 py-2 sticky left-0 z-10 border-r font-semibold text-[11px]"
+                          className={`${cellPadding} sticky left-0 z-10 border-r font-semibold ${fontSizeBase}`}
                           style={{
                             color: "var(--color-text)",
                             background: "var(--color-surface)",
                             borderColor: "var(--color-border)",
                           }}
                         >
-                          <div className="max-w-[160px] sm:max-w-[200px] whitespace-normal leading-snug">
+                          <div className={`${prodNameMaxWidth} whitespace-normal leading-snug`}>
                             {p.namaProduk}
                           </div>
                         </td>
                         {productDetailRows.distinctMonths.length > 0 && (
                           <td
-                            className="px-3 py-2 border-r whitespace-nowrap text-[11px] font-medium"
+                            className={`${cellPadding} border-r whitespace-nowrap font-medium ${fontSizeBase}`}
                             style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)" }}
                           >
-                            {singleMonthLabel || "—"}
+                            {singleMonthLabel || "-"}
                           </td>
                         )}
                         <td
-                          className="px-3 py-2 text-right tabular-nums font-mono whitespace-nowrap text-[11px]"
+                          className={`${cellPadding} text-right tabular-nums font-mono whitespace-nowrap ${fontSizeBase}`}
                           style={{ color: "var(--color-text)" }}
                         >
                           {totalQty || qty || 0}
                         </td>
                         <td
-                          className="px-3 py-2 text-right whitespace-nowrap text-[11px]"
+                          className={`${cellPadding} text-right whitespace-nowrap ${fontSizeBase}`}
                           style={{ color: "var(--color-text)" }}
                         >
                           {estSalesFull > 0 ? (
                             <span className="tabular-nums">{formatRp(estSalesFull)}</span>
                           ) : (
-                            <span style={{ color: "var(--color-text-faint)" }}>—</span>
+                            <span style={{ color: "var(--color-text-faint)" }}>-</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap text-[11px]">{totGrowthSalesCell}</td>
+                        <td className={`${cellPadding} text-center whitespace-nowrap ${fontSizeBase}`}>{totGrowthSalesCell}</td>
                         <td
-                          className="px-3 py-2 text-right whitespace-nowrap font-semibold text-[11px]"
+                          className={`${cellPadding} text-right whitespace-nowrap font-semibold ${fontSizeBase}`}
                           style={{ color: nilaiScFull > 0 ? "var(--color-blue)" : "var(--color-text-faint)" }}
                         >
-                          {nilaiScFull > 0 ? <span className="tabular-nums">{formatRp(nilaiScFull)}</span> : "—"}
+                          {nilaiScFull > 0 ? <span className="tabular-nums">{formatRp(nilaiScFull)}</span> : "-"}
                         </td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap text-[11px]">{totGrowthInsentifCell}</td>
+                        <td className={`${cellPadding} text-center whitespace-nowrap ${fontSizeBase}`}>{totGrowthInsentifCell}</td>
                       </tr>
                     );
                   }
@@ -299,61 +326,61 @@ export function SalesCounterProductBreakdownTable({
                           {isFirstRow && (
                             <td
                               rowSpan={numSubRows}
-                              className="px-3 py-2 sticky left-0 z-10 border-r font-semibold align-top text-[11px]"
+                              className={`${cellPadding} sticky left-0 z-10 border-r font-semibold align-top ${fontSizeBase}`}
                               style={{
                                 color: "var(--color-text)",
                                 background: "var(--color-surface)",
                                 borderColor: "var(--color-border)",
                                 borderTop,
-                                paddingTop: "8px",
+                                paddingTop: isForm ? "10px" : "8px",
                               }}
                             >
-                              <div className="max-w-[160px] sm:max-w-[200px] whitespace-normal leading-snug">
+                              <div className={`${prodNameMaxWidth} whitespace-normal leading-snug`}>
                                 {p.namaProduk}
                               </div>
                             </td>
                           )}
                           {/* Month label */}
                           <td
-                            className="px-3 py-2 border-r whitespace-nowrap text-[11px] font-medium"
+                            className={`${cellPadding} border-r whitespace-nowrap font-medium ${fontSizeBase}`}
                             style={{ color: "var(--color-text-muted)", borderColor: "var(--color-border)", borderTop }}
                           >
                             {mb.monthLabel}
                           </td>
                           {/* Qty */}
                           <td
-                            className="px-3 py-2 text-right tabular-nums font-mono whitespace-nowrap text-[11px]"
+                            className={`${cellPadding} text-right tabular-nums font-mono whitespace-nowrap ${fontSizeBase}`}
                             style={{ color: "var(--color-text)", borderTop }}
                           >
-                            {mb.qty > 0 ? mb.qty : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                            {mb.qty > 0 ? mb.qty : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                           </td>
                           {/* Est Sales */}
                           <td
-                            className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-[11px]"
+                            className={`${cellPadding} text-right tabular-nums whitespace-nowrap ${fontSizeBase}`}
                             style={{ color: "var(--color-text)", borderTop }}
                           >
                             {(mb.estSales ?? 0) > 0 ? (
                               formatRp(mb.estSales!)
                             ) : (
-                              <span style={{ color: "var(--color-text-faint)" }}>—</span>
+                              <span style={{ color: "var(--color-text-faint)" }}>-</span>
                             )}
                           </td>
                           {/* Growth Sales — broken down per month */}
-                          <td className="px-3 py-2 text-center whitespace-nowrap text-[11px]" style={{ borderTop }}>
+                          <td className={`${cellPadding} text-center whitespace-nowrap ${fontSizeBase}`} style={{ borderTop }}>
                             {monthGrowthSalesCell}
                           </td>
                           {/* Insentif SC */}
                           <td
-                            className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-[11px] font-semibold"
+                            className={`${cellPadding} text-right tabular-nums whitespace-nowrap font-semibold ${fontSizeBase}`}
                             style={{
                               color: (mb.nilaiSc ?? 0) > 0 ? "var(--color-blue)" : "var(--color-text-faint)",
                               borderTop,
                             }}
                           >
-                            {(mb.nilaiSc ?? 0) > 0 ? formatRp(mb.nilaiSc!) : "—"}
+                            {(mb.nilaiSc ?? 0) > 0 ? formatRp(mb.nilaiSc!) : "-"}
                           </td>
                           {/* Growth Insentif — broken down per month */}
-                          <td className="px-3 py-2 text-center whitespace-nowrap text-[11px]" style={{ borderTop }}>
+                          <td className={`${cellPadding} text-center whitespace-nowrap ${fontSizeBase}`} style={{ borderTop }}>
                             {monthGrowthInsentifCell}
                           </td>
                         </tr>
@@ -367,19 +394,19 @@ export function SalesCounterProductBreakdownTable({
                         style={{ background: "var(--color-bg)" }}
                       >
                         <td
-                          className="px-3 py-2 border-r border-t whitespace-nowrap text-[11px] font-semibold"
+                          className={`${cellPadding} border-r border-t whitespace-nowrap font-semibold ${fontSizeSubtotal}`}
                           style={{ color: "var(--color-text)", borderColor: "var(--color-border)" }}
                         >
                           Subtotal
                         </td>
                         <td
-                          className="px-3 py-2 text-right tabular-nums font-mono whitespace-nowrap border-t text-[11px]"
+                          className={`${cellPadding} text-right tabular-nums font-mono whitespace-nowrap border-t ${fontSizeSubtotal}`}
                           style={{ color: "var(--color-text)", borderColor: "var(--color-border)" }}
                         >
                           {totalQty}
                         </td>
                         <td
-                          className="px-3 py-2 text-right whitespace-nowrap border-t text-[11px]"
+                          className={`${cellPadding} text-right whitespace-nowrap border-t ${fontSizeSubtotal}`}
                           style={{ color: "var(--color-text)", borderColor: "var(--color-border)" }}
                         >
                           {estSalesFull > 0 ? (
@@ -388,11 +415,11 @@ export function SalesCounterProductBreakdownTable({
                             <span style={{ color: "var(--color-text-muted)" }}>-</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap border-t text-[11px]" style={{ borderColor: "var(--color-border)" }}>
+                        <td className={`${cellPadding} text-center whitespace-nowrap border-t ${fontSizeSubtotal}`} style={{ borderColor: "var(--color-border)" }}>
                           {totGrowthSalesCell}
                         </td>
                         <td
-                          className="px-3 py-2 text-right whitespace-nowrap border-t font-semibold text-[11px]"
+                          className={`${cellPadding} text-right whitespace-nowrap border-t font-semibold ${fontSizeSubtotal}`}
                           style={{
                             color: nilaiScFull > 0 ? "var(--color-blue)" : "var(--color-text-muted)",
                             borderColor: "var(--color-border)",
@@ -404,7 +431,7 @@ export function SalesCounterProductBreakdownTable({
                             <span style={{ color: "var(--color-text-muted)" }}>-</span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-center whitespace-nowrap border-t text-[11px]" style={{ borderColor: "var(--color-border)" }}>
+                        <td className={`${cellPadding} text-center whitespace-nowrap border-t ${fontSizeSubtotal}`} style={{ borderColor: "var(--color-border)" }}>
                           {totGrowthInsentifCell}
                         </td>
                       </tr>
@@ -464,20 +491,20 @@ export function SalesCounterProductBreakdownTable({
                       {isFirst && (
                         <td
                           rowSpan={(productDetailRows.monthlyTotalBreakdown?.length ?? 0) + 1}
-                          className="px-3 py-2 sticky left-0 z-10 border-r align-top font-bold text-[11px]"
+                          className={`${cellPadding} sticky left-0 z-10 border-r align-top font-bold ${fontSizeBase}`}
                           style={{
                             color: "var(--color-text)",
                             background: "var(--color-bg-subtle)",
                             borderColor: "var(--color-border)",
                             borderTop: "2px solid var(--color-border-strong)",
-                            paddingTop: "8px",
+                            paddingTop: isForm ? "10px" : "8px",
                           }}
                         >
                           Total
                         </td>
                       )}
                       <td
-                        className="px-3 py-2 border-r whitespace-nowrap text-[11px] font-medium"
+                        className={`${cellPadding} border-r whitespace-nowrap font-medium ${fontSizeBase}`}
                         style={{
                           color: "var(--color-text-muted)",
                           borderColor: "var(--color-border)",
@@ -487,40 +514,40 @@ export function SalesCounterProductBreakdownTable({
                         {mb.monthLabel}
                       </td>
                       <td
-                        className="px-3 py-2 text-right tabular-nums font-mono whitespace-nowrap text-[11px]"
+                        className={`${cellPadding} text-right tabular-nums font-mono whitespace-nowrap ${fontSizeBase}`}
                         style={{
                           color: "var(--color-text)",
                           borderTop: isFirst ? "2px solid var(--color-border-strong)" : "1px solid var(--color-border)",
                         }}
                       >
-                        {mb.qty > 0 ? mb.qty : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                        {mb.qty > 0 ? mb.qty : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                       </td>
                       <td
-                        className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-[11px]"
+                        className={`${cellPadding} text-right tabular-nums whitespace-nowrap ${fontSizeBase}`}
                         style={{
                           color: "var(--color-text)",
                           borderTop: isFirst ? "2px solid var(--color-border-strong)" : "1px solid var(--color-border)",
                         }}
                       >
-                        {mEst > 0 ? formatRp(mEst) : <span style={{ color: "var(--color-text-faint)" }}>—</span>}
+                        {mEst > 0 ? formatRp(mEst) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                       </td>
                       <td
-                        className="px-3 py-2 text-center whitespace-nowrap text-[11px]"
+                        className={`${cellPadding} text-center whitespace-nowrap ${fontSizeBase}`}
                         style={{ borderTop: isFirst ? "2px solid var(--color-border-strong)" : "1px solid var(--color-border)" }}
                       >
                         {mGrowthSalesCell}
                       </td>
                       <td
-                        className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-[11px] font-semibold"
+                        className={`${cellPadding} text-right tabular-nums whitespace-nowrap font-semibold ${fontSizeBase}`}
                         style={{
                           color: mSc > 0 ? "var(--color-blue)" : "var(--color-text-faint)",
                           borderTop: isFirst ? "2px solid var(--color-border-strong)" : "1px solid var(--color-border)",
                         }}
                       >
-                        {mSc > 0 ? formatRp(mSc) : "—"}
+                        {mSc > 0 ? formatRp(mSc) : "-"}
                       </td>
                       <td
-                        className="px-3 py-2 text-center whitespace-nowrap text-[11px]"
+                        className={`${cellPadding} text-center whitespace-nowrap ${fontSizeBase}`}
                         style={{ borderTop: isFirst ? "2px solid var(--color-border-strong)" : "1px solid var(--color-border)" }}
                       >
                         {mGrowthIncCell}
@@ -538,7 +565,7 @@ export function SalesCounterProductBreakdownTable({
               >
                 {productDetailRows.distinctMonths.length <= 1 && (
                   <td
-                    className="px-3 py-2 sticky left-0 z-10 border-r font-bold text-[11px]"
+                    className={`${cellPadding} sticky left-0 z-10 border-r font-bold ${fontSizeTotal}`}
                     style={{
                       color: "var(--color-text)",
                       background: "var(--color-bg-subtle)",
@@ -550,14 +577,14 @@ export function SalesCounterProductBreakdownTable({
                 )}
                 {productDetailRows.distinctMonths.length > 1 ? (
                   <td
-                    className="px-3 py-2 border-r whitespace-nowrap text-[11px] font-bold"
+                    className={`${cellPadding} border-r whitespace-nowrap font-bold ${fontSizeTotal}`}
                     style={{ color: "var(--color-text)", borderColor: "var(--color-border)" }}
                   >
                     Total Periode
                   </td>
                 ) : productDetailRows.distinctMonths.length === 1 ? (
                   <td
-                    className="px-3 py-2 border-r whitespace-nowrap text-[11px] font-semibold"
+                    className={`${cellPadding} border-r whitespace-nowrap font-semibold ${fontSizeTotal}`}
                     style={{ color: "var(--color-text)", borderColor: "var(--color-border)" }}
                   >
                     {productDetailRows.monthlyTotalBreakdown?.[0]?.monthLabel ||
@@ -567,19 +594,19 @@ export function SalesCounterProductBreakdownTable({
                   </td>
                 ) : null}
                 <td
-                  className="px-3 py-2 text-right tabular-nums font-mono whitespace-nowrap text-[11px] font-bold"
+                  className={`${cellPadding} text-right tabular-nums font-mono whitespace-nowrap font-bold ${fontSizeTotal}`}
                   style={{ color: "var(--color-text)" }}
                 >
                   {productDetailRows.sumTotalQty}
                 </td>
-                <td className="px-3 py-2 text-right whitespace-nowrap text-[11px]" style={{ color: "var(--color-text)" }}>
+                <td className={`${cellPadding} text-right whitespace-nowrap ${fontSizeTotal}`} style={{ color: "var(--color-text)" }}>
                   {productDetailRows.sumEstSales > 0 ? (
                     <span className="tabular-nums font-bold">{formatRp(productDetailRows.sumEstSales)}</span>
                   ) : (
                     "-"
                   )}
                 </td>
-                <td className="px-3 py-2 text-center whitespace-nowrap text-[11px]">
+                <td className={`${cellPadding} text-center whitespace-nowrap ${fontSizeTotal}`}>
                   {renderGrowthCell(
                     productDetailRows.effectiveOutletSalesFull > 0 || productDetailRows.sumSalesHistorical > 0
                       ? productDetailRows.overallGrowthPct
@@ -593,7 +620,7 @@ export function SalesCounterProductBreakdownTable({
                   )}
                 </td>
                 <td
-                  className="px-3 py-2 text-right whitespace-nowrap text-[11px]"
+                  className={`${cellPadding} text-right whitespace-nowrap ${fontSizeTotal}`}
                   style={{ color: productDetailRows.sumNilaiSc > 0 ? "var(--color-blue)" : "var(--color-text-muted)" }}
                 >
                   {productDetailRows.sumNilaiSc > 0 ? (
@@ -602,7 +629,7 @@ export function SalesCounterProductBreakdownTable({
                     "-"
                   )}
                 </td>
-                <td className="px-3 py-2 text-center whitespace-nowrap text-[11px]">
+                <td className={`${cellPadding} text-center whitespace-nowrap ${fontSizeTotal}`}>
                   {renderGrowthCell(
                     productDetailRows.sumHistoryIncentive &&
                       productDetailRows.sumHistoryIncentive > 0 &&
@@ -620,7 +647,7 @@ export function SalesCounterProductBreakdownTable({
         </div>
         {b3RangeLabel && (
           <p
-            className="text-[11px] px-3 py-2 border-t"
+            className={`px-3 py-2 border-t ${isForm ? "text-xs" : "text-[11px]"}`}
             style={{
               color: "var(--color-text-faint)",
               borderColor: "var(--color-border)",
@@ -653,13 +680,13 @@ export function SalesCounterProductBreakdownTable({
                 <path strokeLinecap="round" strokeLinejoin="round" d="m19 9-7 7-7-7" />
               </svg>
               <span
-                className="text-xs font-semibold uppercase tracking-wider group-hover:opacity-80 transition-opacity"
+                className={`font-semibold uppercase tracking-wider group-hover:opacity-80 transition-opacity ${isForm ? "text-xs sm:text-sm" : "text-xs"}`}
                 style={{ color: "var(--color-red)" }}
               >
                 Produk SC dengan Sales yang Tidak Diajukan ({unselectedProducts.length})
               </span>
             </div>
-            <span className="text-[11px] font-medium" style={{ color: "var(--color-text-muted)" }}>
+            <span className={`font-medium ${isForm ? "text-xs sm:text-sm" : "text-[11px]"}`} style={{ color: "var(--color-text-muted)" }}>
               {showAllUnselected ? "Tutup" : "Lihat Rincian"}
             </span>
           </div>
@@ -670,18 +697,18 @@ export function SalesCounterProductBreakdownTable({
                 <thead>
                   <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
                     <th
-                      className="text-left px-3 py-2 font-semibold"
+                      className={`text-left ${cellPadding} font-semibold ${fontSizeHeader}`}
                       style={{ color: "var(--color-text-muted)", width: 44 }}
                     >
                       No
                     </th>
-                    <th className="text-left px-3 py-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                    <th className={`text-left ${cellPadding} font-semibold ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
                       Produk SC
                     </th>
-                    <th className="text-right px-3 py-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                    <th className={`text-right ${cellPadding} font-semibold ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
                       Histori Rata-rata
                     </th>
-                    <th className="text-right px-3 py-2 font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                    <th className={`text-right ${cellPadding} font-semibold ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
                       Potensi Periode ({lama || 1} bln)
                     </th>
                   </tr>
@@ -694,22 +721,22 @@ export function SalesCounterProductBreakdownTable({
                       style={{ borderBottom: "1px solid var(--color-border)" }}
                     >
                       <td
-                        className="px-3 py-2 text-left tabular-nums text-[11px]"
+                        className={`${cellPadding} text-left tabular-nums ${fontSizeBase}`}
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {idx + 1}
                       </td>
-                      <td className="px-3 py-2 font-medium" style={{ color: "var(--color-text)" }}>
+                      <td className={`${cellPadding} font-medium ${fontSizeBase}`} style={{ color: "var(--color-text)" }}>
                         {p.namaProduk}
                       </td>
                       <td
-                        className="px-3 py-2 text-right tabular-nums font-mono"
+                        className={`${cellPadding} text-right tabular-nums font-mono ${fontSizeBase}`}
                         style={{ color: "var(--color-text)" }}
                       >
                         {formatRp(p.avgSalesPerMonth)}
                       </td>
                       <td
-                        className="px-3 py-2 text-right tabular-nums font-mono font-medium"
+                        className={`${cellPadding} text-right tabular-nums font-mono font-medium ${fontSizeBase}`}
                         style={{ color: "var(--color-text)" }}
                       >
                         {formatRp(p.totalSalesPeriode)}
@@ -719,17 +746,17 @@ export function SalesCounterProductBreakdownTable({
                 </tbody>
                 <tfoot>
                   <tr className="align-middle font-semibold" style={{ background: "var(--color-bg-subtle)" }}>
-                    <td colSpan={2} className="px-3 py-2 text-left" style={{ color: "var(--color-text)" }}>
+                    <td colSpan={2} className={`${cellPadding} text-left ${fontSizeBase}`} style={{ color: "var(--color-text)" }}>
                       Total ({unselectedProducts.length} Produk)
                     </td>
                     <td
-                      className="px-3 py-2 text-right tabular-nums font-mono font-bold"
+                      className={`${cellPadding} text-right tabular-nums font-mono font-bold ${fontSizeBase}`}
                       style={{ color: "var(--color-text)" }}
                     >
                       {formatRp(totalUnselectedSalesMonth)}
                     </td>
                     <td
-                      className="px-3 py-2 text-right tabular-nums font-mono font-bold"
+                      className={`${cellPadding} text-right tabular-nums font-mono font-bold ${fontSizeBase}`}
                       style={{ color: "var(--color-text)" }}
                     >
                       {formatRp(totalUnselectedSalesPeriod)}
@@ -741,6 +768,7 @@ export function SalesCounterProductBreakdownTable({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

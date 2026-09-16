@@ -201,7 +201,7 @@ function formatPlatformName(platform: string): { key: string; name: string; labe
         <div
           className={`grid gap-2.5 ${
             platforms.length === 1
-              ? "grid-cols-1 max-w-sm"
+              ? "grid-cols-1 w-full sm:max-w-md"
               : platforms.length === 2
               ? "grid-cols-1 md:grid-cols-2"
               : "grid-cols-1 md:grid-cols-3"

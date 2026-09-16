@@ -243,6 +243,9 @@ export async function saveSalesCounterFormAction(
       }
 
       if (existing) {
+        if (existing.status === PoaStatus.APPROVED_BY_NSM) {
+          throw new Error("Form ini sudah berstatus Fully Approved dan tidak dapat diedit kembali.");
+        }
         const canEdit = canUserEditScForm(
           session.role,
           session.userId,
@@ -410,7 +413,6 @@ export async function saveSalesCounterFormAction(
           if (
             existing.status === PoaStatus.SUBMITTED_TO_NSM ||
             existing.status === PoaStatus.APPROVED_BY_SM ||
-            existing.status === PoaStatus.APPROVED_BY_NSM ||
             existing.status === PoaStatus.SUBMITTED_TO_SM
           ) {
             // Step back from NSM -> back to SM review, or stay at SM review if already at SM (stuck di SM)
@@ -766,6 +768,9 @@ export async function deleteSalesCounterFormAction(poaScId: string): Promise<{ o
       where: { id: poaScId },
     });
     if (!poaSc) return { ok: false, error: "POA tidak ditemukan." };
+    if (poaSc.status === PoaStatus.APPROVED_BY_NSM) {
+      return { ok: false, error: "Rencana POA yang sudah Fully Approved tidak dapat dihapus." };
+    }
     if (poaSc.ownerId !== session.userId) return { ok: false, error: "Tidak memiliki akses untuk menghapus POA ini." };
 
     await prisma.poaScForm.delete({

@@ -562,6 +562,15 @@ export function canUserEditScForm(
 ): boolean {
   if (userRole === "ADMIN") return true;
 
+  // Fully Approved is locked from editing for everyone (except ADMIN)
+  if (
+    status === PoaStatus.APPROVED_BY_NSM ||
+    status === PoaStatus.APPROVED_BY_ASD ||
+    status === PoaStatus.APPROVED_BY_SD
+  ) {
+    return false;
+  }
+
   const roleLevel: Record<string, number> = {
     MR: 0,
     ASM: 1,
@@ -573,15 +582,14 @@ export function canUserEditScForm(
   const userLevel = roleLevel[userRole] ?? -1;
   const lockLevel = getScEditLockLevel(status);
 
-  // MR (Owner): Can always edit / ajukan edit for their own SC form
+  // MR (Owner): Can edit / ajukan edit for their own SC form if not fully approved
   if (sessionUserId === ownerId) {
     return true;
   }
 
   // Managers (ASM, SM, NSM):
-  // Can edit directly if userLevel >= lockLevel AND status is not APPROVED_BY_NSM
+  // Can edit directly if userLevel >= lockLevel
   if (userLevel >= 0 && lockLevel >= 0) {
-    if (status === PoaStatus.APPROVED_BY_NSM) return false;
     return userLevel >= lockLevel;
   }
 

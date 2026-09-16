@@ -50,7 +50,7 @@ export default async function EditSalesCounterByIdPage({
         </div>
       </div>
 
-      <Card>
+      <Card padded={false} className="overflow-hidden">
         <SalesCounterEditByIdEditor
           scId={form.id}
           poaPeriod={form.period}
