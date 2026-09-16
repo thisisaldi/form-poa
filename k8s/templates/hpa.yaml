@@ -1,4 +1,4 @@
-{{- if and .Values.autoscaling.enabled (contains "production" .Release.Namespace ) }}
+{{- if and .Values.autoscaling.enabled (contains "production" .Release.Namespace) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
