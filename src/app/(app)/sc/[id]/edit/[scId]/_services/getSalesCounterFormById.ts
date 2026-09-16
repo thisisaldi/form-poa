@@ -23,7 +23,7 @@ export async function getSalesCounterFormById(
 
   if (!form) return null;
   const isOwner = form.ownerId === sessionUserId;
-  const isSpecialRole = sessionRole != null && ["ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole);
+  const isSpecialRole = sessionRole != null && ["ADMIN", "GM", "SFE", "VIEWER", "SD"].includes(sessionRole);
   const isSuperior = sessionRole != null && ["ASM", "SM", "NSM"].includes(sessionRole);
 
   let hasAccess = false;
