@@ -159,6 +159,7 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
 
   const isOmega = userProject?.toUpperCase() === "OMEGA";
   const isSd = userRole?.toUpperCase() === "SD";
+  const isViewer = userRole?.toUpperCase() === "VIEWER";
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (userRole === "ADMIN") {
@@ -166,7 +167,7 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
     }
 
     if (isSd) {
-      const allowedSdHrefs = ["/dashboard", "/sc/dashboard", "/approvals", "/sc/approvals"];
+      const allowedSdHrefs = ["/dashboard", "/sc/dashboard", "/approvals"];
       return allowedSdHrefs.includes(item.href);
     }
 
@@ -178,11 +179,16 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
       // Hanya tampilkan Dashboard (/dashboard -> /sc/dashboard), New POA Sales Counter (/sc/new),
       // Approvals (/sc/approvals), dan FAQ (/faq).
       // Menu lain seperti Input Data Survey, Summary, dsb dihilangkan.
-      const allowedOmegaHrefs = ["/dashboard", "/sc/new", "/sc/approvals"];
-      return allowedOmegaHrefs.includes(item.href);
+      if (isViewer) {
+        const allowedOmegaHrefs = ["/dashboard"];
+        return allowedOmegaHrefs.includes(item.href);
+      } else{
+        const allowedOmegaHrefs = ["/dashboard", "/sc/new", "/sc/approvals"];
+        return allowedOmegaHrefs.includes(item.href);
+      }
     }
     // Untuk project non-OMEGA:
-    if (item.href === "/sc/new" || item.href === "/sc/approvals") {
+    if (item.href === "/sc/new" || item.href === "/sc/approvals" || item.href === "/sc/dashboard") {
       return false;
     }
     return true;

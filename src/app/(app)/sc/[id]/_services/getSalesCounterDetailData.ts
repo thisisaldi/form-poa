@@ -45,7 +45,7 @@ export async function getSalesCounterDetailData(
   // Fast-path access check
   let hasAccess = false;
   const isSelf = targetOwnerId === sessionUserId;
-  const isSpecialRole = ["ADMIN", "GM", "SFE", "VIEWER"].includes(sessionRole);
+  const isSpecialRole = ["ADMIN", "GM", "SFE", "VIEWER", "SD"].includes(sessionRole);
 
   if (isSelf || isSpecialRole) {
     hasAccess = true;

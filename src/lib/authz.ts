@@ -527,7 +527,7 @@ export async function getVisiblePoaScFilter(user: User): Promise<Prisma.PoaScFor
   if (user.role === Role.MR) {
     return { ownerId: user.nip };
   }
-  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE) {
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE || user.role === Role.SD) {
     return {};
   }
   const depthByRole: Record<string, number> = {
