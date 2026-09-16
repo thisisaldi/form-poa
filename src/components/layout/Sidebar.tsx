@@ -20,6 +20,11 @@ const NAV_ITEMS: NavItem[] = [
     icon: <IconHome />,
   },
   {
+    href: "/sc/dashboard",
+    label: "Dashboard SC",
+    icon: <IconHome />,
+  },
+  {
     href: "/poa/new",
     label: "New POA Estimasi",
     icon: <IconPlus />,
@@ -48,13 +53,13 @@ const NAV_ITEMS: NavItem[] = [
     href: "/approvals",
     label: "Approvals",
     icon: <IconCheck />,
-    roles: ["ASM", "SM", "NSM", "ADMIN"],
+    roles: ["ASM", "SM", "NSM", "ADMIN", "SD"],
   },
   {
     href: "/sc/approvals",
     label: "Approvals SC",
     icon: <IconCheck />,
-    roles: ["ASM", "SM", "NSM", "ADMIN"],
+    roles: ["ASM", "SM", "NSM", "ADMIN", "SD"],
   },
   {
     href: "/summary",
@@ -153,10 +158,16 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
   }, [open]);
 
   const isOmega = userProject?.toUpperCase() === "OMEGA";
+  const isSd = userRole?.toUpperCase() === "SD";
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (userRole === "ADMIN") {
       return true;
+    }
+
+    if (isSd) {
+      const allowedSdHrefs = ["/dashboard", "/sc/dashboard", "/approvals", "/sc/approvals"];
+      return allowedSdHrefs.includes(item.href);
     }
 
     if (item.roles && !item.roles.includes(userRole)) {
