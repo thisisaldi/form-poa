@@ -6,6 +6,7 @@ import type { BlastInResponse, BlastInQuarter } from "@/app/(app)/sc/[id]/_servi
 
 import type { BlastInTableProps } from "./types/widgetTypes";
 import { parseBlastInPeriod } from "./utils/periodUtils";
+import { BlastInMobileView } from "./BlastInMobileView";
 
 export function BlastInTable({
   poaPeriod = "2026-Q3",
@@ -190,13 +191,35 @@ export function BlastInTable({
             )}
 
         {(loading || registrant || !outletId) && (
-          <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-            <table className="w-full text-xs text-center border-collapse">
-              <thead>
-                <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                  <th className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
-                    <div className="leading-tight">
-                      <div>Actual Sales</div>
+          <>
+            {/* Mobile View: Clean cards with zero horizontal scrolling */}
+            <div className="md:hidden">
+              <BlastInMobileView
+                loading={loading}
+                registrant={registrant}
+                outletId={outletId}
+                yearNum={yearNum}
+                qNum={qNum}
+                actualSales={actualSales}
+                estimasiQ={estimasiQ}
+                totalProjected={totalProjected}
+                targetSales={targetSales}
+                hadiahCurrentQ={hadiahCurrentQ}
+                actualHeaderLabel={actualHeaderLabel}
+                displayQuarters={displayQuarters}
+                targetSalesAcc={targetSalesAcc}
+                poaSalesAmount={poaSalesAmount}
+              />
+            </div>
+
+            {/* Desktop View Table */}
+            <div className="hidden md:block overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+              <table className="w-full text-xs text-center border-collapse">
+                <thead>
+                  <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                    <th className="px-2.5 py-2 font-medium" style={{ color: "var(--color-text-muted)" }}>
+                      <div className="leading-tight">
+                        <div>Actual Sales</div>
                       {actualHeaderLabel && (
                         <div className="text-[10px] font-normal opacity-75">{actualHeaderLabel}</div>
                       )}
@@ -279,14 +302,15 @@ export function BlastInTable({
               </tbody>
             </table>
           </div>
-        )}
-          </>
-        )}
-      </div>
+        </>
+      )}
+    </>
+  )}
+</div>
 
-      {/* 2. SECTION 2: HISTORY PENERIMAAN HADIAH (BARU) */}
+      {/* 2. SECTION 2: HISTORY PENERIMAAN HADIAH (DESKTOP) */}
       {isOpen && (registrant || loading) && (
-        <div className="space-y-2 pt-2">
+        <div className="hidden md:block space-y-2 pt-2">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
               HISTORY PENERIMAAN HADIAH
@@ -458,11 +482,13 @@ export function BlastInTable({
               </tbody>
             </table>
           </div>
-
-          <p className="text-[11px] leading-relaxed italic" style={{ color: "var(--color-text-faint)" }}>
-            Kalau &ldquo;Menang&rdquo;, hadiah pasti didapat — kolom &ldquo;Status Penerimaan&rdquo; cuma menandai sudah dibayarkan/diproses atau belum, bukan menentukan berhak/tidaknya.
-          </p>
         </div>
+      )}
+
+      {isOpen && (registrant || loading) && (
+        <p className="text-[11px] leading-relaxed italic pt-1" style={{ color: "var(--color-text-faint)" }}>
+          Kalau &ldquo;Menang&rdquo;, hadiah pasti didapat — kolom &ldquo;Status Penerimaan&rdquo; cuma menandai sudah dibayarkan/diproses atau belum, bukan menentukan berhak/tidaknya.
+        </p>
       )}
     </div>
   );

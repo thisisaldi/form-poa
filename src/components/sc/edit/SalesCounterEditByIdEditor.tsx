@@ -23,6 +23,7 @@ import { satuanLabel } from "./utils/productMatcherUtils";
 import { SectionLabel } from "./ui";
 import { useSalesCounterEditById } from "./hooks/useSalesCounterEditById";
 import { SalesCounterProductBreakdownTable } from "../detail/SalesCounterProductBreakdownTable";
+import { MonthlyBreakdownTable } from "./MonthlyBreakdownTable";
 import { calculateProductDetailRows } from "../detail/utils/outletCalculationUtils";
 import type { ScProductItemData } from "../types";
 
@@ -537,17 +538,21 @@ export function SalesCounterEditByIdEditor({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl">
-      {readOnly && isOwner === false && (
+      <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl w-full max-w-full overflow-hidden">
+      {readOnly && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-          Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only). Perubahan hanya dapat dilakukan oleh pemilik draf (MR).
+          {status === "APPROVED_BY_NSM"
+            ? "Outlet ini sudah berstatus Fully Approved pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja)."
+            : isOwner === false
+            ? "Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only). Perubahan hanya dapat dilakukan oleh pemilik draf (MR)."
+            : "Mode Lihat (Read-Only)."}
         </div>
       )}
-      {!readOnly && status && status !== "DRAFT" && status !== "REVISI" && (
+      {!readOnly && status && status !== "DRAFT" && status !== "REVISI" && status !== "APPROVED_BY_NSM" && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #b45309)", border: "1px solid var(--color-warning, #f59e0b)" }}>
-          Outlet ini sudah berstatus <strong>{formatHumanStatus(status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {status === "SUBMITTED_TO_NSM" || status === "APPROVED_BY_NSM" ? "NSM" : status === "SUBMITTED_TO_SM" || status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
+          Outlet ini sudah berstatus <strong>{formatHumanStatus(status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {status === "SUBMITTED_TO_NSM" ? "NSM" : status === "SUBMITTED_TO_SM" || status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
         </div>
       )}
       <div className="space-y-6">
@@ -632,7 +637,7 @@ export function SalesCounterEditByIdEditor({
 
         {/* Statistik Karyawan & Pasien */}
         <div>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                 Jumlah Karyawan
@@ -1006,6 +1011,7 @@ export function SalesCounterEditByIdEditor({
                 b3RangeLabel={b3RangeLabel}
                 isLoadingIncentiveHistory={isLoadingIncentiveHistory}
                 unselectedProducts={unselectedProducts}
+                isForm={true}
               />
             </div>
           )}
@@ -1013,66 +1019,19 @@ export function SalesCounterEditByIdEditor({
 
         {/* ESTIMASI & NILAI SC/CASHBACK PER BULAN */}
         {monthlyBreakdown.length > 0 && products.some(p => p.kodeProduk) && (
-          <div className="rounded-xl border px-4 py-3 space-y-3"
-            style={{ background: "var(--color-bg)", borderColor: "var(--color-blue)", borderWidth: 2, marginTop: "2rem" }}>
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
-              {isCashbackHidden ? "Estimasi & Insentif SC per Bulan" : "Estimasi & Insentif SC/Cashback per Bulan"}
-            </p>
-            <div className="rounded-lg overflow-hidden overflow-x-auto" style={{ border: "1px solid var(--color-border)" }}>
-              <table className="w-full text-xs min-w-[460px]">
-                <thead>
-                  <tr style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-                    <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Bulan</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Estimasi Sales</th>
-                    <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Insentif SC</th>
-                    {!isCashbackHidden && (
-                      <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Nilai Cashback</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {monthlyBreakdown.map((m: { month: string; label: string; estimasiSales: number; nilaiSc: number }) => {
-                    const mCashback = totalCashbackVal / (lamaPeriode || 1);
-                    return (
-                      <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                        <td className="px-3 py-1.5 align-middle whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>
-                        <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                          {m.estimasiSales > 0 ? `Rp ${Math.round(m.estimasiSales).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                        <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                          {m.nilaiSc > 0 ? `Rp ${Math.round(m.nilaiSc).toLocaleString("id-ID")}` : "-"}
-                        </td>
-                        {!isCashbackHidden && (
-                          <td className="text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                            {mCashback > 0 ? `Rp ${Math.round(mCashback).toLocaleString("id-ID")}` : "-"}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                  <tr style={{ fontWeight: 600 }}>
-                    <td className="px-3 py-1.5 align-middle whitespace-nowrap" style={{ color: "var(--color-text)" }}>Total</td>
-                    <td className="text-right px-3 py-1.5 tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-text)" }}>
-                      Rp {Math.round(totalMonthlyEstimasiSales).toLocaleString("id-ID")}
-                    </td>
-                    <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-blue)" }}>
-                      Rp {Math.round(totalMonthlyNilaiSc).toLocaleString("id-ID")}
-                    </td>
-                    {!isCashbackHidden && (
-                      <td className="text-right px-3 py-1.5 font-bold tabular-nums whitespace-nowrap align-middle" style={{ color: "var(--color-green, #16a34a)" }}>
-                        Rp {Math.round(totalCashbackVal).toLocaleString("id-ID")}
-                      </td>
-                    )}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <MonthlyBreakdownTable
+            monthlyBreakdown={monthlyBreakdown}
+            totalMonthlyEstimasiSales={totalMonthlyEstimasiSales}
+            totalMonthlyNilaiSc={totalMonthlyNilaiSc}
+            totalCashbackVal={totalCashbackVal}
+            lamaPeriode={lamaPeriode}
+            isCashbackHidden={isCashbackHidden}
+          />
         )}
       </div>
 
       {/* ACTION BUTTONS */}
-      <div className="flex justify-end gap-3 pt-4 border-t" style={{ borderColor: "var(--color-border)" }}>
+      <div className="flex justify-end gap-3 pt-4 pb-10 md:pb-0 border-t" style={{ borderColor: "var(--color-border)" }}>
         {readOnly ? (
           <Button type="button" variant="secondary" onClick={() => router.push(`/sc/${scId}`)}>
             Kembali ke Detail

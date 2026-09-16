@@ -28,13 +28,14 @@ export function UnitInput({
   className,
 }: UnitInputProps) {
   const isCurrency = unit === "Rp";
-  const displayValue = isCurrency ? formatRp(value) : value;
+  const normalizedValue = isCurrency ? value : value ? value.replace(/^0+(?=\d)/, "") : value;
+  const displayValue = isCurrency ? formatRp(value) : normalizedValue;
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     if (disabled) return;
-    const v = e.target.value;
+    let v = e.target.value;
     if (isCurrency) {
-      const clean = v.replace(/\D/g, "");
+      const clean = v.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
       onChange(clean);
       return;
     }
@@ -45,6 +46,9 @@ export function UnitInput({
     }
     if (!/^\d*\.?\d*$/.test(v)) return;
     
+    // Prevent dirty leading zeros like "02" -> "2", "00" -> "0"
+    v = v.replace(/^0+(?=\d)/, "");
+
     // Clamp only once the value is a complete-enough number to compare
     if (max != null) {
       const n = parseFloat(v);

@@ -33,7 +33,7 @@ export default async function EditSalesCounterPoaPage({
         ← Kembali ke Draft
       </Link>
 
-      <Card>
+      <Card padded={false} className="overflow-hidden">
         <SalesCounterLineItemEditor
           poaId={id}
           poaPeriod={poa.period}

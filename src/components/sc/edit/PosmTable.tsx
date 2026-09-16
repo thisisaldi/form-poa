@@ -6,6 +6,7 @@ import type { PosmResponse, PosmRecord } from "@/app/(app)/sc/[id]/_services/get
 import type { PosmTableProps } from "./types/widgetTypes";
 import { parseBlastInPeriod, getQuarterPeriodMonths } from "./utils/periodUtils";
 import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
+import { PosmMobileView } from "./PosmMobileView";
 
 export function PosmTable({
   poaPeriod = "2026-Q3",
@@ -110,84 +111,96 @@ export function PosmTable({
         </div>
 
         {totalKomisi > 0 && (
-          <span className="text-xs font-semibold" style={{ color: "var(--color-blue, #2563eb)" }}>
-            Total: Rp {formatRp(totalKomisi)}
+          <span className="text-xs font-semibold whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
+            Total: Rp&nbsp;{formatRp(totalKomisi)}
           </span>
         )}
       </div>
 
       {isOpen && (
-        <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
-        <table className="w-full text-xs text-center border-collapse min-w-[360px]">
-          <thead>
-            <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap text-left" style={{ color: "var(--color-text-muted)", width: "40%" }}>
-                NAMA POSM
-              </th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "35%" }}>
-                PERIODE
-              </th>
-              <th className="px-4 py-2.5 font-medium whitespace-nowrap text-right" style={{ color: "var(--color-text-muted)", width: "25%" }}>
-                KOMISI
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={3} className="px-4 py-4 text-center" style={{ color: "var(--color-text-faint)" }}>
-                  <span className="animate-pulse">Sedang memuat data POSM dari Nexus...</span>
-                </td>
-              </tr>
-            ) : (
-              uniqueRecords.map((item, idx) => {
-                const formatPeriodLabel = () => {
-                  const toYearMonth = (str?: string) => {
-                    if (!str) return "";
-                    const cleaned = str.replace(/[^0-9]/g, "");
-                    if (cleaned.length >= 6) return cleaned.slice(0, 6);
-                    return str;
-                  };
+        <>
+          {/* Mobile View */}
+          <div className="md:hidden">
+            <PosmMobileView
+              loading={loading}
+              uniqueRecords={uniqueRecords}
+              totalKomisi={totalKomisi}
+            />
+          </div>
 
-                  const start = toYearMonth(item.period || item.placementDate);
-                  const end = toYearMonth(item.end_period);
-
-                  if (start && end) {
-                    return `${start} - ${end}`;
-                  }
-                  return start || end || "-";
-                };
-
-                return (
-                  <tr key={idx} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                    <td className="px-4 py-3 text-left font-medium" style={{ color: "var(--color-text)" }}>
-                      <div>{item.visibilityName || item.brand || "-"}</div>
-                    </td>
-                    <td className="px-4 py-3 text-center whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                      {formatPeriodLabel()}
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
-                      Rp {formatRp(Number(item.value) || 0)}
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto rounded-lg border" style={{ borderColor: "var(--color-border)" }}>
+            <table className="w-full text-xs text-center border-collapse min-w-[360px]">
+              <thead>
+                <tr style={{ background: "var(--color-bg-subtle)", borderBottom: "1px solid var(--color-border)" }}>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap text-left" style={{ color: "var(--color-text-muted)", width: "40%" }}>
+                    NAMA POSM
+                  </th>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)", width: "35%" }}>
+                    PERIODE
+                  </th>
+                  <th className="px-4 py-2.5 font-medium whitespace-nowrap text-right" style={{ color: "var(--color-text-muted)", width: "25%" }}>
+                    KOMISI
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-4 text-center" style={{ color: "var(--color-text-faint)" }}>
+                      <span className="animate-pulse">Sedang memuat data POSM dari Nexus...</span>
                     </td>
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-          {uniqueRecords.length > 0 && (
-            <tfoot>
-              <tr style={{ background: "var(--color-bg-subtle)", borderTop: "1px solid var(--color-border)" }}>
-                <td colSpan={2} className="px-4 py-2 text-left font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
-                  Total Komisi POSM
-                </td>
-                <td className="px-4 py-2 text-right font-bold text-xs" style={{ color: "var(--color-blue, #2563eb)" }}>
-                  Rp {formatRp(totalKomisi)}
-                </td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-        </div>
+                ) : (
+                  uniqueRecords.map((item, idx) => {
+                    const formatPeriodLabel = () => {
+                      const toYearMonth = (str?: string) => {
+                        if (!str) return "";
+                        const cleaned = str.replace(/[^0-9]/g, "");
+                        if (cleaned.length >= 6) return cleaned.slice(0, 6);
+                        return str;
+                      };
+
+                      const start = toYearMonth(item.period || item.placementDate);
+                      const end = toYearMonth(item.end_period);
+
+                      if (start && end) {
+                        return `${start} - ${end}`;
+                      }
+                      return start || end || "-";
+                    };
+
+                    return (
+                      <tr key={idx} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                        <td className="px-4 py-3 text-left font-medium" style={{ color: "var(--color-text)" }}>
+                          <div>{item.visibilityName || item.brand || "-"}</div>
+                        </td>
+                        <td className="px-4 py-3 text-center whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
+                          {formatPeriodLabel()}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
+                          Rp&nbsp;{formatRp(Number(item.value) || 0)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              {uniqueRecords.length > 0 && (
+                <tfoot>
+                  <tr style={{ background: "var(--color-bg-subtle)", borderTop: "1px solid var(--color-border)" }}>
+                    <td colSpan={2} className="px-4 py-2 text-left font-semibold text-[11px]" style={{ color: "var(--color-text)" }}>
+                      Total Komisi POSM
+                    </td>
+                    <td className="px-4 py-2 text-right font-bold text-xs whitespace-nowrap" style={{ color: "var(--color-blue, #2563eb)" }}>
+                      Rp&nbsp;{formatRp(totalKomisi)}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

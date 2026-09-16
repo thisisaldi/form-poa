@@ -214,15 +214,21 @@ export function ScSidebar({
           </button>
         </div>
 
-        {/* Mobile Floating Action Pill at Bottom-Right */}
-        <div className="flex md:hidden fixed bottom-6 right-4 z-40">
+        {/* Mobile Floating Action Button (Clean Circular FAB, doesn't block card numbers or bottom action buttons) */}
+        <div className="flex md:hidden fixed bottom-20 right-4 z-30">
           <button
             type="button"
             onClick={() => setActiveTab("rekomendasi")}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full shadow-lg text-xs font-semibold text-white transition-all active:scale-95 cursor-pointer"
-            style={{ background: "var(--color-blue, #0063a0)" }}
+            className="w-11 h-11 rounded-full shadow-xl flex items-center justify-center text-white transition-all active:scale-90 cursor-pointer"
+            style={{
+              background: "var(--color-blue, #0063a0)",
+              boxShadow: "0 4px 14px rgba(0, 99, 160, 0.4)",
+            }}
+            title="Buka Data Rekomendasi & Histori SC"
           >
-            <span>Data Rekomendasi / SC</span>
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
           </button>
         </div>
       </>

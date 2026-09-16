@@ -8,6 +8,7 @@ import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { UnitInput } from "./UnitInput";
+import { ProductMobileCard, ProductMobileGrandTotal, ProductMobileToolbar } from "./ProductMobileCard";
 import {
   getLossSalesAnalysisAction,
   getRecommendedProCodesAction,
@@ -118,7 +119,7 @@ export function ProductSelector({
     const validPeriods = rawPeriods
       .map(String)
       .filter((p) => p.length === 6)
-      .sort(); // ascending: e.g. [202604, 202605, 202606]
+      .sort();
 
     let p1 = validPeriods[validPeriods.length - 1]; // Latest (B1)
     let p2 = validPeriods[validPeriods.length - 2]; // B2
@@ -330,6 +331,24 @@ export function ProductSelector({
     setExpandedRows((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
+  const [mobileOpenCards, setMobileOpenCards] = useState<Record<number, boolean>>({});
+  const isMobileCardExpanded = (idx: number) => mobileOpenCards[idx] !== false;
+  const toggleMobileCard = (idx: number) => {
+    setMobileOpenCards((prev) => ({
+      ...prev,
+      [idx]: !isMobileCardExpanded(idx),
+    }));
+  };
+  const areAllMobileExpanded = rows.length > 0 && rows.every((_, idx) => isMobileCardExpanded(idx));
+  const toggleAllMobileCards = () => {
+    const nextVal = !areAllMobileExpanded;
+    const nextMap: Record<number, boolean> = {};
+    rows.forEach((_, idx) => {
+      nextMap[idx] = nextVal;
+    });
+    setMobileOpenCards(nextMap);
+  };
+
   const numMonths = Math.max(1, lamaPeriode || 3);
   const monthNamesIndo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
@@ -437,17 +456,105 @@ export function ProductSelector({
         </div>
       )}
 
-      {/* Mobile Scroll Hint */}
-      <div className="flex items-center justify-between text-[11px] sm:hidden px-1" style={{ color: "var(--color-text-muted)" }}>
-        <span className="inline-flex items-center gap-1">
-          <span>↔</span> Geser tabel ke samping untuk melihat semua kolom
-        </span>
+      {/* Mobile Card View (md:hidden) */}
+      <div className="md:hidden space-y-3">
+        {isLoading ? (
+          Array.from({ length: 2 }).map((_, sIdx) => (
+            <div key={`mob-skeleton-${sIdx}`} className="p-3.5 rounded-xl border animate-pulse space-y-3" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+              <div className="flex justify-between items-center gap-2">
+                <div className="h-9 bg-slate-200 dark:bg-slate-700 rounded-lg flex-1" />
+                <div className="h-9 w-9 bg-slate-200 dark:bg-slate-700 rounded-lg shrink-0" />
+              </div>
+              <div className="h-16 bg-slate-200 dark:bg-slate-700 rounded w-full" />
+              <div className="grid grid-cols-3 gap-2">
+                <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded" />
+                <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded" />
+                <div className="h-12 bg-slate-200 dark:bg-slate-700 rounded" />
+              </div>
+            </div>
+          ))
+        ) : rows.length === 0 ? (
+          <div className="p-4 rounded-xl border text-center text-xs" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}>
+            Belum ada produk yang ditambahkan. Klik tombol <strong>+ Tambah Produk</strong> di bawah untuk memilih produk.
+          </div>
+        ) : (
+          <>
+            {rows.length > 1 && (
+              <ProductMobileToolbar
+                totalProducts={rows.length}
+                allExpanded={areAllMobileExpanded}
+                onToggleAll={toggleAllMobileCards}
+              />
+            )}
+            {rows.map((row, idx) => (
+              <ProductMobileCard
+                key={idx}
+                row={row}
+                idx={idx}
+                readOnly={readOnly}
+                masterProducts={masterProducts}
+                canvasserProducts={canvasserProducts}
+                productsOptions={productsOptions}
+                rows={rows}
+                onUpdateRow={onUpdateRow}
+                onRemoveRow={onRemoveRow}
+                setDeleteIndex={setDeleteIndex}
+                numMonths={numMonths}
+                monthLabels={monthLabels}
+                diskonPeriode={diskonPeriode}
+                b3RangeLabel={b3RangeLabel}
+                historyPeriodRange={historyPeriodRange}
+                b1Label={b1Label}
+                b2Label={b2Label}
+                b3Label={b3Label}
+                b3SalesMap={b3SalesMap}
+                b3QtyMap={b3QtyMap}
+                historySalesMap={historySalesMap}
+                historyIncentiveMap={historyIncentiveMap}
+                cashbackDetails={cashbackDetails}
+                isCashbackNotFound={isCashbackNotFound}
+                getCompetitorsForRow={getCompetitorsForRow}
+                isExpanded={isMobileCardExpanded(idx)}
+                onToggleExpand={() => toggleMobileCard(idx)}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Mobile Add Product Button */}
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onAddRow}
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl border border-dashed text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs hover:bg-[var(--color-bg-subtle)]"
+            style={{
+              borderColor: "var(--color-border-strong)",
+              background: "var(--color-bg)",
+              color: "var(--color-blue)",
+            }}
+          >
+            <span className="text-base font-bold">+</span> Tambah Produk
+          </button>
+        )}
+
+        {/* Mobile Grand Total Summary */}
+        {rows.length > 0 && (
+          <ProductMobileGrandTotal
+            rowCount={rows.length}
+            grandTotalEstSalesPeriode={grandTotalEstSalesPeriode}
+            grandTotalNilaiScPeriode={grandTotalNilaiScPeriode}
+            totalFinalCashback={cashbackDetails.totalFinalCashback}
+            isCashbackNotFound={isCashbackNotFound}
+            numMonths={numMonths}
+          />
+        )}
       </div>
 
-      {/* Main Product Table Container */}
-      <div className="rounded-lg border shadow-xs" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
+      {/* Desktop Main Product Table Container */}
+      <div className="hidden md:block overflow-x-auto rounded-lg border shadow-xs" style={{ borderColor: "var(--color-border)", background: "var(--color-bg)" }}>
         <table className={`w-full text-left text-xs border-collapse ${tableMinWidth}`}>
-          <thead className="sticky top-14 md:top-0 z-20 shadow-xs" style={{ background: "var(--color-bg-subtle)" }}>
+          <thead className="sticky top-0 z-20 shadow-xs" style={{ background: "var(--color-bg-subtle)" }}>
             <tr style={{ background: "var(--color-bg-subtle)" }}>
               <th
                 className={`py-2 pl-3 pr-2 font-semibold text-[11px] text-left border-b rounded-tl-lg ${colProdukWidth}`}
@@ -539,12 +646,12 @@ export function ProductSelector({
                   const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
                   const numMonths = Math.max(1, lamaPeriode || 3);
                   const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonths
-                    ? row.monthlyQty
+                    ? row.monthlyQty.map((val) => String(val).replace(/^0+(?=\d)/, ""))
                     : Array.from({ length: numMonths }, (_, mIdx) => {
                         if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
-                          return String(row.monthlyQty[mIdx]);
+                          return String(row.monthlyQty[mIdx]).replace(/^0+(?=\d)/, "");
                         }
-                        return row.qtyPerBulan ? String(row.qtyPerBulan) : "0";
+                        return row.qtyPerBulan ? String(row.qtyPerBulan).replace(/^0+(?=\d)/, "") : "0";
                       });
 
                   let totalQtySwitch = 0;
@@ -633,7 +740,7 @@ export function ProductSelector({
                               </>
                             )}
                             <div
-                              className="pt-1.5 mt-1 border-t border-dashed flex items-center justify-between gap-2 flex-wrap"
+                              className="pt-1 pb-1.5 mt-1 border-t border-dashed flex items-center justify-between gap-2 flex-wrap"
                               style={{ borderColor: "var(--color-border)" }}
                             >
                               <div className="flex items-center gap-1.5 text-[11px] leading-tight">
@@ -659,70 +766,70 @@ export function ProductSelector({
                                 </span>
                               )}
                             </div>
-                          </div>
-                        )}
+                            {/* Potensi dipindahkan ke bawah Zat dengan garis pembatas */}
+                            {(() => {
+                              const comps = getCompetitorsForRow(row.kodeProduk);
+                              const totalPotensi = comps.reduce((sum, c) => sum + c.salesForecast, 0);
+                              const hasMoreThan4 = comps.length > 4;
+                              const visibleComps = hasMoreThan4 ? comps.slice(0, 4) : comps;
+                              const otherComps = hasMoreThan4 ? comps.slice(4) : [];
+                              const qtyOthers = otherComps.reduce((sum, c) => sum + c.salesForecast, 0);
 
-                        {/* Potensi dipindahkan ke bawah Zat dengan garis pembatas */}
-                        {row.kodeProduk && (() => {
-                          const comps = getCompetitorsForRow(row.kodeProduk);
-                          const totalPotensi = comps.reduce((sum, c) => sum + c.salesForecast, 0);
-                          const hasMoreThan4 = comps.length > 4;
-                          const visibleComps = hasMoreThan4 ? comps.slice(0, 4) : comps;
-                          const otherComps = hasMoreThan4 ? comps.slice(4) : [];
-                          const qtyOthers = otherComps.reduce((sum, c) => sum + c.salesForecast, 0);
-
-                          return (
-                            <div className="pt-1.5 mt-1 border-t border-dashed" style={{ borderColor: "var(--color-border)" }}>
-                              <div className="flex items-center gap-1.5 text-[11px] leading-tight">
-                                <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                                  Potensi:
-                                </span>
-                                <span className="font-bold text-xs" style={{ color: "var(--color-text)" }}>
-                                  {totalPotensi}
-                                </span>
-                              </div>
-                              {comps.length > 0 && (
-                                <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-muted)" }}>
-                                  {visibleComps.map((comp, cIdx) => (
-                                    <div
-                                      key={cIdx}
-                                      className="flex items-center gap-1 text-[10px] min-w-0"
-                                      title={`${comp.namaKompetitor}: ${comp.salesForecast}`}
-                                    >
-                                      <span className="truncate text-left" style={{ color: "var(--color-text-muted)" }}>
-                                        {comp.namaKompetitor}:
-                                      </span>
-                                      <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
-                                        {comp.salesForecast}
-                                      </strong>
-                                    </div>
-                                  ))}
-                                  {hasMoreThan4 && (
-                                    <div
-                                      className="flex items-center gap-1 text-[10px] min-w-0"
-                                      title={otherComps.map((c) => `${c.namaKompetitor}: ${c.salesForecast}`).join(", ")}
-                                    >
-                                      <span className="truncate text-left" style={{ color: "var(--color-text-muted)" }}>
-                                        lainnya:
-                                      </span>
-                                      <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
-                                        {qtyOthers}
-                                      </strong>
+                              return (
+                                <div className="pt-1.5 mt-0 border-t border-dashed" style={{ borderColor: "var(--color-border)" }}>
+                                  <div className="flex items-center gap-1.5 text-[11px] leading-tight">
+                                    <span className="font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                                      Potensi:
+                                    </span>
+                                    <span className="font-bold text-xs" style={{ color: "var(--color-text)" }}>
+                                      {totalPotensi}
+                                    </span>
+                                  </div>
+                                  {comps.length > 0 && (
+                                    <div className="text-[10px] space-y-0.5 mt-1" style={{ color: "var(--color-text-muted)" }}>
+                                      {visibleComps.map((comp, cIdx) => (
+                                        <div
+                                          key={cIdx}
+                                          className="flex items-center gap-1 text-[10px] min-w-0"
+                                          title={`${comp.namaKompetitor}: ${comp.salesForecast}`}
+                                        >
+                                          <span className="truncate text-left" style={{ color: "var(--color-text-muted)" }}>
+                                            {comp.namaKompetitor}:
+                                          </span>
+                                          <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
+                                            {comp.salesForecast}
+                                          </strong>
+                                        </div>
+                                      ))}
+                                      {hasMoreThan4 && (
+                                        <div
+                                          className="flex items-center gap-1 text-[10px] min-w-0"
+                                          title={otherComps.map((c) => `${c.namaKompetitor}: ${c.salesForecast}`).join(", ")}
+                                        >
+                                          <span className="truncate text-left" style={{ color: "var(--color-text-muted)" }}>
+                                            lainnya:
+                                          </span>
+                                          <strong className="shrink-0" style={{ color: "var(--color-text)" }}>
+                                            {qtyOthers}
+                                          </strong>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                              );
+                            })()}
+                          </div>
+                        )}
                       </td>
 
                       {/* Column 3: Quantity Input per Bulan (Estimasi Switching / UB) */}
                       <td className="py-2.5 px-1 text-center align-top">
                         {(() => {
                           const handleMonthChange = (mIdx: number, newVal: string) => {
+                            const cleanVal = newVal === "" ? "" : newVal.replace(/^0+(?=\d)/, "");
                             const nextMonthly = [...currentMonthly];
-                            nextMonthly[mIdx] = newVal;
+                            nextMonthly[mIdx] = cleanVal;
 
                             let totalQty = 0;
                             let hasAnyValue = false;
@@ -776,11 +883,11 @@ export function ProductSelector({
                             <div>
                               {/* Top Card: Total Est Switch with bottom border */}
                               <div
-                                className="-mx-1 px-1 h-[38px] flex items-center justify-center border-b border-solid"
+                                className="-mx-1 px-1 h-[38px] flex flex-col justify-center border-b border-solid"
                                 style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                               >
                                 <div
-                                  className="w-full h-[30px] rounded px-2 flex flex-col justify-center text-center"
+                                  className="w-full h-[32px] rounded-md px-1.5 flex flex-col items-center justify-center text-center gap-0.5"
                                   style={{
                                     border: "1px solid var(--color-blue-light, #c8e1f5)",
                                     background: "var(--color-blue-light, #E6F0F8)",
@@ -789,7 +896,7 @@ export function ProductSelector({
                                   <div className="text-[9px] font-semibold tracking-wider uppercase leading-none" style={{ color: "var(--color-text-muted)" }}>
                                     TOTAL EST. SWITCH
                                   </div>
-                                  <div className="text-xs font-bold leading-tight" style={{ color: "var(--color-blue)" }}>
+                                  <div className="text-xs font-bold leading-none" style={{ color: "var(--color-blue)" }}>
                                     {totalQtySwitch} {unitStr}
                                   </div>
                                 </div>
@@ -1353,10 +1460,20 @@ export function ProductSelector({
                       </td>
 
                       {/* Column 6: Nilai Cashback / Bln */}
-                      <td className="py-2.5 px-2 text-left align-top">
+                      <td className="py-2.5 px-2 text-center align-top">
                         {isCashbackNotFound ? (
-                          <div className="text-[11px] py-1 text-center" style={{ color: "var(--color-text-muted)" }}>
-                            -
+                          <div
+                            className="-mx-2 px-2 h-[38px] flex items-center justify-center border-b border-solid"
+                            style={{
+                              borderColor: "var(--color-border-strong, #B8AF9E)",
+                            }}
+                          >
+                            <div
+                              className="text-sm font-medium"
+                              style={{ color: "var(--color-text-muted)" }}
+                            >
+                              -
+                            </div>
                           </div>
                         ) : (
                           (() => {
@@ -1375,14 +1492,11 @@ export function ProductSelector({
                               <div>
                                 {/* Total Cashback with bottom border */}
                                 <div
-                                  className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none space-y-0.5 text-left border-b border-solid"
+                                  className="-mx-2 px-2 h-[38px] flex flex-col justify-center leading-none text-center border-b border-solid"
                                   style={{ borderColor: "var(--color-border-strong, #B8AF9E)" }}
                                 >
-                                  <div className="text-sm font-extrabold leading-tight whitespace-nowrap text-center" style={{ color: "var(--color-green)" }}>
+                                  <div className="text-sm font-extrabold whitespace-nowrap text-center leading-none" style={{ color: "var(--color-green)" }}>
                                     Rp {formatRp(totalCashbackPeriode)}
-                                  </div>
-                                  <div className="text-[10px] leading-none opacity-0 select-none pointer-events-none">
-                                    -
                                   </div>
                                 </div>
 
@@ -1408,36 +1522,38 @@ export function ProductSelector({
 
                       {/* Column 8: Delete Action */}
                       {!readOnly && (
-                        <td className="py-2 px-2 text-center align-middle">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const r = rows[idx];
-                              const hasQty = (parseFloat(r.qtyPerBulan) || 0) > 0 || (Array.isArray(r.monthlyQty) && r.monthlyQty.some((q) => (parseFloat(q) || 0) > 0));
-                              if (!r.kodeProduk && !hasQty) {
-                                onRemoveRow(idx);
-                              } else {
-                                setDeleteIndex(idx);
-                              }
-                            }}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-red-500 hover:text-red-700 bg-red-50/70 hover:bg-red-100 border border-red-200/70 hover:border-red-300 transition-all cursor-pointer shadow-2xs"
-                            title="Hapus produk"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="w-4 h-4"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
+                        <td className="py-2.5 px-2 text-center align-top">
+                          <div className="h-[38px] flex items-center justify-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const r = rows[idx];
+                                const hasQty = (parseFloat(r.qtyPerBulan) || 0) > 0 || (Array.isArray(r.monthlyQty) && r.monthlyQty.some((q) => (parseFloat(q) || 0) > 0));
+                                if (!r.kodeProduk && !hasQty) {
+                                  onRemoveRow(idx);
+                                } else {
+                                  setDeleteIndex(idx);
+                                }
+                              }}
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-red-500 hover:text-red-700 bg-red-50/70 hover:bg-red-100 border border-red-200/70 hover:border-red-300 transition-all cursor-pointer shadow-2xs"
+                              title="Hapus produk"
                             >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
-                            </svg>
-                          </button>
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                       )}
                     </tr>

@@ -538,9 +538,10 @@ function UnitInput({ value, onChange, unit, placeholder = "0", step, min = 0, ma
   max?: number;
 }) {
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const v = e.target.value;
+    let v = e.target.value;
     if (v === "") { onChange(v); return; }
     if (!/^\d*\.?\d*$/.test(v)) return;
+    v = v.replace(/^0+(?=\d)/, "");
     // Clamp only once the value is a complete-enough number to compare —
     // letting a partial typed value like "3" through unclamped even though
     // "31" (the eventual target) is fine, but rejecting a keystroke that
