@@ -171,7 +171,6 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject,
       const allowedSdHrefs = ["/dashboard", "/sc/dashboard", "/approvals"];
       return allowedSdHrefs.includes(item.href);
     }
-    console.log(multiProject)
     if (isViewer && multiProject) {
       const allowedViewerMultiHrefs = ["/dashboard", "/sc/dashboard", "/summary", "/faq"];
       return allowedViewerMultiHrefs.includes(item.href);
