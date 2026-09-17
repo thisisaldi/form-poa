@@ -49,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         userName={session.name}
         userNip={session.nip}
         userProject={user.project}
+        multiProject={user.multipleProject}
       />
       {/* pt-14 accounts for the fixed mobile top bar; md:pt-0 removes it on desktop */}
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">

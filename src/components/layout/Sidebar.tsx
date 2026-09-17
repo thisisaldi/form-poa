@@ -142,9 +142,10 @@ interface SidebarProps {
   userName: string;
   userNip: string;
   userProject?: string | null;
+  multiProject: boolean;
 }
 
-export function Sidebar({ userRole, userJabatan, userName, userNip, userProject }: SidebarProps) {
+export function Sidebar({ userRole, userJabatan, userName, userNip, userProject, multiProject }: SidebarProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -169,6 +170,11 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject 
     if (isSd) {
       const allowedSdHrefs = ["/dashboard", "/sc/dashboard", "/approvals"];
       return allowedSdHrefs.includes(item.href);
+    }
+    console.log(multiProject)
+    if (isViewer && multiProject) {
+      const allowedViewerMultiHrefs = ["/dashboard", "/sc/dashboard", "/summary", "/faq"];
+      return allowedViewerMultiHrefs.includes(item.href);
     }
 
     if (item.roles && !item.roles.includes(userRole)) {
