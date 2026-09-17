@@ -262,7 +262,16 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
   else if (userId === "SCASM123456") targetUserId = "L260437";
   else if (userId === "SCSM123456") targetUserId = "P230219";
   else if (userId === "SCNSM123456") targetUserId = "P080855";
-  else if (userId?.toLowerCase().startsWith("test")) targetUserId = stripTestPrefix(userId);
+  // else if (userId?.toLowerCase().startsWith("test")) targetUserId = stripTestPrefix(userId);
+  else if (userId?.toLowerCase().startsWith("testmr")) {
+    targetUserId = "P250091";
+  } else if (userId?.toLowerCase().startsWith("testasm")) {
+    targetUserId = "L260437";
+  } else if (userId?.toLowerCase().startsWith("testsm")) {
+    targetUserId = "P230219";
+  } else if (userId?.toLowerCase().startsWith("testnsm")) {
+    targetUserId = "P080855";
+  }
 
   const { prisma } = await import("@/lib/prisma");
   const user = await prisma.user.findUnique({

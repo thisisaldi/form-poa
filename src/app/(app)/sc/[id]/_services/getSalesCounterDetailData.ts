@@ -46,6 +46,7 @@ export async function getSalesCounterDetailData(
   let hasAccess = false;
   const isSelf = targetOwnerId === sessionUserId;
   const isSpecialRole = ["ADMIN", "GM", "SFE", "VIEWER", "SD"].includes(sessionRole);
+  const isEditRole = ["ADMIN", "ASM", "SM", "NSM"].includes(sessionRole)
 
   if (isSelf || isSpecialRole) {
     hasAccess = true;
@@ -143,7 +144,7 @@ export async function getSalesCounterDetailData(
   const isOwner = poa.ownerId === sessionUserId;
   // Owner can always add new outlets and manage their DRAFT/REVISI outlets.
   // Each outlet card enforces individual lock status (DRAFT/REVISI vs APPROVED).
-  const userCanEdit = isOwner || sessionRole === "ADMIN";
+  const userCanEdit = isOwner || isEditRole;
 
   // Collect all product codes across drafts to fetch master Product information
   const allProductCodes = Array.from(

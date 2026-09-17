@@ -37,6 +37,7 @@ export default async function SalesCounterDashboardPage({
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   const params = await searchParams;
   const isMR = actor.role === "MR";
+  const isASM = actor.role === "ASM";
   const isViewer = actor.role === "VIEWER";
   const isSD = actor.role === "SD"
 
@@ -349,7 +350,7 @@ export default async function SalesCounterDashboardPage({
         {isMR && (
           <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
         )}
-        {!isSD && !isViewer && (
+        {(isMR || isASM) && (
           <Link href="/sc/new">
             <Button>+ Buat POA Baru</Button>
           </Link>

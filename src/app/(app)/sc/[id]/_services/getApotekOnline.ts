@@ -7,9 +7,9 @@ export interface ApotekOnlineResponse {
   NIP?: string;
 }
 
-function stripTestPrefix(nip: string): string {
-  return nip.replace(/^test(?:psr|mr)?/i, "");
-}
+// function stripTestPrefix(nip: string): string {
+//   return nip.replace(/^test(?:psr|mr)?/i, "");
+// }
 
 export async function getApotekOnline(
   nip: string,
@@ -33,8 +33,20 @@ export async function getApotekOnline(
     } else if (targetNip === "SCNSM123456") {
       targetNip = "P080855";
       targetPosition = targetPosition || "NSM";
-    } else if (targetNip?.toLowerCase().startsWith("test")) {
-      targetNip = stripTestPrefix(targetNip);
+    // } else if (targetNip?.toLowerCase().startsWith("test")) {
+    //   targetNip = stripTestPrefix(targetNip);
+    }  else if (targetNip?.toLowerCase().startsWith("testmr")) {
+      targetNip = "P250091";
+      targetPosition = targetPosition || "MR";
+    } else if (targetNip?.toLowerCase().startsWith("testasm")) {
+      targetNip = "L260437";
+      targetPosition = targetPosition || "ASM";
+    } else if (targetNip?.toLowerCase().startsWith("testsm")) {
+      targetNip = "P230219";
+      targetPosition = targetPosition || "SM";
+    } else if (targetNip?.toLowerCase().startsWith("testnsm")) {
+      targetNip = "P080855";
+      targetPosition = targetPosition || "NSM";
     }
 
     // If position not explicitly provided, look up from User table

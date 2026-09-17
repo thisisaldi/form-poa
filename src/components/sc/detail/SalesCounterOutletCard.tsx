@@ -432,7 +432,7 @@ export function SalesCounterOutletCard({
               border: "1px solid var(--color-blue)",
             }}
           >
-            Lihat
+            {userCanEdit ? "Edit" : "Lihat"}
           </Link>
 
           {userCanEdit && (draft.status === "DRAFT" || draft.status === "REVISI") && (
