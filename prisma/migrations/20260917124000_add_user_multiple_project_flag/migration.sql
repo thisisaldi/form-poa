@@ -1,0 +1,2 @@
+ALTER TABLE "User"
+  ADD COLUMN "multipleProject" BOOLEAN NOT NULL DEFAULT false;

@@ -144,6 +144,7 @@ model User {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   project   String?
+  multipleProject Boolean @default(false)
 
   // Territory assignment (derived from org structure CSV)
   // MR → GT, SPV (MR) → Sub, ASM → Area, SM → Reg
