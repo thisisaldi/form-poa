@@ -299,74 +299,52 @@ export function SalesCounterLineItemEditor({
     return { komposisiOnlinePct: onPct, komposisiOfflinePct: offPct };
   }, [onlinePiSales, offlineHistoricalSales]);
 
-  const monthlyBreakdown = activeMonths.map((m) => {
-    let monthlyEstimasiSales = 0;
-    let monthlyNilaiSc = 0;
+  const monthlyBreakdown = useMemo(() => {
+    return activeMonths.map((m, mIdx) => {
+      let monthlyEstimasiSales = 0;
+      let monthlyNilaiSc = 0;
 
-    for (const row of selectedProducts) {
-      if (!row.kodeProduk) continue;
-      const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
-      if (!masterProduct) continue;
-      const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
+      for (const row of selectedProducts) {
+        if (!row.kodeProduk) continue;
+        const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
+        if (!masterProduct) continue;
+        const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
 
-      const hnaSJ = parseFloat(masterProduct.hna) || 0;
-      const qty = parseFloat(row.qtyPerBulan) || 0;
-      const estSalesPerMonth = qty * hnaSJ;
-      const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
+        const hnaSJ = parseFloat(masterProduct.hna) || 0;
+        const qty = (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined && row.monthlyQty[mIdx] !== "")
+          ? (parseFloat(row.monthlyQty[mIdx]) || 0)
+          : (parseFloat(row.qtyPerBulan) || 0);
+        const estSalesPerMonth = qty * hnaSJ;
+        const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
 
-      const scVal = canvasserProd?.sales_counter_value;
-      const scMin = canvasserProd?.sales_counter_minimum || 0;
+        const scVal = canvasserProd?.sales_counter_value;
+        const scMin = canvasserProd?.sales_counter_minimum || 0;
 
-      let valScPerMonth = 0;
-      if (scVal != null && scVal > 0) {
-        valScPerMonth = qty >= scMin ? qty * scVal : 0;
-      } else {
-        valScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+        let valScPerMonth = 0;
+        if (scVal != null && scVal > 0) {
+          valScPerMonth = qty >= scMin ? qty * scVal : 0;
+        } else {
+          valScPerMonth = estSalesPerMonth * (pctMatriks / 100);
+        }
+
+        monthlyEstimasiSales += estSalesPerMonth;
+        monthlyNilaiSc += valScPerMonth;
       }
 
-      monthlyEstimasiSales += estSalesPerMonth;
-      monthlyNilaiSc += valScPerMonth;
-    }
-
-    return {
-      month: m,
-      label: formatMonthLabel(m),
-      estimasiSales: monthlyEstimasiSales,
-      nilaiSc: monthlyNilaiSc,
-    };
-  });
+      return {
+        month: m,
+        label: formatMonthLabel(m),
+        estimasiSales: monthlyEstimasiSales,
+        nilaiSc: monthlyNilaiSc,
+      };
+    });
+  }, [activeMonths, selectedProducts, products, canvasserProducts]);
 
   const totalMonthlyEstimasiSales = monthlyBreakdown.reduce((sum, item) => sum + item.estimasiSales, 0);
   const totalMonthlyNilaiSc = monthlyBreakdown.reduce((sum, item) => sum + item.nilaiSc, 0);
 
-  const totalEstimasiSales = selectedProducts.reduce((sum, row) => {
-    if (!row.kodeProduk) return sum;
-    const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
-    if (!masterProduct) return sum;
-    const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const qty = parseFloat(row.qtyPerBulan) || 0;
-    return sum + (qty * hnaSJ * lamaPeriode);
-  }, 0);
-
-  const totalNilaiSc = selectedProducts.reduce((sum, row) => {
-    if (!row.kodeProduk) return sum;
-    const masterProduct = products.find((pr) => pr.kodeProduk === row.kodeProduk);
-    if (!masterProduct) return sum;
-    const canvasserProd = canvasserProducts.find((cp) => cp.pro_code === row.kodeProduk);
-    const hnaSJ = parseFloat(masterProduct.hna) || 0;
-    const qty = parseFloat(row.qtyPerBulan) || 0;
-    const estSalesBln = qty * hnaSJ;
-    const scVal = canvasserProd?.sales_counter_value;
-    const scMin = canvasserProd?.sales_counter_minimum || 0;
-    let valScBln = 0;
-    if (scVal != null && scVal > 0) {
-      valScBln = qty >= scMin ? qty * scVal : 0;
-    } else {
-      const pctMatriks = parseFloat(row.persenMatriksSc) || 0;
-      valScBln = estSalesBln * (pctMatriks / 100);
-    }
-    return sum + (valScBln * lamaPeriode);
-  }, 0);
+  const totalEstimasiSales = totalMonthlyEstimasiSales;
+  const totalNilaiSc = totalMonthlyNilaiSc;
 
   const isCashbackNotFound =
     !cashbackData ||
