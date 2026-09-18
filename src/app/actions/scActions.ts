@@ -378,50 +378,77 @@ export async function saveSalesCounterFormAction(
           existing.status !== PoaStatus.DRAFT && existing.status !== PoaStatus.REVISI;
 
         if (session.userId === existing.ownerId && isApprovalFlowOrApproved) {
-          const mrUser = await tx.user.findUnique({
+          const ownerUser = await tx.user.findUnique({
             where: { nip: session.userId },
-            select: { nipAtasan: true },
+            select: { nip: true, nipAtasan: true, role: true },
           });
 
-          // Look up ASM (MR's manager)
-          let asmNip = mrUser?.nipAtasan || null;
-          if (!asmNip) {
-            const asm = await tx.user.findFirst({
-              where: { isActive: true, role: { in: ["ASM", "SM", "NSM"] } },
-              select: { nip: true },
-            });
-            asmNip = asm?.nip || null;
-          }
+          const ownerRole = ownerUser?.role || "MR";
 
-          // Look up SM (ASM's manager)
-          let smNip: string | null = null;
-          if (asmNip) {
-            const asmUser = await tx.user.findUnique({
-              where: { nip: asmNip },
-              select: { nipAtasan: true },
-            });
-            smNip = asmUser?.nipAtasan || null;
-          }
-          if (!smNip) {
-            const sm = await tx.user.findFirst({
-              where: { isActive: true, role: { in: ["SM", "NSM"] } },
-              select: { nip: true },
-            });
-            smNip = sm?.nip || null;
-          }
-
-          if (
-            existing.status === PoaStatus.SUBMITTED_TO_NSM ||
-            existing.status === PoaStatus.APPROVED_BY_SM ||
-            existing.status === PoaStatus.SUBMITTED_TO_SM
-          ) {
-            // Step back from NSM -> back to SM review, or stay at SM review if already at SM (stuck di SM)
+          if (ownerRole === "ASM") {
+            // ASM owner: reset to SM review (never down to ASM review)
+            let smNip = ownerUser?.nipAtasan || null;
+            if (!smNip) {
+              const sm = await tx.user.findFirst({
+                where: { isActive: true, role: { in: ["SM", "NSM"] } },
+                select: { nip: true },
+              });
+              smNip = sm?.nip || null;
+            }
             targetStatus = PoaStatus.SUBMITTED_TO_SM;
             targetHolderId = smNip;
+          } else if (ownerRole === "SM") {
+            // SM owner: reset to NSM review
+            let nsmNip = ownerUser?.nipAtasan || null;
+            if (!nsmNip) {
+              const nsm = await tx.user.findFirst({
+                where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
+                select: { nip: true },
+              });
+              nsmNip = nsm?.nip || null;
+            }
+            targetStatus = PoaStatus.SUBMITTED_TO_NSM;
+            targetHolderId = nsmNip;
           } else {
-            // Step back from ASM -> back to ASM review
-            targetStatus = PoaStatus.SUBMITTED_TO_ASM;
-            targetHolderId = asmNip;
+            // Owner is MR
+            let asmNip = ownerUser?.nipAtasan || null;
+            if (!asmNip) {
+              const asm = await tx.user.findFirst({
+                where: { isActive: true, role: { in: ["ASM", "SM", "NSM"] } },
+                select: { nip: true },
+              });
+              asmNip = asm?.nip || null;
+            }
+
+            let smNip: string | null = null;
+            if (asmNip) {
+              const asmUser = await tx.user.findUnique({
+                where: { nip: asmNip },
+                select: { nipAtasan: true },
+              });
+              smNip = asmUser?.nipAtasan || null;
+            }
+            if (!smNip) {
+              const sm = await tx.user.findFirst({
+                where: { isActive: true, role: { in: ["SM", "NSM"] } },
+                select: { nip: true },
+              });
+              smNip = sm?.nip || null;
+            }
+
+            if (
+              existing.status === PoaStatus.SUBMITTED_TO_NSM ||
+              existing.status === PoaStatus.APPROVED_BY_SM ||
+              existing.status === PoaStatus.SUBMITTED_TO_SM
+            ) {
+              // Step back from NSM -> back to SM review, or stay at SM review if already at SM (stuck di SM)
+              targetStatus = PoaStatus.SUBMITTED_TO_SM;
+              targetHolderId = smNip;
+            } else {
+              // Step back from ASM -> back to ASM review
+              targetStatus = PoaStatus.SUBMITTED_TO_ASM;
+              targetHolderId = asmNip;
+            }
           }
         }
 

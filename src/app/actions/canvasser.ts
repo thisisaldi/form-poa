@@ -18,6 +18,7 @@ import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 import { getBlastInData } from "@/app/(app)/sc/[id]/_services/getBlastInData";
 import { getSurveyData } from "@/app/(app)/sc/[id]/_services/getSurveyNexus";
 import { getPosmNexus } from "@/app/(app)/sc/[id]/_services/getPosmNexus";
+import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { prisma } from "@/lib/prisma";
 import { getExodusOutletBudgets } from "@/lib/exodusApi";
 import { getCurrentUser } from "@/lib/session";
@@ -366,8 +367,6 @@ export async function getPosmNexusAction(outletId: string, periods: string[]) {
   return await getPosmNexus(outletId, periods);
 }
 
-import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
-
 export interface ScOutletBundleResult {
   personsList: any[];
   canvasserProducts: any[];
@@ -406,7 +405,6 @@ export async function getScOutletBundleAction(params: {
     };
   }
 
-  // 1. Launch independent tasks in parallel on server
   const [
     personsRes,
     productsRes,
@@ -425,7 +423,6 @@ export async function getScOutletBundleAction(params: {
     getSalesCounterProductsAction(outletId),
     getScProductMenangAction(outletId),
     getScProductWithInsentifAction(outletId),
-    // Retain 12-month data retrieval for Produk Rekomendasi (sidebar) with agg: true to get monthly average
     postHistorySalesAction([outletId], undefined, undefined, true),
     getSalesOnlineAction(outletId),
     getSurveyNexusAction(outletId),
@@ -462,7 +459,6 @@ export async function getScOutletBundleAction(params: {
     rekomendasiProduk = (rawRekomendasi as any).products;
   }
 
-  // 2. Fetch B3 sales fallback if target periods are provided and b3SalesResponse has no data
   if (b3TargetPeriods && b3TargetPeriods.length > 0 && !b3SalesResponse?.data) {
     try {
       const scProCodes = Array.from(new Set(canvasserProducts.map((cp: any) => cp.pro_code).filter(Boolean))) as string[];

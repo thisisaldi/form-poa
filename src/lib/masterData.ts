@@ -331,9 +331,9 @@ function stripTestPrefix(nip: string): string {
 export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {
   let targetUserId = userId;
   if (userId === "SCMR123456") targetUserId = "P250091";
-  else if (userId === "SCASM123456") targetUserId = "L260437";
-  else if (userId === "SCSM123456") targetUserId = "P230219";
-  else if (userId === "SCNSM123456") targetUserId = "P080855";
+  else if (userId === "SCASM123456") targetUserId = "L260452";
+  else if (userId === "SCSM123456") targetUserId = "L250264";
+  else if (userId === "SCNSM123456") targetUserId = "L260035";
   // else if (userId?.toLowerCase().startsWith("test")) targetUserId = stripTestPrefix(userId);
   else if (userId?.toLowerCase().startsWith("testmr")) {
     targetUserId = "P250091";

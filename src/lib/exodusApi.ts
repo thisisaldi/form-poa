@@ -495,11 +495,11 @@ export async function getExodusOutletBudgets(
       if (clean === "SCMR123456" || clean.toLowerCase().startsWith("testmr")) {
         userNip = "P250091";
       } else if (clean === "SCASM123456" || clean.toLowerCase().startsWith("testasm")) {
-        userNip = "L260437";
+        userNip = "L260452";
       } else if (clean === "SCSM123456" || clean.toLowerCase().startsWith("testsm")) {
-        userNip = "P230219";
+        userNip = "L250264";
       } else if (clean === "SCNSM123456" || clean.toLowerCase().startsWith("testnsm")) {
-        userNip = "P080855";
+        userNip = "L260035";
       } else {
         userNip = clean;
       }
