@@ -19,6 +19,8 @@ import { getBlastInData } from "@/app/(app)/sc/[id]/_services/getBlastInData";
 import { getSurveyData } from "@/app/(app)/sc/[id]/_services/getSurveyNexus";
 import { getPosmNexus } from "@/app/(app)/sc/[id]/_services/getPosmNexus";
 import { prisma } from "@/lib/prisma";
+import { getExodusOutletBudgets } from "@/lib/exodusApi";
+import { getCurrentUser } from "@/lib/session";
 
 export async function getSalesCountersAction(piCode: string) {
   if (!piCode) return null;
@@ -321,8 +323,6 @@ export async function getRecommendedProCodesAction(sourceProCodes?: string[]): P
   }
 }
 
-import { getExodusOutletBudgets } from "@/lib/exodusApi";
-
 export async function getBlastInDataAction(outletId: string, year?: number) {
   if (!outletId) return null;
   return await getBlastInData(outletId, year);
@@ -330,10 +330,30 @@ export async function getBlastInDataAction(outletId: string, year?: number) {
 
 export async function getHistoryEntertainAction(
   outletCode: string,
-  params?: { structurePeriod?: string; period?: string | number }
+  params?: {
+    structurePeriod?: string;
+    period?: string | number;
+    userNip?: string;
+    project?: string;
+  }
 ): Promise<number | null> {
   if (!outletCode) return null;
-  return await getExodusOutletBudgets(outletCode, params);
+  let userNip = params?.userNip;
+  const project = (params?.project || "omega").trim().toLowerCase();
+
+  try {
+    const session = await getCurrentUser();
+    if (!userNip) {
+      userNip = session?.nip || session?.userId;
+    }
+  } catch {}
+
+  const result = await getExodusOutletBudgets(outletCode, {
+    ...params,
+    userNip,
+    project,
+  });
+  return result;
 }
 
 export async function getSurveyNexusAction(outletId: string) {
