@@ -27,10 +27,12 @@ export const PAKET_BY_PRODUK: Record<string, string[]> = {
   // PRORIS (003259, 011014, in addition to 006064 below)
   "PRORIS SUSPENSI 60 ML":                      ["PAKET PEDIATRIC"],
   "PRORIS FORTE SUSPENSION 50 ML":              ["PAKET PEDIATRIC"],
-  // CALTONAL — kode produk "NEW" di internal/Paket Produk Kontes PM.xlsx,
-  // belum ada di Product table; mapping disiapkan duluan supaya aktif begitu disync.
-  "CALTONAL 50":                                ["PAKET PAIN"],
-  "CALTONAL 100":                               ["PAKET PAIN"],
+  // CALTONAL (033300/033388) — namaProduk persis dari Exodus core products API
+  // adalah "CALTONAL 100 INJEKSI"/"CALTONAL 50 INJEKSI" (confirmed 2026-09-18),
+  // BUKAN "CALTONAL 50"/"CALTONAL 100" tanpa suffix seperti sebelumnya di sini —
+  // getPaketLabel match exact string, jadi key lama itu gak pernah nyambung.
+  "CALTONAL 50 INJEKSI":                        ["PAKET PAIN"],
+  "CALTONAL 100 INJEKSI":                       ["PAKET PAIN"],
   // OZEN (006119)
   "OZEN DROPS 12 ML":                           ["PAKET PEDIATRIC"],
   // INTRIX (004865)
