@@ -48,7 +48,7 @@ export interface CashbackMonthStat {
   mIdx: number;
   productStats: any[];
   eligibleVariantCount: number;
-  totalEligibleSalesMonthly: number;
+  totalSalesMonthly: number;
   variantMultiplier: number;
   piMultiplier: number;
   totalCashbackThisMonth: number;
@@ -57,8 +57,8 @@ export interface CashbackMonthStat {
 export interface CashbackCalculationResult {
   limitVal: number;
   eligibleVariantCount: number;
-  totalEligibleSales: number;
-  totalEligibleSalesMonthly: number;
+  totalSales: number;
+  totalSalesMonthly: number;
   variantMultiplier: number;
   piMultiplier: number;
   items: CashbackItemDetail[];

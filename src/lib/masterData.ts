@@ -251,7 +251,6 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
 import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
-import { getExodusAccessToken } from "@/lib/exodusApi";
 
 function stripTestPrefix(nip: string): string {
   return nip.replace(/^test(?:psr|mr)?/i, "");
@@ -282,26 +281,19 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
   const position = user?.role || "MR";
 
   try {
-    const [blastInSet, onlineCodes, exodusToken] = await Promise.all([
+    const [blastInSet, onlineCodes] = await Promise.all([
       getBlastInOutletSet(),
       getApotekOnline(targetUserId, position).catch(() => []),
-      getExodusAccessToken().catch(() => null),
     ]);
     const onlineSet = new Set(onlineCodes);
 
-    const tokenParam = exodusToken ? `&token=${encodeURIComponent(exodusToken)}` : "";
-    const url = `${CANVASSER_API_BASE_URL}/api/get-sc-poa-outlet-by-nip?nip=${encodeURIComponent(targetUserId)}${tokenParam}`;
+    const url = `${CANVASSER_API_BASE_URL}/api/get-sc-poa-outlet-by-nip?nip=${encodeURIComponent(targetUserId)}`;
     const res = await fetchWithTimeout(url, {
-      headers: exodusToken ? { Authorization: `Bearer ${exodusToken}` } : {},
       next: { revalidate: 0 },
     }, 5000);
     if (!res.ok) {
-      const fallback = await getOutletsByUser(userId);
-      return fallback.map((o) => ({
-        ...o,
-        isBlastIn: blastInSet.has(o.kodeCust),
-        isOnline: onlineSet.has(o.kodeCust),
-      }));
+      console.warn(`[getSalesCounterOutletsDirect] Canvasser API returned ${res.status} ${res.statusText} for NIP: ${targetUserId}`);
+      return [];
     }
     const json = await res.json();
     const rawOutlets = Array.isArray(json?.data)
@@ -310,12 +302,7 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
       ? json.data.outlets
       : [];
     if (!Array.isArray(rawOutlets) || rawOutlets.length === 0) {
-      const fallback = await getOutletsByUser(userId);
-      return fallback.map((o) => ({
-        ...o,
-        isBlastIn: blastInSet.has(o.kodeCust),
-        isOnline: onlineSet.has(o.kodeCust),
-      }));
+      return [];
     }
 
     return rawOutlets.map((o: any) => ({
@@ -342,6 +329,6 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
     }));
   } catch (error) {
     console.error("Error fetching outlets directly from Canvasser API:", error);
-    return getOutletsByUser(userId);
+    return [];
   }
 }

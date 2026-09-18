@@ -81,7 +81,8 @@ export function calculateCashbackDetails({
     // B. Eligible variants & total sales for this month
     const eligibleProducts = productStats.filter((it) => it.eligible);
     const eligibleVariantCount = eligibleProducts.length;
-    const totalEligibleSalesMonthly = eligibleProducts.reduce((acc, it) => acc + it.mSales, 0);
+    // Seluruh penjualan dari produk-produk di bulan tersebut (termasuk yang tidak eligible) dimasukkan ke dalam total belanja PI
+    const totalSalesMonthly = productStats.reduce((acc, it) => acc + it.mSales, 0);
 
     // C. Variant multiplier for this month
     let variantMultiplier = 0;
@@ -97,12 +98,13 @@ export function calculateCashbackDetails({
     }
 
     // D. PI multiplier for this month
+    // Menghitung seluruh penjualan dari produk-produk di bulan tersebut (termasuk yang tidak eligible)
     let piMultiplier = 0;
     if (cashbackData?.pi && Array.isArray(cashbackData.pi) && cashbackData.pi.length > 0) {
       const sortedPi = [...cashbackData.pi].sort(
         (a, b) => (b.total_expenditure_pi ?? b.min_sales ?? 0) - (a.total_expenditure_pi ?? a.min_sales ?? 0)
       );
-      const piMatch = sortedPi.find((p) => totalEligibleSalesMonthly >= (p.total_expenditure_pi ?? p.min_sales ?? 0));
+      const piMatch = sortedPi.find((p) => totalSalesMonthly >= (p.total_expenditure_pi ?? p.min_sales ?? 0));
       piMultiplier = piMatch?.multiplier ?? 1;
     }
 
@@ -121,7 +123,7 @@ export function calculateCashbackDetails({
       mIdx,
       productStats,
       eligibleVariantCount,
-      totalEligibleSalesMonthly,
+      totalSalesMonthly,
       variantMultiplier,
       piMultiplier,
       totalCashbackThisMonth,
@@ -190,8 +192,8 @@ export function calculateCashbackDetails({
   });
 
   const totalFinalCashbackMonthly = numMonths > 0 ? totalFinalCashback / numMonths : 0;
-  const totalEligibleSales = monthlyStats.reduce((sum, m) => sum + m.totalEligibleSalesMonthly, 0);
-  const totalEligibleSalesMonthly = numMonths > 0 ? totalEligibleSales / numMonths : 0;
+  const totalSales = monthlyStats.reduce((sum, m) => sum + m.totalSalesMonthly, 0);
+  const totalSalesMonthly = numMonths > 0 ? totalSales / numMonths : 0;
 
   const maxVariantCount = Math.max(...monthlyStats.map((m) => m.eligibleVariantCount), 0);
   const maxVariantMultiplier = Math.max(...monthlyStats.map((m) => m.variantMultiplier), 0);
@@ -200,8 +202,8 @@ export function calculateCashbackDetails({
   return {
     limitVal,
     eligibleVariantCount: maxVariantCount,
-    totalEligibleSales,
-    totalEligibleSalesMonthly,
+    totalSales,
+    totalSalesMonthly,
     variantMultiplier: maxVariantMultiplier,
     piMultiplier: maxPiMultiplier,
     items,
