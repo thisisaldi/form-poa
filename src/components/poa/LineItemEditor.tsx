@@ -16,6 +16,7 @@ import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier, isRelevantToSpesialisasi } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
+import { InfoTooltip } from "@/components/sc/edit/ui/InfoTooltip";
 
 // Halaman input (Tambah Rencana POA, Tambah Produk, Edit Dokter, estimasi
 // real-time saat mengisi form) tampilkan nominal dalam skala Jt tanpa
@@ -1322,7 +1323,44 @@ function ProdukEntryRow({
       {/* Estimasi Sales + Nilai PSSP — side by side, more compact */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
       {perBulan != null && (
-        <div className="rounded-lg border px-3 py-2.5 space-y-2"
+        <>
+        {/* Compact mobile summary (2026-09-18 request) — full breakdown moved
+            into an InfoTooltip so this doesn't eat vertical space on narrow
+            screens; the full card below is unchanged and still shown as-is
+            from sm: up. */}
+        <div className="rounded-lg border px-3 py-2 sm:hidden flex items-center justify-between gap-2"
+          style={{ background: "var(--color-bg)", borderColor: "var(--color-border-strong)" }}>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wider flex items-center"
+              style={{ color: "var(--color-text-faint)" }}>
+              Estimasi Sales
+              <InfoTooltip align="left" width={260} content={
+                <div className="space-y-1.5">
+                  <div>Est. Sales / Bln: <strong>{formatRp(perBulan)}</strong></div>
+                  <div>Est. Sales {lama} Bln: <strong>{formatRp(totalEst)}</strong></div>
+                  <div>Qty per {satuanLabel(product)} / Bln: <strong>{qtyPerBulan != null ? `${qtyPerBulan.toLocaleString("id-ID")} ${satuanLabel(product)}` : "-"}</strong></div>
+                  <div>Qty per {satuanLabel(product)} {lama} Bln: <strong>{qtyTotal != null ? `${qtyTotal.toLocaleString("id-ID")} ${satuanLabel(product)}` : "-"}</strong></div>
+                  <div className="pt-1 border-t border-slate-700">
+                    Growth Estimasi: {growthPct != null ? `${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}%` : "Belum ada data PSSP"}
+                    {oldEst != null && <div className="opacity-80">PSSP lama {formatRp(Math.round(oldEst.perBulan))}/bln (periode {oldEst.period})</div>}
+                  </div>
+                  <div className="pt-1 border-t border-slate-700">
+                    Growth Pelunasan (3 Bln): {growthPct3Bln != null ? `${growthPct3Bln >= 0 ? "+" : ""}${growthPct3Bln.toFixed(1)}%` : "Belum ada pelunasan 3 bln terakhir"}
+                    {pelunasanAktual3Bln != null && <div className="opacity-80">Pelunasan aktual {formatRp(Math.round(pelunasanAktual3Bln.perBulan))}/bln (periode {pelunasanAktual3Bln.period})</div>}
+                  </div>
+                </div>
+              } />
+            </div>
+            <div className="text-sm font-semibold truncate" style={{ color: "var(--color-text)" }}>{formatRp(perBulan)}/bln</div>
+          </div>
+          {growthPct != null && (
+            <span className="text-sm font-semibold shrink-0"
+              style={{ color: growthPct > 0 ? "var(--color-success, #16a34a)" : "var(--color-red)" }}>
+              {growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%
+            </span>
+          )}
+        </div>
+        <div className="hidden sm:block rounded-lg border px-3 py-2.5 space-y-2"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-border-strong)" }}>
           <p className="text-xs font-semibold uppercase tracking-wider"
             style={{ color: "var(--color-text-faint)" }}>Estimasi Sales</p>
@@ -1416,12 +1454,33 @@ function ProdukEntryRow({
             )}
           </div>
         </div>
+        </>
       )}
 
       {/* Nilai PSSP card — Pengali Nilai R itself now lives in DokterFieldsSection (customer-level) */}
       <div className="flex flex-col gap-3">
       {nilaiPSSPBulan != null && (
-        <div className="rounded-lg border px-3 py-2.5 space-y-2"
+        <>
+        {/* Compact mobile summary, same idea as Estimasi Sales above */}
+        <div className="rounded-lg border px-3 py-2 sm:hidden flex items-center justify-between gap-2"
+          style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wider flex items-center"
+              style={{ color: "var(--color-blue, #3b82f6)" }}>
+              Nilai PSSP
+              <InfoTooltip align="left" width={220} content={
+                <div className="space-y-1.5">
+                  <div>
+                    Nilai PSSP / Bln{nilaiRPersen != null && ` (${(nilaiRPersen * 100).toFixed(1)}%${pengaliNilaiR !== 1 ? ` × ${pengaliNilaiR}` : ""})`}: <strong>{formatRp(nilaiPSSPBulan)}</strong>
+                  </div>
+                  {nilaiPSSPTotal != null && <div>Nilai PSSP {lama} Bln: <strong>{formatRp(nilaiPSSPTotal)}</strong></div>}
+                </div>
+              } />
+            </div>
+            <div className="text-sm font-semibold truncate" style={{ color: "var(--color-blue, #3b82f6)" }}>{formatRp(nilaiPSSPBulan)}/bln</div>
+          </div>
+        </div>
+        <div className="hidden sm:block rounded-lg border px-3 py-2.5 space-y-2"
           style={{ background: "var(--color-bg)", borderColor: "var(--color-blue, #3b82f6)" }}>
           <p className="text-xs font-semibold uppercase tracking-wider"
             style={{ color: "var(--color-blue, #3b82f6)" }}>Nilai PSSP</p>
@@ -1445,6 +1504,7 @@ function ProdukEntryRow({
             )}
           </div>
         </div>
+        </>
       )}
       </div>
       </div>
