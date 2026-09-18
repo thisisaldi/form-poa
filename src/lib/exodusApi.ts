@@ -571,6 +571,8 @@ export interface LivePricing {
   principalName: string | null;   // == API's product_principal.name
   principalCode: string | null;   // == API's product_principal.code
   categoryProduct: string | null; // == API's product_category.name
+  namaProduk: string | null;      // == API's name
+  namaGroupBrand: string | null;  // API's product_type ("ETH"/"OTC") mapped to "ETHICAL"/"NON ETHICAL", null if product_type is null
 }
 
 // Short in-memory cache, same idea as cachedToken above — this is called on
@@ -595,7 +597,12 @@ const PRICING_TTL_MS = 5 * 60 * 1000;
  * here and is left to the caller's own local data — this only ever
  * overrides those two fields, and returns null (never throws) on any
  * failure so callers can fall back to whatever's in the DB, same
- * "degrade to no data" contract as the rest of this file.
+ * "degrade to no data" contract as the rest of this file. Also carries
+ * `name`/`product_type` (2026-09-18, CALTONAL gap report — a product that
+ * exists in Exodus but not yet in local Product never showed up in the POA
+ * picker) so masterData.ts can materialize a skeleton local row for a
+ * kodeProduk Exodus knows about that the DB doesn't yet — same on-read
+ * backfill shape as materializeLocalCustomerOutlet in actions/customer.ts.
  */
 export async function getLiveProductPricing(): Promise<Map<string, LivePricing> | null> {
   if (!isConfigured) return null;
@@ -614,6 +621,8 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
       data?: {
         id: number | null;
         product_code: string;
+        name: string | null;
+        product_type: string | null; // "ETH" | "OTC" | null
         sell_price: number | null;
         r_value: number | null;
         product_principal: { id: number; name: string; code: string } | null;
@@ -635,6 +644,8 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
         principalName: p.product_principal?.name ?? null,
         principalCode: p.product_principal?.code ?? null,
         categoryProduct: p.product_category?.name ?? null,
+        namaProduk: p.name?.trim() || null,
+        namaGroupBrand: p.product_type === "ETH" ? "ETHICAL" : p.product_type === "OTC" ? "NON ETHICAL" : null,
       });
     }
     cachedPricing = { map, expiresAt: Date.now() + PRICING_TTL_MS };
