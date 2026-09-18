@@ -19,6 +19,7 @@ export interface ProductBreakdownMobileViewProps {
   isLoadingB3?: boolean;
   isLoadingIncentiveHistory?: boolean;
   unselectedProducts?: UnselectedProductItem[];
+  isForm?: boolean;
 }
 
 export function ProductBreakdownMobileView({
@@ -28,8 +29,9 @@ export function ProductBreakdownMobileView({
   isLoadingB3 = false,
   isLoadingIncentiveHistory = false,
   unselectedProducts = [],
+  isForm = false,
 }: ProductBreakdownMobileViewProps) {
-  const [showUnselected, setShowUnselected] = useState(false);
+  const [showUnselected, setShowUnselected] = useState(isForm);
 
   const totalUnselectedSalesMonth = unselectedProducts.reduce((sum, p) => sum + p.avgSalesPerMonth, 0);
   const totalUnselectedSalesPeriod = totalUnselectedSalesMonth * (lama || 1);
