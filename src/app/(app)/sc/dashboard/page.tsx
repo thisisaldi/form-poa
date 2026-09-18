@@ -523,7 +523,7 @@ export default async function SalesCounterDashboardPage({
             <div className="flex items-center text-[11px] sm:hidden pb-2" style={{ color: "var(--color-text-muted)" }}>
               <span>↔ Geser tabel ke samping untuk melihat semua kolom</span>
             </div>
-            <table className="w-full text-sm min-w-[700px]">
+            <table className="w-full text-sm min-w-[550px]">
               <thead>
                 <tr className="border-b text-left" style={{ borderColor: "var(--color-border)" }}>
                   <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
@@ -536,13 +536,7 @@ export default async function SalesCounterDashboardPage({
                     STATUS
                   </th>
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    TARGET
-                  </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     ESTIMASI
-                  </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    RATIO %
                   </th>
                   <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
                     % BUDGET
@@ -572,14 +566,8 @@ export default async function SalesCounterDashboardPage({
                       <td className="py-3 whitespace-nowrap">
                         <StatusBadge status={p.status} version={p.version} />
                       </td>
-                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                        -
-                      </td>
                       <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                         {p._totalEstSales > 0 ? formatRp(p._totalEstSales) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
-                      </td>
-                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                        -
                       </td>
                       <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                         {ratioPct > 0 ? `${ratioPct.toFixed(1)}%` : <span style={{ color: "var(--color-text-faint)" }}>-</span>}

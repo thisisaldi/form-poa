@@ -25,13 +25,13 @@ export async function getApotekOnline(
       targetNip = "P250091";
       targetPosition = targetPosition || "MR";
     } else if (targetNip === "SCASM123456") {
-      targetNip = "L260437";
+      targetNip = "L260452";
       targetPosition = targetPosition || "ASM";
     } else if (targetNip === "SCSM123456") {
-      targetNip = "P230219";
+      targetNip = "L250264";
       targetPosition = targetPosition || "SM";
     } else if (targetNip === "SCNSM123456") {
-      targetNip = "P080855";
+      targetNip = "L260035";
       targetPosition = targetPosition || "NSM";
     // } else if (targetNip?.toLowerCase().startsWith("test")) {
     //   targetNip = stripTestPrefix(targetNip);

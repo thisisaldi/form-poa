@@ -42,6 +42,7 @@ export default async function SalesCounterDetailPage({
   const isApproverRole = ["ASM", "SM", "NSM", "ADMIN"].includes(session.role);
   const canApprove =
     isApproverRole &&
+    (!isOwner || session.role === "ADMIN") &&
     scDrafts.some((d) => {
       if (d.status === "DRAFT" || d.status === "REVISI" || d.status === "APPROVED_BY_NSM") return false;
       if (session.role === "ADMIN") return true;

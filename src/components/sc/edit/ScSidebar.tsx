@@ -284,7 +284,166 @@ export function ScSidebar({
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-4">
         {activeTab === "rekomendasi" ? (
           <div className="space-y-4 animate-fade-in">
-            {/* 1. PRODUK PERNAH DI ORDER */}
+            {/* 1. SURVEY KOMPETITOR */}
+            <div className="space-y-1.5">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>
+                  SURVEY KOMPETITOR ({effectiveSurveyData.length})
+                </p>
+                <p className="text-[9px] font-medium" style={{ color: "var(--color-text-faint)", marginTop: 1 }}>
+                  ( NEXUS )
+                </p>
+              </div>
+              {effectiveSurveyData.length > 0 ? (
+                <div className="space-y-1.5">
+                  {effectiveSurveyData.map((item: any, i: number) => {
+                    const targetCode = String(item.kodeProduk || item.targetCode || "").trim();
+                    const name = item.namaProdukRekomendasi || item.name || targetCode;
+                    const isSelected = targetCode
+                      ? selectedProductCodes.has(targetCode) || selectedProductCodes.has(targetCode.replace(/^0+/, ""))
+                      : false;
+
+                    const cp =
+                      canvasserProducts?.find((p: any) => {
+                        const pc = String(p.pro_code || p.kode_item || p.kodeProduk || "").trim();
+                        return pc === targetCode || pc.replace(/^0+/, "") === targetCode.replace(/^0+/, "");
+                      }) || item.item;
+
+                    const minTarget =
+                      cp?.sales_counter_minimum != null
+                        ? Number(cp.sales_counter_minimum)
+                        : item.sales_counter_minimum != null
+                        ? Number(item.sales_counter_minimum)
+                        : null;
+
+                    const insentif =
+                      cp?.sales_counter_value != null
+                        ? Number(cp.sales_counter_value)
+                        : item.sales_counter_value != null
+                        ? Number(item.sales_counter_value)
+                        : null;
+
+                    const totalPotensi =
+                      item.totalPotensiBulan != null ? Number(item.totalPotensiBulan) : null;
+
+                    const formattedPotensi =
+                      totalPotensi != null
+                        ? totalPotensi % 1 === 0
+                          ? totalPotensi.toString()
+                          : (Math.round(totalPotensi * 10) / 10).toString()
+                        : null;
+
+                    const kompetitorList =
+                      Array.isArray(item.kompetitor) && item.kompetitor.length > 0
+                        ? item.kompetitor
+                        : [];
+
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => targetCode && onSelectProduct?.(targetCode)}
+                        className={`p-2 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                          onSelectProduct && targetCode ? "cursor-pointer hover:border-emerald-500" : ""
+                        }`}
+                        style={{
+                          background: isSelected ? "var(--color-success-bg, #dcfce7)" : "var(--color-bg-subtle)",
+                          borderColor: isSelected ? "var(--color-success, #16a34a)" : "var(--color-border)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold leading-tight block truncate" style={{ color: "var(--color-text)" }}>
+                              {name}
+                            </span>
+                          </div>
+                          {isSelected && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[9px] font-bold shrink-0 px-1.5 py-0.5 rounded-full"
+                              style={{ background: "var(--color-success, #16a34a)", color: "#ffffff" }}
+                            >
+                              ✓ Terpilih
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-1 pt-0.5 text-[9.5px]">
+                          <div className="flex items-center">
+                            <span
+                              className="font-medium px-1.5 py-0.5 rounded"
+                              style={{ background: "#f3e8ff", color: "#6b21a8" }}
+                            >
+                              Produk Survey{formattedPotensi ? `: ${formattedPotensi} UB` : ""}
+                            </span>
+                          </div>
+
+                          {kompetitorList.length > 0 && (
+                            <div className="space-y-0.5 pl-1 py-0.5">
+                              {kompetitorList.map((k: any, kIdx: number) => {
+                                const kName = typeof k === "string" ? k : (k?.namaKompetitor || k?.nama || "");
+                                const kForecast = typeof k === "object" && k?.salesForecast != null && k.salesForecast > 0
+                                  ? `${k.salesForecast} UB`
+                                  : null;
+                                if (!kName) return null;
+                                return (
+                                  <div
+                                    key={kIdx}
+                                    className="flex items-center justify-between text-[9px] leading-tight"
+                                    style={{ color: "var(--color-text-muted, #64748b)" }}
+                                  >
+                                    <span className="truncate">• {kName}</span>
+                                    {kForecast && (
+                                      <span className="shrink-0 text-[8.5px] ml-1 opacity-75">
+                                        {kForecast}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {minTarget != null && !isNaN(minTarget) && minTarget > 0 && (
+                            <div className="flex items-center">
+                              <span
+                                className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                style={{
+                                  background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                  color: "var(--color-success, #16a34a)",
+                                  border: "1px solid rgba(22, 163, 74, 0.25)",
+                                }}
+                              >
+                                Target: {minTarget} UB
+                              </span>
+                            </div>
+                          )}
+
+                          {insentif != null && !isNaN(insentif) && (
+                            <div className="flex items-center">
+                              <span
+                                className="font-semibold px-2 py-0.5 rounded text-[9.5px] inline-flex items-center"
+                                style={{
+                                  background: isSelected ? "rgba(255, 255, 255, 0.85)" : "var(--color-success-bg, #dcfce7)",
+                                  color: "var(--color-success, #16a34a)",
+                                  border: "1px solid rgba(22, 163, 74, 0.25)",
+                                }}
+                              >
+                                Nilai Insentif SC: {formatRp(insentif)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-lg border p-3 text-center text-xs" style={{ color: "var(--color-text-faint)", borderColor: "var(--color-border)" }}>
+                  Belum ada data survey.
+                </div>
+              )}
+            </div>
+
+            {/* 2. PRODUK PERNAH DI ORDER */}
             <div className="space-y-1.5">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>

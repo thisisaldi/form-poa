@@ -98,7 +98,64 @@ export function useSalesCounterDetail({
     return safeScDrafts.map((d) => d.id);
   }, [safeScDrafts, showSubmit, canApprove, userRole, canFastTrack]);
 
+  const isApproved = useMemo(() => {
+    return (status: string) => {
+      if (userRole === "SM") {
+        return ["APPROVED_BY_SM", "SUBMITTED_TO_NSM", "APPROVED_BY_NSM", "APPROVED_BY_ASD", "APPROVED_BY_SD"].includes(status);
+      }
+      if (userRole === "NSM") {
+        return ["APPROVED_BY_NSM", "APPROVED_BY_ASD", "APPROVED_BY_SD"].includes(status);
+      }
+      return [
+        "APPROVED_BY_ASM",
+        "SUBMITTED_TO_SM",
+        "APPROVED_BY_SM",
+        "SUBMITTED_TO_NSM",
+        "APPROVED_BY_NSM",
+        "APPROVED_BY_ASD",
+        "APPROVED_BY_SD",
+      ].includes(status);
+    };
+  }, [userRole]);
+
+  const actionableIdsSet = useMemo(() => new Set(actionableIds), [actionableIds]);
+
+  const filterCounts = useMemo(() => {
+    let actionable = 0;
+    let approved = 0;
+    let draftRevisi = 0;
+
+    for (const d of safeScDrafts) {
+      if (actionableIdsSet.has(d.id)) actionable++;
+      if (isApproved(d.status)) approved++;
+      if (d.status === "DRAFT" || d.status === "REVISI") draftRevisi++;
+    }
+
+    return {
+      all: safeScDrafts.length,
+      actionable,
+      approved,
+      draftRevisi,
+    };
+  }, [safeScDrafts, actionableIdsSet, isApproved]);
+
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIONABLE" | "APPROVED" | "DRAFT_REVISI">("ALL");
+
+  const filteredScDrafts = useMemo(() => {
+    if (statusFilter === "ACTIONABLE") {
+      return safeScDrafts.filter((d) => actionableIdsSet.has(d.id));
+    }
+    if (statusFilter === "APPROVED") {
+      return safeScDrafts.filter((d) => isApproved(d.status));
+    }
+    if (statusFilter === "DRAFT_REVISI") {
+      return safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI");
+    }
+    return safeScDrafts;
+  }, [statusFilter, safeScDrafts, actionableIdsSet, isApproved]);
+
   const allIds = useMemo(() => safeScDrafts.map((d) => d.id), [safeScDrafts]);
+  const filteredIds = useMemo(() => filteredScDrafts.map((d) => d.id), [filteredScDrafts]);
 
   const [checked, setChecked] = useState<Set<string>>(() =>
     canApprove && !showSubmit ? new Set() : new Set(allIds)
@@ -110,6 +167,22 @@ export function useSalesCounterDetail({
     }
   }, [allIds, canApprove, showSubmit]);
 
+  function handleStatusFilterChange(newFilter: "ALL" | "ACTIONABLE" | "APPROVED" | "DRAFT_REVISI") {
+    setStatusFilter(newFilter);
+    if (newFilter === "APPROVED") {
+      const approvedIds = safeScDrafts.filter((d) => isApproved(d.status)).map((d) => d.id);
+      setChecked(new Set(approvedIds));
+    } else if (newFilter === "ACTIONABLE") {
+      const actIds = safeScDrafts.filter((d) => actionableIdsSet.has(d.id)).map((d) => d.id);
+      setChecked(new Set(actIds));
+    } else if (newFilter === "DRAFT_REVISI") {
+      const drIds = safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id);
+      setChecked(new Set(drIds));
+    } else {
+      setChecked(new Set(allIds));
+    }
+  }
+
   function toggle(id: string) {
     setChecked((prev) => {
       const next = new Set(prev);
@@ -119,14 +192,23 @@ export function useSalesCounterDetail({
     });
   }
 
+  const allFilteredChecked = useMemo(() => {
+    return filteredIds.length > 0 && filteredIds.every((id) => checked.has(id));
+  }, [filteredIds, checked]);
+
   function toggleAll() {
     setChecked((prev) => {
-      const allChecked = allIds.length > 0 && allIds.every((id) => prev.has(id));
-      if (allChecked) {
-        return new Set<string>();
+      const next = new Set(prev);
+      if (allFilteredChecked) {
+        for (const id of filteredIds) {
+          next.delete(id);
+        }
       } else {
-        return new Set(allIds);
+        for (const id of filteredIds) {
+          next.add(id);
+        }
       }
+      return next;
     });
   }
 
@@ -308,7 +390,7 @@ export function useSalesCounterDetail({
     checked,
     toggle,
     toggleAll,
-    allSelected: allIds.length > 0 && allIds.every((id) => checked.has(id)),
+    allSelected: allFilteredChecked,
     actionableIds,
     actionableCount: actionableIds.length,
     selectedActionableCount: actionableIds.filter((id) => checked.has(id)).length,
@@ -321,5 +403,9 @@ export function useSalesCounterDetail({
     startSubmit,
     submitNotes,
     setSubmitNotes,
+    statusFilter,
+    setStatusFilter: handleStatusFilterChange,
+    filterCounts,
+    filteredScDrafts,
   };
 }

@@ -90,10 +90,23 @@ export function useScSidebar({
         const proCode = String(cp.pro_code || cp.kodeProduk || "").trim();
         const strippedProCode = proCode.replace(/^0+/, "");
 
-        const matched =
-          (itemCode ? nexusSurveyMap.get(itemCode) || (strippedItemCode ? nexusSurveyMap.get(strippedItemCode) : undefined) : undefined) ||
-          (proCode ? nexusSurveyMap.get(proCode) || (strippedProCode ? nexusSurveyMap.get(strippedProCode) : undefined) : undefined) ||
-          [];
+        const compMap = new Map<string, { namaKompetitor: string; salesForecast: number }>();
+        const lists = [
+          itemCode ? nexusSurveyMap.get(itemCode) : undefined,
+          strippedItemCode ? nexusSurveyMap.get(strippedItemCode) : undefined,
+          proCode ? nexusSurveyMap.get(proCode) : undefined,
+          strippedProCode ? nexusSurveyMap.get(strippedProCode) : undefined,
+        ];
+        for (const l of lists) {
+          if (Array.isArray(l)) {
+            for (const it of l) {
+              if (!compMap.has(it.namaKompetitor)) {
+                compMap.set(it.namaKompetitor, it);
+              }
+            }
+          }
+        }
+        const matched = Array.from(compMap.values());
 
         const primaryKey = proCode || itemCode;
         if (matched.length > 0 && !seen.has(primaryKey)) {
@@ -101,24 +114,46 @@ export function useScSidebar({
           const totalForecast = matched.reduce((sum, c) => sum + c.salesForecast, 0);
           nexusItems.push({
             kodeProduk: primaryKey,
+            targetCode: primaryKey,
             namaProdukRekomendasi: cp.pro_name || cp.namaProduk || resolveProductName(primaryKey, masterProducts) || `Produk ${primaryKey}`,
             totalPotensiBulan: totalForecast,
             kompetitor: matched,
+            sales_counter_minimum: cp.sales_counter_minimum,
+            sales_counter_value: cp.sales_counter_value,
+            item: cp,
           });
         }
       }
 
       if (nexusItems.length > 0) {
+        nexusItems.sort((a, b) => (b.totalPotensiBulan || 0) - (a.totalPotensiBulan || 0));
         return nexusItems;
       }
     }
 
     const raw = Array.isArray(surveyData) ? surveyData : [];
     if (canvasserScCodes.size === 0) return [];
-    return raw.filter((s: any) => {
+    const filtered = raw.filter((s: any) => {
       const c = String(s.kodeProduk || "").trim();
       return canvasserScCodes.has(c) || canvasserScCodes.has(c.replace(/^0+/, ""));
     });
+    return filtered
+      .map((s: any) => {
+        const c = String(s.kodeProduk || "").trim();
+        const stripped = c.replace(/^0+/, "");
+        const cp = canvasserProducts.find((p: any) => {
+          const pc = String(p.pro_code || p.kode_item || p.kodeProduk || "").trim();
+          return pc === c || pc.replace(/^0+/, "") === stripped;
+        });
+        return {
+          ...s,
+          targetCode: c,
+          sales_counter_minimum: cp?.sales_counter_minimum,
+          sales_counter_value: cp?.sales_counter_value,
+          item: cp,
+        };
+      })
+      .sort((a: any, b: any) => (Number(b.totalPotensiBulan) || 0) - (Number(a.totalPotensiBulan) || 0));
   }, [surveyData, canvasserScCodes, nexusSurveyMap, canvasserProducts, masterProducts]);
 
   const historyPeriodSubtext = useMemo(() => {

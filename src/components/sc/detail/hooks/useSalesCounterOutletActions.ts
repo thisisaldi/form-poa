@@ -58,6 +58,7 @@ export function useSalesCounterOutletActions({
   const [isDeleting, startDelete] = useTransition();
 
   const canApproveOutlet = useMemo(() => {
+    if (isOwner && userRole !== "ADMIN") return false;
     if (NON_ACTIONABLE_STATUSES.includes(draft.status)) {
       return false;
     }
@@ -68,7 +69,7 @@ export function useSalesCounterOutletActions({
       return ["SUBMITTED_TO_ASM", "SUBMITTED_TO_SM", "SUBMITTED_TO_NSM"].includes(draft.status);
     }
     return false;
-  }, [userRole, draft.status, parentCanApprove]);
+  }, [userRole, draft.status, parentCanApprove, isOwner]);
 
   const canFastTrackOutlet = useMemo(() => {
     if (NON_ACTIONABLE_STATUSES.includes(draft.status)) {

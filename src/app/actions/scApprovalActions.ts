@@ -80,12 +80,34 @@ export async function submitSalesCounterFormAction(
       });
 
       if (forms.length === 0) {
-        throw new Error("Pengajuan DRAFT hanya dapat dilakukan oleh MR pemilik dokumen. Atasan (ASM/SM/NSM) tidak dapat mengajukan DRAFT milik bawahan.");
+        throw new Error("Pengajuan DRAFT hanya dapat dilakukan oleh pemilik dokumen. Atasan tidak dapat mengajukan DRAFT milik bawahan.");
+      }
+
+      // Tentukan target status awal berdasarkan role pembuat / actor:
+      // MR -> SUBMITTED_TO_ASM (holder: ASM)
+      // ASM -> SUBMITTED_TO_SM (holder: SM)
+      // SM -> SUBMITTED_TO_NSM (holder: NSM)
+      // NSM/ADMIN -> APPROVED_BY_NSM
+      let defaultTargetStatus: PoaStatus = PoaStatus.SUBMITTED_TO_ASM;
+      let defaultTargetHolderId: string | null = nextHolderId;
+
+      if (actor.role === "ASM") {
+        defaultTargetStatus = PoaStatus.SUBMITTED_TO_SM;
+        defaultTargetHolderId = await resolveHolderForRole(tx, actor, "SM");
+      } else if (actor.role === "SM") {
+        defaultTargetStatus = PoaStatus.SUBMITTED_TO_NSM;
+        defaultTargetHolderId = await resolveHolderForRole(tx, actor, "NSM");
+      } else if (actor.role === "NSM" || actor.role === "ADMIN") {
+        defaultTargetStatus = PoaStatus.APPROVED_BY_NSM;
+        defaultTargetHolderId = null;
+      } else {
+        defaultTargetStatus = PoaStatus.SUBMITTED_TO_ASM;
+        defaultTargetHolderId = (await resolveHolderForRole(tx, actor, "ASM")) || nextHolderId;
       }
 
       for (const form of forms) {
-        let targetStatus: PoaStatus = PoaStatus.SUBMITTED_TO_ASM;
-        let targetHolderId: string | null = nextHolderId;
+        let targetStatus: PoaStatus = defaultTargetStatus;
+        let targetHolderId: string | null = defaultTargetHolderId;
 
         // Jika form dalam status REVISI, periksa siapa atasan terakhir yang meminta revisi / tolak / setujui edit
         if (form.status === PoaStatus.REVISI) {
@@ -126,10 +148,18 @@ export async function submitSalesCounterFormAction(
                 ? lastRevLog.actorId
                 : await resolveHolderForRole(tx, actor, "SM");
             } else {
-              targetStatus = PoaStatus.SUBMITTED_TO_ASM;
-              targetHolderId = (lastRevLog.actor?.role === "ASM" && lastRevLog.actor.isActive)
-                ? lastRevLog.actorId
-                : (nextHolderId || await resolveHolderForRole(tx, actor, "ASM"));
+              if (actor.role === "ASM") {
+                targetStatus = PoaStatus.SUBMITTED_TO_SM;
+                targetHolderId = await resolveHolderForRole(tx, actor, "SM");
+              } else if (actor.role === "SM") {
+                targetStatus = PoaStatus.SUBMITTED_TO_NSM;
+                targetHolderId = await resolveHolderForRole(tx, actor, "NSM");
+              } else {
+                targetStatus = PoaStatus.SUBMITTED_TO_ASM;
+                targetHolderId = (lastRevLog.actor?.role === "ASM" && lastRevLog.actor.isActive)
+                  ? lastRevLog.actorId
+                  : (nextHolderId || await resolveHolderForRole(tx, actor, "ASM"));
+              }
             }
           }
         }
@@ -183,7 +213,10 @@ const POA_STATUS_RANK: Record<PoaStatus, number> = {
 };
 
 function buildApprovalWhereClause(actorRole: string, actorNip: string, poaScIds: string[]) {
-  const baseWhere: any = { id: { in: poaScIds } };
+  const baseWhere: any = {
+    id: { in: poaScIds },
+    ...(actorRole !== "ADMIN" ? { ownerId: { not: actorNip } } : {}),
+  };
 
   if (actorRole === "NSM" || actorRole === "ADMIN") {
     baseWhere.status = {
