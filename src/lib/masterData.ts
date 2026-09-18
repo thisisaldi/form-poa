@@ -251,6 +251,7 @@ export async function getProductByKode(kodeProduk: string): Promise<Product | nu
 import { CANVASSER_API_BASE_URL, fetchWithTimeout } from "@/lib/canvasserApi";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
+import { getExodusAccessToken } from "@/lib/exodusApi";
 
 function stripTestPrefix(nip: string): string {
   return nip.replace(/^test(?:psr|mr)?/i, "");
@@ -281,14 +282,17 @@ export async function getSalesCounterOutletsDirect(userId: string): Promise<Mock
   const position = user?.role || "MR";
 
   try {
-    const [blastInSet, onlineCodes] = await Promise.all([
+    const [blastInSet, onlineCodes, exodusToken] = await Promise.all([
       getBlastInOutletSet(),
       getApotekOnline(targetUserId, position).catch(() => []),
+      getExodusAccessToken().catch(() => null),
     ]);
     const onlineSet = new Set(onlineCodes);
 
-    const url = `${CANVASSER_API_BASE_URL}/api/get-sc-poa-outlet-by-nip?nip=${encodeURIComponent(targetUserId)}`;
+    const tokenParam = exodusToken ? `&token=${encodeURIComponent(exodusToken)}` : "";
+    const url = `${CANVASSER_API_BASE_URL}/api/get-sc-poa-outlet-by-nip?nip=${encodeURIComponent(targetUserId)}${tokenParam}`;
     const res = await fetchWithTimeout(url, {
+      headers: exodusToken ? { Authorization: `Bearer ${exodusToken}` } : {},
       next: { revalidate: 0 },
     }, 5000);
     if (!res.ok) {
