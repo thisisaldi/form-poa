@@ -18,7 +18,7 @@ const isConfigured =
 // per the doc's sample response), instead of re-authenticating on every call.
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
-async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken(): Promise<string | null> {
   if (!isConfigured) return null;
   if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.token;
 
@@ -45,6 +45,8 @@ async function getAccessToken(): Promise<string | null> {
     return null;
   }
 }
+
+export const getExodusAccessToken = getAccessToken;
 
 export interface VisitByPeriodRow {
   nip: string;
