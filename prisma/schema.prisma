@@ -1616,6 +1616,8 @@ model PoaStandarisasiDokterApproval {
   estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
   estimasiNilaiRpPerBulan Decimal? @db.Decimal(18, 2)
 
+  // Qty per bulan dalam Satuan Jual (SJ), dibulatkan ke ATAS: ceil(estimasiQtyPerBulan / konversiPembagi).
+  estimasiQtyUbPerBulan   Int?
   entertainRp Decimal? @db.Decimal(18, 2) // manual, tidak ada formula
 
   createdAt DateTime @default(now())
@@ -1648,6 +1650,8 @@ model PoaStandarisasiDokterUser {
   estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
   estimasiSalesRpPerBulan Decimal? @db.Decimal(18, 2)
 
+  // Qty per bulan dalam Satuan Jual (SJ), dibulatkan ke ATAS: ceil(estimasiQtyPerBulan / konversiPembagi).
+  estimasiQtyUbPerBulan   Int?
   entertainRp Decimal? @db.Decimal(18, 2) // manual, tidak ada formula
 
   createdAt DateTime @default(now())

@@ -63,6 +63,10 @@ export function SalesCounterDraftChecklist({
     actionableCount,
     selectedActionableCount,
     submittableIds,
+    statusFilter,
+    setStatusFilter,
+    filterCounts,
+    filteredScDrafts,
   } = useSalesCounterDetail({
     scDrafts: safeScDrafts,
     poaPeriod,
@@ -119,7 +123,6 @@ export function SalesCounterDraftChecklist({
     );
   }
 
-  // Export URL helper — includes selected outlet IDs if not all selected
   const exportHref = (() => {
     const base = `/api/sc/${poaId}/export`;
     if (checked.size === 0 || checked.size === safeScDrafts.length) return base;
@@ -129,7 +132,6 @@ export function SalesCounterDraftChecklist({
 
   return (
     <div className="space-y-4">
-      {/* Export button — posisi persis seperti Gambar 2, terhubung dengan outlet terpilih */}
       <div>
         <a href={exportHref}>
           <Button size="sm" variant="ghost">↓ Export Excel</Button>
@@ -184,29 +186,53 @@ export function SalesCounterDraftChecklist({
               showSubmit={showSubmit}
               allChecked={allSelected}
               onToggleAll={toggleAll}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              filterCounts={filterCounts}
             />
 
             <div className="space-y-2">
-              {safeScDrafts.map((draft) => (
-                <SalesCounterOutletCard
-                  key={draft.id}
-                  draft={draft}
-                  checked={checked.has(draft.id)}
-                  onToggle={() => toggle(draft.id)}
-                  selectable={selectable}
-                  poaId={poaId || ""}
-                  userCanEdit={canEditNow}
-                  isOwner={showSubmit ?? canEditNow}
-                  canApprove={canApprove ?? false}
-                  canFastTrack={canFastTrack}
-                  userRole={userRole}
-                  isKompetitorOpen={activeKompetitorDraftId === draft.id}
-                  onToggleKompetitor={() =>
-                    setActiveKompetitorDraftId((prev) => (prev === draft.id ? null : draft.id))
-                  }
-                  onCloseKompetitor={() => setActiveKompetitorDraftId(null)}
-                />
-              ))}
+              {filteredScDrafts.length > 0 ? (
+                filteredScDrafts.map((draft) => (
+                  <SalesCounterOutletCard
+                    key={draft.id}
+                    draft={draft}
+                    checked={checked.has(draft.id)}
+                    onToggle={() => toggle(draft.id)}
+                    selectable={selectable}
+                    poaId={poaId || ""}
+                    userCanEdit={canEditNow}
+                    isOwner={showSubmit ?? canEditNow}
+                    canApprove={canApprove ?? false}
+                    canFastTrack={canFastTrack}
+                    userRole={userRole}
+                    isKompetitorOpen={activeKompetitorDraftId === draft.id}
+                    onToggleKompetitor={() =>
+                      setActiveKompetitorDraftId((prev) => (prev === draft.id ? null : draft.id))
+                    }
+                    onCloseKompetitor={() => setActiveKompetitorDraftId(null)}
+                  />
+                ))
+              ) : (
+                <div
+                  className="rounded-lg border p-6 text-center text-xs"
+                  style={{
+                    borderColor: "var(--color-border)",
+                    color: "var(--color-text-muted)",
+                    background: "var(--color-bg-subtle)",
+                  }}
+                >
+                  {statusFilter === "APPROVED"
+                    ? "Belum ada outlet yang telah disetujui (Approved)."
+                    : statusFilter === "ACTIONABLE"
+                    ? canApprove
+                      ? "Tidak ada outlet yang sedang menunggu persetujuan Anda."
+                      : "Tidak ada outlet yang siap diajukan."
+                    : statusFilter === "DRAFT_REVISI"
+                    ? "Tidak ada outlet berstatus Draft atau Revisi."
+                    : "Belum ada outlet Sales Counter."}
+                </div>
+              )}
             </div>
           </Card>
 

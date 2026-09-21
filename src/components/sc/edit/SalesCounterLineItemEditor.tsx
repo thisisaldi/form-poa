@@ -246,7 +246,7 @@ export function SalesCounterLineItemEditor({
     }
     let isMounted = true;
     setLoadingHistoryEntertain(true);
-    getHistoryEntertainAction(outletCode)
+    getHistoryEntertainAction(outletCode, { period: poaYear })
       .then((val) => {
         if (isMounted) setHistoryEntertain(val ?? 0);
       })
@@ -261,7 +261,7 @@ export function SalesCounterLineItemEditor({
     return () => {
       isMounted = false;
     };
-  }, [selectedOutlet?.kodePI]);
+  }, [selectedOutlet?.kodePI, poaYear]);
 
   // Online vs Offline Komposisi Sales Calculation
   const [onlinePiSales, setOnlinePiSales] = useState<number>(0);

@@ -93,7 +93,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     { header: "Jumlah Hari Praktek / Bulan", key: "hariPraktek", width: 14 },
     { header: "Jumlah Pasien / Hari", key: "jumlahPasien", width: 14 },
     { header: "Resep / Pasien", key: "resepPerPasien", width: 12 },
-    { header: "Estimasi Qty / Bulan", key: "estimasiQty", width: 14 },
+    { header: "Estimasi Qty / Bulan (SJ)", key: "estimasiQty", width: 14 },
     { header: "Estimasi Sales (Rp) / Bulan", key: "estimasiSales", width: 16 },
     { header: "Entertain (Rp)", key: "entertainRp", width: 14 },
   ];
@@ -134,7 +134,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           hariPraktek: d.jumlahHariPraktekPerBulan,
           jumlahPasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt),
-          qty: num(d.estimasiQtyPerBulan),
+          qty: d.estimasiQtyUbPerBulan,
           sales: num(d.estimasiSalesRpPerBulan),
           entertain: num(d.entertainRp),
         }))
@@ -143,7 +143,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           hariPraktek: d.jumlahHariPraktekPerBulan,
           jumlahPasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt),
-          qty: num(d.estimasiQtyPerBulan),
+          qty: d.estimasiQtyUbPerBulan,
           sales: num(d.estimasiNilaiRpPerBulan),
           entertain: num(d.entertainRp),
         }));

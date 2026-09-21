@@ -710,6 +710,7 @@ export function PoaStandarisasiWizard({
 
       <Stepper
         currentIdx={currentStepIdx}
+        allDone={!!pengajuan.submittedAt}
         viewedIdx={viewedStepIdx}
         onSelect={(idx) => {
           if (idx <= currentStepIdx) { setViewedPhaseId(PHASES[idx].id); setShowStep5(false); }
@@ -874,8 +875,11 @@ export function Stepper({
   viewedIdx,
   onSelect,
   extraStep,
+  allDone,
 }: {
   currentIdx: number;
+  /** Semua PHASES selesai (Finalisasi disubmit) — currentIdx tetap di fase terakhir, jadi tanpa ini ✓ tidak pernah muncul di sana. */
+  allDone?: boolean;
   viewedIdx?: number;
   onSelect?: (idx: number) => void;
   /** Step 5 (Permintaan SP Non Sales & DPL/DPF, 2026-09-08) — not a real
@@ -890,7 +894,7 @@ export function Stepper({
   return (
     <div className="flex items-start gap-2 mb-6 max-w-3xl">
       {PHASES.map((p, i) => {
-        const done = i < currentIdx;
+        const done = allDone || i < currentIdx;
         const active = i === activeIdx;
         const selectable = !!onSelect && i <= currentIdx;
         return (
@@ -1353,7 +1357,7 @@ export function PlanningPhase(props: {
                           <td className="py-1.5 px-2"><UnitCountInput unit="Hari" value={dk.jumlahHariPraktekPerBulan} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { jumlahHariPraktekPerBulan: v })} disabled={disabled} /></td>
                           <td className="py-1.5 px-2"><UnitCountInput unit="Pasien" value={dk.jumlahPasien} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { jumlahPasien: v })} disabled={disabled} emphasizeValue /></td>
                           <td className="py-1.5 px-2"><UnitCountInput unit={product?.satuanTerkecil ?? "Resep"} value={dk.resepPerPasienSt} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { resepPerPasienSt: v })} disabled={disabled} emphasizeValue /></td>
-                          <td className="py-1.5 px-2 text-right">{dq ? `${(dq / konversi).toLocaleString("id-ID", { maximumFractionDigits: 2 })} ${product?.satuan ?? ""}` : "-"}</td>
+                          <td className="py-1.5 px-2 text-right">{dq ? `${Math.ceil(dq / konversi).toLocaleString("id-ID")} ${product?.satuan ?? ""}` : "-"}</td>
                           <td className="py-1.5 px-2"><AccountingRp n={dq * hst} /></td>
                           <td className="py-1.5 px-2"><RpInput value={dk.entertainRp} onChange={(v) => updateDokterKlinis(idx, dk.customerId, { entertainRp: v })} disabled={disabled} /></td>
                           <td className="pl-1">{!disabled && <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => removeDokterFromProduk(idx, dk.customerId)}>✕</button>}</td>
@@ -1364,7 +1368,7 @@ export function PlanningPhase(props: {
                   <tfoot>
                     <tr style={{ borderTop: "2px solid var(--color-border-strong, var(--color-border))", fontWeight: 700 }}>
                       <td colSpan={4} className="py-1.5">Total</td>
-                      <td className="py-1.5 text-right">{(totalQty / konversi).toLocaleString("id-ID", { maximumFractionDigits: 2 })} {product?.satuan ?? ""}</td>
+                      <td className="py-1.5 text-right">{Math.ceil(totalQty / konversi).toLocaleString("id-ID")} {product?.satuan ?? ""}</td>
                       <td className="py-1.5 px-2"><AccountingRp n={totalSales} /></td>
                       <td className="py-1.5 px-2"><AccountingRp n={totalEntertain} /></td>
                       <td></td>

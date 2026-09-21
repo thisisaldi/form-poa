@@ -87,7 +87,7 @@ export async function GET(_req: NextRequest) {
     { header: "Diskon PI (%)", key: "diskonPi", width: 12 },
     { header: "Diskon Dist. (%)", key: "diskonDist", width: 14 },
     { header: "DP (Rp)", key: "dpRp", width: 14 },
-    { header: "Est. Qty/bln", key: "estimasiQty", width: 12 },
+    { header: "Est. Qty/bln (SJ)", key: "estimasiQty", width: 12 },
     { header: "Est. Sales/bln", key: "estimasiSales", width: 16 },
     { header: "Nama Dokter", key: "namaDokter", width: 26 },
     { header: "Dokter Approved", key: "dokterApproved", width: 14 },
@@ -126,7 +126,7 @@ export async function GET(_req: NextRequest) {
         ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
             nama: d.customer.namaCustomer,
             approved: sudahTtdByCustomerId.get(d.customerId) ?? null,
-            qty: num(d.estimasiQtyPerBulan),
+            qty: d.estimasiQtyUbPerBulan,
             sales: num(d.estimasiSalesRpPerBulan),
           }))
         : prod.dokterApproval.map((d: (typeof prod.dokterApproval)[number]) => ({

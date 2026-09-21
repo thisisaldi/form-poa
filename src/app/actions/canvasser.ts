@@ -19,7 +19,10 @@ import { getBlastInData } from "@/app/(app)/sc/[id]/_services/getBlastInData";
 import { getSurveyData } from "@/app/(app)/sc/[id]/_services/getSurveyNexus";
 import { getPosmNexus } from "@/app/(app)/sc/[id]/_services/getPosmNexus";
 import { getHealthyOnePurchaseOrderDetail, type HealthyOnePurchaseOrderItem } from "@/app/(app)/sc/[id]/_services/getHealthyOnePurchaseOrderDetail";
+import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 import { prisma } from "@/lib/prisma";
+import { getExodusOutletBudgets } from "@/lib/exodusApi";
+import { getCurrentUser } from "@/lib/session";
 
 export async function getSalesCountersAction(piCode: string) {
   if (!piCode) return null;
@@ -322,8 +325,6 @@ export async function getRecommendedProCodesAction(sourceProCodes?: string[]): P
   }
 }
 
-import { getExodusOutletBudgets } from "@/lib/exodusApi";
-
 export async function getBlastInDataAction(outletId: string, year?: number) {
   if (!outletId) return null;
   return await getBlastInData(outletId, year);
@@ -331,10 +332,30 @@ export async function getBlastInDataAction(outletId: string, year?: number) {
 
 export async function getHistoryEntertainAction(
   outletCode: string,
-  params?: { structurePeriod?: string; period?: string | number }
+  params?: {
+    structurePeriod?: string;
+    period?: string | number;
+    userNip?: string;
+    project?: string;
+  }
 ): Promise<number | null> {
   if (!outletCode) return null;
-  return await getExodusOutletBudgets(outletCode, params);
+  let userNip = params?.userNip;
+  const project = (params?.project || "omega").trim().toLowerCase();
+
+  try {
+    const session = await getCurrentUser();
+    if (!userNip) {
+      userNip = session?.nip || session?.userId;
+    }
+  } catch {}
+
+  const result = await getExodusOutletBudgets(outletCode, {
+    ...params,
+    userNip,
+    project,
+  });
+  return result;
 }
 
 export async function getSurveyNexusAction(outletId: string) {
@@ -360,9 +381,6 @@ export async function getHealthyOnePurchaseOrderDetailAction(
     endDate,
   });
 }
-
-import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
-
 export interface ScOutletBundleResult {
   personsList: any[];
   canvasserProducts: any[];
@@ -403,7 +421,6 @@ export async function getScOutletBundleAction(params: {
     };
   }
 
-  // 1. Launch independent tasks in parallel on server
   const [
     personsRes,
     productsRes,
@@ -423,7 +440,6 @@ export async function getScOutletBundleAction(params: {
     getSalesCounterProductsAction(outletId),
     getScProductMenangAction(outletId),
     getScProductWithInsentifAction(outletId),
-    // Retain 12-month data retrieval for Produk Rekomendasi (sidebar) with agg: true to get monthly average
     postHistorySalesAction([outletId], undefined, undefined, true),
     getSalesOnlineAction(outletId),
     getSurveyNexusAction(outletId),
@@ -462,7 +478,6 @@ export async function getScOutletBundleAction(params: {
     rekomendasiProduk = (rawRekomendasi as any).products;
   }
 
-  // 2. Fetch B3 sales fallback if target periods are provided and b3SalesResponse has no data
   if (b3TargetPeriods && b3TargetPeriods.length > 0 && !b3SalesResponse?.data) {
     try {
       const scProCodes = Array.from(new Set(canvasserProducts.map((cp: any) => cp.pro_code).filter(Boolean))) as string[];

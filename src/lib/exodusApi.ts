@@ -289,7 +289,12 @@ const OUTLET_ID_TTL_MS = 30 * 60 * 1000;
  */
 export async function getExodusOutletIdByCode(outletCode: string): Promise<number | null> {
   if (!isConfigured || !outletCode) return null;
-  const cached = outletIdCacheByCode.get(outletCode);
+  if (/^\d+$/.test(outletCode.trim())) {
+    return parseInt(outletCode.trim(), 10);
+  }
+
+  const cleanCode = outletCode.trim().toUpperCase();
+  const cached = outletIdCacheByCode.get(cleanCode) ?? outletIdCacheByCode.get(outletCode);
   if (cached && cached.expiresAt > Date.now()) return cached.id;
 
   const token = await getAccessToken();
@@ -297,14 +302,23 @@ export async function getExodusOutletIdByCode(outletCode: string): Promise<numbe
 
   try {
     const url = new URL(`${env.EXODUS_API_BASE_URL}/core/v1/outlets`);
-    url.searchParams.set("outlet_code", outletCode);
+    url.searchParams.set("outlet_code", cleanCode);
     const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 4000);
     if (!res.ok) return null;
     const body = (await res.json()) as { data?: { id: number; outlet_code: string }[]; error?: { status: boolean } };
     if (body.error?.status || !Array.isArray(body.data)) return null;
 
-    const match = body.data.find((o) => o.outlet_code === outletCode) ?? body.data[0];
+    const strippedCode = cleanCode.replace(/^[A-Z]+/, "");
+    const match =
+      body.data.find(
+        (o) =>
+          o.outlet_code?.trim().toUpperCase() === cleanCode ||
+          o.outlet_code?.trim().toUpperCase() === strippedCode ||
+          String(o.id) === cleanCode
+      ) ?? (body.data.length === 1 ? body.data[0] : null);
+
     const id = match?.id ?? null;
+    outletIdCacheByCode.set(cleanCode, { id, expiresAt: Date.now() + OUTLET_ID_TTL_MS });
     outletIdCacheByCode.set(outletCode, { id, expiresAt: Date.now() + OUTLET_ID_TTL_MS });
     return id;
   } catch {
@@ -332,12 +346,10 @@ function parseBudgetResponse(json: unknown): number {
 
     return (
       Number(
-        costObj.total_discount_base_cost ??
-          costObj.discount_base_cost ??
-          costObj.total_discount_real_cost ??
-          costObj.discount_real_cost ??
-          costObj.total_entertain_base_cost ??
+        costObj.total_entertain_base_cost ??
           costObj.entertain_base_cost ??
+          costObj.total_entertain_real_cost ??
+          costObj.entertain_real_cost ??
           costObj.total_entertain ??
           costObj.budget_entertain ??
           costObj.history_entertain ??
@@ -383,24 +395,23 @@ function parseBudgetResponse(json: unknown): number {
     const precedingSum = last3Preceding.reduce((s, it) => s + it.cost, 0);
 
     if (precedingSum > 0) {
-      return Math.round(precedingSum / 3);
+      return Math.round(precedingSum);
     }
 
-    // Strategy 2: "ambil 3 bulan yang paling dekat dengan sekarang, atau yang ada trus dibagi 3"
-    // Filter months with cost > 0, reversed so latest active months come first
+    // Strategy 2: ambil 3 bulan aktif paling dekat dengan sekarang (sum 3 bulan)
     const activeMonths = pastMonths.filter((it) => it.cost > 0).reverse();
 
     if (activeMonths.length > 0) {
       const top3Active = activeMonths.slice(0, 3);
       const sumActive = top3Active.reduce((s, it) => s + it.cost, 0);
-      return Math.round(sumActive / 3);
+      return Math.round(sumActive);
     }
 
     // Fallback across all available data items
     const anyActive = monthlyItems.filter((it) => it.cost > 0).reverse().slice(0, 3);
     if (anyActive.length > 0) {
       const sumAny = anyActive.reduce((s, it) => s + it.cost, 0);
-      return Math.round(sumAny / 3);
+      return Math.round(sumAny);
     }
 
     return 0;
@@ -423,7 +434,12 @@ function parseBudgetResponse(json: unknown): number {
  */
 export async function getExodusOutletBudgets(
   outletCode: string,
-  params?: { structurePeriod?: string; period?: string | number }
+  params?: {
+    structurePeriod?: string;
+    period?: string | number;
+    userNip?: string;
+    project?: string;
+  }
 ): Promise<number | null> {
   if (!outletCode) return null;
 
@@ -460,15 +476,52 @@ export async function getExodusOutletBudgets(
       structurePeriod = `${structurePeriod}T17:00:00.000Z`;
     }
 
+    // Resolve user_nip & project (always lowercase for Exodus, defaulting to "omega")
+    let userNip = params?.userNip;
+    const project = (params?.project || "omega").trim().toLowerCase();
+
+    if (!userNip) {
+      try {
+        const { getCurrentUser } = await import("@/lib/session");
+        const session = await getCurrentUser();
+        if (session) {
+          userNip = session.nip || session.userId;
+        }
+      } catch {}
+    }
+
+    if (userNip) {
+      const clean = userNip.trim();
+      if (clean === "SCMR123456" || clean.toLowerCase().startsWith("testmr")) {
+        userNip = "P250091";
+      } else if (clean === "SCASM123456" || clean.toLowerCase().startsWith("testasm")) {
+        userNip = "L260452";
+      } else if (clean === "SCSM123456" || clean.toLowerCase().startsWith("testsm")) {
+        userNip = "L250264";
+      } else if (clean === "SCNSM123456" || clean.toLowerCase().startsWith("testnsm")) {
+        userNip = "L260035";
+      } else {
+        userNip = clean;
+      }
+    } else {
+      userNip = "P250091";
+    }
+
     const url = new URL(`${env.EXODUS_API_BASE_URL}/analytics/v1/budgets`);
+    url.searchParams.set("project", project);
     url.searchParams.set("structure_period", structurePeriod);
     url.searchParams.set("period", period);
     url.searchParams.set("outlet_ids", String(outletId));
+    url.searchParams.set("user_nip", userNip);
+
+    console.log(`[getExodusOutletBudgets] calling: ${url.toString()}`);
 
     const res = await fetchWithTimeout(url.toString(), {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
-    }, 4000);
+    }, 6000);
+
+    console.log(`[getExodusOutletBudgets] status: ${res.status}`);
 
     if (!res.ok) {
       console.error(`[Exodus] /analytics/v1/budgets error status: ${res.status}`);
@@ -477,11 +530,14 @@ export async function getExodusOutletBudgets(
 
     const text = await res.text();
     if (!text || text.trim() === "") {
+      console.log(`[getExodusOutletBudgets] empty response text`);
       return 0;
     }
 
     const json = JSON.parse(text);
-    return parseBudgetResponse(json);
+    const parsed = parseBudgetResponse(json);
+    console.log(`[getExodusOutletBudgets] parsed budget result: ${parsed}`);
+    return parsed;
   } catch (err) {
     console.error(`[Exodus] Error in getExodusOutletBudgets for ${outletCode}:`, err);
     return null;
@@ -571,6 +627,8 @@ export interface LivePricing {
   principalName: string | null;   // == API's product_principal.name
   principalCode: string | null;   // == API's product_principal.code
   categoryProduct: string | null; // == API's product_category.name
+  namaProduk: string | null;      // == API's name
+  namaGroupBrand: string | null;  // API's product_type ("ETH"/"OTC") mapped to "ETHICAL"/"NON ETHICAL", null if product_type is null
 }
 
 // Short in-memory cache, same idea as cachedToken above — this is called on
@@ -595,7 +653,12 @@ const PRICING_TTL_MS = 5 * 60 * 1000;
  * here and is left to the caller's own local data — this only ever
  * overrides those two fields, and returns null (never throws) on any
  * failure so callers can fall back to whatever's in the DB, same
- * "degrade to no data" contract as the rest of this file.
+ * "degrade to no data" contract as the rest of this file. Also carries
+ * `name`/`product_type` (2026-09-18, CALTONAL gap report — a product that
+ * exists in Exodus but not yet in local Product never showed up in the POA
+ * picker) so masterData.ts can materialize a skeleton local row for a
+ * kodeProduk Exodus knows about that the DB doesn't yet — same on-read
+ * backfill shape as materializeLocalCustomerOutlet in actions/customer.ts.
  */
 export async function getLiveProductPricing(): Promise<Map<string, LivePricing> | null> {
   if (!isConfigured) return null;
@@ -614,6 +677,8 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
       data?: {
         id: number | null;
         product_code: string;
+        name: string | null;
+        product_type: string | null; // "ETH" | "OTC" | null
         sell_price: number | null;
         r_value: number | null;
         product_principal: { id: number; name: string; code: string } | null;
@@ -635,6 +700,8 @@ export async function getLiveProductPricing(): Promise<Map<string, LivePricing> 
         principalName: p.product_principal?.name ?? null,
         principalCode: p.product_principal?.code ?? null,
         categoryProduct: p.product_category?.name ?? null,
+        namaProduk: p.name?.trim() || null,
+        namaGroupBrand: p.product_type === "ETH" ? "ETHICAL" : p.product_type === "OTC" ? "NON ETHICAL" : null,
       });
     }
     cachedPricing = { map, expiresAt: Date.now() + PRICING_TTL_MS };

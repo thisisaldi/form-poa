@@ -8,7 +8,7 @@ import type { MockCustomer } from "./mock/data";
 import type { Role, User } from "@prisma/client";
 import type { Product } from "./hargaST";
 import { nexusAuthHeaders } from "@/lib/nexusAuth";
-import { getLiveProductPricing } from "@/lib/exodusApi";
+import { getLiveProductPricing, type LivePricing } from "@/lib/exodusApi";
 
 export type { MockCustomer as Customer };
 
@@ -196,12 +196,85 @@ function applyLivePricing<T extends { kodeProduk: string; hna: string; nilaiRPer
   });
 }
 
+// Gate for materializeMissingProducts — same 5-minute cadence as
+// getLiveProductPricing's own cache (exodusApi.ts), so the extra
+// "does Exodus know something our DB doesn't" check doesn't run on every
+// single product-list load, just piggybacks on that refresh window.
+let lastProductMaterializeCheck = 0;
+const MATERIALIZE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Two gaps this closes, both keyed off getLiveProductPricing()'s live map
+ * (2026-09-18, CALTONAL report):
+ * 1. kodeProduk Exodus knows about that the local DB has no row for at all
+ *    — creates a skeleton row (satuan gets the "-" unknown placeholder
+ *    satuanLabel() already treats as "not really set", see hargaST.ts;
+ *    dosis/konversiPembagi/satuanTerkecil/etc stay null until the next
+ *    Excel import backfills them).
+ * 2. kodeProduk that already has a local row, but it's stuck at the
+ *    "—"/null placeholder for namaGroupBrand/nilaiRPersen because no Excel
+ *    source has classified it yet — CALTONAL's actual case: row existed
+ *    (satuan/dosis already synced via a different script), but
+ *    namaGroupBrand="—" and nilaiRPersen=null meant it never passed
+ *    getProducts/getScProducts's own filter, so the live pricing overlay
+ *    (applyLivePricing) never even got a chance to run on it. Exodus's
+ *    `product_type` (ETH/OTC) resolves the classification gap directly.
+ * Both cases skip when Exodus gives no name or no product_type (nothing to
+ * classify ETHICAL/NON ETHICAL with). Never throws — same "best effort,
+ * degrade to whatever's already in the DB" contract as the rest of the
+ * Exodus integration.
+ */
+async function materializeMissingProducts(live: Map<string, LivePricing>): Promise<void> {
+  if (Date.now() - lastProductMaterializeCheck < MATERIALIZE_CHECK_INTERVAL_MS) return;
+  lastProductMaterializeCheck = Date.now();
+
+  const candidates = [...live.entries()].filter(([, p]) => p.namaProduk && p.namaGroupBrand);
+  if (candidates.length === 0) return;
+
+  const { prisma } = await import("@/lib/prisma");
+  const existingRows = await prisma.product.findMany({
+    where: { kodeProduk: { in: candidates.map(([kode]) => kode) } },
+    select: { kodeProduk: true, namaGroupBrand: true, nilaiRPersen: true },
+  });
+  const existingByKode: Map<string, { kodeProduk: string; namaGroupBrand: string; nilaiRPersen: unknown }> = new Map(
+    existingRows.map((r: { kodeProduk: string; namaGroupBrand: string; nilaiRPersen: unknown }): [string, typeof r] => [r.kodeProduk, r])
+  );
+
+  await Promise.all(candidates.map(([kodeProduk, p]) => {
+    const row = existingByKode.get(kodeProduk);
+    if (!row) {
+      return prisma.product.upsert({
+        where: { kodeProduk },
+        update: {},
+        create: {
+          kodeProduk,
+          namaProduk: p.namaProduk!,
+          namaGroupBrand: p.namaGroupBrand!,
+          satuan: "-",
+          hna: p.hna,
+          nilaiRPersen: p.nilaiRPersen,
+          syncedAt: new Date(),
+          exodusProductId: p.exodusProductId,
+          principalId: p.principalId,
+          principalName: p.principalName,
+          principalCode: p.principalCode,
+          categoryProduct: p.categoryProduct,
+        },
+      }).catch(() => null);
+    }
+    const patch: { namaGroupBrand?: string; nilaiRPersen?: number } = {};
+    if (row.namaGroupBrand === "—") patch.namaGroupBrand = p.namaGroupBrand!;
+    if (row.nilaiRPersen === null && p.nilaiRPersen != null) patch.nilaiRPersen = p.nilaiRPersen;
+    if (Object.keys(patch).length === 0) return null;
+    return prisma.product.update({ where: { kodeProduk }, data: patch }).catch(() => null);
+  }));
+}
+
 export async function getProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
-  const [rows, live] = await Promise.all([
-    prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } }),
-    getLiveProductPricing(),
-  ]);
+  const live = await getLiveProductPricing();
+  if (live) await materializeMissingProducts(live);
+  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } });
   return applyLivePricing(rows.map((p: any) => ({
     ...p,
     hna: p.hna.toString(),
@@ -215,10 +288,9 @@ export async function getProducts(): Promise<Product[]> {
 
 export async function getScProducts(): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
-  const [rows, live] = await Promise.all([
-    prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } }),
-    getLiveProductPricing(),
-  ]);
+  const live = await getLiveProductPricing();
+  if (live) await materializeMissingProducts(live);
+  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" } }, orderBy: { namaProduk: "asc" } });
   return applyLivePricing(rows.map((p: any) => ({
     ...p,
     hna: p.hna.toString(),
@@ -259,9 +331,9 @@ function stripTestPrefix(nip: string): string {
 export async function getSalesCounterOutletsDirect(userId: string): Promise<MockCustomer[]> {
   let targetUserId = userId;
   if (userId === "SCMR123456") targetUserId = "P250091";
-  else if (userId === "SCASM123456") targetUserId = "L260437";
-  else if (userId === "SCSM123456") targetUserId = "P230219";
-  else if (userId === "SCNSM123456") targetUserId = "P080855";
+  else if (userId === "SCASM123456") targetUserId = "L260452";
+  else if (userId === "SCSM123456") targetUserId = "L250264";
+  else if (userId === "SCNSM123456") targetUserId = "L260035";
   // else if (userId?.toLowerCase().startsWith("test")) targetUserId = stripTestPrefix(userId);
   else if (userId?.toLowerCase().startsWith("testmr")) {
     targetUserId = "P250091";
