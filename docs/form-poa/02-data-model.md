@@ -130,7 +130,7 @@ Enum lengkap: `Role`, `PoaStatus`, `AuditAction`, `StatusStandarisasi`, `JenisPs
 | `DiskonKontrak` (DPL, sumber utama) | Excel `DPL <bulan tahun>.xlsx` | `scripts/importDpl.ts` | Periodik manual |
 | `DiskonHistory` (fallback) | Excel Data Diskon All Product (~490k baris, streamed) | `scripts/importDiskonHistory.ts` | Periodik manual |
 | `ListingFeeKontrak` | Excel Listing Fee KAM | `scripts/importListingFee.ts` | Periodik manual |
-| `TargetHospitalValue` | Excel "Target Hospital (in Value).xlsx" | `scripts/importTargetHospitalValue.ts` (range periode 202608-202612 fixed) | One-time |
+| `TargetHospitalValue` | Excel "Target Hospital (in Value).xlsx" | `scripts/importTargetHospitalValue.ts` (range periode 202608-202612 fixed); 202608-202609 di-refresh 2026-09-21 dari "Target Hospital (in Value) (4).xlsx" sheet "Compile Target MR" via `scripts/importTargetHospitalValueCompileMR.ts` (sheet tanpa kolom GT — namaGT di-resolve ke struktur live lewat NIP/kodeGT/nama, prefix "PROJECT" dianggap sama; `--apply` upsert, `--prune` hapus duplikat ejaan lama) | One-time |
 | `SurveyRekomendasi` | Excel Data Rekomendasi Final | `scripts/importSurveyRekomendasi.ts` | Periodik manual |
 | `OutletProductKriteria` | Excel sheet Unpivot ProductPMDatabase | `scripts/seedOutletProductKriteria.ts` | One-time |
 | Histori visit (3 bulan, dokter/outlet) | API eksternal **Exodus Activity** (BEDA dari Nexus, lihat `03-ui-and-access.md`) | `src/lib/exodusApi.ts`, OAuth2 client_credentials, degradasi ke `null` apabila tidak dikonfigurasi | Live/on-demand, bukan sync batch |
