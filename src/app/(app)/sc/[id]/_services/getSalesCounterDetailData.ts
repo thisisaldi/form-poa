@@ -191,7 +191,7 @@ export async function getSalesCounterDetailData(
   await Promise.all(
     outletCodes.map(async (kodePI: string) => {
       try {
-        const scProductRes = await getSalesCounterProduct(kodePI).catch(() => null);
+        const scProductRes = await getSalesCounterProduct(kodePI, poa.period).catch(() => null);
         const scCodes = new Set<string>();
         if (scProductRes?.data) {
           for (const cp of scProductRes.data) {

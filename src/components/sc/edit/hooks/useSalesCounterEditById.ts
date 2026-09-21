@@ -348,6 +348,7 @@ export function useSalesCounterEditById({
       outletId: kodePI,
       includeEntertain: true,
       b3TargetPeriods: b3Info.targetPeriods,
+      poaPeriod: effectivePoaPeriod,
     })
       .then((bundle) => {
         if (!isMounted) return;

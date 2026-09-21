@@ -58,7 +58,7 @@ export async function saveSalesCounterFormAction(
     return { ok: false, error: "Minimal pilih 1 Sales Counter." };
   }
 
-  const scRes = await getSalesCounterProduct(outletId).catch(() => null);
+  const scRes = await getSalesCounterProduct(outletId, period).catch(() => null);
   const validScCodes = new Set(scRes?.data?.map((p: any) => p.pro_code) || []);
   const validProducts = validScCodes.size > 0
     ? products.filter((p) => validScCodes.has(p.kodeProduk) || validScCodes.has(p.kodeProduk.replace(/^0+/, "")))

@@ -103,11 +103,19 @@ export async function GET(req: NextRequest) {
   const outletScProductCodesMap = new Map<string, Set<string>>();
   const outletCashbackMap = new Map<string, any>();
 
+  const outletPeriodMap = new Map<string, string>();
+  for (const d of drafts) {
+    if (d.kodePI && d.period && !outletPeriodMap.has(d.kodePI)) {
+      outletPeriodMap.set(d.kodePI, d.period);
+    }
+  }
+
   await Promise.all(
     outletCodes.map(async (kodePI: string) => {
       try {
+        const draftPeriod = outletPeriodMap.get(kodePI) || targetPeriod;
         const [scRes, cbRes] = await Promise.all([
-          getSalesCounterProduct(kodePI).catch(() => null),
+          getSalesCounterProduct(kodePI, draftPeriod).catch(() => null),
           getScCashbackPoa(kodePI).catch(() => null),
         ]);
         if (scRes?.data) {
