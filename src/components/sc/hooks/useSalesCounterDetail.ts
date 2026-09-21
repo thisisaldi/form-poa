@@ -84,14 +84,28 @@ export function useSalesCounterDetail({
     });
   }, [safeScDrafts, b3Info]);
 
+  const isFullyApproved = (status: string) => {
+    return ["APPROVED_BY_NSM", "APPROVED_BY_ASD", "APPROVED_BY_SD"].includes(status);
+  };
+
+  const isPendingSubmission = (status: string) => {
+    return [
+      "SUBMITTED_TO_ASM",
+      "APPROVED_BY_ASM",
+      "SUBMITTED_TO_SM",
+      "APPROVED_BY_SM",
+      "SUBMITTED_TO_NSM",
+      "SUBMITTED_TO_ASD",
+      "APPROVED_BY_ASD",
+      "SUBMITTED_TO_SD",
+    ].includes(status);
+  };
+
   const actionableIds = useMemo(() => {
-    if (showSubmit) {
-      return safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id);
-    }
     if (canApprove) {
       return safeScDrafts
         .filter((d) => {
-          if (d.status === "DRAFT" || d.status === "REVISI" || d.status === "APPROVED_BY_NSM") {
+          if (d.status === "DRAFT" || d.status === "REVISI" || isFullyApproved(d.status)) {
             return false;
           }
           if (userRole === "ADMIN") {
@@ -110,64 +124,51 @@ export function useSalesCounterDetail({
         })
         .map((d) => d.id);
     }
-    return safeScDrafts.map((d) => d.id);
-  }, [safeScDrafts, showSubmit, canApprove, userRole, canFastTrack]);
-
-  const isApproved = useMemo(() => {
-    return (status: string) => {
-      if (userRole === "SM") {
-        return ["APPROVED_BY_SM", "SUBMITTED_TO_NSM", "APPROVED_BY_NSM", "APPROVED_BY_ASD", "APPROVED_BY_SD"].includes(status);
-      }
-      if (userRole === "NSM") {
-        return ["APPROVED_BY_NSM", "APPROVED_BY_ASD", "APPROVED_BY_SD"].includes(status);
-      }
-      return [
-        "APPROVED_BY_ASM",
-        "SUBMITTED_TO_SM",
-        "APPROVED_BY_SM",
-        "SUBMITTED_TO_NSM",
-        "APPROVED_BY_NSM",
-        "APPROVED_BY_ASD",
-        "APPROVED_BY_SD",
-      ].includes(status);
-    };
-  }, [userRole]);
+    // MR / Owner / Viewer: "Siap Diajukan" are outlets in DRAFT or REVISI
+    return safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI").map((d) => d.id);
+  }, [safeScDrafts, canApprove, userRole, canFastTrack]);
 
   const actionableIdsSet = useMemo(() => new Set(actionableIds), [actionableIds]);
 
   const filterCounts = useMemo(() => {
     let actionable = 0;
+    let pending = 0;
     let approved = 0;
     let draftRevisi = 0;
 
     for (const d of safeScDrafts) {
       if (actionableIdsSet.has(d.id)) actionable++;
-      if (isApproved(d.status)) approved++;
+      if (isPendingSubmission(d.status)) pending++;
+      if (isFullyApproved(d.status)) approved++;
       if (d.status === "DRAFT" || d.status === "REVISI") draftRevisi++;
     }
 
     return {
       all: safeScDrafts.length,
       actionable,
+      pending,
       approved,
       draftRevisi,
     };
-  }, [safeScDrafts, actionableIdsSet, isApproved]);
+  }, [safeScDrafts, actionableIdsSet]);
 
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIONABLE" | "APPROVED" | "DRAFT_REVISI">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIONABLE" | "PENDING" | "APPROVED" | "DRAFT_REVISI">("ALL");
 
   const filteredScDrafts = useMemo(() => {
     if (statusFilter === "ACTIONABLE") {
       return safeScDrafts.filter((d) => actionableIdsSet.has(d.id));
     }
+    if (statusFilter === "PENDING") {
+      return safeScDrafts.filter((d) => isPendingSubmission(d.status));
+    }
     if (statusFilter === "APPROVED") {
-      return safeScDrafts.filter((d) => isApproved(d.status));
+      return safeScDrafts.filter((d) => isFullyApproved(d.status));
     }
     if (statusFilter === "DRAFT_REVISI") {
       return safeScDrafts.filter((d) => d.status === "DRAFT" || d.status === "REVISI");
     }
     return safeScDrafts;
-  }, [statusFilter, safeScDrafts, actionableIdsSet, isApproved]);
+  }, [statusFilter, safeScDrafts, actionableIdsSet]);
 
   const allIds = useMemo(() => safeScDrafts.map((d) => d.id), [safeScDrafts]);
   const filteredIds = useMemo(() => filteredScDrafts.map((d) => d.id), [filteredScDrafts]);
@@ -182,11 +183,14 @@ export function useSalesCounterDetail({
     }
   }, [allIds, canApprove, showSubmit]);
 
-  function handleStatusFilterChange(newFilter: "ALL" | "ACTIONABLE" | "APPROVED" | "DRAFT_REVISI") {
+  function handleStatusFilterChange(newFilter: "ALL" | "ACTIONABLE" | "PENDING" | "APPROVED" | "DRAFT_REVISI") {
     setStatusFilter(newFilter);
     if (newFilter === "APPROVED") {
-      const approvedIds = safeScDrafts.filter((d) => isApproved(d.status)).map((d) => d.id);
+      const approvedIds = safeScDrafts.filter((d) => isFullyApproved(d.status)).map((d) => d.id);
       setChecked(new Set(approvedIds));
+    } else if (newFilter === "PENDING") {
+      const pendingIds = safeScDrafts.filter((d) => isPendingSubmission(d.status)).map((d) => d.id);
+      setChecked(new Set(pendingIds));
     } else if (newFilter === "ACTIONABLE") {
       const actIds = safeScDrafts.filter((d) => actionableIdsSet.has(d.id)).map((d) => d.id);
       setChecked(new Set(actIds));
