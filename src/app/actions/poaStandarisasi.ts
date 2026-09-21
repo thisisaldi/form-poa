@@ -313,9 +313,18 @@ export async function getEstimasiDiskonPreviewAction(kodePI: string): Promise<Re
  * outlet+produk's 12-month sales history × 20%, the company's target gross
  * margin). Only returns an entry — i.e. only shows the warning at all — for
  * a kodeProduk that currently HAS a live Exodus discount request; existence
- * is the gate, the live discount's own rate isn't used in the math.
+ * is the gate. Since 2026-09-21 the entry also carries that discount's rate
+ * (`diskonLamaPct`, PI + distributor) so the Planning UI can compare
+ * "sales sebelumnya @ diskon lama" vs "sales baru @ diskon baru".
  */
-export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukList: string[]): Promise<Record<string, number>> {
+export interface MarginBaseline {
+  /** Total sales 12 bulan terakhir (Rp) produk ini di outlet ini. */
+  sales12Bln: number;
+  /** Diskon terdahulu (PI + distributor, %) dari request Exodus terbaru. */
+  diskonLamaPct: number;
+}
+
+export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukList: string[]): Promise<Record<string, MarginBaseline>> {
   if (!kodePI || kodeProdukList.length === 0) return {};
   const discounts = await getDiscountsForOutlet(kodePI);
   if (!discounts) return {};
@@ -324,9 +333,10 @@ export async function getMarginWarningBaselineAction(kodePI: string, kodeProdukL
     select: { itemKode: true, totalSales12Bln: true },
   });
   const salesByKode = new Map<string, number>(salesRows.map((r: (typeof salesRows)[number]) => [r.itemKode, parseFloat(r.totalSales12Bln.toString())]));
-  const result: Record<string, number> = {};
+  const result: Record<string, MarginBaseline> = {};
   for (const kodeProduk of kodeProdukList) {
-    if (discounts.has(kodeProduk)) result[kodeProduk] = salesByKode.get(kodeProduk) ?? 0;
+    const d = discounts.get(kodeProduk);
+    if (d) result[kodeProduk] = { sales12Bln: salesByKode.get(kodeProduk) ?? 0, diskonLamaPct: d.principalPct + d.distributorPct };
   }
   return result;
 }

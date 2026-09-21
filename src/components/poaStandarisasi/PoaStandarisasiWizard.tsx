@@ -30,6 +30,7 @@ import {
   getStatusPengajuanPreviewAction,
   getEstimasiDiskonPreviewAction,
   getMarginWarningBaselineAction,
+  type MarginBaseline,
   saveSpNonSalesJumlahAction,
   submitSpNonSalesRequestAction,
   updateSpNonSalesDistributorsAction,
@@ -1067,7 +1068,7 @@ export function PlanningPhase(props: {
   // outlet+produk's 12-month sales history. A kodeProduk missing from this
   // map means no live Exodus discount exists for it, so the warning is
   // skipped entirely for that row.
-  const [marginBaseline, setMarginBaseline] = useState<Record<string, number>>({});
+  const [marginBaseline, setMarginBaseline] = useState<Record<string, MarginBaseline>>({});
   useEffect(() => {
     const kodeList = Array.from(new Set(kodeProdukKey.split(",").filter(Boolean)));
     if (!kodePI || kodeList.length === 0) { setMarginBaseline({}); return; }
@@ -1296,14 +1297,19 @@ export function PlanningPhase(props: {
 
             {(() => {
               if (p.skemaPembayaran !== "DISKON") return null; // % margin math below doesn't apply to a flat DP value
-              const salesLama12Bln = p.kodeProduk ? marginBaseline[p.kodeProduk] : undefined;
-              if (salesLama12Bln === undefined) return null; // no live Exodus discount for this produk — nothing to warn against
-              const biayaDiskonBaru = totalSales * ((parseFloat(p.estimasiDiskonPct) || 0) / 100);
-              const marginBudgetLama = (salesLama12Bln / 12) * (MARGIN_CAP_PCT / 100);
-              if (biayaDiskonBaru <= marginBudgetLama) return null;
+              const base = p.kodeProduk ? marginBaseline[p.kodeProduk] : undefined;
+              if (!base) return null; // no live Exodus discount for this produk — nothing to compare against
+              // Sales sebelumnya @ diskon lama vs sales baru @ diskon baru (2026-09-21):
+              // margin sebelumnya = target gross margin (MARGIN_CAP_PCT) karena sales lama
+              // sudah terjadi dengan diskon lama; margin baru = target − selisih diskon.
+              const salesLama = base.sales12Bln / 12;
+              const diskonBaru = (parseFloat(p.estimasiDiskonPct) || 0) + (parseFloat(p.estimasiDiskonDistributorPct) || 0);
+              const marginBaruPct = MARGIN_CAP_PCT - (diskonBaru - base.diskonLamaPct);
+              const growthPct = salesLama > 0 ? (totalSales / salesLama - 1) * 100 : null;
+              const turun = marginBaruPct < MARGIN_CAP_PCT;
               return (
-                <p className="text-xs mt-1" style={{ color: "var(--color-error)" }}>
-                  ⚠ Estimasi beban diskon {formatRp(biayaDiskonBaru)}/bln melebihi budget margin histori {formatRp(marginBudgetLama)}/bln ({MARGIN_CAP_PCT}% dari sales 12 bulan terakhir) — margin standarisasi berpotensi tergerus lebih dalam dari sebelumnya.
+                <p className="text-xs mt-1" style={{ color: turun ? "var(--color-error)" : "var(--color-text-muted)" }}>
+                  vs sales sebelumnya: {growthPct != null ? `${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}%` : "-"} · margin {MARGIN_CAP_PCT}% → {marginBaruPct.toFixed(1)}% (diskon {base.diskonLamaPct.toFixed(1)}% → {diskonBaru.toFixed(1)}%)
                 </p>
               );
             })()}
