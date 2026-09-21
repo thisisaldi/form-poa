@@ -710,6 +710,7 @@ export function PoaStandarisasiWizard({
 
       <Stepper
         currentIdx={currentStepIdx}
+        allDone={!!pengajuan.submittedAt}
         viewedIdx={viewedStepIdx}
         onSelect={(idx) => {
           if (idx <= currentStepIdx) { setViewedPhaseId(PHASES[idx].id); setShowStep5(false); }
@@ -874,8 +875,11 @@ export function Stepper({
   viewedIdx,
   onSelect,
   extraStep,
+  allDone,
 }: {
   currentIdx: number;
+  /** Semua PHASES selesai (Finalisasi disubmit) — currentIdx tetap di fase terakhir, jadi tanpa ini ✓ tidak pernah muncul di sana. */
+  allDone?: boolean;
   viewedIdx?: number;
   onSelect?: (idx: number) => void;
   /** Step 5 (Permintaan SP Non Sales & DPL/DPF, 2026-09-08) — not a real
@@ -890,7 +894,7 @@ export function Stepper({
   return (
     <div className="flex items-start gap-2 mb-6 max-w-3xl">
       {PHASES.map((p, i) => {
-        const done = i < currentIdx;
+        const done = allDone || i < currentIdx;
         const active = i === activeIdx;
         const selectable = !!onSelect && i <= currentIdx;
         return (
