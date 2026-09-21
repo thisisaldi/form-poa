@@ -18,6 +18,7 @@ import { getApotekOnline } from "@/app/(app)/sc/[id]/_services/getApotekOnline";
 import { getBlastInData } from "@/app/(app)/sc/[id]/_services/getBlastInData";
 import { getSurveyData } from "@/app/(app)/sc/[id]/_services/getSurveyNexus";
 import { getPosmNexus } from "@/app/(app)/sc/[id]/_services/getPosmNexus";
+import { getHealthyOnePurchaseOrderDetail, type HealthyOnePurchaseOrderItem } from "@/app/(app)/sc/[id]/_services/getHealthyOnePurchaseOrderDetail";
 import { prisma } from "@/lib/prisma";
 
 export async function getSalesCountersAction(piCode: string) {
@@ -346,6 +347,20 @@ export async function getPosmNexusAction(outletId: string, periods: string[]) {
   return await getPosmNexus(outletId, periods);
 }
 
+export async function getHealthyOnePurchaseOrderDetailAction(
+  piCode: string | string[],
+  startDate?: string,
+  endDate?: string
+): Promise<HealthyOnePurchaseOrderItem[]> {
+  if (!piCode || (Array.isArray(piCode) && piCode.length === 0)) return [];
+  const piCodes = Array.isArray(piCode) ? piCode : [piCode];
+  return await getHealthyOnePurchaseOrderDetail({
+    piCodes,
+    startDate,
+    endDate,
+  });
+}
+
 import { getSurveyRekomendasiByOutletAggregate } from "@/app/actions/customer";
 
 export interface ScOutletBundleResult {
@@ -361,6 +376,7 @@ export interface ScOutletBundleResult {
   rekomendasiProduk: any[];
   historyEntertain: number | null;
   b3SalesResponse: any | null;
+  healthyOneData: HealthyOnePurchaseOrderItem[];
 }
 
 export async function getScOutletBundleAction(params: {
@@ -383,6 +399,7 @@ export async function getScOutletBundleAction(params: {
       rekomendasiProduk: [],
       historyEntertain: null,
       b3SalesResponse: null,
+      healthyOneData: [],
     };
   }
 
@@ -400,6 +417,7 @@ export async function getScOutletBundleAction(params: {
     rekomendasiRes,
     entertainRes,
     b3SalesRes,
+    healthyOneRes,
   ] = await Promise.allSettled([
     getSalesCountersAction(outletId),
     getSalesCounterProductsAction(outletId),
@@ -416,6 +434,7 @@ export async function getScOutletBundleAction(params: {
     b3TargetPeriods && b3TargetPeriods.length > 0
       ? postHistorySalesAction([outletId], b3TargetPeriods, undefined, false)
       : Promise.resolve(null),
+    getHealthyOnePurchaseOrderDetailAction(outletId),
   ]);
 
   const personsList = personsRes.status === "fulfilled" && personsRes.value?.data ? personsRes.value.data : [];
@@ -430,6 +449,7 @@ export async function getScOutletBundleAction(params: {
   const rawRekomendasi = rekomendasiRes.status === "fulfilled" && rekomendasiRes.value?.data ? rekomendasiRes.value.data : [];
   const historyEntertain = entertainRes.status === "fulfilled" ? entertainRes.value : null;
   let b3SalesResponse: any | null = b3SalesRes.status === "fulfilled" ? b3SalesRes.value : null;
+  const healthyOneData = healthyOneRes.status === "fulfilled" && Array.isArray(healthyOneRes.value) ? healthyOneRes.value : [];
 
   let rekomendasiProduk: any[] = [];
   if (Array.isArray(rawRekomendasi)) {
@@ -467,5 +487,6 @@ export async function getScOutletBundleAction(params: {
     rekomendasiProduk,
     historyEntertain,
     b3SalesResponse,
+    healthyOneData,
   };
 }

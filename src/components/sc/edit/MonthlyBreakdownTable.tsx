@@ -7,6 +7,7 @@ export interface MonthlyBreakdownItem {
   label: string;
   estimasiSales: number;
   nilaiSc: number;
+  nilaiCashback?: number;
 }
 
 export interface MonthlyBreakdownTableProps {
@@ -57,7 +58,7 @@ export function MonthlyBreakdownTable({
           </thead>
           <tbody className="divide-y text-[11px]" style={{ borderColor: "var(--color-border)" }}>
             {monthlyBreakdown.map((m) => {
-              const mCashback = totalCashbackVal / (lamaPeriode || 1);
+              const mCashback = m.nilaiCashback !== undefined ? m.nilaiCashback : totalCashbackVal / (lamaPeriode || 1);
               const shortMonthLabel = m.label.replace(/\s*20(\d\d)/, " '$1");
               return (
                 <tr key={m.month} className="hover:bg-[var(--color-bg-subtle)] transition-colors">
@@ -113,7 +114,7 @@ export function MonthlyBreakdownTable({
           </thead>
           <tbody>
             {monthlyBreakdown.map((m) => {
-              const mCashback = totalCashbackVal / (lamaPeriode || 1);
+              const mCashback = m.nilaiCashback !== undefined ? m.nilaiCashback : totalCashbackVal / (lamaPeriode || 1);
               return (
                 <tr key={m.month} style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <td className="px-3 py-1.5 align-middle whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{m.label}</td>

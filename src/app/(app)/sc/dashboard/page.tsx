@@ -5,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { NotReadyButton } from "@/components/ui/NotReadyButton";
 import { DeletePoaScButton } from "@/components/sc/DeletePoaScButton";
 import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart";
 import { formatCurrency as formatRp } from "@/lib/format";
@@ -15,6 +14,8 @@ import { getVisiblePoaScFilter, getPendingActionScFilter } from "@/lib/authz";
 import { getScCashbackPoa } from "../[id]/_services/getScCashbackPoa";
 import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
 import { calculateCashbackDetails } from "@/components/sc/edit/hooks/useSalesCounterCashback";
+import { currentQuarter } from "@/lib/quarterUtils";
+import { ScDashboardExportButton } from "@/components/sc/ScDashboardExportButton";
 
 export const metadata = { title: "Dashboard POA Sales Counter · Form POA" };
 
@@ -329,6 +330,11 @@ export default async function SalesCounterDashboardPage({
     }
   }
 
+  const activeExportQuarter =
+    mrProgressPeriod && /^\d{4}-Q[1-4]$/.test(mrProgressPeriod)
+      ? mrProgressPeriod
+      : currentQuarter();
+
   return (
     <div className="space-y-6">
       {/* Header — static, renders immediately */}
@@ -347,21 +353,12 @@ export default async function SalesCounterDashboardPage({
 
       {/* Action Buttons Row */}
       <div className="flex items-center justify-end gap-2">
-        {isMR && (
-          <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
-        )}
         {(isMR || isASM) && (
           <Link href="/sc/new">
             <Button>+ Buat POA Baru</Button>
           </Link>
         )}
-        {!isMR && (
-          <a href="/api/export/team">
-            <Button variant="secondary" size="sm">
-              ↓ Export Excel
-            </Button>
-          </a>
-        )}
+        <ScDashboardExportButton currentQuarter={activeExportQuarter} />
       </div>
 
       {/* 1. Menunggu Tindakan Anda */}
@@ -518,90 +515,188 @@ export default async function SalesCounterDashboardPage({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            {/* Mobile Scroll Hint */}
-            <div className="flex items-center text-[11px] sm:hidden pb-2" style={{ color: "var(--color-text-muted)" }}>
-              <span>↔ Geser tabel ke samping untuk melihat semua kolom</span>
-            </div>
-            <table className="w-full text-sm min-w-[700px]">
-              <thead>
-                <tr className="border-b text-left" style={{ borderColor: "var(--color-border)" }}>
-                  <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    MR
-                  </th>
-                  <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    PERIOD
-                  </th>
-                  <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    STATUS
-                  </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    TARGET
-                  </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    ESTIMASI
-                  </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    RATIO %
-                  </th>
-                  <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                    % BUDGET
-                  </th>
-                  <th className="pb-3 whitespace-nowrap" />
-                </tr>
-              </thead>
-              <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-                {recentPeriods.map((p) => {
-                  const isDraft = p.status === "DRAFT";
-                  const isRevisi = p.status === "REVISI";
-                  const ratioPct = p._totalEstSales > 0 ? (p._totalBudgetSc / p._totalEstSales) * 100 : 0;
-                  const detailHref = `/sc/${p.id}`;
-                  return (
-                    <tr key={`${p.period}_${p.owner.nip}`} className="hover:bg-[var(--color-bg-subtle)]/50 transition-colors">
-                      <td className="py-3 whitespace-nowrap">
-                        <p className="font-medium" style={{ color: "var(--color-text)" }}>
+          <div>
+            {/* Mobile Card View (sm:hidden) */}
+            <div className="sm:hidden flex flex-col gap-3">
+              {recentPeriods.map((p) => {
+                const isDraft = p.status === "DRAFT";
+                const isFullyApproved = p.status === "APPROVED_BY_NSM" || (p.status as any) === "APPROVED_BY_ASD" || (p.status as any) === "APPROVED_BY_SD";
+                const canAddOutlet = isMR && !isFullyApproved;
+                const detailHref = `/sc/${p.id}`;
+                return (
+                  <div
+                    key={`mobile_${p.period}_${p.owner.nip}`}
+                    className="py-3 px-3.5 rounded-lg space-y-2.5"
+                    style={{
+                      border: "1px solid var(--color-border)",
+                      backgroundColor: "var(--color-bg)",
+                    }}
+                  >
+                    {/* Top Section: MR Info & Status */}
+                    <div className="flex items-start gap-3 justify-between">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm font-semibold leading-snug break-words block" style={{ color: "var(--color-text)" }}>
                           {p.owner.name}
+                        </span>
+                        <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                          MR: {p.owner.nip}
                         </p>
-                        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-                          {p.owner.nip}
-                        </p>
-                      </td>
-                      <td className="py-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        {p.period}
-                      </td>
-                      <td className="py-3 whitespace-nowrap">
+                      </div>
+                      <div className="shrink-0 pt-0.5">
                         <StatusBadge status={p.status} version={p.version} />
-                      </td>
-                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
-                        -
-                      </td>
-                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        {p._totalEstSales > 0 ? formatRp(p._totalEstSales) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
-                      </td>
-                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
-                        -
-                      </td>
-                      <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
-                        {ratioPct > 0 ? `${ratioPct.toFixed(1)}%` : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
-                      </td>
-                      <td className="py-3 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-3">
-                          {isMR && (isDraft || isRevisi) && (
-                            <Link href={`/sc/${p.period}/edit`} className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
-                              Tambah
-                            </Link>
-                          )}
-                          <Link href={detailHref} style={{ color: "var(--color-blue)" }} className="text-xs font-medium">
-                            Detail
+                      </div>
+                    </div>
+
+                    {/* Sub-info Row: Periode & Total Outlet */}
+                    <div
+                      className="flex items-center gap-x-2.5 text-xs pt-0.5 flex-wrap"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+                        <span>Periode:</span>
+                        <strong className="font-semibold" style={{ color: "var(--color-text)" }}>{p.period}</strong>
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-600 select-none">•</span>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+                        <span>Total Outlet:</span>
+                        <strong className="font-semibold" style={{ color: "var(--color-text)" }}>{p._outletCount}</strong>
+                      </span>
+                    </div>
+
+                    {/* Metrics 2-column grid */}
+                    <div
+                      className="grid grid-cols-2 gap-3 py-2 text-xs"
+                      style={{ borderTop: "1px solid var(--color-border)", borderBottom: "1px solid var(--color-border)" }}
+                    >
+                      <div>
+                        <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-blue)" }}>
+                          {p._totalEstSales > 0 ? formatRp(p._totalEstSales) : "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Periode Kuartal</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-text)" }}>
+                          {p.period}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Footer: Terakhir diperbarui + Actions */}
+                    <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                      {p.updatedAt ? (
+                        <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+                          Terakhir diperbarui: {new Date(p.updatedAt).toLocaleString("id-ID", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      ) : <span />}
+
+                      <div className="flex items-center gap-2.5 ml-auto">
+                        {canAddOutlet && (
+                          <Link
+                            href={`/sc/${p.period}/edit`}
+                            className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-colors hover:no-underline"
+                            style={{
+                              background: "transparent",
+                              color: "var(--color-text-muted, #64748b)",
+                              border: "1px solid var(--color-border, #e2e8f0)",
+                              textDecoration: "none",
+                            }}
+                          >
+                            <span style={{ color: "var(--color-text-muted, #64748b)" }}>Tambah</span>
                           </Link>
-                          {isMR && isDraft && <DeletePoaScButton period={p.period} />}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        )}
+
+                        <Link
+                          href={detailHref}
+                          className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-colors hover:no-underline"
+                          style={{
+                            background: "var(--color-blue-light, #eff6ff)",
+                            color: "var(--color-blue, #2563eb)",
+                            border: "1px solid var(--color-blue, #2563eb)",
+                            textDecoration: "none",
+                          }}
+                        >
+                          <span style={{ color: "var(--color-blue, #2563eb)" }}>Detail</span>
+                        </Link>
+
+                        {isMR && isDraft && <DeletePoaScButton period={p.period} />}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View (hidden sm:block) */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm min-w-[700px]">
+                <thead>
+                  <tr className="border-b text-left" style={{ borderColor: "var(--color-border)" }}>
+                    <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      MR
+                    </th>
+                    <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      PERIOD
+                    </th>
+                    <th className="pb-3 text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      STATUS
+                    </th>
+                    <th className="pb-3 text-right text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>
+                      ESTIMASI
+                    </th>
+                    <th className="pb-3 whitespace-nowrap" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+                  {recentPeriods.map((p) => {
+                    const isDraft = p.status === "DRAFT";
+                    const isFullyApproved = p.status === "APPROVED_BY_NSM" || (p.status as any) === "APPROVED_BY_ASD" || (p.status as any) === "APPROVED_BY_SD";
+                    const canAddOutlet = isMR && !isFullyApproved;
+                    const detailHref = `/sc/${p.id}`;
+                    return (
+                      <tr key={`${p.period}_${p.owner.nip}`} className="hover:bg-[var(--color-bg-subtle)]/50 transition-colors">
+                        <td className="py-3 whitespace-nowrap">
+                          <p className="font-medium" style={{ color: "var(--color-text)" }}>
+                            {p.owner.name}
+                          </p>
+                          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+                            {p.owner.nip}
+                          </p>
+                        </td>
+                        <td className="py-3 font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                          {p.period}
+                        </td>
+                        <td className="py-3 whitespace-nowrap">
+                          <StatusBadge status={p.status} version={p.version} />
+                        </td>
+                        <td className="py-3 text-right text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
+                          {p._totalEstSales > 0 ? formatRp(p._totalEstSales) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
+                        </td>
+                        <td className="py-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-3">
+                            {canAddOutlet && (
+                              <Link href={`/sc/${p.period}/edit`} className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
+                                Tambah
+                              </Link>
+                            )}
+                            <Link href={detailHref} style={{ color: "var(--color-blue)" }} className="text-xs font-medium">
+                              Detail
+                            </Link>
+                            {isMR && isDraft && <DeletePoaScButton period={p.period} />}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

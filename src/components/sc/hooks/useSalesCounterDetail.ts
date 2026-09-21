@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useTransition } from "react";
+import { useState, useMemo, useEffect, useRef, useTransition } from "react";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { getB3ByQuarter } from "@/lib/b3Utils";
 import type { ScDraftFormItem } from "../types";
@@ -42,13 +42,18 @@ export function useSalesCounterDetail({
     }
   }, [poaPeriod]);
 
+  const fetchedOutletsRef = useRef<Set<string>>(new Set());
+  const inFlightOutletsRef = useRef<Set<string>>(new Set());
+
   // Fetch B3 history sales for each draft in parallel
   useEffect(() => {
     if (!b3Info?.targetPeriods || b3Info.targetPeriods.length === 0) return;
 
     safeScDrafts.forEach((draft) => {
       if (!draft.kodePI) return;
-      if (historySalesMap.has(draft.kodePI)) return;
+      if (draft.historySalesQuarter != null) return;
+      if (fetchedOutletsRef.current.has(draft.kodePI)) return;
+      if (inFlightOutletsRef.current.has(draft.kodePI)) return;
 
       const scProCodes = (draft.products || [])
         .filter((p: any) => p.isScProduct !== false)
@@ -56,18 +61,28 @@ export function useSalesCounterDetail({
         .filter(Boolean);
 
       if (scProCodes.length === 0) {
+        fetchedOutletsRef.current.add(draft.kodePI);
         setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, 0));
         return;
       }
 
-      postHistorySalesAction([draft.kodePI], b3Info.targetPeriods, scProCodes).then((res) => {
-        const parsed = parseOutletHistorySales(res, draft.kodePI);
-        if (parsed.totalSales > 0) {
-          setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, parsed.totalSales));
-        }
-      });
+      inFlightOutletsRef.current.add(draft.kodePI);
+
+      postHistorySalesAction([draft.kodePI], b3Info.targetPeriods, scProCodes)
+        .then((res) => {
+          const parsed = parseOutletHistorySales(res, draft.kodePI);
+          const total = parsed.totalSales || 0;
+          setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, total));
+        })
+        .catch(() => {
+          setHistorySalesMap((prev) => new Map(prev).set(draft.kodePI, 0));
+        })
+        .finally(() => {
+          inFlightOutletsRef.current.delete(draft.kodePI);
+          fetchedOutletsRef.current.add(draft.kodePI);
+        });
     });
-  }, [safeScDrafts, b3Info, historySalesMap]);
+  }, [safeScDrafts, b3Info]);
 
   const actionableIds = useMemo(() => {
     if (showSubmit) {

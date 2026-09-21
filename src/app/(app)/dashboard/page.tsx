@@ -8,7 +8,6 @@ import { getVisiblePoaFilter, getPendingActionFilter, canCreatePoa, canEdit, can
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { NotReadyButton } from "@/components/ui/NotReadyButton";
 import { DeletePoaButton } from "@/components/poa/DeletePoaButton";
 import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart";
 import type { PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prisma/client";
@@ -370,9 +369,6 @@ async function DashboardContent({
           computation above resolves (see comment on the Suspense in
           DashboardPage). */}
       <div className="flex items-center justify-end gap-2">
-        {isMR && (
-          <NotReadyButton label="+ Daftar User Baru" message="Fitur Daftar Dokter Baru masih dalam pengembangan." />
-        )}
         {eligible && (
           actor.project === "OMEGA" ? (
             <Link href="/sc/new"><Button>+ Buat POA Baru</Button></Link>

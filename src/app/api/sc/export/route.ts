@@ -1,18 +1,26 @@
 /**
- * GET /api/sc/[id]/export
+ * GET /api/sc/export
  *
- * Returns a single-POA Sales Counter (SC) Excel workbook using ExcelJS.
- * Export uses ACTUAL raw numbers (no /1,000,000 denominator division).
+ * Bulk Sales Counter Excel export for Dashboard:
+ * Supports:
+ * - ?period=2026-Q3 (or current quarter when omitted or 'current')
+ * - ?period=all (exports all periods and all products)
+ *
+ * Sheets:
+ * 1. DATA INPUT POA (Detail per Bulan)
+ * 2. DATA POA PER PERIODE (Rekap per Periode)
+ * 3. SUMMARY BY PRODUK (Rekap Semua Produk)
+ * 4. BIAYA ENTERTAIN OUTLET (Jika ada data entertain)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
-import { PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
-import { getScSubordinateIdsUnder } from "@/lib/authz";
-import { getSalesCounterProduct } from "../../../../(app)/sc/[id]/_services/getSalesCounterProduct";
-import { getScCashbackPoa } from "../../../../(app)/sc/[id]/_services/getScCashbackPoa";
+import { getVisiblePoaScFilter } from "@/lib/authz";
+import { currentQuarter } from "@/lib/quarterUtils";
+import { getSalesCounterProduct } from "@/app/(app)/sc/[id]/_services/getSalesCounterProduct";
+import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa";
 import { calculateCashbackDetails } from "@/components/sc/edit/hooks/useSalesCounterCashback";
 import { getPeriodMonthList } from "@/components/sc/detail/utils/outletCalculationUtils";
 
@@ -25,112 +33,49 @@ interface MasterProductItem {
   satuan: string;
 }
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: NextRequest) {
   const session = await getCurrentUser();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = await params;
-  const ownerIdParam = _req.nextUrl.searchParams.get("ownerId");
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+  const visibleFilter = await getVisiblePoaScFilter(actor);
 
-  let targetOwnerId = ownerIdParam || session.userId;
-  let targetPeriod = id;
+  const searchParams = req.nextUrl.searchParams;
+  const periodParam = searchParams.get("period");
+  const isAllPeriod = periodParam === "all";
+  const targetPeriod = isAllPeriod ? null : (periodParam && periodParam !== "current" ? periodParam : currentQuarter());
 
-  // Check if id is a specific PoaScForm.id (UUID)
-  const formById = await prisma.poaScForm.findUnique({
-    where: { id },
-    select: { ownerId: true, period: true, status: true, currentHolderId: true },
-  });
-
-  if (formById) {
-    targetOwnerId = formById.ownerId;
-    targetPeriod = formById.period;
-  }
-
-  // Authorization check
-  const isSelf = targetOwnerId === session.userId;
-  const isSpecialRole = (["ADMIN", "GM", "SFE", "VIEWER"] as string[]).includes(session.role);
-
-  let hasAccess = false;
-  if (isSelf || isSpecialRole) {
-    hasAccess = true;
-  } else {
-    const depthByRole: Record<string, number> = { ASM: 1, SM: 2, NSM: 3 };
-    const depth = depthByRole[session.role] ?? 1;
-    const subIds = await getScSubordinateIdsUnder(session.userId, depth);
-    if (subIds.includes(targetOwnerId)) {
-      const submittedCount = await prisma.poaScForm.count({
-        where: {
-          ownerId: targetOwnerId,
-          period: targetPeriod,
-          status: { not: PoaStatus.DRAFT },
-        },
-      });
-      hasAccess = submittedCount > 0;
-    } else {
-      const holderCount = await prisma.poaScForm.count({
-        where: {
-          ownerId: targetOwnerId,
-          period: targetPeriod,
-          currentHolderId: session.userId,
-          status: { not: PoaStatus.DRAFT },
-        },
-      });
-      hasAccess = holderCount > 0;
-    }
-  }
-
-  if (!hasAccess) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  const draftsWhere: any = { ownerId: targetOwnerId, period: targetPeriod };
-  if (!isSelf && !isSpecialRole) {
-    draftsWhere.status = { not: PoaStatus.DRAFT };
-  }
-
-  // Optional filter: only export specific outlet form IDs
-  const outletIdsParam = _req.nextUrl.searchParams.get("outletIds");
-  if (outletIdsParam) {
-    const outletIds = outletIdsParam.split(",").map((s) => s.trim()).filter(Boolean);
-    if (outletIds.length > 0) {
-      draftsWhere.id = { in: outletIds };
-    }
+  const where: any = { AND: [visibleFilter] };
+  if (targetPeriod) {
+    where.AND.push({ period: targetPeriod });
   }
 
   const drafts = await prisma.poaScForm.findMany({
-    where: draftsWhere,
+    where,
     include: {
       owner: true,
       currentHolder: true,
       products: true,
       persons: true,
       entertainItems: true,
-      auditLogs: {
-        include: { actor: true },
-        orderBy: { createdAt: "asc" },
-      },
     },
     orderBy: [{ period: "asc" }, { kodePI: "asc" }],
   });
 
   if (drafts.length === 0) {
-    return NextResponse.json({ error: "No SC POA drafts found for this period" }, { status: 404 });
+    return NextResponse.json(
+      { error: `Tidak ada data POA Sales Counter ditemukan untuk ${targetPeriod ? `periode ${targetPeriod}` : "semua periode"}` },
+      { status: 404 }
+    );
   }
 
-  // Ensure deterministic sorting: Periode Kuartal (asc), Kode PI Outlet (asc)
+  // Ensure deterministic sorting: Periode Kuartal (asc / kecil ke besar), Kode PI Outlet (asc)
   drafts.sort((a: any, b: any) =>
     (a.period || "").localeCompare(b.period || "") ||
     (a.kodePI || "").localeCompare(b.kodePI || "")
   );
-
-
-  const first = drafts[0];
-  const owner = first.owner;
 
   // Fetch product master details for all products in drafts
   const allProductCodes = Array.from(
@@ -161,13 +106,13 @@ export async function GET(
   await Promise.all(
     outletCodes.map(async (kodePI: string) => {
       try {
-        const [res, cbRes] = await Promise.all([
+        const [scRes, cbRes] = await Promise.all([
           getSalesCounterProduct(kodePI).catch(() => null),
           getScCashbackPoa(kodePI).catch(() => null),
         ]);
-        if (res?.data) {
+        if (scRes?.data) {
           const scSet = new Set<string>();
-          for (const cp of res.data) {
+          for (const cp of scRes.data) {
             canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
               sales_counter_value: cp.sales_counter_value || 0,
               sales_counter_minimum: cp.sales_counter_minimum || 0,
@@ -180,7 +125,7 @@ export async function GET(
           outletCashbackMap.set(kodePI, cbRes);
         }
       } catch (err) {
-        console.error(`Error fetching SC products or cashback for ${kodePI}:`, err);
+        console.error(`Error fetching SC/Cashback for ${kodePI}:`, err);
       }
     })
   );
@@ -203,7 +148,8 @@ export async function GET(
     { header: "Nama MR", key: "namaMr", width: 24 },
     { header: "KodePI Outlet", key: "kodePI", width: 14 },
     { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
-    { header: "Periode", key: "periode", width: 14 },
+    { header: "Periode Kuartal", key: "periodeKuartal", width: 16 },
+    { header: "Periode Bulan", key: "periodeBulan", width: 14 },
     { header: "Sales Counter", key: "scPersonNames", width: 32 },
     { header: "Kode Produk", key: "kodeProduk", width: 14 },
     { header: "Nama Produk SC", key: "namaProduk", width: 30 },
@@ -253,6 +199,20 @@ export async function GET(
   periodSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
   periodSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
 
+  // Global Product Aggregations for Sheet 3
+  interface GlobalProductSummary {
+    kodeProduk: string;
+    namaProduk: string;
+    totalQty: number;
+    totalEstSales: number;
+    totalNilaiSc: number;
+    totalDiskon: number;
+    totalCashback: number;
+    totalRencanaBiaya: number;
+    outlets: Set<string>;
+  }
+  const globalProductSummaryMap = new Map<string, GlobalProductSummary>();
+
   let formCounter = 1;
   for (const draft of drafts) {
     const scPersonStr = draft.persons.map((p: any) => `${p.personName} (${p.positionName})`).join(", ") || "-";
@@ -285,7 +245,7 @@ export async function GET(
     const distinctMonths = Array.from(new Set(validProducts.map((p: any) => p.periodeMonth).filter(Boolean))) as string[];
     const periodMonths = generatedMonths.length > 0 ? generatedMonths : distinctMonths;
 
-    // Prepare inputs for calculateCashbackDetails (matching web app logic)
+    // Prepare inputs for calculateCashbackDetails (exact web logic)
     const cashbackData = outletCashbackMap.get(draft.kodePI);
     const selectedProductsForCb = Array.from(productGroups.entries()).map(([kodeProduk, items]) => {
       const primary = items[0];
@@ -355,7 +315,6 @@ export async function GET(
 
       const pctCashback = (parseFloat(p.persenCashback.toString()) || 0) / 100;
 
-      // Find monthly cashback from cbDetails (matrix & multiplier rules)
       let cashbackBulan = 0;
       if (cashbackData) {
         const mIdx = p.periodeMonth ? periodMonths.indexOf(p.periodeMonth) : -1;
@@ -373,11 +332,12 @@ export async function GET(
 
       formSheet.addRow({
         formNo: formCounter,
-        nipMr: owner.nip,
-        namaMr: owner.name,
+        nipMr: draft.owner.nip,
+        namaMr: draft.owner.name,
         kodePI: draft.kodePI,
         namaOutlet: draft.namaOutlet || draft.kodePI,
-        periode: p.periodeMonth || draft.period || draft.periodeAwal || targetPeriod,
+        periodeKuartal: draft.period,
+        periodeBulan: p.periodeMonth || draft.periodeAwal || draft.period,
         scPersonNames: scPersonStr,
         kodeProduk: p.kodeProduk,
         namaProduk: p.namaProduk,
@@ -443,11 +403,11 @@ export async function GET(
 
       periodSheet.addRow({
         formNo: formCounter,
-        nipMr: owner.nip,
-        namaMr: owner.name,
+        nipMr: draft.owner.nip,
+        namaMr: draft.owner.name,
         kodePI: draft.kodePI,
         namaOutlet: draft.namaOutlet || draft.kodePI,
-        periode: draft.period || targetPeriod,
+        periode: draft.period,
         scPersonNames: scPersonStr,
         kodeProduk: primary.kodeProduk,
         namaProduk: primary.namaProduk,
@@ -463,49 +423,111 @@ export async function GET(
         totalRencanaBiaya: Math.round(totalBiaya),
         status: draft.status.replace(/_/g, " "),
       });
+
+      // Update Global Product Summary for Sheet 3
+      const gKey = primary.kodeProduk;
+      if (!globalProductSummaryMap.has(gKey)) {
+        globalProductSummaryMap.set(gKey, {
+          kodeProduk: primary.kodeProduk,
+          namaProduk: primary.namaProduk,
+          totalQty: 0,
+          totalEstSales: 0,
+          totalNilaiSc: 0,
+          totalDiskon: 0,
+          totalCashback: 0,
+          totalRencanaBiaya: 0,
+          outlets: new Set<string>(),
+        });
+      }
+      const gItem = globalProductSummaryMap.get(gKey)!;
+      gItem.totalQty += totalQty;
+      gItem.totalEstSales += totalEstSales;
+      gItem.totalNilaiSc += totalNilaiSc;
+      gItem.totalDiskon += totalDiskon;
+      gItem.totalCashback += totalCashback;
+      gItem.totalRencanaBiaya += totalBiaya;
+      gItem.outlets.add(draft.kodePI);
     }
 
     formCounter++;
+  }
+
+  // ─── Sheet 3: SUMMARY BY PRODUK ──────────────────────────────────────────
+  const summarySheet = wb.addWorksheet("SUMMARY BY PRODUK");
+  summarySheet.columns = [
+    { header: "Kode Produk", key: "kodeProduk", width: 14 },
+    { header: "Nama Produk", key: "namaProduk", width: 32 },
+    { header: "Total Qty ST", key: "totalQty", width: 16 },
+    { header: "Total Estimasi Sales (Rp)", key: "totalEstSales", width: 24 },
+    { header: "Total Insentif SC (Rp)", key: "totalNilaiSc", width: 22 },
+    { header: "Total Diskon (Rp)", key: "totalDiskon", width: 22 },
+    { header: "Total Cashback (Rp)", key: "totalCashback", width: 22 },
+    { header: "Total Rencana Biaya (Rp)", key: "totalRencanaBiaya", width: 24 },
+    { header: "Cost Ratio (%)", key: "costRatio", width: 16 },
+    { header: "Jumlah Outlet", key: "outletCount", width: 16 },
+  ];
+
+  summarySheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
+  summarySheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+  summarySheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
+
+  const sortedSummaryRows = Array.from(globalProductSummaryMap.values()).sort(
+    (a, b) => b.totalEstSales - a.totalEstSales || a.kodeProduk.localeCompare(b.kodeProduk)
+  );
+
+  for (const s of sortedSummaryRows) {
+    const costRatio = s.totalEstSales > 0 ? (s.totalRencanaBiaya / s.totalEstSales) * 100 : 0;
+    summarySheet.addRow({
+      kodeProduk: s.kodeProduk,
+      namaProduk: s.namaProduk,
+      totalQty: s.totalQty,
+      totalEstSales: Math.round(s.totalEstSales),
+      totalNilaiSc: Math.round(s.totalNilaiSc),
+      totalDiskon: Math.round(s.totalDiskon),
+      totalCashback: Math.round(s.totalCashback),
+      totalRencanaBiaya: Math.round(s.totalRencanaBiaya),
+      costRatio: costRatio / 100, // format as percentage
+      outletCount: s.outlets.size,
+    });
   }
 
   // Format Sheet 1
   ["persenMatriksSc", "persenDiskon", "persenCashback"].forEach((k) => {
     formSheet.getColumn(k).numFmt = PCT_FMT;
   });
-
-  [
-    "estSalesBulan",
-    "nilaiScBulan",
-    "diskonBulan",
-    "cashbackBulan",
-    "rencanaTotalBiaya",
-  ].forEach((k) => {
+  ["estSalesBulan", "nilaiScBulan", "diskonBulan", "cashbackBulan", "rencanaTotalBiaya"].forEach((k) => {
     formSheet.getColumn(k).numFmt = RP_FMT;
   });
+  formSheet.getColumn("qtyPerBulan").numFmt = RP_FMT;
 
   // Format Sheet 2
   ["persenMatriksSc", "persenDiskon", "persenCashback"].forEach((k) => {
     periodSheet.getColumn(k).numFmt = PCT_FMT;
   });
-
-  [
-    "totalEstSales",
-    "totalNilaiSc",
-    "totalDiskon",
-    "totalCashback",
-    "totalRencanaBiaya",
-  ].forEach((k) => {
+  ["totalEstSales", "totalNilaiSc", "totalDiskon", "totalCashback", "totalRencanaBiaya"].forEach((k) => {
     periodSheet.getColumn(k).numFmt = RP_FMT;
   });
+  periodSheet.getColumn("totalQty").numFmt = RP_FMT;
 
-  // ─── Sheet 2: BIAYA ENTERTAIN OUTLET (Jika ada data entertain) ───────────
+  // Format Sheet 3
+  ["totalEstSales", "totalNilaiSc", "totalDiskon", "totalCashback", "totalRencanaBiaya"].forEach((k) => {
+    summarySheet.getColumn(k).numFmt = RP_FMT;
+  });
+  summarySheet.getColumn("totalQty").numFmt = RP_FMT;
+  summarySheet.getColumn("costRatio").numFmt = PCT_FMT;
+  summarySheet.getColumn("outletCount").numFmt = RP_FMT;
+
+  // ─── Sheet 4: BIAYA ENTERTAIN OUTLET (Jika ada) ──────────────────────────
   const hasEntertain = drafts.some((d: any) => d.entertainItems && d.entertainItems.length > 0);
   if (hasEntertain) {
     const entertainSheet = wb.addWorksheet("BIAYA ENTERTAIN OUTLET");
     entertainSheet.columns = [
       { header: "No. Form SC", key: "formNo", width: 12 },
+      { header: "NIP MR", key: "nipMr", width: 14 },
+      { header: "Nama MR", key: "namaMr", width: 24 },
       { header: "KodePI Outlet", key: "kodePI", width: 14 },
       { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
+      { header: "Periode Kuartal", key: "periodeKuartal", width: 16 },
       { header: "Periode Bulan", key: "periodeMonth", width: 16 },
       { header: "Biaya Entertain (Rp)", key: "biayaEntertain", width: 22 },
     ];
@@ -521,8 +543,11 @@ export async function GET(
       for (const ent of sortedEntertain) {
         entertainSheet.addRow({
           formNo: fNum,
+          nipMr: draft.owner.nip,
+          namaMr: draft.owner.name,
           kodePI: draft.kodePI,
           namaOutlet: draft.namaOutlet || draft.kodePI,
+          periodeKuartal: draft.period,
           periodeMonth: ent.periodeMonth,
           biayaEntertain: parseFloat(ent.biayaEntertain.toString()) || 0,
         });
@@ -532,40 +557,16 @@ export async function GET(
     entertainSheet.getColumn("biayaEntertain").numFmt = RP_FMT;
   }
 
-  // ─── Sheet 2: Audit Log SC ───────────────────────────────────────────────
-  const auditSheet = wb.addWorksheet("Audit Log SC");
-  auditSheet.columns = [
-    { header: "Date", key: "date", width: 22 },
-    { header: "Actor", key: "actor", width: 24 },
-    { header: "Action", key: "action", width: 14 },
-    { header: "From Status", key: "from", width: 22 },
-    { header: "To Status", key: "to", width: 22 },
-  ];
-  auditSheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
-  auditSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-
-  const allLogs = drafts
-    .flatMap((d: any) => d.auditLogs)
-    .sort((a: any, b: any) => a.createdAt.getTime() - b.createdAt.getTime());
-
-  for (const log of allLogs) {
-    auditSheet.addRow({
-      date: log.createdAt.toISOString(),
-      actor: `${log.actor.name} (${log.actor.nip})`,
-      action: log.action,
-      from: log.fromStatus ?? "-",
-      to: log.toStatus ?? "-",
-    });
-  }
-
   const buffer = await wb.xlsx.writeBuffer();
+  const filename = targetPeriod
+    ? `POA_SC_${targetPeriod}_Export.xlsx`
+    : `POA_SC_Semua_Produk_Periode_Export.xlsx`;
 
   return new NextResponse(buffer, {
     status: 200,
     headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="POA_SC_${targetPeriod}_${owner.nip}.xlsx"`,
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
 }

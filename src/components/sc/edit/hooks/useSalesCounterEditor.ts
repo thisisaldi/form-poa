@@ -106,6 +106,7 @@ export function useSalesCounterEditor({
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
   const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
+  const [healthyOneData, setHealthyOneData] = useState<any[]>([]);
   const [loadingSurvey, setLoadingSurvey] = useState(false);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [cashbackData, setCashbackData] = useState<CashbackData | null>(null);
@@ -236,6 +237,7 @@ export function useSalesCounterEditor({
         setSalesOnlineData(bundle.salesOnlineData);
         setSurveyData(bundle.surveyData);
         setSurveyNexusData(bundle.surveyNexusData);
+        setHealthyOneData(bundle.healthyOneData || []);
 
         const latestSurvey = bundle.surveyNexusData?.data?.surveys?.[0];
         if (latestSurvey?.avg_patient != null) {
@@ -832,6 +834,7 @@ export function useSalesCounterEditor({
     salesOnlineData,
     surveyData,
     surveyNexusData,
+    healthyOneData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,
