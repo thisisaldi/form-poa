@@ -1060,8 +1060,8 @@ function ProdukEntryRow({
   const totalEst = perBulan != null ? perBulan * lama : null;
   const qtyPerBulanST = canCalc ? resep * qty * hari : null;
   const qtyTotalST = qtyPerBulanST != null ? qtyPerBulanST * lama : null;
-  const qtyPerBulan = qtyPerBulanST != null ? Math.round(qtyToUB(qtyPerBulanST, product!)) : null;
-  const qtyTotal = qtyTotalST != null ? Math.round(qtyToUB(qtyTotalST, product!)) : null;
+  const qtyPerBulan = qtyPerBulanST != null ? Math.ceil(qtyToUB(qtyPerBulanST, product!)) : null;
+  const qtyTotal = qtyTotalST != null ? Math.ceil(qtyToUB(qtyTotalST, product!)) : null;
   const nilaiPSSPBulan = perBulan != null && nilaiRPersen != null ? Math.round(perBulan * nilaiRPersen * pengaliNilaiR) : null;
   const nilaiPSSPTotal = nilaiPSSPBulan != null ? nilaiPSSPBulan * lama : null;
 
@@ -3386,7 +3386,7 @@ function AddPanel({
                   {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
                     const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
                     if (!p) return null;
-                    const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
+                    const qtyTotalUB = Math.ceil(qtyToUB(computeQtyTotal(entry, dokterFields), p));
                     const isKontes = getProductTier(p.namaProduk, matchedPaketsForKontes) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const persenPsspDokter = (parseFloat(entry.persenPsspDokter) || 0) / 100;
@@ -4268,7 +4268,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                   {produkList.filter((e) => !!e.kodeProduk).map((entry) => {
                     const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk);
                     if (!p) return null;
-                    const qtyTotalUB = Math.round(qtyToUB(computeQtyTotal(entry, dokterFields), p));
+                    const qtyTotalUB = Math.ceil(qtyToUB(computeQtyTotal(entry, dokterFields), p));
                     const isKontes = getProductTier(p.namaProduk, matchedPaketsForKontes) === 0;
                     const estimasiTotal = computeEstimasi(entry, dokterFields, p);
                     const persenPsspDokter = (parseFloat(entry.persenPsspDokter) || 0) / 100;

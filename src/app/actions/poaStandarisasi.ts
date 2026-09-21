@@ -524,12 +524,13 @@ async function computeEstimasiPerBulan(
   jumlahHariPraktekPerBulan: number | null,
   resepPerPasienSt: number | null
 ) {
-  if (!jumlahPasien || !jumlahHariPraktekPerBulan || !resepPerPasienSt) return { estimasiQtyPerBulan: null, estimasiNilaiRpPerBulan: null };
+  if (!jumlahPasien || !jumlahHariPraktekPerBulan || !resepPerPasienSt) return { estimasiQtyPerBulan: null, estimasiQtyUbPerBulan: null, estimasiNilaiRpPerBulan: null };
   const product = await prisma.product.findUnique({ where: { kodeProduk } });
-  if (!product) return { estimasiQtyPerBulan: null, estimasiNilaiRpPerBulan: null };
+  if (!product) return { estimasiQtyPerBulan: null, estimasiQtyUbPerBulan: null, estimasiNilaiRpPerBulan: null };
   const hst = hargaST(toProductLite(product));
   const qty = jumlahPasien * jumlahHariPraktekPerBulan * resepPerPasienSt;
-  return { estimasiQtyPerBulan: qty, estimasiNilaiRpPerBulan: Math.round(qty * hst) };
+  const konversi = Number(product.konversiPembagi ?? 1) || 1;
+  return { estimasiQtyPerBulan: qty, estimasiQtyUbPerBulan: Math.ceil(qty / konversi), estimasiNilaiRpPerBulan: Math.round(qty * hst) };
 }
 
 /**
@@ -687,12 +688,13 @@ async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: st
       const jumlahPasien = toNum(dk.jumlahPasien);
       const jumlahHariPraktekPerBulan = toNum(dk.jumlahHariPraktekPerBulan);
       const resepPerPasienSt = toNum(dk.resepPerPasienSt);
-      const { estimasiQtyPerBulan, estimasiNilaiRpPerBulan } = await computeEstimasiPerBulan(p.kodeProduk, jumlahPasien, jumlahHariPraktekPerBulan, resepPerPasienSt);
+      const { estimasiQtyPerBulan, estimasiQtyUbPerBulan, estimasiNilaiRpPerBulan } = await computeEstimasiPerBulan(p.kodeProduk, jumlahPasien, jumlahHariPraktekPerBulan, resepPerPasienSt);
       const dokterData = {
         jumlahPasien: jumlahPasien != null ? Math.round(jumlahPasien) : null,
         jumlahHariPraktekPerBulan: jumlahHariPraktekPerBulan != null ? Math.round(jumlahHariPraktekPerBulan) : null,
         resepPerPasienSt,
         estimasiQtyPerBulan,
+        estimasiQtyUbPerBulan,
         estimasiNilaiRpPerBulan,
         entertainRp: toNum(dk.entertainRp),
       };
@@ -945,6 +947,7 @@ export async function advanceToFinalisasiAction(id: string): Promise<void> {
           jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan,
           resepPerPasienSt: d.resepPerPasienSt,
           estimasiQtyPerBulan: d.estimasiQtyPerBulan,
+          estimasiQtyUbPerBulan: d.estimasiQtyUbPerBulan,
           estimasiSalesRpPerBulan: d.estimasiNilaiRpPerBulan,
           entertainRp: d.entertainRp,
         })),
@@ -1070,13 +1073,14 @@ export async function saveFinalisasiAction(id: string, input: FinalisasiInput): 
         const jumlahPasien = toNum(d.jumlahPasien);
         const jumlahHariPraktekPerBulan = toNum(d.jumlahHariPraktekPerBulan);
         const resepPerPasienSt = toNum(d.resepPerPasienSt);
-        const { estimasiQtyPerBulan, estimasiNilaiRpPerBulan } = await computeEstimasiPerBulan(kodeProduk, jumlahPasien, jumlahHariPraktekPerBulan, resepPerPasienSt);
+        const { estimasiQtyPerBulan, estimasiQtyUbPerBulan, estimasiNilaiRpPerBulan } = await computeEstimasiPerBulan(kodeProduk, jumlahPasien, jumlahHariPraktekPerBulan, resepPerPasienSt);
 
         const data = {
           jumlahPasien: jumlahPasien != null ? Math.round(jumlahPasien) : null,
           jumlahHariPraktekPerBulan: jumlahHariPraktekPerBulan != null ? Math.round(jumlahHariPraktekPerBulan) : null,
           resepPerPasienSt,
           estimasiQtyPerBulan,
+          estimasiQtyUbPerBulan,
           estimasiSalesRpPerBulan: estimasiNilaiRpPerBulan,
           entertainRp: toNum(d.entertainRp),
         };
