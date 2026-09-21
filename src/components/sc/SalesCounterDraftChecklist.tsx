@@ -223,7 +223,9 @@ export function SalesCounterDraftChecklist({
                   }}
                 >
                   {statusFilter === "APPROVED"
-                    ? "Belum ada outlet yang telah disetujui (Approved)."
+                    ? "Belum ada outlet yang telah disetujui (Fully Approved)."
+                    : statusFilter === "PENDING"
+                    ? "Tidak ada outlet yang sedang dalam proses pengajuan."
                     : statusFilter === "ACTIONABLE"
                     ? canApprove
                       ? "Tidak ada outlet yang sedang menunggu persetujuan Anda."

@@ -22,9 +22,9 @@ export function SalesCounterChecklistHeader({
   allChecked: boolean;
   onToggleAll: () => void;
   poaVersion?: number;
-  statusFilter?: "ALL" | "ACTIONABLE" | "APPROVED" | "DRAFT_REVISI";
-  onStatusFilterChange?: (filter: "ALL" | "ACTIONABLE" | "APPROVED" | "DRAFT_REVISI") => void;
-  filterCounts?: { all: number; actionable: number; approved: number; draftRevisi: number };
+  statusFilter?: "ALL" | "ACTIONABLE" | "PENDING" | "APPROVED" | "DRAFT_REVISI";
+  onStatusFilterChange?: (filter: "ALL" | "ACTIONABLE" | "PENDING" | "APPROVED" | "DRAFT_REVISI") => void;
+  filterCounts?: { all: number; actionable: number; pending: number; approved: number; draftRevisi: number };
 }) {
   const subtitle = canApprove
     ? "Pilih outlet untuk disetujui atau minta revisi secara massal"
@@ -129,6 +129,38 @@ export function SalesCounterChecklistHeader({
 
           <button
             type="button"
+            onClick={() => onStatusFilterChange("PENDING")}
+            className="text-xs px-3 py-1 rounded-full font-medium transition-all cursor-pointer flex items-center gap-1.5"
+            style={{
+              background: statusFilter === "PENDING" ? "#0284c7" : "var(--color-bg-subtle)",
+              color: statusFilter === "PENDING" ? "#ffffff" : "var(--color-text-muted)",
+              border: `1px solid ${statusFilter === "PENDING" ? "transparent" : "var(--color-border)"}`,
+            }}
+          >
+            <span>Dalam Pengajuan</span>
+            <span
+              className="text-[10px] px-1.5 py-0.2 rounded-full font-semibold"
+              style={{
+                background:
+                  statusFilter === "PENDING"
+                    ? "rgba(255,255,255,0.25)"
+                    : filterCounts.pending > 0
+                    ? "#e0f2fe"
+                    : "var(--color-border)",
+                color:
+                  statusFilter === "PENDING"
+                    ? "#ffffff"
+                    : filterCounts.pending > 0
+                    ? "#0369a1"
+                    : "var(--color-text-muted)",
+              }}
+            >
+              {filterCounts.pending}
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => onStatusFilterChange("APPROVED")}
             className="text-xs px-3 py-1 rounded-full font-medium transition-all cursor-pointer flex items-center gap-1.5"
             style={{
@@ -159,7 +191,7 @@ export function SalesCounterChecklistHeader({
             </span>
           </button>
 
-          {filterCounts.draftRevisi > 0 && !showSubmit && (
+          {filterCounts.draftRevisi > 0 && canApprove && (
             <button
               type="button"
               onClick={() => onStatusFilterChange("DRAFT_REVISI")}
