@@ -19,7 +19,7 @@ import {
   type SurveyRekomendasiOutletRow,
   type KriteriaByOutlet,
 } from "@/app/actions/customer";
-import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow } from "@/app/actions/poaStandarisasi";
+import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
 import { formatKategoriLabel } from "@/lib/hargaST";
 
@@ -56,6 +56,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
   const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiOutletRow[] | null>(null);
   const [kriteriaRows, setKriteriaRows] = useState<KriteriaByOutlet[] | null>(null);
   const [standarisasiRows, setStandarisasiRows] = useState<StandarisasiProdukOutletRow[] | null>(null);
+  const [dplRows, setDplRows] = useState<{ kodeProduk: string; prdAkhir: string }[] | null>(null);
   const [salesHistoryRows, setSalesHistoryRows] = useState<SalesHistoryOutletRow[] | null>(null);
   const [, startLoad] = useTransition();
 
@@ -70,18 +71,21 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       setKriteriaRows(null);
       setStandarisasiRows(null);
       setSalesHistoryRows(null);
+      setDplRows(null);
       if (!kodePI) return;
-      const [survey, kriteria, standarisasi, salesHistory] = await Promise.all([
+      const [survey, kriteria, standarisasi, salesHistory, dpl] = await Promise.all([
         getSurveyRekomendasiByOutletAggregate(kodePI),
         getKriteriaByOutlet(kodePI),
         getStandarisasiProdukByOutletAction(kodePI, pengajuanId),
         getSalesHistoryByOutletAction(kodePI),
+        getActiveDplByOutletAction(kodePI),
       ]);
       if (cancelled) return;
       setSurveyRows(survey);
       setKriteriaRows(kriteria);
       setStandarisasiRows(standarisasi);
       setSalesHistoryRows(salesHistory);
+      setDplRows(dpl);
     });
     return () => { cancelled = true; };
   }, [kodePI, pengajuanId]);
@@ -107,8 +111,12 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       if (byKode.has(r.kodeProduk) || !r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) continue;
       byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk, detail: `Kriteria: ${r.kriteriaBaru}` });
     }
+    for (const r of dplRows ?? []) {
+      if (byKode.has(r.kodeProduk)) continue;
+      byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk, detail: `DPL aktif s/d ${r.prdAkhir.slice(4)}/${r.prdAkhir.slice(0, 4)}` });
+    }
     return Array.from(byKode.values()).sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
-  }, [standarisasiRows, kriteriaRows, productByKode]);
+  }, [standarisasiRows, kriteriaRows, dplRows, productByKode]);
 
   const standarisasiKode = useMemo(() => new Set(standarisasiMerged.map((r) => r.kodeProduk)), [standarisasiMerged]);
 
@@ -167,7 +175,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-3">
         {activeTab === "survey" && <SurveyOutletPanel rows={surveyRows} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
         {activeTab === "kriteria" && <KriteriaOutletPanel rows={kriteriaRows} productByKode={productByKode} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
-        {activeTab === "standarisasi" && <StandarisasiOutletPanel rows={standarisasiRows === null || kriteriaRows === null ? null : standarisasiMerged} />}
+        {activeTab === "standarisasi" && <StandarisasiOutletPanel rows={standarisasiRows === null || kriteriaRows === null || dplRows === null ? null : standarisasiMerged} />}
         {activeTab === "sales" && <SalesHistoryOutletPanel rows={salesHistoryRows} />}
       </div>
     </div>

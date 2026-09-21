@@ -18,7 +18,7 @@ import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPo
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
 import { getDiscountsForOutlet, type ExodusDiscountPct } from "@/lib/exodusApi";
-import { getSurveyRekomendasiInfo, getCustomersByOutlet } from "@/app/actions/customer";
+import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
@@ -74,6 +74,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
   // landing back on Phase 1 requiring a second, separate "Lanjut" click.
   validateReadyForApprovalAtasan(input);
 
+  const dplKode = new Set((await getActiveDplByOutletAction(kodePI)).map((d) => d.kodeProduk));
   const pengajuanId = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const pengajuan = await tx.poaStandarisasi.create({
       data: {
@@ -87,7 +88,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
       },
     });
     await applyPlanningKpdm(tx, pengajuan.id, input.kpdmList);
-    await applyPlanningProduk(tx, pengajuan.id, kodePI, input.produk);
+    await applyPlanningProduk(tx, pengajuan.id, kodePI, input.produk, dplKode);
     return pengajuan.id;
   });
 
@@ -371,6 +372,51 @@ export async function getStandarisasiDataForDokterProdukAction(
   };
 }
 
+export interface StandarisasiProdukForDokter extends StandarisasiDataForDokterProduk {
+  kodeProduk: string;
+}
+
+/**
+ * Semua produk di POA Standarisasi (Finalisasi) untuk outlet + dokter ini —
+ * dipakai toggle "Tarik Data POA Standarisasi" di POA Estimasi buat auto-isi
+ * daftar produknya sekaligus (bukan cuma angka per produk yang sudah dipilih
+ * manual). Satu baris per produk, pengajuan terbaru menang.
+ */
+export async function getStandarisasiProdukForDokterAction(kodePI: string, kodeCustomer: string): Promise<StandarisasiProdukForDokter[]> {
+  if (!kodePI || !kodeCustomer) return [];
+  const rows = await prisma.poaStandarisasiDokterUser.findMany({
+    where: { customer: { kodeCustomer }, produk: { pengajuan: { kodePI, currentPhase: "FINALISASI" } } },
+    orderBy: { createdAt: "desc" },
+    select: { jumlahPasien: true, jumlahHariPraktekPerBulan: true, resepPerPasienSt: true, produk: { select: { kodeProduk: true } } },
+  });
+  const byKode = new Map<string, StandarisasiProdukForDokter>();
+  for (const r of rows) {
+    if (byKode.has(r.produk.kodeProduk)) continue;
+    byKode.set(r.produk.kodeProduk, {
+      kodeProduk: r.produk.kodeProduk,
+      jumlahPasien: r.jumlahPasien,
+      jumlahHariPraktekPerBulan: r.jumlahHariPraktekPerBulan,
+      resepPerPasienSt: r.resepPerPasienSt != null ? parseFloat(r.resepPerPasienSt.toString()) : null,
+    });
+  }
+  return Array.from(byKode.values());
+}
+
+/**
+ * Kode produk yang sedang dalam proses POA Standarisasi di outlet ini —
+ * pengajuan sudah dibuat tapi belum disubmit (`submittedAt` null). Dipakai POA
+ * Estimasi buat auto-set Status Standarisasi = "Proses Pengajuan".
+ */
+export async function getStandarisasiProsesKodeByOutletAction(kodePI: string): Promise<string[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.poaStandarisasiProduk.findMany({
+    where: { pengajuan: { kodePI, submittedAt: null } },
+    select: { kodeProduk: true },
+    distinct: ["kodeProduk"],
+  });
+  return rows.map((r: (typeof rows)[number]) => r.kodeProduk);
+}
+
 export interface SalesHistoryOutletRow {
   kodeProduk: string;
   namaProduk: string;
@@ -534,14 +580,33 @@ async function computeEstimasiPerBulan(
 }
 
 /**
+ * Kode produk yang punya DPL aktif di outlet ini — periode DPL (prdAwal..prdAkhir,
+ * YYYYMM) mencakup bulan berjalan. DPL adalah output standarisasi, jadi ada DPL
+ * aktif = produk sudah standarisasi (sinyal tambahan, 2026-09-21). Sumber sama
+ * dengan "% Diskon (DPL/DPF)" di POA Estimasi (getDiskonByOutlet: Exodus live,
+ * fallback DiskonKontrak). Detail = prdAkhir terjauh per produk.
+ */
+export async function getActiveDplByOutletAction(kodePI: string): Promise<{ kodeProduk: string; prdAkhir: string }[]> {
+  if (!kodePI) return [];
+  const now = new Date();
+  const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const byKode = new Map<string, string>();
+  for (const c of await getDiskonByOutlet(kodePI)) {
+    if (c.prdAwal <= ym && ym <= c.prdAkhir && (byKode.get(c.kodeProduk) ?? "") < c.prdAkhir) byKode.set(c.kodeProduk, c.prdAkhir);
+  }
+  return Array.from(byKode, ([kodeProduk, prdAkhir]) => ({ kodeProduk, prdAkhir }));
+}
+
+/**
  * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
  * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
  * read-only). PERPANJANGAN kalau SALAH SATU dari tiga sinyal berikut true
  * (OR, 2026-08-28 user request — "sudah standarisasi" berarti pernah
  * standarisasi dan sekarang mau diajukan lagi, jadi harus konsisten dengan
  * label "Sudah Standarisasi" sidebar, bukan cuma sinyal sales):
- * 1. Ada histori sales produk ini di outlet ini dalam 12 bulan terakhir
- *    (OutletSalesHistory.totalSales12Bln > 0);
+ * 1. Ada sales (qty > 0) produk ini di outlet ini dalam 3 bulan terakhir yang
+ *    sudah selesai (OutletSalesMonthly, bulan berjalan tidak dihitung —
+ *    2026-09-21 user request, sebelumnya 12 bulan via OutletSalesHistory);
  * 2. Produk ini pernah di-submit di POA Standarisasi lain di outlet yang
  *    sama (query sama seperti getStandarisasiProdukByOutletAction's "Sudah
  *    Standarisasi" — excludePengajuanId supaya pengajuan yang sedang dibuka
@@ -554,7 +619,11 @@ async function computeEstimasiPerBulan(
  *    seperti RekomendasiSidebar's `standarisasiMerged` (`.startsWith(...)`),
  *    supaya auto-fill ini konsisten dengan label "Sudah Standarisasi" yang
  *    dilihat user di sidebar.
- * Kalau ketiga sinyal negatif → Baru. Batched (satu findMany per sinyal utk
+ * 4. Ada DPL aktif di bulan berjalan untuk produk×outlet ini
+ *    (getActiveDplByOutletAction, 2026-09-21) — `dplKode` dari caller. Di
+ *    dalam transaksi caller wajib fetch SEBELUM $transaction supaya HTTP
+ *    Exodus tidak makan timeout tx.
+ * Kalau keempat sinyal negatif → Baru. Batched (satu findMany per sinyal utk
  * seluruh kodeProduk sekaligus), bukan query per produk — sama pola
  * no-N+1 seperti applyPlanningProduk lainnya.
  */
@@ -562,14 +631,20 @@ async function computeStatusPengajuanMap(
   client: Prisma.TransactionClient | typeof prisma,
   kodePI: string,
   kodeProdukList: string[],
-  excludePengajuanId?: string
+  excludePengajuanId?: string,
+  dplKode?: Set<string>
 ): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
   const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
   if (kodeProdukList.length === 0) return map;
+  const now = new Date();
+  const last3Months = [1, 2, 3].map((i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
   const [salesRows, priorSubmittedRows, kriteriaRows] = await Promise.all([
-    client.outletSalesHistory.findMany({
-      where: { kodePI, itemKode: { in: kodeProdukList } },
-      select: { itemKode: true, totalSales12Bln: true },
+    client.outletSalesMonthly.findMany({
+      where: { kodePI, itemKode: { in: kodeProdukList }, periode: { in: last3Months }, qty: { gt: 0 } },
+      select: { itemKode: true },
     }),
     client.poaStandarisasiProduk.findMany({
       where: {
@@ -588,13 +663,16 @@ async function computeStatusPengajuanMap(
     }),
   ]);
   for (const r of salesRows) {
-    if (parseFloat(r.totalSales12Bln.toString()) > 0) map.set(r.itemKode, "PERPANJANGAN");
+    map.set(r.itemKode, "PERPANJANGAN");
   }
   for (const r of priorSubmittedRows) {
     map.set(r.kodeProduk, "PERPANJANGAN");
   }
   for (const r of kriteriaRows) {
     if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) map.set(r.kodeProduk, "PERPANJANGAN");
+  }
+  for (const k of kodeProdukList) {
+    if (dplKode?.has(k)) map.set(k, "PERPANJANGAN");
   }
   return map;
 }
@@ -607,7 +685,8 @@ export async function getStatusPengajuanPreviewAction(
   excludePengajuanId?: string
 ): Promise<Record<string, "BARU" | "PERPANJANGAN">> {
   if (!kodePI || kodeProdukList.length === 0) return {};
-  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList, excludePengajuanId);
+  const dplKode = new Set((await getActiveDplByOutletAction(kodePI)).map((d) => d.kodeProduk));
+  const map = await computeStatusPengajuanMap(prisma, kodePI, kodeProdukList, excludePengajuanId, dplKode);
   return Object.fromEntries(map);
 }
 
@@ -657,8 +736,8 @@ async function applyPlanningKpdm(tx: Prisma.TransactionClient, pengajuanId: stri
 /** Upserts produk + per-dokter estimasi rows for a pengajuan — shared between
  * savePlanningAction (existing pengajuan, may delete removed produk) and
  * createPoaStandarisasiAction (freshly created pengajuan, produk are all new). */
-async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, kodePI: string, produk: PlanningProdukInput[]) {
-  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk), pengajuanId);
+async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: string, kodePI: string, produk: PlanningProdukInput[], dplKode: Set<string>) {
+  const statusMap = await computeStatusPengajuanMap(tx, kodePI, produk.map((p) => p.kodeProduk), pengajuanId, dplKode);
 
   for (const p of produk) {
     const data = {
@@ -716,6 +795,7 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
 
   validatePlanningInput(input);
 
+  const dplKode = new Set((await getActiveDplByOutletAction(pengajuan.kodePI)).map((d) => d.kodeProduk));
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.poaStandarisasi.update({
       where: { id },
@@ -736,7 +816,7 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
       await tx.poaStandarisasiProduk.deleteMany({ where: { id: { in: toDelete } } });
     }
 
-    await applyPlanningProduk(tx, id, pengajuan.kodePI, input.produk);
+    await applyPlanningProduk(tx, id, pengajuan.kodePI, input.produk, dplKode);
   });
 
   revalidatePath(`/poa-standarisasi/${id}`);

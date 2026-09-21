@@ -9,7 +9,7 @@ import type { Product } from "@/lib/hargaST";
 import { hargaST } from "@/lib/hargaST";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
 import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
-import { getStandarisasiDataForDokterProdukAction, type StandarisasiDataForDokterProduk } from "@/app/actions/poaStandarisasi";
+import { getStandarisasiDataForDokterProdukAction, getStandarisasiProdukForDokterAction, getStandarisasiProsesKodeByOutletAction, type StandarisasiDataForDokterProduk, type StandarisasiProdukForDokter } from "@/app/actions/poaStandarisasi";
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
@@ -296,7 +296,8 @@ function buildProdukAutofillPatch(
   psspEverProductNames: Set<string> | undefined,
   diskonList: DiskonByProduct[] | undefined,
   diskonHistoryList: DiskonHistoryByProduct[] | undefined,
-  periodeAwal: string
+  periodeAwal: string,
+  prosesStandarisasiKode?: Set<string>
 ): Partial<ProdukEntry> {
   const prod = products.find((p) => p.kodeProduk === kodeProduk);
   const nr = prod?.nilaiRPersen ? parseFloat(prod.nilaiRPersen) : null;
@@ -304,9 +305,11 @@ function buildProdukAutofillPatch(
   const everPssp = prod ? (psspEverProductNames?.has(prod.namaProduk.toLowerCase().trim()) ?? false) : false;
   const statusStandarisasi = everPssp || kriteria?.startsWith("Produk Sudah Terstandarisasi")
     ? "SUDAH_STANDARISASI"
-    : kriteria
-      ? "BELUM_STANDARISASI"
-      : "";
+    : prosesStandarisasiKode?.has(kodeProduk)
+      ? "PROSES_PENGAJUAN"
+      : kriteria
+        ? "BELUM_STANDARISASI"
+        : "";
   const realDiskonPct = resolveDiskonPctWithHistory(diskonList, diskonHistoryList, kodeProduk, periodeAwal);
   return {
     kodeProduk,
@@ -955,11 +958,63 @@ export function buildProductOptions(products: Product[], spesialisasi: string | 
   });
 }
 
+/** Merges pulled POA Standarisasi rows into a doctor's produkList: fills a same-kode row in place, else the first empty row, else appends. */
+function mergeStandarisasiRows<T extends ProdukEntry>(prev: T[], rows: StandarisasiProdukForDokter[], buildPatch: (kodeProduk: string) => Partial<ProdukEntry>): T[] {
+  let list = prev;
+  for (const r of rows) {
+    const pulled: Partial<ProdukEntry> = {
+      ...(r.jumlahPasien != null && { jumlahResepHari: String(r.jumlahPasien) }),
+      ...(r.resepPerPasienSt != null && { qtyProdukResep: String(r.resepPerPasienSt) }),
+      ...(r.jumlahHariPraktekPerBulan != null && { hariKerjaBulan: String(r.jumlahHariPraktekPerBulan) }),
+      statusStandarisasi: "SUDAH_STANDARISASI",
+    };
+    const sameIdx = list.findIndex((e) => e.kodeProduk === r.kodeProduk);
+    if (sameIdx >= 0) { list = list.map((e, i) => (i === sameIdx ? { ...e, ...pulled } : e)); continue; }
+    const patch = { ...buildPatch(r.kodeProduk), ...pulled };
+    const emptyIdx = list.findIndex((e) => !e.kodeProduk);
+    list = emptyIdx >= 0 ? list.map((e, i) => (i === emptyIdx ? { ...e, ...patch } : e)) : [...list, { ...emptyProdukEntry(), ...patch } as T];
+  }
+  return list;
+}
+
+/** Doctor-level "Tarik Data POA Standarisasi": only shown when this outlet+dokter has Finalisasi rows; switching it on auto-fills every produk from them. */
+function TarikStandarisasiBar({ kodePI, kodeCustomer, onPull }: { kodePI?: string | null; kodeCustomer?: string | null; onPull: (rows: StandarisasiProdukForDokter[]) => void }) {
+  const [rows, setRows] = useState<StandarisasiProdukForDokter[]>([]);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    setOn(false);
+    if (!kodePI || !kodeCustomer) { setRows([]); return; }
+    let cancelled = false;
+    getStandarisasiProdukForDokterAction(kodePI, kodeCustomer).then((r) => { if (!cancelled) setRows(r); });
+    return () => { cancelled = true; };
+  }, [kodePI, kodeCustomer]);
+  if (rows.length === 0) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 mb-2"
+      style={{ background: "var(--color-blue-light)", border: "1px solid var(--color-blue)" }}>
+      <div>
+        <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>↻ Tarik Data POA Standarisasi</div>
+        <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>{rows.length} produk dari POA Standarisasi Rumah Sakit &amp; Dokter ini — isi otomatis daftar produk beserta pasien, hari praktek, dan resep.</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={() => { const next = !on; setOn(next); if (next) onPull(rows); }}
+        className="shrink-0 rounded-full transition-colors"
+        style={{ width: 40, height: 22, background: on ? "var(--color-blue)" : "var(--color-border-strong)", position: "relative", border: "none", cursor: "pointer" }}
+      >
+        <span style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left 0.15s" }} />
+      </button>
+    </div>
+  );
+}
+
 // ─── ProdukEntryRow ───────────────────────────────────────────────────────────
 // Per-product: product picker + resep/hari + qty/resep + status + grey calculator
 
 function ProdukEntryRow({
-  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, usedKodeProduk, kodeCustomer, kodePI, onChange, onRemove, showRemove, showError,
+  entry, index, products, dokterFields, spesialisasi, psspHistory, kriteriaList, psspEverProductNames, prosesStandarisasiKode, diskonList, diskonHistoryList, usedKodeProduk, kodeCustomer, kodePI, onChange, onRemove, showRemove, showError,
 }: {
   entry: ProdukEntry;
   index: number;
@@ -972,6 +1027,7 @@ function ProdukEntryRow({
    * contract at this outlet, any customer — see getPsspProductNamesByOutlet.
    * Used to auto-mark "Sudah Standarisasi" even without a kriteria row. */
   psspEverProductNames?: Set<string>;
+  prosesStandarisasiKode?: Set<string>;
   /** DiskonKontrak (DPL) rows at this outlet — used to default "% Diskon (DPL/DPF)" to real data. */
   diskonList?: DiskonByProduct[];
   /** Fallback discount history when no DPL contract covers this outlet+product+period. */
@@ -1110,9 +1166,11 @@ function ProdukEntryRow({
                 const everPssp = prod ? (psspEverProductNames?.has(prod.namaProduk.toLowerCase().trim()) ?? false) : false;
                 const autoStandarisasi = everPssp || kriteria?.startsWith("Produk Sudah Terstandarisasi")
                   ? "SUDAH_STANDARISASI"
-                  : kriteria
-                    ? "BELUM_STANDARISASI"
-                    : entry.statusStandarisasi;
+                  : prosesStandarisasiKode?.has(v)
+                    ? "PROSES_PENGAJUAN"
+                    : kriteria
+                      ? "BELUM_STANDARISASI"
+                      : entry.statusStandarisasi;
                 const realDiskonPct = v ? resolveDiskonPctWithHistory(diskonList, diskonHistoryList, v, dokterFields.periodeAwal) : null;
                 onChange({
                   kodeProduk: v,
@@ -2527,6 +2585,7 @@ function AddPanel({
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
   const [psspEverProductNames, setPsspEverProductNames] = useState<Set<string>>(new Set());
+  const [prosesStandarisasiKode, setProsesStandarisasiKode] = useState<Set<string>>(new Set());
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
 
@@ -2783,12 +2842,14 @@ function AddPanel({
   function fetchOutletData(val: string) {
     if (!val) return;
     startLoadSpec(async () => {
-      const [kriteria, psspProductNames, diskonData, diskonHistoryData] = await Promise.all([
+      const [kriteria, psspProductNames, diskonData, diskonHistoryData, prosesKode] = await Promise.all([
         getKriteriaByOutlet(val),
         getPsspProductNamesByOutlet(val),
         getDiskonByOutlet(val),
         getDiskonHistoryByOutlet(val),
+        getStandarisasiProsesKodeByOutletAction(val),
       ]);
+      setProsesStandarisasiKode(new Set(prosesKode));
       setKriteriaList(kriteria);
       setPsspEverProductNames(new Set(psspProductNames.map((n) => n.toLowerCase().trim())));
       setDiskonList(diskonData);
@@ -2800,7 +2861,7 @@ function AddPanel({
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
-    setCustomerList([]); setKriteriaList([]); setPsspEverProductNames(new Set()); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
+    setCustomerList([]); setKriteriaList([]); setPsspEverProductNames(new Set()); setProsesStandarisasiKode(new Set()); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
     fetchOutletData(val);
   }
 
@@ -2911,9 +2972,13 @@ function AddPanel({
   // append one" placement as the Sales Counter sidebar's onSelectProduct
   // (useSalesCounterEditor.ts). No-ops if the product is already in this
   // doctor's produkList somewhere.
+  function pullStandarisasiProduk(rows: StandarisasiProdukForDokter[]) {
+    setProdukList((prev) => mergeStandarisasiRows(prev, rows, (k) => buildProdukAutofillPatch(k, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal, prosesStandarisasiKode)));
+  }
+
   function selectProductFromSidebar(kodeProduk: string) {
     if (!kodeProduk || produkList.some((e) => e.kodeProduk === kodeProduk)) return;
-    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal);
+    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal, prosesStandarisasiKode);
     setProdukList((prev) => {
       const emptyIdx = prev.findIndex((e) => !e.kodeProduk);
       if (emptyIdx >= 0) return prev.map((e, i) => (i === emptyIdx ? { ...e, ...patch } : e));
@@ -3228,6 +3293,7 @@ function AddPanel({
               <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Kontes
             </span>
           </div>
+          <TarikStandarisasiBar kodePI={kodePI} kodeCustomer={selectedCustomer?.kodeCustomer} onPull={pullStandarisasiProduk} />
           <div className="space-y-2">
             {produkList.map((entry, i) => (
               <ProdukEntryRow
@@ -3240,6 +3306,7 @@ function AddPanel({
                 psspHistory={psspHistory ?? undefined}
                 kriteriaList={kriteriaList}
                 psspEverProductNames={psspEverProductNames}
+                prosesStandarisasiKode={prosesStandarisasiKode}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
@@ -3567,6 +3634,7 @@ function AddProductPanel({
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
   const [psspEverProductNames, setPsspEverProductNames] = useState<Set<string>>(new Set());
+  const [prosesStandarisasiKode, setProsesStandarisasiKode] = useState<Set<string>>(new Set());
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -3578,6 +3646,7 @@ function AddProductPanel({
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
     getPsspProductNamesByOutlet(kodePI).then((names) => setPsspEverProductNames(new Set(names.map((n) => n.toLowerCase().trim()))));
     getDiskonByOutlet(kodePI).then(setDiskonList);
+    getStandarisasiProsesKodeByOutletAction(kodePI).then((k) => setProsesStandarisasiKode(new Set(k)));
     getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
 
@@ -3591,9 +3660,13 @@ function AddProductPanel({
   }
 
   // Same sidebar "click a product to add it" flow as AddPanel above.
+  function pullStandarisasiProduk(rows: StandarisasiProdukForDokter[]) {
+    setProdukList((prev) => mergeStandarisasiRows(prev, rows, (k) => buildProdukAutofillPatch(k, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal, prosesStandarisasiKode)));
+  }
+
   function selectProductFromSidebar(kodeProduk: string) {
     if (!kodeProduk || produkList.some((e) => e.kodeProduk === kodeProduk)) return;
-    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal);
+    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal, prosesStandarisasiKode);
     setProdukList((prev) => {
       const emptyIdx = prev.findIndex((e) => !e.kodeProduk);
       if (emptyIdx >= 0) return prev.map((e, i) => (i === emptyIdx ? { ...e, ...patch } : e));
@@ -3725,6 +3798,7 @@ function AddProductPanel({
               <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Kontes
             </span>
           </div>
+          <TarikStandarisasiBar kodePI={kodePI} kodeCustomer={kodeCust} onPull={pullStandarisasiProduk} />
           <div className="space-y-2">
             {produkList.map((entry, i) => (
               <ProdukEntryRow
@@ -3737,6 +3811,7 @@ function AddProductPanel({
                 psspHistory={psspHistory ?? undefined}
                 kriteriaList={kriteriaList}
                 psspEverProductNames={psspEverProductNames}
+                prosesStandarisasiKode={prosesStandarisasiKode}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}
@@ -3865,6 +3940,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
   const [psspHistory, setPsspHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [kriteriaList, setKriteriaList] = useState<KriteriaByOutlet[]>([]);
   const [psspEverProductNames, setPsspEverProductNames] = useState<Set<string>>(new Set());
+  const [prosesStandarisasiKode, setProsesStandarisasiKode] = useState<Set<string>>(new Set());
   const [diskonList, setDiskonList] = useState<DiskonByProduct[]>([]);
   const [diskonHistoryList, setDiskonHistoryList] = useState<DiskonHistoryByProduct[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -3876,6 +3952,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
     getKriteriaByOutlet(kodePI).then(setKriteriaList);
     getPsspProductNamesByOutlet(kodePI).then((names) => setPsspEverProductNames(new Set(names.map((n) => n.toLowerCase().trim()))));
     getDiskonByOutlet(kodePI).then(setDiskonList);
+    getStandarisasiProsesKodeByOutletAction(kodePI).then((k) => setProsesStandarisasiKode(new Set(k)));
     getDiskonHistoryByOutlet(kodePI).then(setDiskonHistoryList);
   }, [kodePI]);
 
@@ -3963,9 +4040,13 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
 
   // Same sidebar "click a product to add it" flow as AddPanel above — never
   // wired up when readOnly (see the <PsspSidebar> call below).
+  function pullStandarisasiProduk(rows: StandarisasiProdukForDokter[]) {
+    setProdukList((prev) => mergeStandarisasiRows(prev, rows, (k) => buildProdukAutofillPatch(k, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal, prosesStandarisasiKode)));
+  }
+
   function selectProductFromSidebar(kodeProduk: string) {
     if (!kodeProduk || produkList.some((e) => e.kodeProduk === kodeProduk)) return;
-    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal);
+    const patch = buildProdukAutofillPatch(kodeProduk, products, kriteriaList, psspEverProductNames, diskonList, diskonHistoryList, dokterFields.periodeAwal, prosesStandarisasiKode);
     setProdukList((prev) => {
       const emptyIdx = prev.findIndex((e) => !e.kodeProduk);
       if (emptyIdx >= 0) return prev.map((e, i) => (i === emptyIdx ? { ...e, ...patch } : e));
@@ -4110,6 +4191,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
               <span style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span> = Produk Kontes
             </span>
           </div>
+          <TarikStandarisasiBar kodePI={kodePI} kodeCustomer={!readOnly ? kodeCust : undefined} onPull={pullStandarisasiProduk} />
           <div className="space-y-2">
             {produkList.map((entry, i) => (
               <ProdukEntryRow
@@ -4122,6 +4204,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
                 psspHistory={psspHistory ?? undefined}
                 kriteriaList={kriteriaList}
                 psspEverProductNames={psspEverProductNames}
+                prosesStandarisasiKode={prosesStandarisasiKode}
                 diskonList={diskonList}
                 diskonHistoryList={diskonHistoryList}
                 usedKodeProduk={new Set(produkList.filter((_, idx) => idx !== i).map((e) => e.kodeProduk).filter(Boolean))}

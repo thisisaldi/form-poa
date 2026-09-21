@@ -724,18 +724,6 @@ export function PoaStandarisasiWizard({
         }}
       />
 
-      {!isOwner && (
-        <div className="mb-4 rounded px-3 py-2 text-xs" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-          Anda melihat pengajuan ini sebagai atasan (bukan pembuat) — hanya bagian Approval Atasan yang bisa Anda tindak lanjuti.
-        </div>
-      )}
-
-      {!isViewingCurrentPhase && (
-        <div className="mb-4 rounded px-3 py-2 text-xs" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
-          Anda melihat histori tahap &quot;{PHASES[viewedStepIdx]?.label}&quot; — tidak bisa diedit dari sini. Klik &quot;{PHASES[currentStepIdx]?.label}&quot; di atas untuk kembali ke tahap yang sedang berjalan.
-        </div>
-      )}
-
       {error && (
         <div
           className="mb-4 rounded px-3 py-2 text-sm"
@@ -1196,9 +1184,6 @@ export function PlanningPhase(props: {
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-semibold">Produk diajukan ({produkList.length})</span>
       </div>
-      <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
-        Produk baru otomatis mewarisi pilihan dokter dari produk sebelumnya — tinggal edit kalau beda.
-      </p>
 
       {produkList.map((p, idx) => {
         const product = productByKode.get(p.kodeProduk);
@@ -1249,7 +1234,7 @@ export function PlanningPhase(props: {
                     color: p.statusPengajuan === "PERPANJANGAN" ? "var(--color-blue)" : "var(--color-text-muted)",
                     border: "1px solid var(--color-border)",
                   }}
-                  title="Otomatis: Perpanjangan kalau ada histori sales produk ini di outlet ini 12 bulan terakhir, Baru kalau tidak ada."
+                  title="Otomatis: Perpanjangan kalau ada sales 3 bulan terakhir, pernah standarisasi, atau ada DPL aktif untuk produk ini di outlet ini. Baru kalau tidak ada."
                 >
                   {p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"}
                 </div>
@@ -1699,9 +1684,6 @@ function ApprovalUserDokterPhase({
 
         <Card>
           <div className="text-sm font-bold mb-1">Produk Diajukan</div>
-          <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>
-            Klik produk untuk pindah. Centang muncul kalau semua dokter wajib sudah TTD.
-          </p>
           <div className="space-y-2">
             {pengajuan.produk.map((prod) => {
               const active = prod.id === selectedProdukId;
@@ -2154,9 +2136,6 @@ function Step5SpNonSalesDplDpf({
           {error}
         </p>
       )}
-      <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-        Muncul otomatis setelah status Finalisasi = selesai. Daftar produk ditarik dari produk yang sudah di-plan pada RS &amp; Dokter ini.
-      </p>
 
       <div className="flex gap-4 mb-4" style={{ borderBottom: "1px solid var(--color-border)" }}>
         <button
@@ -2217,7 +2196,6 @@ function Step5SpNonSalesDplDpf({
               })}
             </tbody>
           </table>
-          <p className="text-xs italic mb-4" style={{ color: "var(--color-text-faint)" }}>Baris berulang otomatis untuk setiap produk yang ada di POA (Planning) ini.</p>
 
           <span className="text-sm font-medium block mb-2">Dokumen Terupload</span>
           {pengajuan.spNonSalesDocuments.length === 0 ? (
@@ -2314,7 +2292,6 @@ function Step5SpNonSalesDplDpf({
               })}
             </tbody>
           </table>
-          <p className="text-xs mt-2" style={{ color: "var(--color-text-faint)" }}>Beban Discount PI/Distributor melekat per produk, mengikuti data Finalisasi produk masing-masing — read-only, bukan input ulang.</p>
         </div>
       )}
     </Card>
