@@ -12,6 +12,7 @@ import {
   postHistorySalesAction,
   getSalesOnlineAction,
   getSurveyNexusAction,
+  getHealthyOnePurchaseOrderDetailAction,
 } from "@/app/actions/canvasser";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { calculateCashbackDetails } from "../../edit/hooks/useSalesCounterCashback";
@@ -82,6 +83,7 @@ export function useSalesCounterOutletData({
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [isLoadingSalesOnline, setIsLoadingSalesOnline] = useState<boolean>(false);
   const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
+  const [healthyOneData, setHealthyOneData] = useState<any[]>([]);
 
   // Fetch cashback data
   useEffect(() => {
@@ -348,6 +350,14 @@ export function useSalesCounterOutletData({
         if (isMounted) setSurveyNexusData(null);
       });
 
+    getHealthyOnePurchaseOrderDetailAction(draft.kodePI)
+      .then((res) => {
+        if (isMounted) setHealthyOneData(Array.isArray(res) ? res : []);
+      })
+      .catch(() => {
+        if (isMounted) setHealthyOneData([]);
+      });
+
     return () => {
       isMounted = false;
     };
@@ -491,6 +501,7 @@ export function useSalesCounterOutletData({
     salesOnlineData,
     isLoadingSalesOnline,
     surveyNexusData,
+    healthyOneData,
     productDetailRows,
   };
 }

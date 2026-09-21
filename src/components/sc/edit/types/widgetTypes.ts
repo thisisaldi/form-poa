@@ -46,4 +46,6 @@ export interface UnitInputProps {
   min?: number;
   max?: number;
   disabled?: boolean;
+  className?: string;
+  integerOnly?: boolean;
 }

@@ -34,7 +34,7 @@ export function SalesCounterProductBreakdownTable({
   showHintMobile = true,
   isForm = false,
 }: SalesCounterProductBreakdownTableProps) {
-  const [showAllUnselected, setShowAllUnselected] = useState(false);
+  const [showAllUnselected, setShowAllUnselected] = useState(isForm);
 
   const fontSizeBase = isForm ? "text-xs" : "text-[11px]";
   const fontSizeHeader = isForm ? "text-xs font-semibold" : "font-semibold";
@@ -110,6 +110,7 @@ export function SalesCounterProductBreakdownTable({
           isLoadingB3={isLoadingB3}
           isLoadingIncentiveHistory={isLoadingIncentiveHistory}
           unselectedProducts={unselectedProducts}
+          isForm={isForm}
         />
       </div>
 

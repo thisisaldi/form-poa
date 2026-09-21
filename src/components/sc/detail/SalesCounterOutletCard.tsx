@@ -106,6 +106,7 @@ export function SalesCounterOutletCard({
     salesOnlineData,
     isLoadingSalesOnline,
     surveyNexusData,
+    healthyOneData,
     productDetailRows,
     isLoadingIncentiveHistory,
     b3SalesMap,
@@ -976,6 +977,7 @@ export function SalesCounterOutletCard({
             isLoadingSalesOnline={isLoadingSalesOnline}
             periodLabel={b3RangeLabel}
             surveyNexusData={surveyNexusData}
+            healthyOneData={healthyOneData}
           />
 
           {/* Entertain items breakdown if present */}

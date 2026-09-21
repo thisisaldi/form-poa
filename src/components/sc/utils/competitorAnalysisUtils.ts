@@ -36,6 +36,12 @@ export function formatQtySales(qty: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
+export function formatUb(qty: number): string {
+  if (qty == null || isNaN(qty)) return "0";
+  const rounded = Math.round(Number(qty) * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
+}
+
 export function isSameZatAktif(a?: string | null, b?: string | null): boolean {
   if (!a || !b) return false;
   const cleanA = a.toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9]/g, "");
@@ -114,7 +120,8 @@ export function getProductPotensiDetail(
     zat_aktif?: string;
   },
   salesOnlineItems: any[] = [],
-  nexusSurveyMap?: Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>
+  nexusSurveyMap?: Map<string, Array<{ namaKompetitor: string; salesForecast: number }>>,
+  healthyOneMap?: Map<string, number> | any[]
 ): ProductPotensiDetail {
   const code = String(product.kodeProduk || product.pro_code || product.kode_item || "").trim();
   const strippedCode = code.replace(/^0+/, "");
@@ -159,8 +166,29 @@ export function getProductPotensiDetail(
   const surveyQty = matchedCompetitors.reduce((sum, c) => sum + c.salesForecast, 0);
   const surveyName = matchedCompetitors.map((c) => c.namaKompetitor).join(", ");
 
-  // HealthyOne: 0 because no API data currently exists (no dummy 10 UB)
-  const healthyOneUb = 0;
+  // HealthyOne: calculate from healthyOneMap or healthyOneData
+  let healthyOneUb = 0;
+  if (healthyOneMap) {
+    if (healthyOneMap instanceof Map) {
+      healthyOneUb =
+        (code ? healthyOneMap.get(code) || (strippedCode ? healthyOneMap.get(strippedCode) : 0) : 0) ||
+        (altCode ? healthyOneMap.get(altCode) || (strippedAlt ? healthyOneMap.get(strippedAlt) : 0) : 0) ||
+        0;
+    } else if (Array.isArray(healthyOneMap)) {
+      for (const it of healthyOneMap) {
+        const itCode = String(it.procode || "").trim();
+        const itStripped = itCode.replace(/^0+/, "");
+        if (
+          itCode === code ||
+          itStripped === strippedCode ||
+          (altCode && (itCode === altCode || itStripped === strippedAlt))
+        ) {
+          healthyOneUb += Number(it.ordered_qty) || 0;
+        }
+      }
+    }
+  }
+  healthyOneUb = Math.round(healthyOneUb * 100) / 100;
 
   // 2. Logic-wise matching for Sell In (B2B)
   const matchingB2bItems: Array<{ code: string; namaProduk: string; qty_sales: number }> = [];

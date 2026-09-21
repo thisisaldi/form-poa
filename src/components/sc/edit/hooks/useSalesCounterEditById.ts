@@ -273,6 +273,7 @@ export function useSalesCounterEditById({
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
   const [surveyData, setSurveyData] = useState<any[]>([]);
   const [surveyNexusData, setSurveyNexusData] = useState<any>(null);
+  const [healthyOneData, setHealthyOneData] = useState<any[]>([]);
   const [loadingSurvey, setLoadingSurvey] = useState(false);
   const [rekomendasiProduk, setRekomendasiProduk] = useState<LossSalesRekomendasiProduct[]>([]);
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(new Map());
@@ -413,6 +414,7 @@ export function useSalesCounterEditById({
         setSalesOnlineData(bundle.salesOnlineData);
         setSurveyData(bundle.surveyData);
         setSurveyNexusData(bundle.surveyNexusData);
+        setHealthyOneData(bundle.healthyOneData || []);
 
         const latestSurvey = bundle.surveyNexusData?.data?.surveys?.[0];
         if (latestSurvey?.avg_patient != null) {
@@ -749,14 +751,19 @@ export function useSalesCounterEditById({
         monthlyNilaiSc += valScPerMonth;
       }
 
+      const mCashback = isCashbackHidden
+        ? 0
+        : (cashbackDetails?.monthlyStats?.[mIdx]?.totalCashbackThisMonth ?? 0);
+
       return {
         month: m,
         label: formatMonthLabel(m),
         estimasiSales: monthlyEstimasiSales,
         nilaiSc: monthlyNilaiSc,
+        nilaiCashback: mCashback,
       };
     });
-  }, [monthlyMonths, products, masterProducts, canvasserProducts]);
+  }, [monthlyMonths, products, masterProducts, canvasserProducts, isCashbackHidden, cashbackDetails]);
 
   const handleAddProduct = () => {
     setProducts((prev) => [
@@ -865,6 +872,7 @@ export function useSalesCounterEditById({
     salesOnlineData,
     surveyData,
     surveyNexusData,
+    healthyOneData,
     loadingSurvey,
     rekomendasiProduk,
     b3SalesMap,

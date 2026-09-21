@@ -31,12 +31,14 @@ export async function getScHistoryIncentiveCounter(
       "https://staging-izmo.chc.pharmalink.id/healthcare-productdetection/api"
     ).replace(/\/+$/, "");
 
-    const url = `${baseUrl}/api/get-history-incentive-sales-counter?pi_code=${encodeURIComponent(
-      cleanPiCode
-    )}&quarter=${encodeURIComponent(q)}&year=${encodeURIComponent(cleanYear)}`;
+    const queryParams = `pi_code=${encodeURIComponent(cleanPiCode)}&quarter=${encodeURIComponent(
+      q
+    )}&year=${encodeURIComponent(cleanYear)}`;
 
-    const res = await fetchWithTimeout(
-      url,
+    // Try /api/api path first (matching Django sub-router pattern), fallback to /api if 404
+    const primaryUrl = `${baseUrl}/api/get-history-incentive-sales-counter?${queryParams}`;
+    let res = await fetchWithTimeout(
+      primaryUrl,
       {
         method: "GET",
         headers: {
@@ -44,12 +46,34 @@ export async function getScHistoryIncentiveCounter(
         },
         cache: "no-store",
       },
-      15000
+      8000
     );
 
+    if (res.status === 404) {
+      // Try single /api route
+      const fallbackUrl = `${baseUrl}/get-history-incentive-sales-counter?${queryParams}`;
+      const fallbackRes = await fetchWithTimeout(
+        fallbackUrl,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+        },
+        8000
+      ).catch(() => null);
+
+      if (fallbackRes && fallbackRes.ok) {
+        return await fallbackRes.json();
+      }
+      // If still 404 or not found, return null cleanly without error log spam
+      return null;
+    }
+
     if (!res.ok) {
-      console.error(
-        `Canvasser History Incentive Sales Counter API returned status ${res.status} for ${url}`
+      console.warn(
+        `Canvasser History Incentive Sales Counter API returned status ${res.status} for ${primaryUrl}`
       );
       return null;
     }

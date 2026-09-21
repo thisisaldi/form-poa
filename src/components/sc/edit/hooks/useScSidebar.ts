@@ -15,6 +15,7 @@ export function useScSidebar({
   surveyData = [],
   surveyNexusData,
   historySalesData,
+  healthyOneData = [],
   selectedProductCodes = new Set<string>(),
 }: ScSidebarProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab | null>(null);
@@ -183,6 +184,23 @@ export function useScSidebar({
     return map;
   }, [effectiveSalesOnlineItems]);
 
+  // Map of product codes to HealthyOne purchase order qty
+  const healthyOneMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!Array.isArray(healthyOneData)) return map;
+    for (const item of healthyOneData) {
+      const pCode = String(item.procode || "").trim();
+      if (!pCode) continue;
+      const qty = Number(item.ordered_qty) || 0;
+      const stripped = pCode.replace(/^0+/, "");
+      map.set(pCode, (map.get(pCode) || 0) + qty);
+      if (stripped && stripped !== pCode) {
+        map.set(stripped, (map.get(stripped) || 0) + qty);
+      }
+    }
+    return map;
+  }, [healthyOneData]);
+
   // Competitor Cards derived from Sales Counter Products (canvasserProducts)
   const scCards = useMemo(() => {
     const rawList: any[] = Array.isArray(canvasserProducts) ? canvasserProducts : [];
@@ -231,7 +249,11 @@ export function useScSidebar({
       const surveyQty = matchedCompetitors.reduce((sum, c) => sum + c.salesForecast, 0);
       const surveyCompetitors = matchedCompetitors;
 
-      const healthyOneUb = 0;
+      const rawHealthyOne =
+        (code ? healthyOneMap.get(code) || (strippedCode ? healthyOneMap.get(strippedCode) : 0) : 0) ||
+        (altCode ? healthyOneMap.get(altCode) || (strippedAlt ? healthyOneMap.get(strippedAlt) : 0) : 0) ||
+        0;
+      const healthyOneUb = Math.round(rawHealthyOne * 100) / 100;
 
       // Sell In: find matching products from effectiveSalesOnlineItems with SAME zat_aktif, EXCLUDING this product itself
       const matchingOnlineItems = effectiveSalesOnlineItems.filter((it: any) => {
@@ -301,7 +323,7 @@ export function useScSidebar({
         hasB2b: b2bProducts.length > 0,
       };
     });
-  }, [canvasserProducts, masterProducts, salesOnlineMap, effectiveSalesOnlineItems, selectedProductCodes, nexusSurveyMap]);
+  }, [canvasserProducts, masterProducts, salesOnlineMap, effectiveSalesOnlineItems, selectedProductCodes, nexusSurveyMap, healthyOneMap]);
 
   const filteredCards = useMemo(() => {
     let list = scCards;

@@ -14,6 +14,8 @@ interface UnitInputProps {
   max?: number;
   disabled?: boolean;
   className?: string;
+  /** When true, only permits non-negative whole numbers (integers). Decimal points, commas, and negative signs are blocked. */
+  integerOnly?: boolean;
 }
 
 export function UnitInput({
@@ -26,10 +28,27 @@ export function UnitInput({
   max,
   disabled = false,
   className,
+  integerOnly = false,
 }: UnitInputProps) {
   const isCurrency = unit === "Rp";
-  const normalizedValue = isCurrency ? value : value ? value.replace(/^0+(?=\d)/, "") : value;
-  const displayValue = isCurrency ? formatRp(value) : normalizedValue;
+  let normalizedValue = value ?? "";
+  if (isCurrency) {
+    normalizedValue = formatRp(value);
+  } else if (integerOnly) {
+    normalizedValue = normalizedValue ? normalizedValue.split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "") : "";
+  } else if (value) {
+    normalizedValue = value.replace(/^0+(?=\d)/, "");
+  }
+  const displayValue = normalizedValue;
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (integerOnly) {
+      // Prevent decimal points, commas, negative/positive signs, and exponential notation
+      if (['.', ',', '-', '+', 'e', 'E'].includes(e.key)) {
+        e.preventDefault();
+      }
+    }
+  }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     if (disabled) return;
@@ -40,10 +59,24 @@ export function UnitInput({
       return;
     }
 
+    if (integerOnly) {
+      const clean = v.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+      if (max != null && clean !== "") {
+        const n = parseInt(clean, 10);
+        if (!isNaN(n) && n > max) {
+          onChange(String(max));
+          return;
+        }
+      }
+      onChange(clean);
+      return;
+    }
+
     if (v === "") {
       onChange(v);
       return;
     }
+
     if (!/^\d*\.?\d*$/.test(v)) return;
     
     // Prevent dirty leading zeros like "02" -> "2", "00" -> "0"
@@ -65,8 +98,12 @@ export function UnitInput({
     const current = parseFloat(value) || parseFloat(placeholder) || 0;
     let next = Math.max(min, current + delta);
     if (max != null) next = Math.min(max, next);
-    const decimals = step % 1 === 0 ? 0 : String(step).split(".")[1]?.length ?? 1;
-    onChange(next.toFixed(decimals));
+    if (integerOnly) {
+      onChange(Math.round(next).toString());
+    } else {
+      const decimals = step % 1 === 0 ? 0 : String(step).split(".")[1]?.length ?? 1;
+      onChange(next.toFixed(decimals));
+    }
   }
 
   return (
@@ -76,10 +113,11 @@ export function UnitInput({
     >
       <input
         type="text"
-        inputMode="decimal"
+        inputMode={integerOnly ? "numeric" : "decimal"}
         placeholder={placeholder}
         value={displayValue}
         onChange={handleChange}
+        onKeyDown={handleKeyDown}
         disabled={disabled}
         className="flex-1 min-w-0 w-full px-1.5 text-[11px] outline-none disabled:opacity-75 disabled:cursor-not-allowed h-full"
         style={{ background: disabled ? "var(--color-bg-subtle)" : "transparent", color: "var(--color-text)" }}

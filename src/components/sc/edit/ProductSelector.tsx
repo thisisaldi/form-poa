@@ -393,12 +393,12 @@ export function ProductSelector({
     const scMin = canvasserProduct?.sales_counter_minimum != null ? Number(canvasserProduct.sales_counter_minimum) : 0;
 
     const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonthsTotal
-      ? row.monthlyQty
+      ? row.monthlyQty.map((val) => (val != null ? String(val).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "") : ""))
       : Array.from({ length: numMonthsTotal }, (_, mIdx) => {
           if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
-            return String(row.monthlyQty[mIdx]);
+            return String(row.monthlyQty[mIdx]).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "");
           }
-          return row.qtyPerBulan || "";
+          return row.qtyPerBulan ? String(row.qtyPerBulan).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "") : "0";
         });
 
     let rowQtyTotal = 0;
@@ -406,7 +406,7 @@ export function ProductSelector({
     let rowNilaiScTotal = 0;
 
     for (let m = 0; m < numMonthsTotal; m++) {
-      const mQty = parseFloat(currentMonthly[m]) || 0;
+      const mQty = parseInt(currentMonthly[m], 10) || 0;
       const mEstSales = mQty * hnaSJ;
       let mNilaiSc = 0;
       if (scVal != null && scVal > 0) {
@@ -646,19 +646,19 @@ export function ProductSelector({
                   const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
                   const numMonths = Math.max(1, lamaPeriode || 3);
                   const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonths
-                    ? row.monthlyQty.map((val) => String(val).replace(/^0+(?=\d)/, ""))
+                    ? row.monthlyQty.map((val) => String(val).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, ""))
                     : Array.from({ length: numMonths }, (_, mIdx) => {
                         if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
-                          return String(row.monthlyQty[mIdx]).replace(/^0+(?=\d)/, "");
+                          return String(row.monthlyQty[mIdx]).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "");
                         }
-                        return row.qtyPerBulan ? String(row.qtyPerBulan).replace(/^0+(?=\d)/, "") : "0";
+                        return row.qtyPerBulan ? String(row.qtyPerBulan).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "") : "0";
                       });
 
                   let totalQtySwitch = 0;
                   let hasAnyMonthlyVal = false;
                   for (const v of currentMonthly) {
-                    if (v !== "" && !isNaN(parseFloat(v))) {
-                      totalQtySwitch += parseFloat(v);
+                    if (v !== "" && !isNaN(parseInt(v, 10))) {
+                      totalQtySwitch += parseInt(v, 10);
                       hasAnyMonthlyVal = true;
                     }
                   }
@@ -827,15 +827,17 @@ export function ProductSelector({
                       <td className="py-2.5 px-1 text-center align-top">
                         {(() => {
                           const handleMonthChange = (mIdx: number, newVal: string) => {
-                            const cleanVal = newVal === "" ? "" : newVal.replace(/^0+(?=\d)/, "");
+                            // Hanya bilangan bulat non-negatif (hanya angka)
+                            const digitsOnly = newVal.replace(/\D/g, "");
+                            const cleanVal = digitsOnly === "" ? "" : digitsOnly.replace(/^0+(?=\d)/, "");
                             const nextMonthly = [...currentMonthly];
                             nextMonthly[mIdx] = cleanVal;
 
                             let totalQty = 0;
                             let hasAnyValue = false;
                             for (const v of nextMonthly) {
-                              if (v !== "" && !isNaN(parseFloat(v))) {
-                                totalQty += parseFloat(v);
+                              if (v !== "" && !isNaN(parseInt(v, 10))) {
+                                totalQty += parseInt(v, 10);
                                 hasAnyValue = true;
                               }
                             }
@@ -854,8 +856,8 @@ export function ProductSelector({
 
                           let totalQtySwitch = 0;
                           for (const v of currentMonthly) {
-                            if (v !== "" && !isNaN(parseFloat(v))) {
-                              totalQtySwitch += parseFloat(v);
+                            if (v !== "" && !isNaN(parseInt(v, 10))) {
+                              totalQtySwitch += parseInt(v, 10);
                             }
                           }
 
@@ -924,6 +926,8 @@ export function ProductSelector({
                                         placeholder="0"
                                         disabled={readOnly}
                                         className="h-[28px]"
+                                        integerOnly
+                                        min={0}
                                       />
                                     </div>
                                   </div>

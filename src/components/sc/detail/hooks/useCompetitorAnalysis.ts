@@ -25,11 +25,13 @@ export function useCompetitorAnalysis({
   salesOnlineData,
   selectedCodes = new Set<string>(),
   surveyNexusData,
+  healthyOneData = [],
 }: {
   products?: Array<any>;
   salesOnlineData?: any;
   selectedCodes?: Set<string>;
   surveyNexusData?: any;
+  healthyOneData?: any[];
 }) {
   const [kompetitorFilter, setKompetitorFilter] = useState<CompetitorFilterKey>("semua");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -45,10 +47,26 @@ export function useCompetitorAnalysis({
     return [];
   }, [salesOnlineData]);
 
+  const healthyOneMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!Array.isArray(healthyOneData)) return map;
+    for (const item of healthyOneData) {
+      const pCode = String(item.procode || "").trim();
+      if (!pCode) continue;
+      const qty = Number(item.ordered_qty) || 0;
+      const stripped = pCode.replace(/^0+/, "");
+      map.set(pCode, (map.get(pCode) || 0) + qty);
+      if (stripped && stripped !== pCode) {
+        map.set(stripped, (map.get(stripped) || 0) + qty);
+      }
+    }
+    return map;
+  }, [healthyOneData]);
+
   // Build card details for all products (from get-sales-counter-product)
   const cards: CompetitorCardItem[] = useMemo(() => {
     return products.map((p) => {
-      const detail = getProductPotensiDetail(p, salesOnlineItems, nexusSurveyMap);
+      const detail = getProductPotensiDetail(p, salesOnlineItems, nexusSurveyMap, healthyOneMap);
       const code = detail.kodeProduk;
       const stripped = code.replace(/^0+/, "");
       const isSelected = selectedCodes.has(code) || selectedCodes.has(stripped);
@@ -64,7 +82,7 @@ export function useCompetitorAnalysis({
         isSelected,
       };
     });
-  }, [products, salesOnlineItems, selectedCodes, nexusSurveyMap]);
+  }, [products, salesOnlineItems, selectedCodes, nexusSurveyMap, healthyOneMap]);
 
   // Filter cards by pill tabs and search query
   const filteredCards = useMemo(() => {

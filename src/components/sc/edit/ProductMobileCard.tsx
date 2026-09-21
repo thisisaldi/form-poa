@@ -84,19 +84,19 @@ export function ProductMobileCard({
 
   const hnaSJ = masterProduct ? (parseFloat(masterProduct.hna) || 0) : 0;
   const currentMonthly: string[] = Array.isArray(row.monthlyQty) && row.monthlyQty.length === numMonths
-    ? row.monthlyQty.map((val: any) => String(val).replace(/^0+(?=\d)/, ""))
+    ? row.monthlyQty.map((val: any) => String(val).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, ""))
     : Array.from({ length: numMonths }, (_, mIdx) => {
         if (Array.isArray(row.monthlyQty) && row.monthlyQty[mIdx] !== undefined) {
-          return String(row.monthlyQty[mIdx]).replace(/^0+(?=\d)/, "");
+          return String(row.monthlyQty[mIdx]).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "");
         }
-        return row.qtyPerBulan ? String(row.qtyPerBulan).replace(/^0+(?=\d)/, "") : "0";
+        return row.qtyPerBulan ? String(row.qtyPerBulan).split(".")[0].replace(/\D/g, "").replace(/^0+(?=\d)/, "") : "0";
       });
 
   let totalQtySwitch = 0;
   let hasAnyMonthlyVal = false;
   for (const v of currentMonthly) {
-    if (v !== "" && !isNaN(parseFloat(v))) {
-      totalQtySwitch += parseFloat(v);
+    if (v !== "" && !isNaN(parseInt(v, 10))) {
+      totalQtySwitch += parseInt(v, 10);
       hasAnyMonthlyVal = true;
     }
   }
@@ -169,15 +169,17 @@ export function ProductMobileCard({
   const totalCashbackPeriode = cashbackDetails.resultMap.get(row.kodeProduk) ?? monthlyCashback.reduce((s: number, v: number) => s + v, 0);
 
   const handleMonthChange = (mIdx: number, newVal: string) => {
-    const cleanVal = newVal === "" ? "" : newVal.replace(/^0+(?=\d)/, "");
+    // Hanya bilangan bulat non-negatif (hanya angka)
+    const digitsOnly = newVal.replace(/\D/g, "");
+    const cleanVal = digitsOnly === "" ? "" : digitsOnly.replace(/^0+(?=\d)/, "");
     const nextMonthly = [...currentMonthly];
     nextMonthly[mIdx] = cleanVal;
 
     let totalQty = 0;
     let hasAnyValue = false;
     for (const v of nextMonthly) {
-      if (v !== "" && !isNaN(parseFloat(v))) {
-        totalQty += parseFloat(v);
+      if (v !== "" && !isNaN(parseInt(v, 10))) {
+        totalQty += parseInt(v, 10);
         hasAnyValue = true;
       }
     }
@@ -527,6 +529,11 @@ export function ProductMobileCard({
                   inputMode="numeric"
                   value={currentMonthly[mIdx] ?? ""}
                   onChange={(e) => handleMonthChange(mIdx, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (['.', ',', '-', '+', 'e', 'E'].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                  }}
                   placeholder="0"
                   disabled={readOnly}
                   className="w-full text-center py-1.5 px-1 text-sm font-bold rounded-md border shadow-2xs outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:opacity-50"

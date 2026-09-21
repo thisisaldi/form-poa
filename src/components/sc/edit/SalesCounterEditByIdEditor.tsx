@@ -88,6 +88,7 @@ export function SalesCounterEditByIdEditor({
     salesOnlineData,
     surveyData,
     surveyNexusData,
+    healthyOneData,
     loadingSurvey,
     rekomendasiProduk,
     b3SalesMap,
@@ -1063,6 +1064,7 @@ export function SalesCounterEditByIdEditor({
         salesOnlineData={salesOnlineData}
         surveyData={surveyData}
         surveyNexusData={surveyNexusData}
+        healthyOneData={healthyOneData}
         rekomendasiProduk={rekomendasiProduk}
         masterProducts={masterProducts}
         canvasserProducts={canvasserProducts}

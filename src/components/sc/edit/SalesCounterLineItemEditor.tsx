@@ -81,6 +81,7 @@ export function SalesCounterLineItemEditor({
     salesOnlineData,
     surveyData,
     surveyNexusData,
+    healthyOneData,
     rekomendasiProduk,
     cashbackData,
     cashbackDetails,
@@ -299,6 +300,20 @@ export function SalesCounterLineItemEditor({
     return { komposisiOnlinePct: onPct, komposisiOfflinePct: offPct };
   }, [onlinePiSales, offlineHistoricalSales]);
 
+  const isCashbackNotFound =
+    !cashbackData ||
+    (cashbackData as any)?.message === "Gudang Tidak Ditemukan" ||
+    (typeof (cashbackData as any)?.message === "string" &&
+      ((cashbackData as any).message.toLowerCase().includes("tidak ditemukan") ||
+        (cashbackData as any).message.toLowerCase().includes("gudang"))) ||
+    (typeof (cashbackData as any)?.data?.message === "string" &&
+      ((cashbackData as any).data.message.toLowerCase().includes("tidak ditemukan") ||
+        (cashbackData as any).data.message.toLowerCase().includes("gudang"))) ||
+    (cashbackData as any)?.status === false ||
+    (cashbackData as any)?.success === false;
+
+  const totalCashbackVal = isCashbackNotFound ? 0 : (cashbackDetails?.totalFinalCashback ?? 0);
+
   const monthlyBreakdown = useMemo(() => {
     return activeMonths.map((m, mIdx) => {
       let monthlyEstimasiSales = 0;
@@ -331,34 +346,25 @@ export function SalesCounterLineItemEditor({
         monthlyNilaiSc += valScPerMonth;
       }
 
+      const mCashback = isCashbackNotFound
+        ? 0
+        : (cashbackDetails?.monthlyStats?.[mIdx]?.totalCashbackThisMonth ?? 0);
+
       return {
         month: m,
         label: formatMonthLabel(m),
         estimasiSales: monthlyEstimasiSales,
         nilaiSc: monthlyNilaiSc,
+        nilaiCashback: mCashback,
       };
     });
-  }, [activeMonths, selectedProducts, products, canvasserProducts]);
+  }, [activeMonths, selectedProducts, products, canvasserProducts, isCashbackNotFound, cashbackDetails]);
 
   const totalMonthlyEstimasiSales = monthlyBreakdown.reduce((sum, item) => sum + item.estimasiSales, 0);
   const totalMonthlyNilaiSc = monthlyBreakdown.reduce((sum, item) => sum + item.nilaiSc, 0);
 
   const totalEstimasiSales = totalMonthlyEstimasiSales;
   const totalNilaiSc = totalMonthlyNilaiSc;
-
-  const isCashbackNotFound =
-    !cashbackData ||
-    (cashbackData as any)?.message === "Gudang Tidak Ditemukan" ||
-    (typeof (cashbackData as any)?.message === "string" &&
-      ((cashbackData as any).message.toLowerCase().includes("tidak ditemukan") ||
-        (cashbackData as any).message.toLowerCase().includes("gudang"))) ||
-    (typeof (cashbackData as any)?.data?.message === "string" &&
-      ((cashbackData as any).data.message.toLowerCase().includes("tidak ditemukan") ||
-        (cashbackData as any).data.message.toLowerCase().includes("gudang"))) ||
-    (cashbackData as any)?.status === false ||
-    (cashbackData as any)?.success === false;
-
-  const totalCashbackVal = isCashbackNotFound ? 0 : (cashbackDetails?.totalFinalCashback ?? 0);
 
   const totalDiskonVal = selectedProducts.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
@@ -1427,6 +1433,7 @@ export function SalesCounterLineItemEditor({
           salesOnlineData={salesOnlineData}
           surveyData={surveyData}
           surveyNexusData={surveyNexusData}
+          healthyOneData={healthyOneData}
           rekomendasiProduk={rekomendasiProduk}
           masterProducts={products}
           canvasserProducts={canvasserProducts}

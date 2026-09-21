@@ -13,6 +13,7 @@ export interface ScSidebarProps {
   rekomendasiProduk?: any[];
   masterProducts?: any[];
   canvasserProducts?: any[];
+  healthyOneData?: any[];
   selectedProductCodes?: Set<string>;
   onSelectProduct?: (code: string) => void;
 }

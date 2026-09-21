@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { HeaderInfo } from "@/components/ui/HeaderInfo";
 
 import { formatRp, formatQtySales } from "./utils/formatEditUtils";
+import { formatUb } from "../utils/competitorAnalysisUtils";
 import { formatMonthKey } from "./utils/periodUtils";
 import { getHnaForProduct } from "./utils/productMatcherUtils";
 import { SIDEBAR_BLUE, SIDEBAR_GREEN, SIDEBAR_RED } from "./constants/sidebarColors";
@@ -90,6 +91,7 @@ export function ScSidebar({
   rekomendasiProduk = [],
   masterProducts = [],
   canvasserProducts = [],
+  healthyOneData = [],
   selectedProductCodes = new Set<string>(),
   onSelectProduct,
 }: ScSidebarProps) {
@@ -118,6 +120,7 @@ export function ScSidebar({
     surveyData,
     surveyNexusData,
     historySalesData,
+    healthyOneData,
     selectedProductCodes,
   });
 
@@ -1008,7 +1011,7 @@ export function ScSidebar({
                                     </span>
                                   </div>
                                   <span className="font-bold shrink-0" style={{ color: "var(--color-text)" }}>
-                                    {sc.salesForecast} UB
+                                    {formatUb(sc.salesForecast)} UB
                                   </span>
                                 </div>
                               ))}
@@ -1035,7 +1038,7 @@ export function ScSidebar({
                                     </span>
                                   </div>
                                   <span className="font-bold shrink-0" style={{ color: "var(--color-text)" }}>
-                                    {item.healthyOneUb} UB
+                                    {formatUb(item.healthyOneUb)} UB
                                   </span>
                                 </div>
                               )}

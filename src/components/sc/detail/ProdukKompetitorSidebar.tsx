@@ -1,6 +1,6 @@
 "use client";
 
-import { formatQtySales } from "../utils/competitorAnalysisUtils";
+import { formatQtySales, formatUb } from "../utils/competitorAnalysisUtils";
 import { useCompetitorAnalysis } from "./hooks/useCompetitorAnalysis";
 import { COMPETITOR_FILTER_TABS } from "./constants/competitorFilterTabs";
 
@@ -14,6 +14,7 @@ interface ProdukKompetitorSidebarProps {
   isLoadingSalesOnline?: boolean;
   periodLabel?: string;
   surveyNexusData?: any;
+  healthyOneData?: any[];
 }
 
 export function ProdukKompetitorSidebar({
@@ -26,6 +27,7 @@ export function ProdukKompetitorSidebar({
   isLoadingSalesOnline = false,
   periodLabel,
   surveyNexusData,
+  healthyOneData = [],
 }: ProdukKompetitorSidebarProps) {
   const {
     kompetitorFilter,
@@ -42,6 +44,7 @@ export function ProdukKompetitorSidebar({
     salesOnlineData,
     selectedCodes,
     surveyNexusData,
+    healthyOneData,
   });
 
   if (!isOpen) return null;
@@ -342,7 +345,7 @@ export function ProdukKompetitorSidebar({
                                   className="font-bold shrink-0 text-[10px]"
                                   style={{ color: "var(--color-text)" }}
                                 >
-                                  {sc.salesForecast} UB
+                                  {formatUb(sc.salesForecast)} UB
                                 </span>
                               </div>
                             ))
@@ -391,7 +394,7 @@ export function ProdukKompetitorSidebar({
                               className="font-bold shrink-0 text-[10px]"
                               style={{ color: "var(--color-text)" }}
                             >
-                              {item.healthyOneUb} UB
+                              {formatUb(item.healthyOneUb)} UB
                             </span>
                           </div>
                         )}
