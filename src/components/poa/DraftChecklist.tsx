@@ -852,13 +852,13 @@ function DoctorRow({
     });
   }
 
-  // Atasan actions (approve/reject/fast-track/cancel) inline in this same row
+  // Atasan actions (approve/reject/cancel) inline in this same row
   // (2026-08-14 request: "kenapa ga dibuat menyatu di draftnya juga" — these
   // used to live in a separate "Tindakan Per Dokter" list below the whole
   // checklist, duplicating the doctor's name). Reject and Cancel each still
   // need their own reason field, so both stay as real <form action> — the
-  // approve/fast-track single-click actions do too, for the same free
-  // pending-state styling a plain onClick handler doesn't get.
+  // approve single-click action does too, for the same free pending-state
+  // styling a plain onClick handler doesn't get.
   const [atasanPanelOpen, setAtasanPanelOpen] = useState(false);
 
   return (
@@ -1143,29 +1143,14 @@ function DoctorRow({
 
       {atasanPanelOpen && doctorActions && (
         <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-blue)" }}>
-          {(doctorActions.canApprove || doctorActions.canFastTrack) && (
+          {doctorActions.canApprove && (
             <div className="flex flex-wrap items-center gap-3">
-              {doctorActions.canApprove && (
-                <form action={doctorActions.approveAction}>
-                  <Button type="submit" size="sm" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
-                    Approve &amp; Teruskan
-                  </Button>
-                </form>
-              )}
-              {doctorActions.canFastTrack && (
-                <form action={doctorActions.fastTrackAction}>
-                  <Button type="submit" size="sm" variant="secondary"
-                    style={{ borderColor: "var(--color-warning, #f59e0b)", color: "var(--color-warning, #f59e0b)" }}>
-                    Approve Langsung (Lewati ASM/SM)
-                  </Button>
-                </form>
-              )}
+              <form action={doctorActions.approveAction}>
+                <Button type="submit" size="sm" style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+                  Approve &amp; Teruskan
+                </Button>
+              </form>
             </div>
-          )}
-          {doctorActions.canFastTrack && (
-            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              Sebagai NSM, Anda bisa langsung menyetujui dokter ini sampai final tanpa menunggu approval ASM/SM.
-            </p>
           )}
           {doctorActions.canApprove && (
             <form action={doctorActions.rejectAction} className="space-y-2">
@@ -1342,7 +1327,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
    * own prop doc. */
   doctorVersions?: Record<string, number>;
   /** kodePI|namaCust -> this viewer's atasan actions for that one doctor
-   * (approve/reject/fast-track/cancel) — see PoaDetailTabs' own prop doc.
+   * (approve/reject/cancel) — see PoaDetailTabs' own prop doc.
    * Absent key means nothing to show for that doctor to this viewer. */
   doctorActions?: Record<string, DoctorActions>;
   /** kodePI|namaCust -> that doctor's edit-lock/request-edit state — see PoaDetailTabs' own prop doc. Computed for every doctor. */

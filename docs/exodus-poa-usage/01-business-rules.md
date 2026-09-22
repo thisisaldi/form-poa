@@ -309,3 +309,31 @@ Setelah ceiling ASM/SM diimplementasikan (update di atas, sesi yang sama), ditem
 `docs/API.md`'s `approveUntil` juga dikoreksi — sebelumnya salah didokumentasikan sebagai raw `PoaStatus` enum value, padahal returnnya short label (`"ASM"`/`"SM"`/`"NSM"`/`"ASD"`/`"SD"`).
 
 **Belum diverifikasi end-to-end**: response nyata `GET /api/poa-doctors` untuk dokter yang genuinely ceiling ASM/SM/ASD/SD belum pernah dicoba sungguhan (masih 0 baris begitu di prod per query di atas) — logic sudah benar secara kode + self-check, tapi belum ada data real yang membuktikannya.
+
+### Update 2026-09-22 — "Approve Langsung (Lewati ASM/SM)" DIHAPUS
+
+Ditemukan saat investigasi hirarki ASD/SD (update berikutnya di bawah): fitur "Approve Langsung" NSM (`fastTrackApproveDoctor`) hardcode langsung ke `APPROVED_BY_NSM`, tidak pernah cek `exodusRequiredRole`/ceiling sama sekali — 30 dokter dengan ceiling ASD/SD sudah terlanjur lolos lewat jalur ini, ceiling ASD/SD-nya kelewat. Aldi minta dihapus (2026-09-22), bukan diperbaiki. **Dihapus total** dari `poaWorkflow.ts` (`fastTrackApproveDoctor`), `authz.ts` (`canFastTrackApproveDoctor`, `PENDING_APPROVAL_STATUSES`), `poa.ts` (`fastTrackApproveDoctorAction`), `poa/[id]/page.tsx`, `PoaDetailTabs.tsx` (`DoctorActions.canFastTrack`/`fastTrackAction`), `DraftChecklist.tsx` (tombol + teks penjelas). Scope POA saja — Sales Counter (SC) punya fast-track sendiri yang terpisah, TIDAK ikut dihapus (belum diminta).
+
+### 🔴 OPEN — hirarki NSM → GM → SD RUSAK di prod, ASD/SD approval akan ERROR
+
+Dicek langsung ke prod (2026-09-22): **semua 300 NSM aktif dan ke-3 GM aktif punya `User.nipAtasan = null`** (harusnya NSM → `nipAtasan` GM, GM → `nipAtasan` P200134/SD, sesuai `scripts/syncGmSdHierarchy.ts` yang menurut update 2026-09-11 di atas "sudah dijalankan + diverifikasi"). Staging BENAR (GM → `nipAtasan: P200134`), prod TIDAK — kemungkinan script itu cuma pernah jalan di staging, tidak pernah di-deploy ke prod, atau ke-reset job lain.
+
+**Dampak nyata**: `resolveNextHolder("ASD")` jalan naik dari owner → ASM → SM → NSM → mentok (NSM.nipAtasan null) → return `null` → `applyDoctorTransition` `throw`. **128 dokter** sekarang `SUBMITTED_TO_NSM` dengan ceiling ASD/SD — begitu NSM klik Approve, approval-nya bakal ERROR di depan user, bukan cuma salah diam-diam.
+
+**🟢 Update 2026-09-22 — dijalankan ke prod, dikonfirmasi Aldi.** `scripts/syncGmSdHierarchy.ts` di-run terhadap prod: `{ gmCreated: 2, gmUpdated: 5, nsmLinked: 16, nsmSkippedNoGmUser: 0, errors: [] }`. 2 GM baru dibuat (HERRY SASONGKO P030132, KAMILO FIDELIANT IQBAL P070810 — ada di MSSQL tapi belum punya User row di POA). Kelima GM aktif sekarang `nipAtasan` → `P200134` (SD/Brian Lembong). 16 dari 300 NSM aktif dapat `nipAtasan` terisi (NIP-nya persis match `NSM_NIP` MSSQL) — 284 sisanya TETAP `null` (NIP tidak match langsung, kemungkinan data dummy/demo atau perlu penelusuran match yang lebih longgar kalau memang nyata). Dokter dengan ceiling ASD/SD yang atasannya termasuk 16 NSM ini sekarang bisa lanjut approve ke ASD/SD tanpa error; yang atasannya di luar 16 itu masih akan kena error `resolveNextHolder` sampai NSM mereka juga ter-link.
+
+### 🔴 OPEN — Approval Level POA Standarisasi berdasar % Diskon Beban Principal (fitur baru, BELUM dikerjakan)
+
+Aldi (2026-09-22): POA Standarisasi juga butuh ceiling approval kayak POA biasa, tapi basisnya bukan Exodus API — dari **% Diskon Beban Principal** (field `PoaStandarisasiProduk.estimasiDiskonPct`, dikonfirmasi — bukan `finalDiscountPct`, karena Approval Atasan jalan sesudah Planning/sebelum Finalisasi jadi `finalDiscountPct` belum terisi saat itu):
+
+| Approval Hingga | % Diskon Beban Principal |
+|---|---|
+| ASM | ≤ 5% |
+| SM | > 5% s/d 10% |
+| NSM | > 10% s/d 20% |
+| ASD | > 20% s/d 30% |
+| SD | > 30% |
+
+**Beda struktural penting dari POA biasa**: approval POA Standarisasi ada di level PENGAJUAN (`PoaStandarisasi.statusApprovalAsm/Sm/Nsm`, fixed 3-tingkat ASM→SM→NSM, tidak ada ASD/SD sama sekali sekarang), BUKAN per-dokter kayak `PoaDoctorApproval`. Satu pengajuan bisa punya banyak `PoaStandarisasiProduk` dengan `estimasiDiskonPct` beda-beda — **BELUM diputuskan** ceiling pengajuan diambil dari diskon TERBESAR di antara semua produk (worst-case) atau tiap produk py jalur approval sendiri (perombakan besar model data). Aldi masih diskusi internal soal ini (2026-09-22) — **implementasi ditunda sampai ini diputuskan**.
+
+Kalau nanti dilanjut, juga bakal kena masalah yang sama dengan item hirarki NSM→GM→SD di atas (POA Standarisasi belum pernah punya approver GM/SD sama sekali).

@@ -3,12 +3,12 @@ import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaSta
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { canView, canEdit, canAddNewDoctor, canEditDoctor, NON_DRAFT_STATUSES,
-  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor,
+  canApproveDoctor, canCancelApprovedDoctor,
   canRequestEditDoctor, canRespondEditRequestDoctor, getEditLockRoleLabelForDoctor, getLastApproverForDoctor } from "@/lib/authz";
 import { computeMonthlyBreakdown, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
 import {
-  approveDoctorAction, rejectDoctorAction, fastTrackApproveDoctorAction, cancelApprovedByNsmDoctorAction,
+  approveDoctorAction, rejectDoctorAction, cancelApprovedByNsmDoctorAction,
   requestEditDoctorAction, grantEditRequestDoctorAction, declineEditRequestDoctorAction } from "@/app/actions/poa";
 import type { PoaDoctorApproval } from "@prisma/client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -142,7 +142,6 @@ export default async function PoaDetailPage({
     [...doctorKeysInDraft.values()].map(async ({ kodePI, namaCust }) => {
       const approval = doctorApprovalByKey.get(`${kodePI}|${namaCust}`) ?? null;
       const canApproveThis = approval ? await canApproveDoctor(actor, approval) : false;
-      const canFastTrackThis = approval ? await canFastTrackApproveDoctor(actor, poa, approval) : false;
       const canCancelThis = approval ? await canCancelApprovedDoctor(actor, poa, approval) : false;
 
       // Per-doctor edit request (docs/poa-per-doctor-approval/, 2026-08-18:
@@ -178,7 +177,7 @@ export default async function PoaDetailPage({
         : null;
 
       return {
-        kodePI, namaCust, approval, canApproveThis, canFastTrackThis, canCancelThis,
+        kodePI, namaCust, approval, canApproveThis, canCancelThis,
         editLockRoleLabelThis, canRequestEditThis, pendingEditRequestThis, lastApproverThis, canRespondEditRequestThis,
         userCanEditThis,
         pendingEditRequestNote: pendingEditRequestThis && lastLogForDoctor?.snapshot && typeof lastLogForDoctor.snapshot === "object" && "notes" in lastLogForDoctor.snapshot
@@ -197,7 +196,7 @@ export default async function PoaDetailPage({
     : [];
   const approverNameByNip = new Map(approverUsers.map((u: { nip: string; name: string }) => [u.nip, u.name]));
 
-  // Atasan actions (approve/reject/fast-track/cancel), keyed the same way as
+  // Atasan actions (approve/reject/cancel), keyed the same way as
   // doctorStatuses so DraftChecklist's DoctorRow can render them inline in
   // the same row instead of a separate "Tindakan Per Dokter" list (2026-08-14
   // request: "kenapa ga dibuat menyatu di draftnya juga"). Bound server
@@ -206,14 +205,12 @@ export default async function PoaDetailPage({
   // instead of rendered right here.
   const doctorActions: Record<string, DoctorActions> = Object.fromEntries(
     doctorRows
-      .filter((d) => d.canApproveThis || d.canFastTrackThis || d.canCancelThis)
+      .filter((d) => d.canApproveThis || d.canCancelThis)
       .map((d) => [`${d.kodePI}|${d.namaCust}`, {
         canApprove: d.canApproveThis,
-        canFastTrack: d.canFastTrackThis,
         canCancel: d.canCancelThis,
         approveAction: approveDoctorAction.bind(null, id, d.kodePI, d.namaCust),
         rejectAction: rejectDoctorAction.bind(null, id, d.kodePI, d.namaCust),
-        fastTrackAction: fastTrackApproveDoctorAction.bind(null, id, d.kodePI, d.namaCust),
         cancelAction: cancelApprovedByNsmDoctorAction.bind(null, id, d.kodePI, d.namaCust),
       }])
   );

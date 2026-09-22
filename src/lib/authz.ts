@@ -788,20 +788,6 @@ export async function canApproveDoctor(user: User, doctor: PoaDoctorApproval): P
   return !(await hasPendingEditRequestForDoctor(doctor.id));
 }
 
-/** Statuses where a doctor is genuinely still awaiting someone's approval. */
-const PENDING_APPROVAL_STATUSES: PoaStatus[] = [
-  PoaStatus.SUBMITTED_TO_ASM,
-  PoaStatus.SUBMITTED_TO_SM,
-  PoaStatus.SUBMITTED_TO_NSM,
-];
-
-/** NSM-only, skips ASM/SM review for THIS doctor only — same "NSM bisa langsung approve" business rule as the (removed) whole-draft version. */
-export async function canFastTrackApproveDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval): Promise<boolean> {
-  if (user.role !== Role.NSM) return false;
-  if (!PENDING_APPROVAL_STATUSES.includes(doctor.status)) return false;
-  return canView(user, poa);
-}
-
 /** Doctor-scoped twin of canCancelApproved — NSM undoes their own approval on THIS doctor only. */
 export async function canCancelApprovedDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval): Promise<boolean> {
   if (user.role !== Role.NSM) return false;

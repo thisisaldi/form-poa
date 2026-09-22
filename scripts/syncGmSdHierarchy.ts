@@ -31,10 +31,16 @@ const SD_NIP = "P200134"; // Brian Lembong
 
 async function main() {
   const pool = await sql.connect(process.env.MSSQL_CONNECTION_STRING!);
+  // Periode filter added 2026-09-22 — table keeps multiple months' snapshots
+  // (e.g. 202608 + 202609 both present); without this, an unfiltered DISTINCT
+  // across periods can pick up a STALE NSM->GM pairing from an older month
+  // alongside the current one (found via cross-check: 23 distinct pairs
+  // unfiltered vs 22 for 202609 alone).
   const { recordset } = await pool.request().query<{ nsm_nip: string; gm_nip: string; gm_nama: string }>(`
     SELECT DISTINCT NSM_NIP nsm_nip, GM_NIP gm_nip, GM_Nama gm_nama
     FROM Struktur_Marketing_PI
-    WHERE NSM_NIP IS NOT NULL AND GM_NIP IS NOT NULL AND GM_Nama NOT LIKE '(VACANT)%'
+    WHERE Periode = (SELECT MAX(Periode) FROM Struktur_Marketing_PI)
+      AND NSM_NIP IS NOT NULL AND GM_NIP IS NOT NULL AND GM_Nama NOT LIKE '(VACANT)%'
   `);
   await pool.close();
 

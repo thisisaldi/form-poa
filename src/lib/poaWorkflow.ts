@@ -8,7 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { canEdit,
-  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor } from "@/lib/authz";
+  canApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor } from "@/lib/authz";
 import { sendEditRequestEmail, sendDoctorStatusEmail } from "@/lib/notifications";
 import { getExodusApprovalLevel } from "@/lib/exodusApi";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
@@ -555,29 +555,13 @@ export async function approveDoctor(
   return applyDoctorTransition(poaId, kodePI, namaCust, actingUserId, transition, existing.status, AuditAction.APPROVE, existing);
 }
 
-/** Doctor-scoped twin of fastTrackApprove. */
-export async function fastTrackApproveDoctor(
-  poaId: string,
-  kodePI: string,
-  namaCust: string,
-  actingUserId: string
-): Promise<PoaDoctorApproval> {
-  const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
-  const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
-  if (!existing) throw new Error(`No pending approval found for doctor ${namaCust} on POA ${poaId}`);
-
-  const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
-  if (!(await canFastTrackApproveDoctor(actingUser, poa, existing))) {
-    throw new Error(`User ${actingUserId} is not authorized to fast-track approve doctor ${namaCust} on POA ${poaId}`);
-  }
-
-  return applyDoctorTransition(
-    poaId, kodePI, namaCust, actingUserId,
-    { toStatus: PoaStatus.APPROVED_BY_NSM, nextHolderRole: null },
-    existing.status, AuditAction.APPROVE, existing,
-    "Fast-track approval oleh NSM — melewati ASM/SM"
-  );
-}
+// fastTrackApproveDoctor ("Approve Langsung (Lewati ASM/SM)") removed
+// 2026-09-22 (Aldi request) — it hardcoded straight to APPROVED_BY_NSM
+// without ever consulting the doctor's exodusRequiredRole ceiling, so a
+// doctor whose real ceiling was ASD/SD got short-circuited to a final NSM
+// approval, silently skipping the ASD/SD escalation Exodus itself asked
+// for (found investigating the ASD/SD hierarchy gap same session — see
+// docs/exodus-poa-usage/01-business-rules.md §11).
 
 /**
  * Doctor-scoped twin of rejectPoa. `category` is required — docs/poa-rejection-categories/

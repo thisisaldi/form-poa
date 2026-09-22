@@ -5,13 +5,13 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUser } from "@/lib/session";
 import {
   createPoaDraft,
-  submitDoctor, approveDoctor, rejectDoctor, fastTrackApproveDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
+  submitDoctor, approveDoctor, rejectDoctor, cancelApprovedByNsmDoctor, requestEditDoctor, grantEditRequestDoctor, declineEditRequestDoctor,
   resolvePoaRollup,
 } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
 import {
   canEdit, canCreatePoa,
-  canApproveDoctor, canFastTrackApproveDoctor, canCancelApprovedDoctor, canRequestEditDoctor, canRespondEditRequestDoctor,
+  canApproveDoctor, canCancelApprovedDoctor, canRequestEditDoctor, canRespondEditRequestDoctor,
 } from "@/lib/authz";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { PoaRejectCategory } from "@prisma/client";
@@ -70,7 +70,7 @@ export async function submitDoctorAction(
 }
 
 // ─── Per-doctor approval actions (docs/poa-per-doctor-approval/) ──────────────
-// approve/reject/fast-track/cancel/request-edit all target ONE doctor
+// approve/reject/cancel/request-edit all target ONE doctor
 // (kodePI + namaCust, same doctorKey used by DraftChecklist.tsx) within the
 // draft — the whole-draft versions these were generalized from (approvePoaAction,
 // rejectPoaAction, fastTrackApproveAction, cancelApprovedByNsmAction,
@@ -94,21 +94,8 @@ export async function approveDoctorAction(poaId: string, kodePI: string, namaCus
   revalidatePath(`/poa/${poaId}`);
 }
 
-export async function fastTrackApproveDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<void> {
-  const session = await requireSession();
-
-  const [poa, doctor] = await Promise.all([
-    prisma.poaForm.findUnique({ where: { id: poaId } }),
-    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
-  ]);
-  if (!poa || !doctor) redirect(`/poa/${poaId}`);
-
-  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canFastTrackApproveDoctor(actor, poa, doctor))) redirect(`/poa/${poaId}`);
-
-  await fastTrackApproveDoctor(poaId, kodePI, namaCust, session.userId);
-  revalidatePath(`/poa/${poaId}`);
-}
+// fastTrackApproveDoctorAction removed 2026-09-22 — see poaWorkflow.ts's
+// comment where fastTrackApproveDoctor used to live for why.
 
 export async function rejectDoctorAction(poaId: string, kodePI: string, namaCust: string, formData: FormData): Promise<void> {
   const session = await requireSession();
