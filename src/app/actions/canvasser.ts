@@ -29,9 +29,9 @@ export async function getSalesCountersAction(piCode: string) {
   return await getSalesCountersByOutlet(piCode);
 }
 
-export async function getSalesCounterProductsAction(piCode: string) {
+export async function getSalesCounterProductsAction(piCode: string, period?: string | null) {
   if (!piCode) return null;
-  const res = await getSalesCounterProduct(piCode);
+  const res = await getSalesCounterProduct(piCode, period);
   if (!res || !Array.isArray(res.data) || res.data.length === 0) {
     return res;
   }
@@ -401,8 +401,11 @@ export async function getScOutletBundleAction(params: {
   outletId: string;
   b3TargetPeriods?: (string | number)[];
   includeEntertain?: boolean;
+  poaPeriod?: string;
+  period?: string;
 }): Promise<ScOutletBundleResult> {
-  const { outletId, b3TargetPeriods, includeEntertain = false } = params;
+  const { outletId, b3TargetPeriods, includeEntertain = false, poaPeriod, period } = params;
+  const targetPeriod = period || poaPeriod;
   if (!outletId) {
     return {
       personsList: [],
@@ -437,7 +440,7 @@ export async function getScOutletBundleAction(params: {
     healthyOneRes,
   ] = await Promise.allSettled([
     getSalesCountersAction(outletId),
-    getSalesCounterProductsAction(outletId),
+    getSalesCounterProductsAction(outletId, targetPeriod),
     getScProductMenangAction(outletId),
     getScProductWithInsentifAction(outletId),
     postHistorySalesAction([outletId], undefined, undefined, true),

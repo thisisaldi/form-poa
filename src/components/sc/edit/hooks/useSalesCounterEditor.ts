@@ -213,6 +213,7 @@ export function useSalesCounterEditor({
     getScOutletBundleAction({
       outletId,
       b3TargetPeriods: b3Info?.targetPeriods,
+      poaPeriod,
     })
       .then((bundle) => {
         if (isCancelled) return;

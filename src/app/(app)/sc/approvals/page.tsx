@@ -129,6 +129,13 @@ export default async function SalesCounterApprovalsPage({
   const outletCodes = Array.from(new Set(pendingForms.map((f: PendingPoaScWithIncludes) => f.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
 
+  const outletPeriodMap = new Map<string, string>();
+  for (const f of pendingForms) {
+    if (f.kodePI && f.period && !outletPeriodMap.has(f.kodePI)) {
+      outletPeriodMap.set(f.kodePI, f.period);
+    }
+  }
+
   const [masterProducts, blastInSet, rawOutlets] = await Promise.all([
     allProductCodes.length > 0
       ? (prisma.product.findMany({
@@ -148,7 +155,7 @@ export default async function SalesCounterApprovalsPage({
     Promise.all(
       outletCodes.map(async (kodePI: string) => {
         try {
-          const res = await getSalesCounterProduct(kodePI);
+          const res = await getSalesCounterProduct(kodePI, outletPeriodMap.get(kodePI));
           if (res?.data) {
             for (const cp of res.data) {
               canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {

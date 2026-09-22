@@ -162,7 +162,7 @@ export async function GET(
     outletCodes.map(async (kodePI: string) => {
       try {
         const [res, cbRes] = await Promise.all([
-          getSalesCounterProduct(kodePI).catch(() => null),
+          getSalesCounterProduct(kodePI, targetPeriod).catch(() => null),
           getScCashbackPoa(kodePI).catch(() => null),
         ]);
         if (res?.data) {

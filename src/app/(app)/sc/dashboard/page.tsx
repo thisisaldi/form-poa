@@ -104,12 +104,19 @@ export default async function SalesCounterDashboardPage({
   const outletCodes = Array.from(new Set(scForms.map((f: any) => f.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
 
+  const outletPeriodMap = new Map<string, string>();
+  for (const f of scForms) {
+    if (f.kodePI && f.period && !outletPeriodMap.has(f.kodePI)) {
+      outletPeriodMap.set(f.kodePI, f.period);
+    }
+  }
+
   const [cashbackData] = await Promise.all([
     getScCashbackPoa(),
     Promise.all(
       outletCodes.map(async (kodePI: string) => {
         try {
-          const res = await getSalesCounterProduct(kodePI);
+          const res = await getSalesCounterProduct(kodePI, outletPeriodMap.get(kodePI));
           if (res?.data) {
             for (const cp of res.data) {
               canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {

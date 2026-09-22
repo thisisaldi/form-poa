@@ -120,7 +120,7 @@ export function useSalesCounterOutletData({
     setIsLoadingB3(true);
 
     Promise.all([
-      getSalesCounterProductsAction(draft.kodePI).catch(() => null),
+      getSalesCounterProductsAction(draft.kodePI, draft.period || draft.periodeAwal || poaId).catch(() => null),
       postHistorySalesAction([draft.kodePI], b3Info.targetPeriods).catch(() => null),
     ])
       .then(([scProdsRes, historyRes]) => {

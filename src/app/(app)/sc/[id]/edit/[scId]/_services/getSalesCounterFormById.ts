@@ -40,7 +40,7 @@ export async function getSalesCounterFormById(
     isOutletBlastIn(form.kodePI).catch(() => false),
     getSalesCounterOutletsDirect(form.owner.nip || form.ownerId || sessionUserId).catch(() => []),
     getSalesCountersByOutlet(form.kodePI).catch(() => ({ data: [] })),
-    getSalesCounterProduct(form.kodePI).catch(() => null),
+    getSalesCounterProduct(form.kodePI, form.period).catch(() => null),
   ]);
 
   const targetOutlet = rawOutlets.find((o) => o.kodePI === form.kodePI);
