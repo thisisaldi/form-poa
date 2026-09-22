@@ -388,9 +388,14 @@ export function ProductMobileCard({
             </div>
           )}
           {masterProduct?.zatAktif && (
-            <div className="flex items-center justify-between text-[11px] gap-2">
-              <span className="shrink-0" style={{ color: "var(--color-text-muted)" }}>Zat Aktif:</span>
-              <span className="font-medium truncate max-w-[200px]" style={{ color: "var(--color-text)" }}>
+            <div className="text-[11px] space-y-0.5">
+              <span className="block text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+                Zat Aktif:
+              </span>
+              <span
+                className="font-medium block leading-snug break-words"
+                style={{ color: "var(--color-text)" }}
+              >
                 {masterProduct.zatAktif}
               </span>
             </div>

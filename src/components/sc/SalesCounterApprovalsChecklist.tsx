@@ -495,7 +495,7 @@ export function SalesCounterApprovalsChecklist({
                             >
                               <div className="min-w-0 pr-2">
                                 <span
-                                  className="font-semibold text-xs line-clamp-2 sm:line-clamp-1 sm:truncate block"
+                                  className="font-semibold text-xs truncate block"
                                   style={{ color: "var(--color-text)" }}
                                   title={outletTitle}
                                 >

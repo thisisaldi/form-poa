@@ -91,15 +91,24 @@ export function Combobox({
     );
   }, [options, query]);
 
+  const effectiveMaxVisible = useMemo(() => {
+    if (!value) return maxVisible;
+    const idx = filtered.findIndex((o) => o.value === value);
+    return idx >= 0 ? Math.max(maxVisible, idx + 20) : maxVisible;
+  }, [value, filtered, maxVisible]);
+
   // Visible slice — capped to avoid rendering hundreds of DOM nodes (override via maxVisible)
-  const visibleOptions = filtered.length > maxVisible ? filtered.slice(0, maxVisible) : filtered;
+  const visibleOptions = filtered.length > effectiveMaxVisible ? filtered.slice(0, effectiveMaxVisible) : filtered;
   const hiddenCount = filtered.length - visibleOptions.length;
 
   // Scroll highlighted item into view
   useEffect(() => {
     if (!open) return;
-    const item = listRef.current?.querySelector(`[data-option-idx="${highlighted}"]`) as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
+    const rafId = requestAnimationFrame(() => {
+      const item = listRef.current?.querySelector(`[data-option-idx="${highlighted}"]`) as HTMLElement | undefined;
+      item?.scrollIntoView({ block: "nearest" });
+    });
+    return () => cancelAnimationFrame(rafId);
   }, [highlighted, open]);
 
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
@@ -107,11 +116,37 @@ export function Combobox({
   const updateMenuPosition = useCallback(() => {
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const isMobile = viewportWidth < 640;
+
+      let left = rect.left;
+      let width: number | string | undefined = undefined;
+      let minWidth: number | string;
+      let maxWidth: number | string;
+
+      if (isMobile) {
+        const sideMargin = Math.min(Math.max(rect.left, 12), 32);
+        left = sideMargin;
+        const mobileWidth = Math.max(160, viewportWidth - sideMargin * 2);
+        width = mobileWidth;
+        minWidth = mobileWidth;
+        maxWidth = mobileWidth;
+      } else {
+        // Desktop: sama persis seperti sebelum diubah
+        left = rect.left;
+        width = undefined;
+        minWidth = Math.max(rect.width, 220);
+        maxWidth = "min(28rem, 90vw)";
+      }
+
       setMenuStyle({
         position: "fixed",
         top: rect.bottom + 4,
-        left: rect.left,
-        minWidth: Math.max(rect.width, 220),
+        left,
+        width,
+        minWidth,
+        maxWidth,
+        boxSizing: "border-box",
         zIndex: 9999,
       });
     }
@@ -156,6 +191,14 @@ export function Combobox({
     [onChange]
   );
 
+  const openMenu = useCallback(() => {
+    updateMenuPosition();
+    const selectedIdx = options.findIndex((o) => o.value === value);
+    setHighlighted(selectedIdx >= 0 ? selectedIdx : 0);
+    setOpen(true);
+    setQuery("");
+  }, [options, value, updateMenuPosition]);
+
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     updateMenuPosition();
     setQuery(e.target.value);
@@ -165,14 +208,14 @@ export function Combobox({
   }
 
   function handleInputFocus() {
-    updateMenuPosition();
-    setOpen(true);
-    setQuery("");
+    openMenu();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open) {
-      if (e.key === "ArrowDown" || e.key === "Enter") setOpen(true);
+      if (e.key === "ArrowDown" || e.key === "Enter") {
+        openMenu();
+      }
       return;
     }
     switch (e.key) {
@@ -208,7 +251,10 @@ export function Combobox({
       <div
         className="flex items-center input-field gap-2 cursor-text"
         style={{ padding: 0 }}
-        onClick={() => inputRef.current?.focus()}
+        onClick={() => {
+          if (!open) openMenu();
+          inputRef.current?.focus();
+        }}
       >
         <input
           ref={inputRef}
@@ -229,12 +275,22 @@ export function Combobox({
         />
         {/* Chevron icon */}
         <span
-          className="pr-2.5 text-xs shrink-0 transition-transform duration-150"
+          className="pr-2.5 text-xs shrink-0 transition-transform duration-150 cursor-pointer"
           style={{
             color: "var(--color-text-faint)",
             transform: open ? "rotate(180deg)" : "rotate(0deg)",
           }}
           aria-hidden
+          onClick={(e) => {
+            e.stopPropagation();
+            if (open) {
+              setOpen(false);
+              setQuery("");
+            } else {
+              openMenu();
+              inputRef.current?.focus();
+            }
+          }}
         >
           ▾
         </span>
@@ -246,12 +302,12 @@ export function Combobox({
           ref={listRef}
           role="listbox"
           onMouseDown={(e) => e.preventDefault()}
-          className="w-max rounded-md border shadow-lg overflow-auto"
+          className="w-max rounded-md border shadow-lg overflow-auto box-border"
           style={{
             background: "var(--color-bg)",
             borderColor: "var(--color-border)",
             maxHeight: "14rem",
-            maxWidth: "min(28rem, 90vw)",
+            boxSizing: "border-box",
             ...menuStyle,
           }}
         >
@@ -292,7 +348,7 @@ export function Combobox({
                         aria-selected={isSelected}
                         onClick={() => select(option)}
                         onMouseEnter={() => setHighlighted(i)}
-                        className="flex items-center gap-2 px-3 py-2 cursor-pointer"
+                        className="flex items-start gap-2 px-3 py-2 cursor-pointer transition-colors"
                         style={{
                           background: isHighlighted
                             ? "var(--color-blue)"
@@ -305,12 +361,12 @@ export function Combobox({
                         }}
                       >
                         {option.accent && !isHighlighted && (
-                          <span className="shrink-0" style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span>
+                          <span className="shrink-0 mt-0.5" style={{ color: "var(--color-blue)", fontSize: 15, fontWeight: 700 }}>★</span>
                         )}
                         <span className="flex-1 min-w-0">
-                          <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="flex items-start gap-1.5 min-w-0 flex-wrap">
                             <span
-                              className="text-sm font-medium truncate"
+                              className="text-sm font-medium whitespace-normal break-words leading-snug"
                               style={{ color: isHighlighted ? "#fff" : option.accent ? "var(--color-blue)" : "var(--color-text)" }}
                             >
                               {option.label}
@@ -446,7 +502,7 @@ export function Combobox({
                           </span>
                           {option.sublabel && (
                             <span
-                              className="block text-xs whitespace-pre-line"
+                              className="block text-xs whitespace-normal break-words mt-0.5 leading-snug"
                               style={{ color: isHighlighted ? "rgba(255,255,255,0.8)" : "var(--color-text-muted)" }}
                             >
                               {option.sublabel}
@@ -455,7 +511,7 @@ export function Combobox({
                         </span>
                         {isSelected && (
                           <span
-                            className="text-xs shrink-0"
+                            className="text-xs shrink-0 mt-0.5 font-bold"
                             style={{ color: isHighlighted ? "#fff" : "var(--color-blue)" }}
                           >
                             ✓

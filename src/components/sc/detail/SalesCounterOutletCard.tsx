@@ -8,6 +8,7 @@ import { BlastInTable } from "../edit/BlastInTable";
 import { PosmTable } from "../edit/PosmTable";
 import { ProdukKompetitorSidebar } from "./ProdukKompetitorSidebar";
 import { InfoTooltip } from "../edit/ProductSelector";
+import { HoverTextTooltip } from "@/components/sc/ui";
 import { REJECT_CATEGORY_LABELS, REJECT_CATEGORY_OPTIONS } from "./constants/rejectCategories";
 import { useSalesCounterOutletActions } from "./hooks/useSalesCounterOutletActions";
 import { useSalesCounterOutletData } from "./hooks/useSalesCounterOutletData";
@@ -241,7 +242,22 @@ export function SalesCounterOutletCard({
         border: "1px solid var(--color-border)",
       }}
     >
-      {/* Top Section: Checkbox + Outlet Name & Status */}
+      {/* Mobile Top Row: Checkbox (kiri) & Status Badge (kanan di atas judul) */}
+      <div className={`flex sm:hidden items-center ${selectable ? "justify-between" : "justify-end"} gap-2 mb-1.5`}>
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={onToggle}
+            className="h-4 w-4 shrink-0 rounded cursor-pointer"
+            style={{ accentColor: "var(--color-blue)" }}
+            title="Pilih outlet untuk statistik, export, atau pengajuan"
+          />
+        )}
+        <StatusBadge status={draft.status} version={draft.version} />
+      </div>
+
+      {/* Top Section: Checkbox (desktop) + Outlet Name & Status */}
       <div className="flex items-start gap-3 justify-between">
         <div className="flex items-start gap-2.5 min-w-0 flex-1">
           {selectable && (
@@ -249,7 +265,7 @@ export function SalesCounterOutletCard({
               type="checkbox"
               checked={checked}
               onChange={onToggle}
-              className="h-4 w-4 shrink-0 rounded mt-0.5 cursor-pointer"
+              className="hidden sm:block h-4 w-4 shrink-0 rounded mt-0.5 cursor-pointer"
               style={{ accentColor: "var(--color-blue)" }}
               title="Pilih outlet untuk statistik, export, atau pengajuan"
             />
@@ -262,35 +278,40 @@ export function SalesCounterOutletCard({
               ? [draft.kodePI, headerQuarter, draft.namaOutlet].filter(Boolean).join(" - ")
               : `${draft.kodePI ? `${draft.kodePI} · ` : ""}${draft.namaOutlet}`;
 
+            const fullMrScText = `${draft.ownerName ? `MR: ${draft.ownerName}${draft.ownerNip ? ` (${draft.ownerNip})` : ""} • ` : ""}SC: ${canvasserNames || "Tidak ada SC"}`;
+
             return (
               <div className="min-w-0 flex-1">
                 <span
                   className={`text-sm font-semibold leading-snug block ${
-                    isPiQuarterOutletFormat
-                      ? "line-clamp-2 sm:line-clamp-1 sm:truncate"
-                      : "break-words"
+                    isPiQuarterOutletFormat ? "break-words sm:truncate" : "break-words"
                   }`}
                   style={{ color: "var(--color-text)" }}
                   title={headerFullTitle}
                 >
                   {headerFullTitle}
                 </span>
-                <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                <HoverTextTooltip
+                  text={fullMrScText}
+                  className="text-xs font-medium mt-0.5 block cursor-default whitespace-normal break-words sm:truncate"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
                   {draft.ownerName && (
-                    <span>
+                    <span className="inline">
                       MR: <strong className="font-semibold" style={{ color: "var(--color-text)" }}>{draft.ownerName}</strong>
                       {draft.ownerNip && <span className="font-normal opacity-75"> ({draft.ownerNip})</span>}
                       <span className="mx-1.5 opacity-40">•</span>
                     </span>
                   )}
-                  SC: {canvasserNames || "Tidak ada SC"}
-                </p>
+                  <span className="inline-block sm:inline">SC: {canvasserNames || "Tidak ada SC"}</span>
+                </HoverTextTooltip>
               </div>
             );
           })()}
         </div>
 
-        <div className="shrink-0 pt-0.5">
+        {/* Status Badge (desktop) */}
+        <div className="hidden sm:block shrink-0 pt-0.5">
           <StatusBadge status={draft.status} version={draft.version} />
         </div>
       </div>
