@@ -8,27 +8,33 @@
 
 ### Status (`PoaStatus` enum, `schema.prisma:27-36`)
 
+⚠️ **Bagian "State machine"/"Alur khusus" di bawah ini menjelaskan model WHOLE-DRAFT LAMA** (`approvePoa`/`fastTrackApprove`/`rejectPoa`/dst di level `PoaForm`) — fungsi-fungsi itu **sudah dihapus total** sejak refactor per-dokter 2026-08-13/08-18 (lihat `docs/poa-per-doctor-approval/`, sumber kebenaran sekarang untuk approve/reject/cancel/request-edit, semuanya di level `PoaDoctorApproval`, bukan `PoaForm`). Ditambah lagi, rantai approval-nya sendiri sudah diperluas dari ASM→SM→NSM fixed menjadi kondisional sampai ASD/SD berdasar ceiling dari Exodus, dan ceiling itu sejak **2026-09-22** juga bisa berhenti di ASM/SM saja (lihat `docs/exodus-poa-usage/01-business-rules.md` §9/§11). **"Fast-track approve" NSM di bawah ini SUDAH DIHAPUS 2026-09-22** (Aldi: melompati ceiling ASD/SD tanpa dicek sama sekali — bug, bukan fitur yang dipertahankan), tidak ada penggantinya. Narasi di bawah dipertahankan apa adanya sebagai catatan historis (arsitektur lama), BUKAN referensi kode aktual — baca `docs/poa-per-doctor-approval/` + `docs/exodus-poa-usage/` untuk perilaku sekarang.
+
 | Status | Arti |
 |---|---|
 | DRAFT | Owner masih menyusun, belum ada pihak lain yang terlibat |
 | SUBMITTED_TO_ASM | Menunggu review ASM |
-| APPROVED_BY_ASM | **Legacy/nyaris tidak pernah terjadi** — `approvePoa` sekarang langsung melompat ke status SUBMITTED_TO_ berikutnya (`poaWorkflow.ts:62-67`) |
+| APPROVED_BY_ASM | Fully approved kalau ceiling dokter ini = ASM (2026-09-22) — sebelumnya legacy/nyaris tidak pernah terjadi, sekarang status terminal genuine untuk sebagian dokter |
 | SUBMITTED_TO_SM | Menunggu review SM |
-| APPROVED_BY_SM | Sama seperti APPROVED_BY_ASM, legacy |
+| APPROVED_BY_SM | Sama seperti APPROVED_BY_ASM — terminal genuine kalau ceiling = SM |
 | SUBMITTED_TO_NSM | Menunggu review NSM |
-| APPROVED_BY_NSM | Fully approved, `currentHolderId` null |
+| APPROVED_BY_NSM | Fully approved (ceiling NSM, default), `currentHolderId` null |
+| SUBMITTED_TO_ASD | Menunggu review ASD (role DB `GM`) — cuma dicapai kalau ceiling dokter ini ASD/SD |
+| APPROVED_BY_ASD | Fully approved kalau ceiling = ASD |
+| SUBMITTED_TO_SD | Menunggu review SD (Brian Lembong, `P200134`, satu-satunya) |
+| APPROVED_BY_SD | Fully approved, ceiling tertinggi |
 | REVISI | Kembali ke owner, harus direvisi & disubmit ulang |
 
-### State machine (`src/lib/poaWorkflow.ts:15-68`)
+### State machine (historis — lihat catatan ⚠️ di atas)
 
 - **Submit pertama** (`firstSubmitTransition`, `:47-55`) — target-nya 1 level DI ATAS role owner sendiri. Normal: MR→ASM. Apabila ASM/SM yang menjadi owner (kasus tim vacant), langsung melompat ke atasan mereka sendiri.
 - **Approve** (`approvePoa`, `:213-232`) — langsung SUBMITTED_TO_ASM→SUBMITTED_TO_SM→SUBMITTED_TO_NSM→APPROVED_BY_NSM, TIDAK ada langkah "submit ke atas" terpisah. Hanya current holder yang boleh memanggilnya (`canApprove`, `authz.ts:353-361`).
 - **`resolveNextHolder`** (`:84-95`) — berjalan melalui `nipAtasan`, mencari user aktif pertama di level target atau di atasnya — otomatis menangani level yang vacant.
 - Tiap transisi menulis `PoaAuditLog` dan mengirim email (`sendPoaStatusEmail`, `:142-167`). Kegagalan pengiriman email bersifat fire-and-forget — error hanya di-log (`console.error`, `poaWorkflow.ts:165-167`), TIDAK membatalkan transisi status yang sudah ditulis dalam transaksi database.
 
-### Alur khusus
+### Alur khusus (historis — lihat catatan ⚠️ di atas)
 
-- **Fast-track approve** (`fastTrackApprove`, `:241-260`) — **NSM-only**, melompat dari status pending manapun langsung ke APPROVED_BY_NSM, skip ASM/SM. Gate: `canFastTrackApprove` (`authz.ts:380-384`), membutuhkan status di `{SUBMITTED_TO_ASM, SUBMITTED_TO_SM, SUBMITTED_TO_NSM}` DAN POA berada di subtree NSM tersebut. Keputusan bisnis (2026-07-23): "NSM bisa langsung approve tanpa harus ke ASM atau SM dulu."
+- ~~**Fast-track approve**~~ — **DIHAPUS 2026-09-22**, lihat catatan ⚠️ di atas.
 - **Reject** (`rejectPoa`, `:268-288`) — current holder manapun reject → REVISI, wajib mengisi alasan, `AuditAction.REJECT`.
 - **Cancel Approved by NSM** (`cancelApprovedByNsm`, `:300-320`) — NSM membatalkan approval-nya sendiri → REVISI. Gate: `canCancelApproved` (`authz.ts:393-397`), hanya valid apabila status persis APPROVED_BY_NSM.
 - **"Ajukan Edit" (permintaan edit)** — `requestEdit` (`:330-358`): owner meminta izin edit kepada approver terakhir, hanya menulis log `REQUEST_EDIT`, tidak mengubah status. `grantEditRequest` (`:368-386`): approver terakhir memberi izin → kembali ke REVISI (efeknya sama seperti membatalkan approval sendiri). `declineEditRequest` (`:393-414`): log `DECLINE_EDIT`, tidak mengubah status. Gate: `canRequestEdit`/`canRespondEditRequest` (`authz.ts:410-426`).
@@ -47,7 +53,20 @@
 
 1 "dokter" = 1 pasangan `(kodePI, namaCust)` (`doctorKey`, `DraftChecklist.tsx:53-55`) — 1 dokter dapat memiliki banyak `PoaLineItem` (1 per produk), berbagi field level-dokter yang sama melalui state `DokterFields` di editor (`LineItemEditor.tsx:120-131`).
 
-## 3. Formula inti
+### 2a. `statusStandarisasi` & "Tarik Data POA Standarisasi" (sebelumnya tidak terdokumentasi)
+
+`statusStandarisasi` (`StatusStandarisasi` enum: `SUDAH_STANDARISASI` / `PROSES_PENGAJUAN` / `BELUM_STANDARISASI` / `TIDAK_TAHU`) di-auto-fill saat produk dipilih (dropdown ATAU klik sidebar), lewat `buildProdukAutofillPatch()`/inline `onChange` (`LineItemEditor.tsx`) — urutan cek pertama yang match menang:
+
+1. **SUDAH**: pernah PSSP di outlet ini (`psspEverProductNames`, cocok nama produk) ATAU label `OutletProductKriteria.kriteriaBaru` diawali `"Produk Sudah Terstandarisasi"`.
+2. **PROSES** (baru 2026-09-22): produk×outlet ini punya pengajuan POA Standarisasi yang sudah dibuat tapi BELUM disubmit (`getStandarisasiProsesKodeByOutletAction` — `PoaStandarisasiProduk` where `pengajuan.submittedAt is null`).
+3. **BELUM**: ada label kriteria tapi bukan "Sudah Terstandarisasi".
+4. Selain itu kosong (MR isi manual, termasuk `TIDAK_TAHU`).
+
+⚠️ Pengajuan POA Standarisasi yang sudah `submittedAt` (fully submitted, bukan cuma Finalisasi) dan DPL aktif (lihat `docs/poa-standarisasi/01-business-rules.md`'s 4-sinyal Baru/Perpanjangan) **BELUM** ikut jadi sinyal SUDAH di sini — beda dari sidebar "Sudah Standarisasi" POA Standarisasi sendiri yang sudah 3-sumber. Baru diselaraskan kalau ada permintaan lanjut.
+
+**"Tarik Data POA Standarisasi"** — dua toggle terpisah, keduanya cuma menulis field `ProdukEntry`/`PoaLineItem` biasa (persisted seperti input manual), bukan referensi live:
+- **Per produk** (2026-09-08, `standarisasiPull`): cuma muncul kalau produk yang SEDANG dipilih di baris itu punya match Finalisasi (`getStandarisasiDataForDokterProdukAction` — outlet+dokter+produk sama, `currentPhase === "FINALISASI"`). Isi Jumlah Pasien/Hari Praktek/Resep ke baris itu saja.
+- **Per dokter** (baru 2026-09-22, `TarikStandarisasiBar`): muncul di atas daftar "Produk yang Dipromosikan", kalau outlet+dokter ini punya SATU ATAU LEBIH baris Finalisasi (`getStandarisasiProdukForDokterAction`). Sekali di-toggle ON, SEMUA produk dari Standarisasi ditambahkan sekaligus ke `produkList` — baris dengan `kodeProduk` sama diisi angkanya, sisanya masuk ke baris kosong pertama atau ditambah baru (`mergeStandarisasiRows`). Status produk yang ditarik otomatis `SUDAH_STANDARISASI`.
 
 | Konsep | Formula | Sumber |
 |---|---|---|

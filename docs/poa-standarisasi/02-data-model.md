@@ -189,6 +189,11 @@ model PoaStandarisasiProduk {
   // di masa depan. Computed di server dari jumlahPasien × resepPerPasienSt ×
   // hargaST(product) — TIDAK trust dari client.
   estimasiQtyPerBulan    Decimal? @db.Decimal(18, 2)
+  // Qty dalam Satuan Jual (SJ), dibulatkan ke ATAS: ceil(estimasiQtyPerBulan /
+  // konversiPembagi) — ditambahkan 2026-09-22, ini yang dipakai tampilan Qty
+  // Dokter/Total di Planning UI dan export Excel, BUKAN estimasiQtyPerBulan
+  // (yang tetap satuan ST mentah, tidak dibulatkan).
+  estimasiQtyUbPerBulan   Int?
   estimasiNilaiRpPerBulan Decimal? @db.Decimal(18, 2)
 
   estimasiDiskonPct   Decimal? @db.Decimal(10, 4)
@@ -256,6 +261,8 @@ model PoaStandarisasiDokterUser {
   // Nilai PER BULAN, sama seperti level produk — computed di server, formula
   // sama (01-business-rules.md §3) — bukan input manual.
   estimasiQtyPerBulan     Decimal? @db.Decimal(18, 2)
+  // Sama seperti di DokterApproval — Qty SJ dibulatkan ke atas, ditambah 2026-09-22.
+  estimasiQtyUbPerBulan   Int?
   estimasiSalesRpPerBulan Decimal? @db.Decimal(18, 2)
 
   entertainRp Decimal? @db.Decimal(18, 2) // manual, tidak ada formula
