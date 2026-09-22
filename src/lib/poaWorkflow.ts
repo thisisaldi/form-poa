@@ -159,18 +159,46 @@ const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
 };
 
 /**
+ * Same chain as approveAtLevel, but skips a pending level entirely when the
+ * SAME PERSON would also be the holder of the level right after it — e.g. an
+ * NSM whose reportsTo walks straight to SD with no GM in between (vacant
+ * intermediate level, see resolveNextHolder's tolerant-of-vacancy design):
+ * approveAtLevel alone would still land on SUBMITTED_TO_ASD/holder=SD-person,
+ * making them click Approve twice (once "as ASD", once "as SD") to confirm
+ * the exact same thing. This walks ahead and, when the next level's holder
+ * equals the level-after's holder, jumps straight past it (2026-09-22 user
+ * request: "kalau orangnya sama... bisa langsung aja ga usah dua kali").
+ * Only ever SKIPS a level whose holder is a true duplicate of the next one —
+ * never changes who the chain would eventually land on.
+ */
+export function collapseApproveChain(poa: PoaForm & { owner: ReportsToChain }, startRole: "ASM" | "SM" | "NSM" | "ASD", ceiling: ChainRole): TransitionTarget {
+  let role = startRole;
+  while (true) {
+    const step = approveAtLevel(role, ceiling);
+    if (!step.nextHolderRole || step.nextHolderRole === "SD") return step; // terminal, or SD has no level after it to compare against
+    const holder = resolveNextHolder(poa, step.nextHolderRole);
+    const afterStep = approveAtLevel(step.nextHolderRole, ceiling);
+    if (holder && afterStep.nextHolderRole) {
+      const afterHolder = resolveNextHolder(poa, afterStep.nextHolderRole);
+      if (afterHolder && afterHolder === holder) { role = step.nextHolderRole; continue; }
+    }
+    return step;
+  }
+}
+
+/**
  * Resolves the real approve-time transition for a doctor — SUBMITTED_TO_NSM
  * and SUBMITTED_TO_ASD are conditional on the doctor's snapshotted approval
  * ceiling (exodusRequiredRole); every other status uses the fixed
  * APPROVE_TRANSITIONS map above, unconditionally, same as before ASD/SD
  * existed.
  */
-function getApproveTransition(status: PoaStatus, exodusRequiredRole: string | null): TransitionTarget | null {
+function getApproveTransition(poa: PoaForm & { owner: ReportsToChain }, status: PoaStatus, exodusRequiredRole: string | null): TransitionTarget | null {
   const ceiling = approvalCeiling(exodusRequiredRole);
-  if (status === PoaStatus.SUBMITTED_TO_ASM) return approveAtLevel("ASM", ceiling);
-  if (status === PoaStatus.SUBMITTED_TO_SM) return approveAtLevel("SM", ceiling);
-  if (status === PoaStatus.SUBMITTED_TO_NSM) return approveAtLevel("NSM", ceiling);
-  if (status === PoaStatus.SUBMITTED_TO_ASD) return approveAtLevel("ASD", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_ASM) return collapseApproveChain(poa, "ASM", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_SM) return collapseApproveChain(poa, "SM", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_NSM) return collapseApproveChain(poa, "NSM", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_ASD) return collapseApproveChain(poa, "ASD", ceiling);
   return APPROVE_TRANSITIONS[status];
 }
 
@@ -549,7 +577,12 @@ export async function approveDoctor(
     throw new Error(`User ${actingUserId} is not authorized to approve doctor ${namaCust} on POA ${poaId}`);
   }
 
-  const transition = getApproveTransition(existing.status, existing.exodusRequiredRole);
+  // collapseApproveChain (inside getApproveTransition) needs the org hierarchy
+  // to peek ahead at who'd hold the level(s) after this one — applyDoctorTransition
+  // below loads its own copy again for the actual holder resolution/write; the
+  // extra fetch is fine here, approve is a user click, not a hot loop.
+  const poaWithHierarchy = await loadPoaWithHierarchy(poaId);
+  const transition = getApproveTransition(poaWithHierarchy, existing.status, existing.exodusRequiredRole);
   if (!transition) throw new Error(`Cannot approve doctor ${namaCust} in status ${existing.status}`);
 
   return applyDoctorTransition(poaId, kodePI, namaCust, actingUserId, transition, existing.status, AuditAction.APPROVE, existing);
