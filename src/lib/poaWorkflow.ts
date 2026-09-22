@@ -77,23 +77,31 @@ const APPROVED_STATUS: Record<ChainRole, PoaStatus> = {
 /**
  * The approval CEILING a doctor must reach, from its snapshotted
  * exodusRequiredRole (PoaDoctorApproval, set once at first submit — see the
- * field's doc comment in schema.prisma). null or anything not recognized as
- * "assistant-sales-director"/"sales-director" behaves exactly like before
- * this field existed: ceiling is NSM, chain terminates there.
+ * field's doc comment in schema.prisma). Recognizes Exodus's real role slugs
+ * ("asm"/"sm"/"assistant-sales-director"/"sales-director") — anything else
+ * (null, "nsm", unrecognized) behaves exactly like before this field
+ * existed: ceiling is NSM, chain terminates there.
  */
 export function approvalCeiling(exodusRequiredRole: string | null): ChainRole {
   if (exodusRequiredRole === "sales-director") return "SD";
   if (exodusRequiredRole === "assistant-sales-director") return "ASD";
+  // Exodus's own "asm"/"sm" — the doctor is fully approved as soon as that
+  // level signs off, same escalate-or-terminate mechanics as ASD/SD below
+  // (2026-09-22 user request: ceiling isn't just NSM-or-higher, Exodus can
+  // also say a submission never needed to climb past ASM/SM at all).
+  if (exodusRequiredRole === "asm") return "ASM";
+  if (exodusRequiredRole === "sm") return "SM";
   return "NSM";
 }
 
 /**
- * Approving at NSM or ASD is the only place the chain can either terminate
- * or continue, depending on the doctor's ceiling — every other step
- * (ASM→SM, SM→NSM, ASD→SD) always continues unconditionally, same as
- * before this field existed (APPROVE_TRANSITIONS below).
+ * Approve at any chain position (ASM/SM/NSM/ASD — SD has no "next", it's
+ * always terminal via APPROVE_TRANSITIONS) — terminates when this level
+ * already meets the doctor's ceiling, else continues to the next level.
+ * Ceiling can now be ASM or SM too (2026-09-22), not just NSM/ASD/SD, so
+ * EVERY step is conditional, not just NSM/ASD as before this change.
  */
-export function approveNsmOrAsd(currentRole: "NSM" | "ASD", ceiling: ChainRole): TransitionTarget {
+export function approveAtLevel(currentRole: "ASM" | "SM" | "NSM" | "ASD", ceiling: ChainRole): TransitionTarget {
   if (CHAIN_LEVEL[ceiling] <= CHAIN_LEVEL[currentRole]) {
     return { toStatus: APPROVED_STATUS[currentRole], nextHolderRole: null };
   }
@@ -106,7 +114,7 @@ export function approveNsmOrAsd(currentRole: "NSM" | "ASD", ceiling: ChainRole):
 // whether this doctor needs to climb past NSM) isn't known until its
 // PoaDoctorApproval row exists, so the very first submit can never aim past
 // NSM — the ASD/SD decision only happens later, when NSM approves
-// (approveNsmOrAsd above).
+// (approveAtLevel above).
 const FIRST_SUBMIT_CHAIN: ("ASM" | "SM" | "NSM")[] = ["ASM", "SM", "NSM"];
 
 /**
@@ -127,12 +135,13 @@ function firstSubmitTransition(ownerRole: string): TransitionTarget {
 }
 
 // Approve goes directly to the next level — no separate "submit upward" step.
-// SUBMITTED_TO_NSM/SUBMITTED_TO_ASD entries below are UNUSED defaults never
-// actually read — getApproveTransition() intercepts those two statuses and
-// computes the real (conditional, ceiling-dependent) target via
-// approveNsmOrAsd instead. Kept here only so this Record stays exhaustive
-// over PoaStatus (TypeScript requirement), matching what "terminate here"
-// looked like before ASD/SD existed.
+// Every SUBMITTED_TO_* entry below is an UNUSED default never actually read —
+// getApproveTransition() intercepts all of them (2026-09-22: was just NSM/ASD,
+// now ASM/SM too since ceiling can land on either) and computes the real
+// (conditional, ceiling-dependent) target via approveAtLevel instead. Kept
+// here only so this Record stays exhaustive over PoaStatus (TypeScript
+// requirement), matching what "terminate here" looked like before ASD/SD
+// existed.
 const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
   [PoaStatus.SUBMITTED_TO_ASM]: { toStatus: PoaStatus.SUBMITTED_TO_SM,  nextHolderRole: "SM"  },
   [PoaStatus.SUBMITTED_TO_SM]:  { toStatus: PoaStatus.SUBMITTED_TO_NSM, nextHolderRole: "NSM" },
@@ -158,8 +167,10 @@ const APPROVE_TRANSITIONS: Record<PoaStatus, TransitionTarget | null> = {
  */
 function getApproveTransition(status: PoaStatus, exodusRequiredRole: string | null): TransitionTarget | null {
   const ceiling = approvalCeiling(exodusRequiredRole);
-  if (status === PoaStatus.SUBMITTED_TO_NSM) return approveNsmOrAsd("NSM", ceiling);
-  if (status === PoaStatus.SUBMITTED_TO_ASD) return approveNsmOrAsd("ASD", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_ASM) return approveAtLevel("ASM", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_SM) return approveAtLevel("SM", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_NSM) return approveAtLevel("NSM", ceiling);
+  if (status === PoaStatus.SUBMITTED_TO_ASD) return approveAtLevel("ASD", ceiling);
   return APPROVE_TRANSITIONS[status];
 }
 

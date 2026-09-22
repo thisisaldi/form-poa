@@ -26,10 +26,13 @@ function MrRow({ poa }: { poa: PendingPoaRow }) {
   const doctorCount = new Set(poa.items.map(doctorKey)).size;
   // Per-doctor approve progress (2026-08-19 bug fix follow-up: "di samping
   // button review ada count berapa yang belum approve dan yang sudah") —
-  // "disetujui" = fully approved to the end (APPROVED_BY_NSM); everything
-  // else (still mid-chain, in REVISI, or not yet submitted at all) counts as
-  // belum, regardless of which stage it's stuck at.
-  const approvedCount = poa.doctorApprovals.filter((a) => a.status === "APPROVED_BY_NSM").length;
+  // "disetujui" = fully approved, i.e. no further holder pending. That's any
+  // APPROVED_BY_* status, not just APPROVED_BY_NSM (2026-09-22 fix: a
+  // doctor whose ceiling is ASM/SM/ASD/SD terminates at THAT status, not
+  // NSM — the old NSM-only check miscounted those as "belum" even though
+  // they were genuinely done). Everything else (still mid-chain, in REVISI,
+  // or not yet submitted at all) counts as belum.
+  const approvedCount = poa.doctorApprovals.filter((a) => a.status.startsWith("APPROVED_BY_")).length;
   const belumCount = doctorCount - approvedCount;
 
   return (
