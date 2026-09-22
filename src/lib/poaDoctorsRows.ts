@@ -78,13 +78,11 @@ export function formatPoaId(seq: number): string {
 // approved" not our internal status). SUBMITTED_TO_X means the level below X
 // already approved, so it maps to that lower level too. null = never
 // approved this cycle (DRAFT/SUBMITTED_TO_ASM/REVISI) — caller drops these.
-// Deliberately NOT extended to ASD/SD (docs/exodus-poa-usage/01-business-rules.md
-// §11) yet — those statuses can't occur in practice until exodusRequiredRole
-// is actually populated (live call still unwired, blocked on pssp_type), and
-// this function's "NSM" return is part of the live GET /api/poa-doctors
-// contract Exodus already consumes — extend together with that wiring, not
-// speculatively ahead of it.
-function approveUntil(status: string): "ASM" | "SM" | "NSM" | null {
+// Extended to ASD/SD (2026-09-22) now that exodusRequiredRole is actually
+// wired live (poaWorkflow.ts fetchExodusRequiredRole, since 2026-09-11) and
+// approvalCeiling can land on ASM/SM/ASD/SD, not just NSM — see isFullyApproved
+// below for which of these actually go out to Exodus.
+function approveUntil(status: string): "ASM" | "SM" | "NSM" | "ASD" | "SD" | null {
   switch (status) {
     case "APPROVED_BY_ASM":
     case "SUBMITTED_TO_SM":
@@ -93,10 +91,28 @@ function approveUntil(status: string): "ASM" | "SM" | "NSM" | null {
     case "SUBMITTED_TO_NSM":
       return "SM";
     case "APPROVED_BY_NSM":
+    case "SUBMITTED_TO_ASD":
       return "NSM";
+    case "APPROVED_BY_ASD":
+    case "SUBMITTED_TO_SD":
+      return "ASD";
+    case "APPROVED_BY_SD":
+      return "SD";
     default:
       return null;
   }
+}
+
+// A doctor is genuinely done — no further holder pending — exactly when its
+// status is one of the APPROVED_BY_* terminal states poaWorkflow.ts's
+// approveAtLevel() sets (2026-09-22: that now includes APPROVED_BY_ASM/SM
+// too, whenever the doctor's Exodus-supplied ceiling is ASM/SM instead of
+// the NSM/ASD/SD assumed before). Checked against prod data (2026-09-22):
+// zero pre-existing APPROVED_BY_ASM/APPROVED_BY_SM rows exist from any
+// earlier flow, so there's no legacy "non-terminal APPROVED_BY_ASM" row this
+// could wrongly surface.
+function isFullyApproved(status: string): boolean {
+  return status.startsWith("APPROVED_BY_");
 }
 
 const toNum = (v: unknown) => parseFloat(String(v ?? 0)) || 0;
@@ -409,11 +425,16 @@ export function buildDoctorRows(
 
   return [...doctorMap.entries()].flatMap(([key, dokter]) => {
     const approval = approvalByKey.get(key);
-    // docs/exodus-poa-usage/ (2026-08-27 revision): Exodus only wants FULLY
-    // (NSM) approved doctors, not any partial ASM/SM approval — stricter
-    // than approveUntil's own range of possible values.
-    const until = approveUntil(approval?.status ?? poa.status);
-    if (until !== "NSM") return [];
+    // docs/exodus-poa-usage/ (2026-08-27 revision, extended 2026-09-22): Exodus
+    // only wants FULLY approved doctors, not any still-pending ASM/SM/NSM/ASD
+    // approval — but "fully approved" now means whatever terminal level the
+    // doctor's own Exodus-supplied ceiling landed on (ASM/SM/NSM/ASD/SD), not
+    // hardcoded to NSM specifically (2026-09-22 fix: a doctor whose ceiling
+    // was ASM/SM used to never appear here at all, even though Exodus itself
+    // said ASM/SM was as far as that submission needed to go).
+    const doctorStatus = approval?.status ?? poa.status;
+    if (!isFullyApproved(doctorStatus)) return [];
+    const until = approveUntil(doctorStatus);
 
     const aktifStats = dokter.kodeCust && dokter.kodePI
       ? computeActivePsspStats(

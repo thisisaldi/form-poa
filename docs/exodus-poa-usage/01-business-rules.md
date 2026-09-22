@@ -299,3 +299,13 @@ Dua hal yang mengubah pemahaman sebelumnya:
 **Bug ikutan yang ditemukan & diperbaiki**: `ApprovalsChecklist.tsx`'s "disetujui" count cuma menghitung `status === "APPROVED_BY_NSM"` — dokter yang fully-approved di ASM/SM/ASD/SD ikut kehitung "belum". Diperbaiki jadi `status.startsWith("APPROVED_BY_")`.
 
 **Belum diverifikasi**: `canApproveDoctor`/tombol Approve di `/poa/[id]` sudah generik terhadap role (GM/SD sudah diterima sebelumnya), tapi status APPROVED_BY_ASM/APPROVED_BY_SM baru sekarang benar-benar bisa jadi status TERMINAL live (sebelumnya cuma "backward compat, unreachable in normal flow") — belum ada end-to-end test nyata untuk kombinasi ceiling ASM/SM.
+
+### Update 2026-09-22 — GET /api/poa-doctors tidak mengembalikan dokter fully-approved di ASM/SM/ASD/SD (ditemukan + diperbaiki)
+
+Setelah ceiling ASM/SM diimplementasikan (update di atas, sesi yang sama), ditemukan gap terpisah: `buildDoctorRows()` (`poaDoctorsRows.ts`) masih hardcode filter `approveUntil === "NSM"` untuk `GET /api/poa-doctors` — dokter yang fully approved di ASM/SM (ceiling baru) ATAU ASD/SD (sudah live sejak 2026-09-11) TIDAK PERNAH muncul di response API ini, meski Exodus sendiri yang bilang levelnya cukup sampai situ. `approveUntil()` juga belum extend ke ASD/SD sama sekali (return `null`, ikut ke-drop).
+
+**Diperbaiki**: filter sekarang `status.startsWith("APPROVED_BY_")` (fungsi baru `isFullyApproved()`) — bukan hardcode `=== "NSM"` — dan `approveUntil()` diperluas mengenali `APPROVED_BY_ASD`/`SUBMITTED_TO_SD`/`APPROVED_BY_SD` juga. Divalidasi ke prod (2026-09-22): 0 baris `PoaDoctorApproval` berstatus `APPROVED_BY_ASM`/`APPROVED_BY_SM` yang sudah ada sebelumnya — jadi tidak ada resiko baris lama non-terminal ikut ke-surface salah oleh fix ini (`status.startsWith("APPROVED_BY_")` aman dipakai sebagai definisi "genuinely done").
+
+`docs/API.md`'s `approveUntil` juga dikoreksi — sebelumnya salah didokumentasikan sebagai raw `PoaStatus` enum value, padahal returnnya short label (`"ASM"`/`"SM"`/`"NSM"`/`"ASD"`/`"SD"`).
+
+**Belum diverifikasi end-to-end**: response nyata `GET /api/poa-doctors` untuk dokter yang genuinely ceiling ASM/SM/ASD/SD belum pernah dicoba sungguhan (masih 0 baris begitu di prod per query di atas) — logic sudah benar secara kode + self-check, tapi belum ada data real yang membuktikannya.
