@@ -26,6 +26,7 @@ export function SalesCounterOutletCard({
   canApprove: parentCanApprove,
   canFastTrack: parentCanFastTrack,
   userRole,
+  headerFormat = "default",
   isKompetitorOpen = false,
   onToggleKompetitor,
   onCloseKompetitor,
@@ -254,14 +255,39 @@ export function SalesCounterOutletCard({
             />
           )}
 
-          <div className="min-w-0 flex-1">
-            <span className="text-sm font-semibold leading-snug break-words block" style={{ color: "var(--color-text)" }}>
-              {draft.kodePI ? `${draft.kodePI} · ` : ""}{draft.namaOutlet}
-            </span>
-            <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-              SC: {canvasserNames || "Tidak ada SC"}
-            </p>
-          </div>
+          {(() => {
+            const isPiQuarterOutletFormat = headerFormat === "pi-quarter-outlet";
+            const headerQuarter = draft.period || poaId || "";
+            const headerFullTitle = isPiQuarterOutletFormat
+              ? [draft.kodePI, headerQuarter, draft.namaOutlet].filter(Boolean).join(" - ")
+              : `${draft.kodePI ? `${draft.kodePI} · ` : ""}${draft.namaOutlet}`;
+
+            return (
+              <div className="min-w-0 flex-1">
+                <span
+                  className={`text-sm font-semibold leading-snug block ${
+                    isPiQuarterOutletFormat
+                      ? "line-clamp-2 sm:line-clamp-1 sm:truncate"
+                      : "break-words"
+                  }`}
+                  style={{ color: "var(--color-text)" }}
+                  title={headerFullTitle}
+                >
+                  {headerFullTitle}
+                </span>
+                <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                  {draft.ownerName && (
+                    <span>
+                      MR: <strong className="font-semibold" style={{ color: "var(--color-text)" }}>{draft.ownerName}</strong>
+                      {draft.ownerNip && <span className="font-normal opacity-75"> ({draft.ownerNip})</span>}
+                      <span className="mx-1.5 opacity-40">•</span>
+                    </span>
+                  )}
+                  SC: {canvasserNames || "Tidak ada SC"}
+                </p>
+              </div>
+            );
+          })()}
         </div>
 
         <div className="shrink-0 pt-0.5">
@@ -425,7 +451,7 @@ export function SalesCounterOutletCard({
 
         <div className="flex items-center gap-2 flex-wrap ml-auto">
           <Link
-            href={`/sc/${poaId}/edit/${draft.id}`}
+            href={`/sc/${poaId || draft.period}/edit/${draft.id}`}
             className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap"
             style={{
               background: "var(--color-blue-light, #eff6ff)",

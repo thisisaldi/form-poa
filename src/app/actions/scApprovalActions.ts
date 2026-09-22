@@ -14,6 +14,83 @@ async function requireSession() {
   return session;
 }
 
+async function resolveSubmitTargetForUser(
+  tx: any,
+  actor: { nip: string; role: string; nipAtasan: string | null }
+): Promise<{ targetStatus: PoaStatus; targetHolderId: string | null }> {
+  if (actor.role === "NSM" || actor.role === "ADMIN") {
+    return { targetStatus: PoaStatus.APPROVED_BY_NSM, targetHolderId: null };
+  }
+
+  // Walk up reportsTo chain to find the nearest active manager
+  let currentNip: string | null = actor.nipAtasan;
+  while (currentNip) {
+    const parent: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
+      await tx.user.findUnique({
+        where: { nip: currentNip },
+        select: { nip: true, role: true, nipAtasan: true, isActive: true },
+      });
+    if (!parent) break;
+
+    if (parent.isActive) {
+      if (actor.role === "MR") {
+        if (parent.role === "ASM") {
+          return { targetStatus: PoaStatus.SUBMITTED_TO_ASM, targetHolderId: parent.nip };
+        }
+        if (parent.role === "SM") {
+          return { targetStatus: PoaStatus.SUBMITTED_TO_SM, targetHolderId: parent.nip };
+        }
+        if (parent.role === "NSM" || parent.role === "ADMIN") {
+          return { targetStatus: PoaStatus.SUBMITTED_TO_NSM, targetHolderId: parent.nip };
+        }
+      } else if (actor.role === "ASM") {
+        if (parent.role === "SM") {
+          return { targetStatus: PoaStatus.SUBMITTED_TO_SM, targetHolderId: parent.nip };
+        }
+        if (parent.role === "NSM" || parent.role === "ADMIN") {
+          return { targetStatus: PoaStatus.SUBMITTED_TO_NSM, targetHolderId: parent.nip };
+        }
+      } else if (actor.role === "SM") {
+        if (parent.role === "NSM" || parent.role === "ADMIN") {
+          return { targetStatus: PoaStatus.SUBMITTED_TO_NSM, targetHolderId: parent.nip };
+        }
+      }
+    }
+    currentNip = parent.nipAtasan;
+  }
+
+  // Fallback only if no active manager was found in reportsTo chain:
+  if (actor.role === "MR") {
+    const fallback = await tx.user.findFirst({
+      where: { isActive: true, role: { in: ["ASM", "SM", "NSM"] } },
+      select: { nip: true, role: true },
+    });
+    if (fallback?.role === "SM") {
+      return { targetStatus: PoaStatus.SUBMITTED_TO_SM, targetHolderId: fallback.nip };
+    }
+    if (fallback?.role === "NSM") {
+      return { targetStatus: PoaStatus.SUBMITTED_TO_NSM, targetHolderId: fallback.nip };
+    }
+    return { targetStatus: PoaStatus.SUBMITTED_TO_ASM, targetHolderId: fallback?.nip || null };
+  } else if (actor.role === "ASM") {
+    const fallback = await tx.user.findFirst({
+      where: { isActive: true, role: { in: ["SM", "NSM"] } },
+      select: { nip: true, role: true },
+    });
+    return {
+      targetStatus: fallback?.role === "NSM" ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.SUBMITTED_TO_SM,
+      targetHolderId: fallback?.nip || null,
+    };
+  } else {
+    // SM
+    const fallback = await tx.user.findFirst({
+      where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
+      select: { nip: true },
+    });
+    return { targetStatus: PoaStatus.SUBMITTED_TO_NSM, targetHolderId: fallback?.nip || null };
+  }
+}
+
 async function resolveHolderForRole(
   tx: any,
   mrUser: { nip: string; nipAtasan: string | null },
@@ -83,27 +160,9 @@ export async function submitSalesCounterFormAction(
         throw new Error("Pengajuan DRAFT hanya dapat dilakukan oleh pemilik dokumen. Atasan tidak dapat mengajukan DRAFT milik bawahan.");
       }
 
-      // Tentukan target status awal berdasarkan role pembuat / actor:
-      // MR -> SUBMITTED_TO_ASM (holder: ASM)
-      // ASM -> SUBMITTED_TO_SM (holder: SM)
-      // SM -> SUBMITTED_TO_NSM (holder: NSM)
-      // NSM/ADMIN -> APPROVED_BY_NSM
-      let defaultTargetStatus: PoaStatus = PoaStatus.SUBMITTED_TO_ASM;
-      let defaultTargetHolderId: string | null = nextHolderId;
-
-      if (actor.role === "ASM") {
-        defaultTargetStatus = PoaStatus.SUBMITTED_TO_SM;
-        defaultTargetHolderId = await resolveHolderForRole(tx, actor, "SM");
-      } else if (actor.role === "SM") {
-        defaultTargetStatus = PoaStatus.SUBMITTED_TO_NSM;
-        defaultTargetHolderId = await resolveHolderForRole(tx, actor, "NSM");
-      } else if (actor.role === "NSM" || actor.role === "ADMIN") {
-        defaultTargetStatus = PoaStatus.APPROVED_BY_NSM;
-        defaultTargetHolderId = null;
-      } else {
-        defaultTargetStatus = PoaStatus.SUBMITTED_TO_ASM;
-        defaultTargetHolderId = (await resolveHolderForRole(tx, actor, "ASM")) || nextHolderId;
-      }
+      // Tentukan target status & holder awal berdasarkan hierarki aktual actor
+      const { targetStatus: defaultTargetStatus, targetHolderId: defaultTargetHolderId } =
+        await resolveSubmitTargetForUser(tx, actor);
 
       for (const form of forms) {
         let targetStatus: PoaStatus = defaultTargetStatus;
@@ -147,19 +206,18 @@ export async function submitSalesCounterFormAction(
               targetHolderId = (lastRevLog.actor?.role === "SM" && lastRevLog.actor.isActive)
                 ? lastRevLog.actorId
                 : await resolveHolderForRole(tx, actor, "SM");
+            } else if (
+              reviserRole === "ASM" ||
+              fromStatus === PoaStatus.SUBMITTED_TO_ASM
+            ) {
+              targetStatus = PoaStatus.SUBMITTED_TO_ASM;
+              targetHolderId = (lastRevLog.actor?.role === "ASM" && lastRevLog.actor.isActive)
+                ? lastRevLog.actorId
+                : await resolveHolderForRole(tx, actor, "ASM");
             } else {
-              if (actor.role === "ASM") {
-                targetStatus = PoaStatus.SUBMITTED_TO_SM;
-                targetHolderId = await resolveHolderForRole(tx, actor, "SM");
-              } else if (actor.role === "SM") {
-                targetStatus = PoaStatus.SUBMITTED_TO_NSM;
-                targetHolderId = await resolveHolderForRole(tx, actor, "NSM");
-              } else {
-                targetStatus = PoaStatus.SUBMITTED_TO_ASM;
-                targetHolderId = (lastRevLog.actor?.role === "ASM" && lastRevLog.actor.isActive)
-                  ? lastRevLog.actorId
-                  : (nextHolderId || await resolveHolderForRole(tx, actor, "ASM"));
-              }
+              const res = await resolveSubmitTargetForUser(tx, actor);
+              targetStatus = res.targetStatus;
+              targetHolderId = res.targetHolderId;
             }
           }
         }
@@ -281,27 +339,61 @@ export async function approveSalesCounterFormAction(
         let nextHolderId: string | null = null;
 
         if (actor.role === "ASM") {
-          let smNip = actor.nipAtasan;
-          if (!smNip) {
-            const sm = await tx.user.findFirst({
+          let nextMgr: { nip: string; role: string } | null = null;
+          let cur: string | null = actor.nipAtasan;
+          while (cur) {
+            const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
+              await tx.user.findUnique({
+                where: { nip: cur },
+                select: { nip: true, role: true, nipAtasan: true, isActive: true },
+              });
+            if (!p) break;
+            if (p.isActive && (p.role === "SM" || p.role === "NSM" || p.role === "ADMIN")) {
+              nextMgr = p;
+              break;
+            }
+            cur = p.nipAtasan;
+          }
+          if (!nextMgr) {
+            nextMgr = await tx.user.findFirst({
               where: { isActive: true, role: { in: ["SM", "NSM"] } },
-              select: { nip: true },
+              select: { nip: true, role: true },
             });
-            smNip = sm?.nip || null;
           }
-          nextStatus = smNip ? PoaStatus.SUBMITTED_TO_SM : PoaStatus.APPROVED_BY_ASM;
-          nextHolderId = smNip;
+          if (nextMgr?.role === "NSM" || nextMgr?.role === "ADMIN") {
+            nextStatus = PoaStatus.SUBMITTED_TO_NSM;
+            nextHolderId = nextMgr.nip;
+          } else if (nextMgr?.role === "SM") {
+            nextStatus = PoaStatus.SUBMITTED_TO_SM;
+            nextHolderId = nextMgr.nip;
+          } else {
+            nextStatus = PoaStatus.APPROVED_BY_ASM;
+            nextHolderId = null;
+          }
         } else if (actor.role === "SM") {
-          let nsmNip = actor.nipAtasan;
-          if (!nsmNip) {
-            const nsm = await tx.user.findFirst({
-              where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
-              select: { nip: true },
-            });
-            nsmNip = nsm?.nip || null;
+          let nextMgr: { nip: string; role: string } | null = null;
+          let cur: string | null = actor.nipAtasan;
+          while (cur) {
+            const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
+              await tx.user.findUnique({
+                where: { nip: cur },
+                select: { nip: true, role: true, nipAtasan: true, isActive: true },
+              });
+            if (!p) break;
+            if (p.isActive && (p.role === "NSM" || p.role === "ADMIN")) {
+              nextMgr = p;
+              break;
+            }
+            cur = p.nipAtasan;
           }
-          nextStatus = nsmNip ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.APPROVED_BY_SM;
-          nextHolderId = nsmNip;
+          if (!nextMgr) {
+            nextMgr = await tx.user.findFirst({
+              where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
+              select: { nip: true, role: true },
+            });
+          }
+          nextStatus = nextMgr ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.APPROVED_BY_SM;
+          nextHolderId = nextMgr?.nip || null;
         } else {
           nextStatus = PoaStatus.APPROVED_BY_NSM;
           nextHolderId = null;

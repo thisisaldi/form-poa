@@ -60,6 +60,8 @@ export interface ScDraftFormItem {
   jumlahPasienResep?: number | null;
   jumlahPasienNonResep?: number | null;
   ownerId: string;
+  ownerName?: string;
+  ownerNip?: string;
   currentHolderId?: string | null;
   is_sc?: boolean;
   isBlastIn?: boolean;

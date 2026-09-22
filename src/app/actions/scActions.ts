@@ -411,43 +411,38 @@ export async function saveSalesCounterFormAction(
             targetHolderId = nsmNip;
           } else {
             // Owner is MR
-            let asmNip = ownerUser?.nipAtasan || null;
-            if (!asmNip) {
-              const asm = await tx.user.findFirst({
+            // Walk up reportsTo to find the active manager and their role
+            let mgr: { nip: string; role: string } | null = null;
+            let curNip: string | null = ownerUser?.nipAtasan || null;
+            while (curNip) {
+              const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
+                await tx.user.findUnique({
+                  where: { nip: curNip },
+                  select: { nip: true, role: true, nipAtasan: true, isActive: true },
+                });
+              if (!p) break;
+              if (p.isActive && ["ASM", "SM", "NSM", "ADMIN"].includes(p.role)) {
+                mgr = p;
+                break;
+              }
+              curNip = p.nipAtasan;
+            }
+            if (!mgr) {
+              mgr = await tx.user.findFirst({
                 where: { isActive: true, role: { in: ["ASM", "SM", "NSM"] } },
-                select: { nip: true },
+                select: { nip: true, role: true },
               });
-              asmNip = asm?.nip || null;
             }
 
-            let smNip: string | null = null;
-            if (asmNip) {
-              const asmUser = await tx.user.findUnique({
-                where: { nip: asmNip },
-                select: { nipAtasan: true },
-              });
-              smNip = asmUser?.nipAtasan || null;
-            }
-            if (!smNip) {
-              const sm = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["SM", "NSM"] } },
-                select: { nip: true },
-              });
-              smNip = sm?.nip || null;
-            }
-
-            if (
-              existing.status === PoaStatus.SUBMITTED_TO_NSM ||
-              existing.status === PoaStatus.APPROVED_BY_SM ||
-              existing.status === PoaStatus.SUBMITTED_TO_SM
-            ) {
-              // Step back from NSM -> back to SM review, or stay at SM review if already at SM (stuck di SM)
+            if (mgr?.role === "SM") {
               targetStatus = PoaStatus.SUBMITTED_TO_SM;
-              targetHolderId = smNip;
+              targetHolderId = mgr.nip;
+            } else if (mgr?.role === "NSM" || mgr?.role === "ADMIN") {
+              targetStatus = PoaStatus.SUBMITTED_TO_NSM;
+              targetHolderId = mgr.nip;
             } else {
-              // Step back from ASM -> back to ASM review
               targetStatus = PoaStatus.SUBMITTED_TO_ASM;
-              targetHolderId = asmNip;
+              targetHolderId = mgr?.nip || null;
             }
           }
         }

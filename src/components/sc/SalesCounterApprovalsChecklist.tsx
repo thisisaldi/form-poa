@@ -4,8 +4,9 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SalesCounterStatsPanel } from "./detail/SalesCounterStatsPanel";
+import { SalesCounterOutletCard } from "./detail/SalesCounterOutletCard";
 import { useSalesCounterDetail } from "./hooks/useSalesCounterDetail";
 import { formatCurrency as formatRp } from "@/lib/format";
 import { approveSalesCounterFormAction } from "@/app/actions/scApprovalActions";
@@ -59,7 +60,14 @@ export function SalesCounterApprovalsChecklist({
 }) {
   const router = useRouter();
   const { showToast } = useScToast();
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const isASM = userRole === "ASM";
+  const isNSM = userRole === "NSM";
+
+  const [selectedOutletIds, setSelectedOutletIds] = useState<Set<string>>(new Set());
+  const [selectedGroupKeys, setSelectedGroupKeys] = useState<Set<string>>(new Set());
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
+  const [activeKompetitorDraftId, setActiveKompetitorDraftId] = useState<string | null>(null);
+
   const [isPending, startTransition] = useTransition();
 
   const { metrics, quarterMonths } = useSalesCounterDetail({
@@ -74,13 +82,35 @@ export function SalesCounterApprovalsChecklist({
     growthPct: 0,
   };
 
-  const isNSM = userRole === "NSM";
-  const allGroupKeys = mrGroups.map((g) => g.groupKey);
-  const allSelected = allGroupKeys.length > 0 && allGroupKeys.every((k) => selectedKeys.has(k));
-  const selectedCount = selectedKeys.size;
+  // Calculations for ASM (Per Outlet)
+  const allOutletIds = scDrafts.map((d) => d.id);
+  const allOutletsSelected = allOutletIds.length > 0 && allOutletIds.every((id) => selectedOutletIds.has(id));
+  const selectedOutletCount = selectedOutletIds.size;
 
-  const toggleKey = (key: string) => {
-    setSelectedKeys((prev) => {
+  // Calculations for SM+ (Per Person / Group)
+  const allGroupKeys = mrGroups.map((g) => g.groupKey);
+  const allGroupsSelected = allGroupKeys.length > 0 && allGroupKeys.every((k) => selectedGroupKeys.has(k));
+  const selectedGroupCount = selectedGroupKeys.size;
+
+  const toggleOutlet = (id: string) => {
+    setSelectedOutletIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOutlets = () => {
+    if (allOutletsSelected) {
+      setSelectedOutletIds(new Set());
+    } else {
+      setSelectedOutletIds(new Set(allOutletIds));
+    }
+  };
+
+  const toggleGroupKey = (key: string) => {
+    setSelectedGroupKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -88,12 +118,21 @@ export function SalesCounterApprovalsChecklist({
     });
   };
 
-  const toggleSelectAll = () => {
-    if (allSelected) {
-      setSelectedKeys(new Set());
+  const toggleSelectAllGroups = () => {
+    if (allGroupsSelected) {
+      setSelectedGroupKeys(new Set());
     } else {
-      setSelectedKeys(new Set(allGroupKeys));
+      setSelectedGroupKeys(new Set(allGroupKeys));
     }
+  };
+
+  const toggleExpandGroup = (key: string) => {
+    setExpandedGroupKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const handlePeriodChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -103,14 +142,20 @@ export function SalesCounterApprovalsChecklist({
   };
 
   const handleBulkApprove = () => {
-    if (selectedCount === 0 || isPending) return;
+    if (isPending) return;
 
-    // Collect all pending poaSc form ids from selected groups
-    const poaScIdsToApprove: string[] = [];
-    for (const g of mrGroups) {
-      if (selectedKeys.has(g.groupKey)) {
-        for (const f of g.forms) {
-          poaScIdsToApprove.push(f.id);
+    let poaScIdsToApprove: string[] = [];
+
+    if (isASM) {
+      if (selectedOutletCount === 0) return;
+      poaScIdsToApprove = Array.from(selectedOutletIds);
+    } else {
+      if (selectedGroupCount === 0) return;
+      for (const g of mrGroups) {
+        if (selectedGroupKeys.has(g.groupKey)) {
+          for (const f of g.forms) {
+            poaScIdsToApprove.push(f.id);
+          }
         }
       }
     }
@@ -125,7 +170,8 @@ export function SalesCounterApprovalsChecklist({
         const res = await approveSalesCounterFormAction(poaScIdsToApprove);
         if (res.ok) {
           showToast(`Berhasil menyetujui ${res.count || poaScIdsToApprove.length} outlet Sales Counter.`, "success");
-          setSelectedKeys(new Set());
+          if (isASM) setSelectedOutletIds(new Set());
+          else setSelectedGroupKeys(new Set());
           router.refresh();
         } else {
           showToast(res.error || "Gagal menyetujui Sales Counter terpilih.", "error");
@@ -136,7 +182,11 @@ export function SalesCounterApprovalsChecklist({
     });
   };
 
-  if (mrGroups.length === 0 && availablePeriods.length === 0) {
+  const hasNoData = isASM
+    ? scDrafts.length === 0 && availablePeriods.length === 0
+    : mrGroups.length === 0 && availablePeriods.length === 0;
+
+  if (hasNoData) {
     return (
       <Card className="p-6 text-center">
         <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
@@ -148,12 +198,12 @@ export function SalesCounterApprovalsChecklist({
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-5 items-start">
-      {/* Sisi Kiri: Daftar MR / ASM */}
+      {/* Sisi Kiri: Daftar Outlet (ASM) atau Daftar Orang (SM+) */}
       <div className="space-y-4 min-w-0">
         {/* Panel statistik di mobile view */}
         <div className="md:hidden">
           <SalesCounterStatsPanel
-            selectedOutletCount={scDrafts.length}
+            selectedOutletCount={isASM && selectedOutletCount > 0 ? selectedOutletCount : scDrafts.length}
             totalOutletCount={scDrafts.length}
             metrics={metrics}
             targetArea={0}
@@ -168,10 +218,16 @@ export function SalesCounterApprovalsChecklist({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[var(--color-border)]">
             <div>
               <p className="font-semibold text-base" style={{ color: "var(--color-text)" }}>
-                {isNSM ? "Daftar ASM" : "Daftar MR"}
+                {isASM
+                  ? "Daftar Outlet Menunggu Approval"
+                  : isNSM
+                  ? "Daftar ASM"
+                  : "Daftar MR"}
               </p>
               <p className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                {isNSM
+                {isASM
+                  ? "Pilih outlet untuk disetujui atau minta revisi secara langsung maupun massal."
+                  : isNSM
                   ? 'Centang ASM, lalu approve sekaligus — atau klik "Review" untuk approve/reject per outlet.'
                   : 'Centang MR, lalu approve sekaligus — atau klik "Review" untuk approve/reject per outlet.'}
               </p>
@@ -200,13 +256,13 @@ export function SalesCounterApprovalsChecklist({
           </div>
 
           {/* Action Bar (Select All & Approve Terpilih) */}
-          {mrGroups.length > 0 && (
+          {((isASM && scDrafts.length > 0) || (!isASM && mrGroups.length > 0)) && (
             <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[var(--color-bg-subtle,#f8fafc)] border border-[var(--color-border)]">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleSelectAll}
+                  checked={isASM ? allOutletsSelected : allGroupsSelected}
+                  onChange={isASM ? toggleSelectAllOutlets : toggleSelectAllGroups}
                   className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                 />
                 <span className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>
@@ -217,10 +273,13 @@ export function SalesCounterApprovalsChecklist({
               <button
                 type="button"
                 onClick={handleBulkApprove}
-                disabled={selectedCount === 0 || isPending}
+                disabled={(isASM ? selectedOutletCount === 0 : selectedGroupCount === 0) || isPending}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-semibold text-white shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 style={{
-                  background: selectedCount > 0 && !isPending ? "#15803d" : "#16a34a",
+                  background:
+                    (isASM ? selectedOutletCount > 0 : selectedGroupCount > 0) && !isPending
+                      ? "#15803d"
+                      : "#16a34a",
                 }}
               >
                 {isPending ? (
@@ -234,7 +293,9 @@ export function SalesCounterApprovalsChecklist({
                 ) : (
                   <>
                     <span className="text-sm font-bold">✓</span>
-                    <span>Approve Terpilih ({selectedCount})</span>
+                    <span>
+                      Approve Terpilih ({isASM ? selectedOutletCount : selectedGroupCount})
+                    </span>
                   </>
                 )}
               </button>
@@ -242,7 +303,7 @@ export function SalesCounterApprovalsChecklist({
           )}
 
           {/* Empty state under filter */}
-          {mrGroups.length === 0 && (
+          {((isASM && scDrafts.length === 0) || (!isASM && mrGroups.length === 0)) && (
             <div className="py-8 text-center">
               <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
                 Tidak ada pengajuan yang cocok dengan filter periode {selectedPeriod}.
@@ -250,119 +311,217 @@ export function SalesCounterApprovalsChecklist({
             </div>
           )}
 
-          {/* List of Cards */}
-          <div className="space-y-4">
-            {mrGroups.map((g) => {
-              const isSelected = selectedKeys.has(g.groupKey);
-              return (
-                <div
-                  key={g.groupKey}
-                  className="rounded-xl border border-[var(--color-border)] p-4 bg-[var(--color-bg-surface,white)] shadow-sm space-y-3 transition-shadow hover:shadow-md"
-                >
-                  {/* Card Header */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleKey(g.groupKey)}
-                        className="mt-1 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-sm font-bold truncate" style={{ color: "var(--color-text)" }}>
+          {/* LIST OF CARDS */}
+          {isASM ? (
+            /* ================= MODE ASM: APPROVAL PER OUTLET ================= */
+            <div className="space-y-3">
+              {scDrafts.map((draft) => (
+                <SalesCounterOutletCard
+                  key={draft.id}
+                  draft={draft}
+                  checked={selectedOutletIds.has(draft.id)}
+                  onToggle={() => toggleOutlet(draft.id)}
+                  selectable={true}
+                  poaId={draft.period}
+                  userCanEdit={false}
+                  isOwner={false}
+                  canApprove={true}
+                  canFastTrack={false}
+                  userRole="ASM"
+                  headerFormat="pi-quarter-outlet"
+                  isKompetitorOpen={activeKompetitorDraftId === draft.id}
+                  onToggleKompetitor={() =>
+                    setActiveKompetitorDraftId((prev) => (prev === draft.id ? null : draft.id))
+                  }
+                  onCloseKompetitor={() => setActiveKompetitorDraftId(null)}
+                />
+              ))}
+            </div>
+          ) : (
+            /* ================= MODE SM KE ATAS: APPROVAL PER ORANG ================= */
+            <div className="space-y-3">
+              {mrGroups.map((g) => {
+                const isSelected = selectedGroupKeys.has(g.groupKey);
+                const isExpanded = expandedGroupKeys.has(g.groupKey);
+
+                return (
+                  <div
+                    key={g.groupKey}
+                    className="rounded-xl p-3.5 sm:p-4 space-y-2.5 transition-all shadow-xs hover:shadow-md"
+                    style={{
+                      background: "var(--color-bg-surface, #ffffff)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    {/* Top Section: Checkbox + Nama Orang & StatusBadge */}
+                    <div className="flex items-start gap-3 justify-between">
+                      <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleGroupKey(g.groupKey)}
+                          className="h-4 w-4 shrink-0 rounded mt-0.5 cursor-pointer"
+                          style={{ accentColor: "var(--color-blue)" }}
+                          title="Pilih untuk persetujuan massal"
+                        />
+
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-semibold leading-snug break-words block" style={{ color: "var(--color-text)" }}>
                             {g.ownerName}
+                            <span className="font-normal text-xs font-mono ml-1.5 opacity-75">
+                              ({g.ownerNip})
+                            </span>
                           </span>
-                          <span className="text-xs font-mono" style={{ color: "var(--color-text-faint)" }}>
-                            ({g.ownerNip})
-                          </span>
+                          <p className="text-xs font-medium truncate mt-0.5" style={{ color: "var(--color-text-muted)" }}>
+                            Periode: {g.period}
+                            {g.asmName && <span> · ASM: {g.asmName}</span>}
+                            {g.mrCount != null && g.mrCount > 0 && <span> · {g.mrCount} MR</span>}
+                          </p>
                         </div>
-                        <div className="text-xs mt-0.5 flex items-center gap-1.5 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
-                          <span>Periode {g.period}</span>
-                          {g.asmName && <span>· ASM: {g.asmName}</span>}
-                          {g.mrCount != null && g.mrCount > 0 && <span>· {g.mrCount} MR</span>}
-                        </div>
+                      </div>
+
+                      <div className="shrink-0 pt-0.5">
+                        <StatusBadge status={g.status} version={g.version} />
                       </div>
                     </div>
 
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
-                      {g.badgeLabel || "Butuh Tindakan"}
-                    </span>
-                  </div>
-
-                  {/* Card Metrics Box */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-[var(--color-bg-subtle,#fcfbf9)] border border-dashed border-[var(--color-border,#e5e7eb)]">
-                    <div>
-                      <p className="text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--color-text-faint)" }}>
-                        Total Estimasi Sales
-                      </p>
-                      <p className="text-xs sm:text-sm font-bold mt-1" style={{ color: "var(--color-text)" }}>
-                        {(g.totalEstimasiSales ?? 0) > 0 ? `Rp ${formatRp(g.totalEstimasiSales!, true)}` : "-"}
-                      </p>
+                    {/* Metadata Row: Baris horizontal ber-bullet seperti demografi kartu outlet */}
+                    <div
+                      className="flex items-center justify-between sm:justify-start gap-x-2.5 sm:gap-x-4 text-xs pt-0.5 flex-wrap"
+                      style={{ color: "var(--color-text-muted)" }}
+                    >
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+                        <span>Total Outlet:</span>
+                        <strong className="font-semibold" style={{ color: "var(--color-text)" }}>
+                          {g.outletCount} Outlet
+                        </strong>
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-600 select-none">•</span>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+                        <span>Variasi Produk:</span>
+                        <strong className="font-semibold" style={{ color: "var(--color-text)" }}>
+                          {g.variasiProdukCount ?? 0} Produk
+                        </strong>
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-600 select-none">•</span>
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px]">
+                        <span>Status:</span>
+                        <span style={{ color: "var(--color-status-approved, #16a34a)" }} className="font-semibold">
+                          {g.approvedCount} disetujui
+                        </span>
+                        <span className="mx-1 opacity-40">·</span>
+                        <span style={{ color: "var(--color-status-pending, #f59e0b)" }} className="font-semibold">
+                          {g.belumCount} belum
+                        </span>
+                      </span>
                     </div>
 
-                    <div>
-                      <p className="text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--color-text-faint)" }}>
-                        Total Outlet
-                      </p>
-                      <p className="text-xs sm:text-sm font-bold mt-1" style={{ color: "var(--color-text)" }}>
-                        {g.outletCount} Outlet
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--color-text-faint)" }}>
-                        Variasi Produk
-                      </p>
-                      <p className="text-xs sm:text-sm font-bold mt-1" style={{ color: "var(--color-text)" }}>
-                        {g.variasiProdukCount ?? 0} Produk
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--color-text-faint)" }}>
-                        Target
-                      </p>
-                      <p className="text-xs sm:text-sm font-bold mt-1" style={{ color: "var(--color-text)" }}>
-                        {g.targetValue != null && g.targetValue > 0 ? `Rp ${formatRp(g.targetValue, true)}` : "-"}
-                      </p>
-                      {g.targetRatio != null && (
-                        <p className="text-[10px] mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                          Ratio: {g.targetRatio.toFixed(1)}%
+                    {/* Metrics Minimal 4-column summary (identik dengan grid di SalesCounterOutletCard) */}
+                    <div
+                      className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-2 text-xs"
+                      style={{ borderTop: "1px solid var(--color-border)", borderBottom: "1px solid var(--color-border)" }}
+                    >
+                      <div>
+                        <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Estimasi Sales</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-blue)" }}>
+                          {(g.totalEstimasiSales ?? 0) > 0 ? `Rp ${formatRp(g.totalEstimasiSales!, true)}` : "-"}
                         </p>
-                      )}
-                    </div>
-                  </div>
+                        {g.outletCount > 1 && (g.totalEstimasiSales ?? 0) > 0 && (
+                          <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+                            ({formatRp(g.totalEstimasiSales! / g.outletCount, true)} / outlet)
+                          </p>
+                        )}
+                      </div>
 
-                  {/* Card Footer */}
-                  <div className="flex items-center justify-between pt-1">
-                    <div className="text-xs">
-                      <span style={{ color: "var(--color-status-approved, #16a34a)" }} className="font-semibold">
-                        {g.approvedCount} disetujui
-                      </span>
-                      <span style={{ color: "var(--color-text-faint)" }}> · </span>
-                      <span style={{ color: "var(--color-status-pending, #f59e0b)" }} className="font-semibold">
-                        {g.belumCount} belum
-                      </span>
+                      <div>
+                        <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Total Budget SC</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-blue)" }}>
+                          {(g.totalBudgetSc ?? 0) > 0 ? `Rp ${formatRp(g.totalBudgetSc, true)}` : "-"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Total Outlet</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-text)" }}>
+                          {g.outletCount} Outlet
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px]" style={{ color: "var(--color-text-muted)" }}>Variasi Produk</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--color-text)" }}>
+                          {g.variasiProdukCount ?? 0} Produk
+                        </p>
+                      </div>
                     </div>
 
-                    <Link href={g.targetHref}>
-                      <Button size="sm" variant="secondary" className="text-xs font-medium px-4">
-                        Review
-                      </Button>
-                    </Link>
+                    {/* Footer Action Bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandGroup(g.groupKey)}
+                        className="text-xs hover:underline cursor-pointer flex items-center gap-1 font-medium"
+                        style={{ color: "var(--color-text-faint)" }}
+                      >
+                        <span>Daftar Outlet ({g.forms.length})</span>
+                        <span className="text-[10px]">{isExpanded ? "▲" : "▼"}</span>
+                      </button>
+
+                      <div className="flex items-center gap-2 ml-auto">
+                        <Link
+                          href={g.targetHref}
+                          className="text-xs font-medium px-3 py-1 rounded-md whitespace-nowrap transition-colors"
+                          style={{
+                            background: "var(--color-blue-light, #eff6ff)",
+                            color: "var(--color-blue, #2563eb)",
+                            border: "1px solid var(--color-blue, #2563eb)",
+                            textDecoration: "none",
+                          }}
+                        >
+                          Review
+                        </Link>
+                      </div>
+                    </div>
+
+                    {/* Collapsible outlet preview */}
+                    {isExpanded && (
+                      <div className="pt-2 border-t border-[var(--color-border)] space-y-1.5 text-xs">
+                        {g.forms.map((f) => {
+                          const outletTitle = [f.kodePI, g.period, f.namaOutlet].filter(Boolean).join(" - ");
+                          return (
+                            <div
+                              key={f.id}
+                              className="flex items-center justify-between p-2 rounded-md bg-[var(--color-bg-subtle)] border border-[var(--color-border)] text-xs"
+                            >
+                              <div className="min-w-0 pr-2">
+                                <span
+                                  className="font-semibold text-xs line-clamp-2 sm:line-clamp-1 sm:truncate block"
+                                  style={{ color: "var(--color-text)" }}
+                                  title={outletTitle}
+                                >
+                                  {outletTitle}
+                                </span>
+                              </div>
+                              <div className="shrink-0">
+                                <StatusBadge status={f.status as PoaStatus} version={f.version} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
       </div>
 
       {/* Sisi Kanan: SalesCounterStatsPanel Sticky */}
       <div className="hidden md:block sticky top-8 max-h-[calc(100vh-5rem)] overflow-y-auto">
         <SalesCounterStatsPanel
-          selectedOutletCount={scDrafts.length}
+          selectedOutletCount={isASM && selectedOutletCount > 0 ? selectedOutletCount : scDrafts.length}
           totalOutletCount={scDrafts.length}
           metrics={metrics}
           targetArea={0}

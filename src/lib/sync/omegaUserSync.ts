@@ -111,50 +111,57 @@ export async function runOmegaUserSync(): Promise<OmegaSyncResult> {
   }
 
   // 3. Hierarchy Sync via get_subordinates for Managers
-  // Only process ASM, SM, NSM. Both SPV and FF have role = MR and report to their ASM
-  // for the approval chain (MR->ASM->SM->NSM) and dashboard visibility.
-  const approvalManagers = employees.filter(
-    (e) => e.position === "Area Sales Manager" || e.position === "Sales Manager" || e.position === "National Sales Manager"
-  );
-  console.log(`Syncing hierarchy for ${approvalManagers.length} approval managers (ASM, SM, NSM)...`);
+  // Strictly sequential by tier: NSM -> SM -> ASM.
+  // We MUST wait for each tier to complete fully before running the next tier.
+  // Otherwise, if an SM and an ASM run concurrently in the same batch, the SM's
+  // downstream update can overwrite the ASM's direct subordinates (race condition).
+  const nsms = employees.filter((e) => e.position === "National Sales Manager");
+  const sms = employees.filter((e) => e.position === "Sales Manager");
+  const asms = employees.filter((e) => e.position === "Area Sales Manager");
 
-  const posRank: Record<string, number> = {
-    "National Sales Manager": 1,
-    "Sales Manager": 2,
-    "Area Sales Manager": 3,
-  };
-  approvalManagers.sort((a, b) => (posRank[a.position] || 99) - (posRank[b.position] || 99));
+  async function syncTier(managers: OmegaEmployee[], tierName: string) {
+    if (managers.length === 0) return;
+    console.log(`Syncing hierarchy for ${managers.length} ${tierName}...`);
+    const batchSize = 10;
+    for (let i = 0; i < managers.length; i += batchSize) {
+      const batch = managers.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (mgr) => {
+          try {
+            const subRes = await fetch(`https://api-nexus.pharos.id/api/r/poa/get_subordinates?nip=${mgr.nip}`, { headers });
+            if (!subRes.ok) return;
 
-  const batchSize = 10;
-  for (let i = 0; i < approvalManagers.length; i += batchSize) {
-    const batch = approvalManagers.slice(i, i + batchSize);
-    await Promise.all(
-      batch.map(async (mgr) => {
-        try {
-          const subRes = await fetch(`https://api-nexus.pharos.id/api/r/poa/get_subordinates?nip=${mgr.nip}`, { headers });
-          if (!subRes.ok) return;
+            const subJson = await subRes.json();
+            const subs: OmegaSubordinate[] = subJson.data?.subordinates || [];
 
-          const subJson = await subRes.json();
-          const subs: OmegaSubordinate[] = subJson.data?.subordinates || [];
+            for (const sub of subs) {
+              if (!sub.nip) continue;
 
-          for (const sub of subs) {
-            if (!sub.nip) continue;
-
-            await prisma.user.updateMany({
-              where: { nip: sub.nip },
-              data: {
-                nipAtasan: mgr.nip,
-                namaAtasan: mgr.nama.trim(),
-              },
-            });
-            hierarchyUpdated++;
+              await prisma.user.updateMany({
+                where: { nip: sub.nip },
+                data: {
+                  nipAtasan: mgr.nip,
+                  namaAtasan: mgr.nama.trim(),
+                },
+              });
+              hierarchyUpdated++;
+            }
+          } catch (err: any) {
+            errors.push(`Subordinates fetch for manager NIP ${mgr.nip} error: ${err.message || String(err)}`);
           }
-        } catch (err: any) {
-          errors.push(`Subordinates fetch for manager NIP ${mgr.nip} error: ${err.message || String(err)}`);
-        }
-      })
-    );
+        })
+      );
+    }
   }
+
+  // Strictly sequential execution:
+  // 1. NSM first (sets downline to NSM)
+  // 2. SM second (overrides downline under that SM to SM)
+  // 3. ASM last (overrides direct MRs under that ASM to ASM)
+  await syncTier(nsms, "NSM");
+  await syncTier(sms, "SM");
+  await syncTier(asms, "ASM");
+
 
   // 4. Deactivate omega users no longer in the employee list
   const activeNips = employees.map((e) => e.nip);

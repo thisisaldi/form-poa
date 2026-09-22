@@ -21,7 +21,7 @@ export type VerifyResult =
 // environment ("/realms/staging/" vs "/realms/production/", see .env.staging/
 // .env.production) and already loaded into env.ts, no new env var needed.
 const IS_STAGING = env.EXODUS_AUTH_URL?.includes("/realms/staging/") ?? false;
-const STAGING_BLOCKED_ROLES: readonly string[] = ["MR", "ASM", "SM", "NSM"];
+const STAGING_BLOCKED_ROLES: readonly string[] = [];
 
 /**
  * Verify a NIP against the users table (or mock client in USE_MOCK_DB mode).

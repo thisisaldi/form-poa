@@ -11,6 +11,7 @@ export interface SalesCounterOutletCardProps {
   canApprove?: boolean;
   canFastTrack?: boolean;
   userRole?: string;
+  headerFormat?: "default" | "pi-quarter-outlet";
   isKompetitorOpen?: boolean;
   onToggleKompetitor?: () => void;
   onCloseKompetitor?: () => void;
