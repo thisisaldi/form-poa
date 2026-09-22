@@ -149,7 +149,7 @@ export default async function PoaDetailPage({
       // "tidak ada approval, request edit, dan revisi yang by draft" — this
       // used to be one whole-draft banner at the top of the page; now every
       // doctor has its own lock/request-edit state, same as approve/reject.
-      const editLockRoleLabelThis = !canApproveThis && (["MR", "ASM", "SM", "NSM"] as string[]).includes(session.role)
+      const editLockRoleLabelThis = !canApproveThis && (["MR", "ASM", "SM", "NSM", "GM", "SD"] as string[]).includes(session.role)
         ? await getEditLockRoleLabelForDoctor(poa, approval)
         : null;
       const userCanEditThis = await canEditDoctor(actor, poa, approval);
