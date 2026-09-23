@@ -92,6 +92,15 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/sales-support",
+    label: "Memo SP Non Sales",
+    icon: <IconTable />,
+    // Sales Support role's ONLY page (docs/sp-non-sales-memo/, 2026-09-23) —
+    // scope dibatasi ke memo, bukan akses POA Standarisasi umum. ADMIN
+    // bypass sama pola dengan halaman lain.
+    roles: ["SALES_SUPPORT", "ADMIN"],
+  },
+  {
     href: "/survey/upload",
     label: "Input Data Survey",
     icon: <IconTable />,

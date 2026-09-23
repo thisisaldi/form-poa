@@ -808,6 +808,9 @@ export interface GoogleDriveConfigState {
   kftApprovalFolderId: string | null;
   formApprovalFolderId: string | null;
   spNonSalesFolderId: string | null;
+  spNonSalesMemoKepada: string | null;
+  spNonSalesMemoSignerHormatKami: string | null;
+  spNonSalesMemoSignerMenyetujui: string | null;
   updatedAt: string | null;
 }
 
@@ -816,6 +819,9 @@ const EMPTY_GOOGLE_DRIVE_CONFIG_STATE: GoogleDriveConfigState = {
   kftApprovalFolderId: null,
   formApprovalFolderId: null,
   spNonSalesFolderId: null,
+  spNonSalesMemoKepada: null,
+  spNonSalesMemoSignerHormatKami: null,
+  spNonSalesMemoSignerMenyetujui: null,
   updatedAt: null,
 };
 
@@ -829,11 +835,14 @@ export async function getGoogleDriveConfigStateAction(): Promise<GoogleDriveConf
     kftApprovalFolderId: row?.kftApprovalFolderId ?? null,
     formApprovalFolderId: row?.formApprovalFolderId ?? null,
     spNonSalesFolderId: row?.spNonSalesFolderId ?? null,
+    spNonSalesMemoKepada: row?.spNonSalesMemoKepada ?? null,
+    spNonSalesMemoSignerHormatKami: row?.spNonSalesMemoSignerHormatKami ?? null,
+    spNonSalesMemoSignerMenyetujui: row?.spNonSalesMemoSignerMenyetujui ?? null,
     updatedAt: row?.updatedAt.toISOString() ?? null,
   };
 }
 
-/** Sets/changes the shared Drive folders — "Input Data Survey", Surat Approval Standarisasi KFT, Form Approval Standarisasi, and Permintaan SP Non Sales each have their own, independently settable. */
+/** Sets/changes the shared Drive folders — "Input Data Survey", Surat Approval Standarisasi KFT, Form Approval Standarisasi, and Permintaan SP Non Sales each have their own, independently settable. Also carries the FIXED "Kepada" recipient and 2 FIXED signer names printed on the SP Non Sales memo (docs/sp-non-sales-memo/01-business-rules.md §4 — same on every memo, not per-user/per-pengajuan). */
 export async function setGoogleDriveFolderIdAction(formData: FormData): Promise<AdminActionResult> {
   const authCheck = await requireAdmin();
   if (!authCheck.ok) return authCheck;
@@ -844,11 +853,14 @@ export async function setGoogleDriveFolderIdAction(formData: FormData): Promise<
   const kftApprovalFolderId = str(formData, "kftApprovalFolderId") || null;
   const formApprovalFolderId = str(formData, "formApprovalFolderId") || null;
   const spNonSalesFolderId = str(formData, "spNonSalesFolderId") || null;
+  const spNonSalesMemoKepada = str(formData, "spNonSalesMemoKepada") || null;
+  const spNonSalesMemoSignerHormatKami = str(formData, "spNonSalesMemoSignerHormatKami") || null;
+  const spNonSalesMemoSignerMenyetujui = str(formData, "spNonSalesMemoSignerMenyetujui") || null;
 
   await prisma.googleDriveConfig.upsert({
     where: { id: 1 },
-    update: { surveyFolderId, kftApprovalFolderId, formApprovalFolderId, spNonSalesFolderId, updatedByNip: session?.userId },
-    create: { id: 1, surveyFolderId, kftApprovalFolderId, formApprovalFolderId, spNonSalesFolderId, updatedByNip: session?.userId },
+    update: { surveyFolderId, kftApprovalFolderId, formApprovalFolderId, spNonSalesFolderId, spNonSalesMemoKepada, spNonSalesMemoSignerHormatKami, spNonSalesMemoSignerMenyetujui, updatedByNip: session?.userId },
+    create: { id: 1, surveyFolderId, kftApprovalFolderId, formApprovalFolderId, spNonSalesFolderId, spNonSalesMemoKepada, spNonSalesMemoSignerHormatKami, spNonSalesMemoSignerMenyetujui, updatedByNip: session?.userId },
   });
   return { ok: true };
 }

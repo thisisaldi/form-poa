@@ -14,7 +14,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
+import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, canAccessSalesSupportMemo } from "@/lib/authz";
+import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
 import { getDiscountsForOutlet, type ExodusDiscountPct } from "@/lib/exodusApi";
@@ -1415,6 +1416,175 @@ export async function submitSpNonSalesRequestAction(id: string): Promise<void> {
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
+/**
+ * Nama penerima memo ("Kepada") default — GoogleDriveConfig.spNonSalesMemoKepada
+ * (ADMIN-settable, "Ibu Tuti Ambarwati" saat ini). Bukan admin-only: dibaca
+ * MR juga buat prefill form generate memo (2026-09-23 — field TETAP editable
+ * per pengajuan "buat jaga-jaga kalau berubah orangnya", cuma DEFAULT-nya
+ * yang dari config, bukan fixed hardcode).
+ */
+export async function getSpNonSalesMemoKepadaDefaultAction(): Promise<string> {
+  await requireActor();
+  const driveConfig = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
+  return driveConfig?.spNonSalesMemoKepada ?? "";
+}
+
+/**
+ * Generate memo SP Non Sales (docs/sp-non-sales-memo/, 2026-09-23) — GANTI
+ * total flow upload manual dokumen (§1.3: tidak ada upload ulang lagi untuk
+ * memo). MR isi "Kepada" (prefilled dari config, tetap bisa diubah per
+ * pengajuan) + "Alasan" lalu generate. Nomor memo di-assign atomik lewat
+ * SpNonSalesMemoCounter (increment dalam transaksi yang sama dengan update
+ * PoaStandarisasi, supaya nomor tidak pernah bentrok antar 2 generate
+ * bersamaan), file di-upload ke folder spNonSales existing (reuse folder
+ * yang sama dengan upload dokumen lama).
+ */
+export async function generateSpNonSalesMemoAction(id: string, input: { kepada: string; alasan: string }): Promise<void> {
+  if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({
+    where: { id },
+    include: { outlet: true, owner: { select: { name: true } }, produk: { include: { product: true } } },
+  });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (pengajuan.spNonSalesMemoGeneratedAt) throw new Error("Memo sudah pernah digenerate, tidak bisa digenerate ulang.");
+  if (!input.kepada.trim() || !input.alasan.trim()) throw new Error("Kepada dan alasan wajib diisi.");
+  if (pengajuan.produk.length === 0) throw new Error("Belum ada produk di pengajuan ini.");
+  if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
+
+  const driveConfig = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
+
+  const now = new Date();
+  // Counter reset per TAHUN (2026-09-23 user correction: "POA001.26" →
+  // "POA002.26", no reset mentioned across months) — periode key is just the
+  // year, not YYYYMM.
+  const periode = String(now.getFullYear());
+
+  const { nomor, buffer } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const counter = await tx.spNonSalesMemoCounter.upsert({
+      where: { periode },
+      create: { periode, seq: 1 },
+      update: { seq: { increment: 1 } },
+    });
+    const nomor = formatMemoNomor(now, counter.seq);
+    const buffer = await buildSpNonSalesMemoDocx({
+      nomor,
+      kepada: input.kepada.trim(),
+      tanggal: now,
+      alasan: input.alasan.trim(),
+      namaOutlet: `${pengajuan.outlet.namaOutlet} / ${pengajuan.kodePI}`,
+      namaPengusul: pengajuan.owner.name,
+      produk: pengajuan.produk.map((p: (typeof pengajuan.produk)[number]) => ({
+        ptNie: p.product.principalName ?? "-",
+        kodeProduk: p.product.kodeProduk,
+        namaProduk: p.product.namaProduk,
+        qtyBox: p.spNonSalesJumlahBox != null ? p.spNonSalesJumlahBox.toString() : "-",
+      })),
+      signerHormatKami: driveConfig?.spNonSalesMemoSignerHormatKami ?? "",
+      signerMenyetujui: driveConfig?.spNonSalesMemoSignerMenyetujui ?? "",
+    });
+    return { nomor, buffer };
+  });
+
+  const { driveFileId } = await uploadFileToPoaStandarisasiDrive("spNonSales", `Memo SP Non Sales - ${pengajuan.kodePI} - ${nomor.replace(/\s*\/\s*/g, "-")}.docx`, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer);
+
+  await prisma.poaStandarisasi.update({
+    where: { id },
+    data: {
+      spNonSalesMemoNomor: nomor,
+      spNonSalesMemoAlasan: input.alasan.trim(),
+      spNonSalesMemoGeneratedAt: now,
+      spNonSalesMemoDriveFileId: driveFileId,
+    },
+  });
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+/** "No SP memo" di footer — diisi manual oleh Sales Support sendiri (RESOLVED, docs/sp-non-sales-memo/01-business-rules.md §4), kapan saja setelah memo ada, terpisah dari generate. */
+export async function updateSpNonSalesMemoNoSpAction(id: string, noSp: string): Promise<void> {
+  const { actor } = await requireActor();
+  if (!canAccessSalesSupportMemo(actor)) throw new Error("Anda tidak berhak mengedit ini.");
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id }, select: { spNonSalesMemoGeneratedAt: true } });
+  if (!pengajuan?.spNonSalesMemoGeneratedAt) throw new Error("Memo belum digenerate.");
+
+  await prisma.poaStandarisasi.update({ where: { id }, data: { spNonSalesMemoNoSp: noSp.trim() || null } });
+  revalidatePath("/sales-support");
+}
+
+/** Centang "sudah di-sign" — self-report oleh Sales Support (RESOLVED, §1.3: tidak ada approval berlapis, tidak ada upload ulang). Toggle-able (uncheck buat koreksi salah centang). */
+export async function toggleSpNonSalesMemoSignedAction(id: string, signed: boolean): Promise<void> {
+  const { actor } = await requireActor();
+  if (!canAccessSalesSupportMemo(actor)) throw new Error("Anda tidak berhak mengedit ini.");
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id }, select: { spNonSalesMemoGeneratedAt: true } });
+  if (!pengajuan?.spNonSalesMemoGeneratedAt) throw new Error("Memo belum digenerate.");
+
+  await prisma.poaStandarisasi.update({
+    where: { id },
+    data: signed ? { spNonSalesSignedAt: new Date(), spNonSalesSignedByNip: actor.nip } : { spNonSalesSignedAt: null, spNonSalesSignedByNip: null },
+  });
+  revalidatePath("/sales-support");
+}
+
+export interface SalesSupportMemoRow {
+  id: string;
+  kodePI: string;
+  namaOutlet: string;
+  nomor: string;
+  alasan: string | null;
+  noSp: string | null;
+  generatedAt: Date;
+  driveFileId: string;
+  namaPengusul: string;
+  signedAt: Date | null;
+  signedByNama: string | null;
+  // Bukti "sudah terstandarisasi" yang MR upload — syarat GOJ (gudang) lepas
+  // produk SP Non Sales, dokumen TERPISAH dari memo (2026-09-23 user
+  // clarification) — Sales Support teruskan DUA-duanya ke GOJ, jadi listing
+  // ini juga perlu nampilin bukti standarisasi, bukan cuma memo.
+  buktiStandarisasi: { id: string; fileName: string; driveFileId: string }[];
+}
+
+/** Listing company-wide semua memo yang sudah digenerate (docs/sp-non-sales-memo/03-ui-and-access.md — asumsi kerja company-wide, belum dipersempit region/distributor). */
+export async function listSalesSupportMemosAction(): Promise<SalesSupportMemoRow[]> {
+  const { actor } = await requireActor();
+  if (!canAccessSalesSupportMemo(actor)) throw new Error("Anda tidak berhak mengakses ini.");
+
+  const rows = await prisma.poaStandarisasi.findMany({
+    where: { spNonSalesMemoGeneratedAt: { not: null } },
+    include: {
+      outlet: { select: { namaOutlet: true } },
+      owner: { select: { name: true } },
+      spNonSalesDocuments: { select: { id: true, fileName: true, driveFileId: true } },
+    },
+    orderBy: { spNonSalesMemoGeneratedAt: "desc" },
+  });
+
+  // spNonSalesSignedByNip is a plain NIP string (no Prisma relation — keeps
+  // the existing unnamed `owner` relation on this model from needing an
+  // explicit @relation name just to disambiguate a second User FK), so the
+  // signer's display name is resolved with one extra batched lookup instead
+  // of an include.
+  const signerNips = [...new Set(rows.map((p: (typeof rows)[number]) => p.spNonSalesSignedByNip).filter((n: string | null): n is string => !!n))];
+  const signers = signerNips.length > 0 ? await prisma.user.findMany({ where: { nip: { in: signerNips } }, select: { nip: true, name: true } }) : [];
+  const signerNameByNip = new Map(signers.map((s: (typeof signers)[number]) => [s.nip, s.name]));
+
+  return rows.map((p: (typeof rows)[number]) => ({
+    id: p.id,
+    kodePI: p.kodePI,
+    namaOutlet: p.outlet.namaOutlet,
+    nomor: p.spNonSalesMemoNomor ?? "-",
+    alasan: p.spNonSalesMemoAlasan,
+    noSp: p.spNonSalesMemoNoSp,
+    generatedAt: p.spNonSalesMemoGeneratedAt!,
+    driveFileId: p.spNonSalesMemoDriveFileId!,
+    namaPengusul: p.owner.name,
+    signedAt: p.spNonSalesSignedAt,
+    signedByNama: p.spNonSalesSignedByNip ? signerNameByNip.get(p.spNonSalesSignedByNip) ?? p.spNonSalesSignedByNip : null,
+    buktiStandarisasi: p.spNonSalesDocuments,
+  }));
+}
+
 /** Distributor terpilih di tab "Request DPL/DPF" — reuse field `distributors` yang sama dipakai Finalisasi, tapi diedit lagi di sini (phase-agnostic, submittedAt Finalisasi sudah lewat). */
 export async function updateSpNonSalesDistributorsAction(id: string, distributors: string[]): Promise<void> {
   const { actor } = await requireActor();
@@ -1495,7 +1665,7 @@ export async function deleteSpNonSalesDocumentAction(documentId: string): Promis
  * the 4 places a driveFileId can live — so the download route never has to
  * trust a client-supplied pengajuanId/label. */
 async function resolvePoaStandarisasiFileOwner(driveFileId: string) {
-  const [dokumen, produk, suratKft, dokterApproval] = await Promise.all([
+  const [dokumen, produk, suratKft, dokterApproval, memo, spNonSalesDoc] = await Promise.all([
     prisma.poaStandarisasiDokumen.findFirst({
       where: { driveFileId },
       include: { produk: { include: { pengajuan: true, product: true } } },
@@ -1509,12 +1679,25 @@ async function resolvePoaStandarisasiFileOwner(driveFileId: string) {
       where: { buktiTtdDriveFileId: driveFileId },
       include: { produk: { include: { pengajuan: true, product: true } }, customer: true },
     }),
+    prisma.poaStandarisasi.findFirst({ where: { spNonSalesMemoDriveFileId: driveFileId } }),
+    // "Bukti sudah terstandarisasi" MR upload buat syarat GOJ (gudang) lepas
+    // produk SP Non Sales (2026-09-23 user clarification) — bukan redundant
+    // sama memo, dua dokumen beda yang SAMA-SAMA perlu diteruskan ke GOJ.
+    // Sebelumnya TIDAK ke-cover di resolver ini sama sekali (pre-existing gap,
+    // ketauan waktu nambahin akses Sales Support) — ditambah sekalian di sini.
+    prisma.poaStandarisasiSpNonSalesDocument.findFirst({ where: { driveFileId }, include: { pengajuan: true } }),
   ]);
 
-  if (dokumen) return { pengajuan: dokumen.produk.pengajuan, label: `${dokumen.jenis} — ${dokumen.produk.product.namaProduk}` };
-  if (produk) return { pengajuan: produk.pengajuan, label: `Form Approval Standarisasi — ${produk.product.namaProduk}` };
-  if (suratKft) return { pengajuan: suratKft, label: "Surat Approval Standarisasi KFT" };
-  if (dokterApproval) return { pengajuan: dokterApproval.produk.pengajuan, label: `Bukti TTD — ${dokterApproval.customer.namaCustomer} (${dokterApproval.produk.product.namaProduk})` };
+  // salesSupportVisible: dokumen yang Sales Support (scope terbatas, BUKAN
+  // canViewPoaStandarisasi) boleh akses — memo + bukti standarisasi, karena
+  // keduanya yang mereka teruskan ke GOJ. Dokumen confidential lain
+  // (NIE/CPOB/KFT/Bukti TTD) TETAP tidak boleh diakses Sales Support.
+  if (dokumen) return { pengajuan: dokumen.produk.pengajuan, label: `${dokumen.jenis} — ${dokumen.produk.product.namaProduk}`, salesSupportVisible: false };
+  if (produk) return { pengajuan: produk.pengajuan, label: `Form Approval Standarisasi — ${produk.product.namaProduk}`, salesSupportVisible: false };
+  if (suratKft) return { pengajuan: suratKft, label: "Surat Approval Standarisasi KFT", salesSupportVisible: false };
+  if (dokterApproval) return { pengajuan: dokterApproval.produk.pengajuan, label: `Bukti TTD — ${dokterApproval.customer.namaCustomer} (${dokterApproval.produk.product.namaProduk})`, salesSupportVisible: false };
+  if (memo) return { pengajuan: memo, label: "Memo SP Non Sales", salesSupportVisible: true };
+  if (spNonSalesDoc) return { pengajuan: spNonSalesDoc.pengajuan, label: `Bukti Standarisasi — ${spNonSalesDoc.fileName}`, salesSupportVisible: true };
   return null;
 }
 
@@ -1532,7 +1715,15 @@ export async function authorizeAndLogPoaStandarisasiFileAccess(driveFileId: stri
   if (!owner) throw new Error("File tidak ditemukan.");
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canViewPoaStandarisasi(actor, owner.pengajuan))) {
+  // Normal pengajuan access (owner/atasan/ADMIN/etc) always applies. Memo +
+  // bukti standarisasi ALSO open to Sales Support (docs/sp-non-sales-memo/)
+  // on top of that — their access is scoped to just these 2 document kinds
+  // (they forward both to GOJ), never the rest of the pengajuan's
+  // confidential files (NIE/CPOB/KFT/Bukti TTD stay canViewPoaStandarisasi-only).
+  const authorized =
+    (await canViewPoaStandarisasi(actor, owner.pengajuan)) ||
+    (owner.salesSupportVisible && canAccessSalesSupportMemo(actor));
+  if (!authorized) {
     throw new Error("Anda tidak berhak mengakses dokumen ini.");
   }
 

@@ -30,6 +30,10 @@ enum Role {
   // vocabulary) even though the DB role for the ASD level stays GM — GM is
   // already used elsewhere (read-only oversight) and isn't renamed.
   SD
+  // Akses dibatasi ke fitur POA Standarisasi Memo SP Non Sales saja — lihat
+  // docs/sp-non-sales-memo/. Bukan bagian struktur sales (nipAtasan selalu
+  // null), tidak disinkron dari Struktur_Marketing_PI.
+  SALES_SUPPORT
 }
 
 enum PoaStatus {
@@ -1197,8 +1201,10 @@ model KpiMonthlyEntry {
   // synced from Exodus's "Get Count Visit By NIP" (src/lib/sync/
   // kpiCallActivitySync.ts, added 2026-09-08, closes docs/TODO.md #38 for
   // this pillar). Manual input always wins over the next sync run.
-  callActivityRealisasi  Int?
-  callActivityStandar    Int? // working assumption: MR/SPV=10, ASM=5, SM=3 (§2b)
+  // Sync stores the window-capped effective average (see kpiScoring.ts
+  // callActivityRealisasiFromDailyAvgs), so it can be fractional.
+  callActivityRealisasi  Float?
+  callActivityStandar    Int? // sum of per-window daily minimums: MR/SPV=4+6, ASM=2+3, SM=3 (§2b)
   callActivitySource     String    @default("MANUAL") // "MANUAL" | "EXODUS_SYNC"
   callActivityInputByNip String?
   callActivityInputAt    DateTime?
@@ -1326,8 +1332,25 @@ model GoogleDriveConfig {
   // Permintaan SP Non Sales (Step 5 tab 1, 2026-09-08) — folder sendiri lagi,
   // sama pola dengan 2 di atas.
   spNonSalesFolderId String?
+  // Penerima memo SELALU sama (2026-09-23 user correction — bukan input
+  // manual per pengajuan seperti asumsi awal). Nama fixed di 2 blok tanda
+  // tangan memo SP Non Sales (docs/sp-non-sales-memo/ §4, 2026-09-23) —
+  // bukan dinamis per akun yang generate/centang.
+  spNonSalesMemoKepada           String?
+  spNonSalesMemoSignerHormatKami String?
+  spNonSalesMemoSignerMenyetujui String?
   updatedByNip   String?
   updatedAt      DateTime @updatedAt
+}
+
+// Nomor urut memo SP Non Sales, reset per bulan kalender (asumsi kerja,
+// docs/sp-non-sales-memo/01-business-rules.md §7 #9) — format tercetak
+// "DSS/[bulan romawi]/[seq].[tahun 2 digit]". Increment atomik lewat
+// upsert+increment di satu transaksi (bukan read-then-write terpisah),
+// supaya 2 generate bersamaan tidak dapat nomor yang sama.
+model SpNonSalesMemoCounter {
+  periode String @id // YYYYMM
+  seq     Int    @default(0)
 }
 
 // Cross-replica mutex for in-process schedulers (see
@@ -1470,6 +1493,20 @@ model PoaStandarisasi {
   // sana lewat updateSpNonSalesDistributorsAction (phase-agnostic, sama pola
   // seperti jadwalMeetingKft).
   spNonSalesSubmittedAt DateTime?
+
+  // Memo SP Non Sales (docs/sp-non-sales-memo/, 2026-09-23) — generate-only,
+  // TIDAK ada upload ulang. spNonSalesMemoNomor format "DSS/IX/189.26",
+  // di-generate SEKALI lewat SpNonSalesMemoCounter (immutable setelahnya).
+  // spNonSalesMemoNoSp diisi manual oleh Sales Support kapan saja setelah
+  // memo ada (field edit terpisah, phase-agnostic). Status sign = pasangan
+  // timestamp+NIP self-report, sama pola PoaStandarisasiDokterApproval.sudahTtd.
+  spNonSalesMemoNomor       String?
+  spNonSalesMemoAlasan      String?
+  spNonSalesMemoNoSp        String?
+  spNonSalesMemoGeneratedAt DateTime?
+  spNonSalesMemoDriveFileId String?
+  spNonSalesSignedAt        DateTime?
+  spNonSalesSignedByNip     String?
 
   produk PoaStandarisasiProduk[]
   fileAccessLogs PoaStandarisasiFileAccessLog[]

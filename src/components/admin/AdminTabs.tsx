@@ -26,7 +26,7 @@ type TabKey = "user" | "outlet" | "dokter" | "produk" | "assignment" | "poa";
 
 interface OutletOption { kodePI: string; namaOutlet: string; groupRS?: string | null }
 
-const ROLE_OPTIONS = ["MR", "ASM", "SM", "NSM", "GM", "SFE", "ADMIN", "VIEWER"] as const;
+const ROLE_OPTIONS = ["MR", "ASM", "SM", "NSM", "GM", "SFE", "ADMIN", "VIEWER", "SALES_SUPPORT"] as const;
 const KATEGORI_OPTIONS = ["A", "B", "C"];
 
 function Req() {

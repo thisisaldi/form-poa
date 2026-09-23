@@ -36,6 +36,8 @@ import {
   updateSpNonSalesDistributorsAction,
   uploadSpNonSalesDocumentAction,
   deleteSpNonSalesDocumentAction,
+  generateSpNonSalesMemoAction,
+  getSpNonSalesMemoKepadaDefaultAction,
 } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import {
@@ -2081,9 +2083,20 @@ function Step5SpNonSalesDplDpf({
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [memoKepada, setMemoKepada] = useState("");
+  const [memoAlasan, setMemoAlasan] = useState("");
 
   const locked = !!pengajuan.spNonSalesSubmittedAt;
   const editable = canEdit && !locked;
+
+  // Prefill "Kepada" dari config ADMIN (tetap editable per pengajuan, "jaga-jaga
+  // kalau berubah orangnya" — 2026-09-23 user request) — cuma sekali, cuma kalau
+  // memo belum pernah digenerate (kalau sudah, tidak ada form ini lagi).
+  useEffect(() => {
+    if (pengajuan.spNonSalesMemoGeneratedAt) return;
+    getSpNonSalesMemoKepadaDefaultAction().then(setMemoKepada).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSaveJumlah() {
     setBusy(true);
@@ -2100,6 +2113,10 @@ function Step5SpNonSalesDplDpf({
     }
   }
 
+  // Satu tombol buat 3 langkah sekaligus (2026-09-23 user request: "ada dua
+  // button generate memo dan ajukan... harusnya satu aja") — simpan jumlah,
+  // generate memo (kalau belum ada), baru kunci tab. Tidak lagi 2 CTA
+  // terpisah yang membingungkan urutannya.
   async function handleAjukan() {
     setBusy(true);
     setError(null);
@@ -2108,6 +2125,9 @@ function Step5SpNonSalesDplDpf({
         pengajuan.id,
         pengajuan.produk.map((p) => ({ produkId: p.id, jumlahBox: jumlahByProdukId[p.id] || null }))
       );
+      if (!pengajuan.spNonSalesMemoGeneratedAt) {
+        await generateSpNonSalesMemoAction(pengajuan.id, { kepada: memoKepada, alasan: memoAlasan });
+      }
       await submitSpNonSalesRequestAction(pengajuan.id);
       window.location.reload();
     } catch (e) {
@@ -2228,6 +2248,50 @@ function Step5SpNonSalesDplDpf({
             </tbody>
           </table>
 
+          <span className="text-sm font-medium block mb-2">Memo SP Non Sales</span>
+          {pengajuan.spNonSalesMemoGeneratedAt ? (
+            <div className="flex items-center gap-3 rounded-lg px-3 py-2 mb-4" style={{ border: "1px solid var(--color-border)" }}>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium">{pengajuan.spNonSalesMemoNomor}</div>
+                <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+                  Digenerate {new Date(pengajuan.spNonSalesMemoGeneratedAt).toLocaleDateString("id-ID")}
+                  {pengajuan.spNonSalesSignedAt && <> · ✓ Sudah di-sign</>}
+                </div>
+              </div>
+              <a href={driveViewUrl(pengajuan.spNonSalesMemoDriveFileId!)} target="_blank" rel="noreferrer" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>Lihat</a>
+            </div>
+          ) : editable ? (
+            <div className="space-y-2 mb-4">
+              <div>
+                <span className="text-xs font-medium block mb-1">Kepada</span>
+                <input
+                  type="text"
+                  value={memoKepada}
+                  onChange={(e) => setMemoKepada(e.target.value)}
+                  disabled={busy}
+                  placeholder="Nama penerima memo…"
+                  className="w-full rounded px-3 py-2 text-sm"
+                  style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
+                />
+              </div>
+              <div>
+                <span className="text-xs font-medium block mb-1">Alasan (mis. &quot;Donasi Rumah Sakit&quot;)</span>
+                <input
+                  type="text"
+                  value={memoAlasan}
+                  onChange={(e) => setMemoAlasan(e.target.value)}
+                  disabled={busy}
+                  placeholder="kebutuhan untuk…"
+                  className="w-full rounded px-3 py-2 text-sm"
+                  style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
+                />
+              </div>
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Memo digenerate otomatis pas klik &quot;Ajukan Permintaan SP Non Sales&quot; di bawah.</p>
+            </div>
+          ) : (
+            <p className="text-xs mb-4" style={{ color: "var(--color-text-faint)" }}>Belum digenerate.</p>
+          )}
+
           <span className="text-sm font-medium block mb-2">Dokumen Terupload</span>
           {pengajuan.spNonSalesDocuments.length === 0 ? (
             <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>Belum ada dokumen diupload.</p>
@@ -2265,7 +2329,13 @@ function Step5SpNonSalesDplDpf({
           {editable && (
             <div className="flex gap-2">
               <Button type="button" variant="secondary" disabled={busy} onClick={handleSaveJumlah}>Simpan</Button>
-              <Button type="button" disabled={busy} onClick={handleAjukan}>Ajukan Permintaan SP Non Sales</Button>
+              <Button
+                type="button"
+                disabled={busy || (!pengajuan.spNonSalesMemoGeneratedAt && (!memoKepada.trim() || !memoAlasan.trim()))}
+                onClick={handleAjukan}
+              >
+                Ajukan Permintaan SP Non Sales
+              </Button>
             </div>
           )}
         </div>

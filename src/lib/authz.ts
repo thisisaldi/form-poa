@@ -892,6 +892,15 @@ export function canEditPoaStandarisasiStep5(user: User, pengajuan: { ownerId: st
   return pengajuan.ownerId === user.nip && !!pengajuan.submittedAt;
 }
 
+/** Memo SP Non Sales (docs/sp-non-sales-memo/, 2026-09-23) — scope dibatasi ke
+ * fitur ini saja (bukan akses POA Standarisasi secara umum). Sales Support
+ * company-wide (asumsi kerja, belum dipersempit ke region/distributor
+ * tertentu — lihat 01-business-rules.md §7 #5), plus ADMIN bypass sama
+ * seperti akses lain. TIDAK ada role lain (bukan MR/ASM/SM/NSM). */
+export function canAccessSalesSupportMemo(user: User): boolean {
+  return user.role === Role.ADMIN || user.role === Role.SALES_SUPPORT;
+}
+
 /**
  * Can this user approve/reject the given Phase 2 level right now? Sequential —
  * SM can only act after ASM has approved, NSM only after SM has approved
