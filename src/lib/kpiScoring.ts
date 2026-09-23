@@ -15,15 +15,32 @@ export const KPI_WEIGHTS = {
 } as const;
 
 /**
- * ASSUMPTION (§7.1): memo's "MR/Spv: 4+6, ASM: 2+3, SM: 3" read as a single
- * monthly visit-count standard per role (sum, not a tier breakdown). Revise
- * once the actual meaning is confirmed.
+ * Memo "MR/Spv: 4+6, ASM: 2+3, SM: 3" (confirmed 2026-09-21): minimum AVERAGE
+ * visits per active day — `day` for 08:00-15:00 WIB, `off` for 15:00-08:00.
+ * SM has no time window, just `total`.
  */
-export const CALL_ACTIVITY_STANDARD_BY_ROLE: Record<string, number> = {
-  MR: 10,
-  ASM: 5,
-  SM: 3,
+export const CALL_ACTIVITY_MIN_BY_ROLE: Record<string, { day: number; off: number } | { total: number }> = {
+  MR: { day: 4, off: 6 },
+  ASM: { day: 2, off: 3 },
+  SM: { total: 3 },
 };
+
+/** Sum of the per-window minimums — the denominator of achievement%. */
+export const CALL_ACTIVITY_STANDARD_BY_ROLE: Record<string, number> = Object.fromEntries(
+  Object.entries(CALL_ACTIVITY_MIN_BY_ROLE).map(([role, m]) => [role, "total" in m ? m.total : m.day + m.off])
+);
+
+/**
+ * Effective realisasi = each window capped at its own minimum, then summed, so
+ * surplus in one window can't hide a shortfall in the other. Achievement% =
+ * this / CALL_ACTIVITY_STANDARD_BY_ROLE.
+ */
+export function callActivityRealisasiFromDailyAvgs(role: string, avgDay: number, avgOff: number): number | null {
+  const m = CALL_ACTIVITY_MIN_BY_ROLE[role];
+  if (!m) return null;
+  const v = "total" in m ? Math.min(avgDay + avgOff, m.total) : Math.min(avgDay, m.day) + Math.min(avgOff, m.off);
+  return Math.round(v * 100) / 100;
+}
 
 type Band = { max: number; score: number };
 

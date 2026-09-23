@@ -72,10 +72,8 @@ interface AbsensiResponse {
 
 /**
  * Attendance history for one NIP within [startDate, endDate] (both
- * "YYYY-MM-DD", inclusive). `ptId` — see SIPP_ABS_PT_ID_CANDIDATES in
- * env.ts: this app has no per-user company/entity field, so callers must
- * discover the right ptId per NIP themselves (kpiAbsensiSync.ts does this by
- * probing candidates and caching the winner) — a wrong ptId here doesn't
+ * "YYYY-MM-DD", inclusive). `ptId` — derived from the NIP prefix by
+ * ptIdForNip() in kpiAbsensiSync.ts. A wrong ptId here doesn't
  * error, it just silently returns an empty array.
  */
 export async function getAbsensiByNip(

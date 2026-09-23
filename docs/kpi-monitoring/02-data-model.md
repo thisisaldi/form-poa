@@ -55,8 +55,8 @@ model KpiMonthlyEntry {
   // Update 2026-08-24: implemented — src/lib/sync/kpiAbsensiSync.ts fills this
   // on-demand (ADMIN-triggered, not a cron) from the SIPP Trade Marketing API
   // (get=absensi), unless the row's absensiSource is already "MANUAL" (manual
-  // always wins over sync). PTID is per-NIP now (User.sippAbsPtId, discovered
-  // by probing SIPP_ABS_PT_ID_CANDIDATES and cached) — see
+  // always wins over sync). PTID comes from User.sippAbsPtId, seeded from the HR
+  // master file (scripts/importSippPtidFromHrFile.ts) — see
   // 01-business-rules.md §2d.
   absensiValue      Decimal?  @db.Decimal(6, 2) // working assumption: avg jam keterlambatan/bulan (§2d)
   absensiSource     String    @default("MANUAL")

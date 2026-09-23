@@ -14,14 +14,12 @@
  * (re)written from the API — safe to re-run for the current month as more
  * attendance records accumulate day by day.
  *
- * PTID discovery: this app has no per-user PT/company field, and the
- * population spans more than one PT (confirmed 2026-08-24). A wrong PTID
- * doesn't error, it silently returns no data — so for anyone without a
- * cached User.sippAbsPtId, this tries every ABS_PT_ID_CANDIDATES value over a
- * WIDE lookback window (not just the target month) before giving up, since
- * "no records this month" and "wrong PT" look identical over a single month.
- * First candidate with any record in that window wins and gets cached —
- * future runs skip straight to it.
+ * PTID comes from User.sippAbsPtId, seeded from the HR-provided master
+ * file (scripts/importSippPtidFromHrFile.ts, run 2026-09-23) — ground
+ * truth per NIP, not a prefix guess (the old P/L/F-prefix guess had ~1,083
+ * "P"-prefixed NIPs wrong, actually PTID 7 not 1). A NIP missing from that
+ * import (sippAbsPtId still null) is reported as an error, not silently
+ * skipped — re-run the import script when HR sends a refreshed file.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -37,26 +35,6 @@ export interface KpiAbsensiSyncResult {
   errors: string[];
 }
 
-const DISCOVERY_LOOKBACK_MONTHS = 6;
-
-// Only "1" (PT. Pharos Indonesia) and "7" (PML) are named in the SIPP API
-// doc — same list on staging and production (verified 2026-08-24 on both).
-// Not a secret and doesn't vary by environment, so it's a constant, not an
-// env var. Add a third PT ID here (confirmed by SIPP/HR ops, not guessed) if
-// a real NIP ever ends up with sippAbsPtId still null after a sync run.
-const ABS_PT_ID_CANDIDATES = [1, 7];
-
-/** At least DISCOVERY_LOOKBACK_MONTHS back from today, but always widened to include `targetPeriod` too (re-syncing an old month shouldn't miss it). */
-function widePtIdDiscoveryRange(targetPeriod: string): { startDate: string; endDate: string } {
-  const now = new Date();
-  const defaultStart = new Date(now.getFullYear(), now.getMonth() - (DISCOVERY_LOOKBACK_MONTHS - 1), 1);
-  const defaultStartPeriod = `${defaultStart.getFullYear()}-${String(defaultStart.getMonth() + 1).padStart(2, "0")}`;
-  const defaultEndPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const startPeriod = targetPeriod < defaultStartPeriod ? targetPeriod : defaultStartPeriod;
-  const endPeriod = targetPeriod > defaultEndPeriod ? targetPeriod : defaultEndPeriod;
-  return { startDate: monthDateRange(startPeriod).startDate, endDate: monthDateRange(endPeriod).endDate };
-}
-
 /** Syncs absensiValue for every active MR/ASM/SM for `period` ("YYYY-MM", defaults to current month). */
 export async function runKpiAbsensiSync(period?: string): Promise<KpiAbsensiSyncResult> {
   const now = new Date();
@@ -70,19 +48,18 @@ export async function runKpiAbsensiSync(period?: string): Promise<KpiAbsensiSync
   }
 
   const personnel = (await prisma.user.findMany({
-    where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false },
+    where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
     select: { nip: true, sippAbsPtId: true },
   })) as { nip: string; sippAbsPtId: number | null }[];
   if (personnel.length === 0) return result;
 
   const existingEntries = (await prisma.kpiMonthlyEntry.findMany({
     where: { nip: { in: personnel.map((p) => p.nip) }, period: targetPeriod },
-    select: { nip: true, absensiSource: true },
-  })) as { nip: string; absensiSource: string }[];
-  const manualNips = new Set(existingEntries.filter((e) => e.absensiSource === "MANUAL").map((e) => e.nip));
+    select: { nip: true, absensiSource: true, absensiValue: true },
+  })) as { nip: string; absensiSource: string; absensiValue: unknown }[];
+  const manualNips = new Set(existingEntries.filter((e) => e.absensiSource === "MANUAL" && e.absensiValue != null).map((e) => e.nip));
 
   const { startDate, endDate } = monthDateRange(targetPeriod);
-  const discoveryRange = widePtIdDiscoveryRange(targetPeriod);
 
   for (const p of personnel) {
     result.scanned++;
@@ -92,27 +69,12 @@ export async function runKpiAbsensiSync(period?: string): Promise<KpiAbsensiSync
     }
 
     try {
-      let ptId = p.sippAbsPtId;
-      let recordsForTargetMonth: Awaited<ReturnType<typeof getAbsensiByNip>> = null;
-
-      if (ptId != null) {
-        recordsForTargetMonth = await getAbsensiByNip(p.nip, ptId, startDate, endDate);
-      } else {
-        // Not cached yet — probe candidates over the wide window until one has data.
-        for (const candidate of ABS_PT_ID_CANDIDATES) {
-          const wideRecords = await getAbsensiByNip(p.nip, candidate, discoveryRange.startDate, discoveryRange.endDate);
-          if (wideRecords && wideRecords.length > 0) {
-            ptId = candidate;
-            await prisma.user.update({ where: { nip: p.nip }, data: { sippAbsPtId: candidate } });
-            recordsForTargetMonth = wideRecords.filter((r) => r.absDateIn >= startDate && r.absDateIn <= `${endDate}T23:59:59`);
-            break;
-          }
-        }
-        if (ptId == null) {
-          result.noData++; // no candidate had any data in 6 months — likely new hire or genuinely no PT match yet
-          continue;
-        }
+      const ptId = p.sippAbsPtId;
+      if (ptId == null) {
+        result.errors.push(`${p.nip}: no PTID mapping (not in HR master file — see scripts/importSippPtidFromHrFile.ts)`);
+        continue;
       }
+      const recordsForTargetMonth = await getAbsensiByNip(p.nip, ptId, startDate, endDate);
 
       if (recordsForTargetMonth == null) {
         result.errors.push(`${p.nip}: SIPP call failed`);

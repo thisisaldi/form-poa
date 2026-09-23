@@ -85,7 +85,7 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
   await requireAdmin();
 
   const personnel = (await prisma.user.findMany({
-    where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false },
+    where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
     select: { nip: true, name: true, role: true, jabatan: true },
     orderBy: { name: "asc" },
   })) as { nip: string; name: string; role: string; jabatan: string | null }[];

@@ -63,6 +63,7 @@ function ManualInputRow({ row, period }: { row: KpiPersonnelRow; period: string 
         <input
           type="number"
           min={0}
+          step="any"
           value={callActivity}
           onChange={(e) => setCallActivity(e.target.value)}
           className="w-16 rounded border px-1.5 py-0.5 text-xs"
