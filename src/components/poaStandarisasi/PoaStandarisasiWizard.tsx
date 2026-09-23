@@ -1840,12 +1840,11 @@ function FinalisasiPhase({
           {DISTRIBUTOR_OPTIONS.map((d) => (
             <label key={d} className="flex items-center gap-1.5 text-sm">
               <input
-                type="checkbox"
+                type="radio"
+                name="finalisasiDistributor"
                 checked={distributors.includes(d)}
                 disabled={disabled}
-                onChange={(e) =>
-                  setDistributors((prev) => (e.target.checked ? [...prev, d] : prev.filter((x) => x !== d)))
-                }
+                onChange={() => setDistributors([d])}
               />
               {d}
             </label>
@@ -2131,8 +2130,6 @@ function Step5SpNonSalesDplDpf({
     }
   }
 
-  const remainingDistributorOptions = DISTRIBUTOR_OPTIONS.filter((d) => !distributors.includes(d));
-
   return (
     <Card className="mt-4">
       <CardHeader><CardTitle>SP Non Sales & DPL / DPF</CardTitle></CardHeader>
@@ -2249,27 +2246,19 @@ function Step5SpNonSalesDplDpf({
       {activeTab === "dplDpf" && (
         <div>
           <span className="text-sm font-medium block mb-2">Distributor</span>
-          <div className="flex items-center gap-2 flex-wrap mb-4">
-            {distributors.map((d) => (
-              <span key={d} className="text-xs font-semibold px-2.5 py-1 rounded-full flex items-center gap-1.5" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
-                {d}
-                {editable && (
-                  <button type="button" onClick={() => handleDistributorChange(distributors.filter((x) => x !== d))} style={{ color: "var(--color-blue)" }}>✕</button>
-                )}
-              </span>
-            ))}
-            {editable && remainingDistributorOptions.length > 0 && (
-              <div className="w-40">
-                <Combobox
-                  name="dplDpfDistributorAdd"
-                  options={remainingDistributorOptions.map((d) => ({ value: d, label: d }))}
-                  value=""
-                  onChange={(v) => handleDistributorChange([...distributors, v])}
-                  disabled={busy}
-                  placeholder="+ Tambah distributor…"
+          <div className="flex gap-4 mb-4">
+            {DISTRIBUTOR_OPTIONS.map((d) => (
+              <label key={d} className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="radio"
+                  name="dplDpfDistributor"
+                  checked={distributors.includes(d)}
+                  disabled={busy || !editable}
+                  onChange={() => handleDistributorChange([d])}
                 />
-              </div>
-            )}
+                {d}
+              </label>
+            ))}
           </div>
 
           <table className="w-full text-xs">
