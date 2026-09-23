@@ -51,6 +51,7 @@ export function useSalesCounterOutletActions({
   const [rejectCategory, setRejectCategory] = useState("");
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const [isSubmittingOutlet, setIsSubmittingOutlet] = useState(false);
+  const [declineBoxOpen, setDeclineBoxOpen] = useState(false);
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
@@ -90,6 +91,10 @@ export function useSalesCounterOutletActions({
     }
     return true;
   }, [isOwner, parentCanApprove, canApproveOutlet, draft.status]);
+
+  const canRespondEdit = useMemo(() => {
+    return !isOwner && ["ASM", "SM", "NSM", "ADMIN"].includes(userRole || "");
+  }, [isOwner, userRole]);
 
   const { hasPendingEditRequest, pendingEditRequestNotes } = useMemo(() => {
     return extractPendingEditRequest(draft.auditLogs);
@@ -298,6 +303,9 @@ export function useSalesCounterOutletActions({
     isDeleting,
     hasPendingEditRequest,
     pendingEditRequestNotes,
+    canRespondEdit,
+    declineBoxOpen,
+    setDeclineBoxOpen,
     lastRevisionLog,
     revisionInfo,
     handleRequestEditSubmit,

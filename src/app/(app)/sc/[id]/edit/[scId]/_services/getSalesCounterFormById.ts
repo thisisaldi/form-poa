@@ -5,6 +5,7 @@ import { isOutletBlastIn } from "@/lib/outletBlastIn";
 import { getSalesCountersByOutlet } from "../../../_services/getSalesCounters";
 import { getSalesCounterProduct } from "../../../_services/getSalesCounterProduct";
 import { canUserEditScForm } from "@/lib/authz";
+import { extractPendingEditRequest } from "@/components/sc/detail/utils/auditLogUtils";
 
 export async function getSalesCounterFormById(
   scId: string,
@@ -18,6 +19,9 @@ export async function getSalesCounterFormById(
       products: true,
       persons: true,
       entertainItems: true,
+      auditLogs: {
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 
@@ -105,9 +109,13 @@ export async function getSalesCounterFormById(
     })),
   };
 
+  const { hasPendingEditRequest, pendingEditRequestNotes } = extractPendingEditRequest(form.auditLogs);
+
   return {
     isOwner: form.ownerId === sessionUserId,
     userCanEdit: canUserEditScForm(sessionRole || "MR", sessionUserId, form.ownerId, form.status),
+    hasPendingEditRequest,
+    pendingEditRequestNotes,
     form: serialized,
     products,
   };

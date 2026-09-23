@@ -3,6 +3,11 @@
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { saveSalesCounterFormAction } from "@/app/actions/scActions";
+import {
+  requestEditSalesCounterFormAction,
+  grantEditSalesCounterFormAction,
+  declineEditSalesCounterFormAction,
+} from "@/app/actions/scApprovalActions";
 import { ProductSelector } from "./ProductSelector";
 import { ScSidebar } from "./ScSidebar";
 import { UnitInput } from "./UnitInput";
@@ -49,13 +54,85 @@ export function SalesCounterEditByIdEditor({
   masterProducts,
   readOnly = false,
   isOwner,
+  userRole,
   status,
+  hasPendingEditRequest = false,
+  pendingEditRequestNotes = "",
 }: SalesCounterEditByIdEditorProps) {
   const router = useRouter();
   const { showToast } = useScToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [posmVal, setPosmVal] = useState(0);
+
+  const [requestEditBoxOpen, setRequestEditBoxOpen] = useState(false);
+  const [requestEditReason, setRequestEditReason] = useState("");
+  const [isRequestingEdit, setIsRequestingEdit] = useState(false);
+
+  const [isRespondingEdit, setIsRespondingEdit] = useState(false);
+  const [declineBoxOpen, setDeclineBoxOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState("");
+  const canRespondEdit = !isOwner && ["ASM", "SM", "NSM", "ADMIN"].includes(userRole || "") && hasPendingEditRequest;
+
+  const handleRequestEditSubmit = async () => {
+    if (isRequestingEdit) return;
+    setIsRequestingEdit(true);
+    try {
+      const res = await requestEditSalesCounterFormAction([scId], requestEditReason);
+      if (res.ok) {
+        showToast("Permohonan edit berhasil dikirim ke Atasan.", "success");
+        setRequestEditBoxOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal mengajukan permohonan edit.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat mengajukan permohonan edit.", "error");
+    } finally {
+      setIsRequestingEdit(false);
+    }
+  };
+
+  const handleGrantEdit = async () => {
+    if (isRespondingEdit) return;
+    setIsRespondingEdit(true);
+    try {
+      const res = await grantEditSalesCounterFormAction([scId]);
+      if (res.ok) {
+        showToast("Izin edit telah disetujui. Status outlet dikembalikan ke Revisi.", "success");
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menyetujui izin edit.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat menyetujui izin edit.", "error");
+    } finally {
+      setIsRespondingEdit(false);
+    }
+  };
+
+  const handleDeclineEdit = async () => {
+    if (isRespondingEdit) return;
+    if (!declineReason.trim()) {
+      showToast("Harap isi alasan penolakan permintaan edit.", "error");
+      return;
+    }
+    setIsRespondingEdit(true);
+    try {
+      const res = await declineEditSalesCounterFormAction([scId], declineReason);
+      if (res.ok) {
+        showToast("Permintaan edit telah ditolak.", "info");
+        setDeclineBoxOpen(false);
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menolak permintaan edit.", "error");
+      }
+    } catch (err: any) {
+      showToast(err?.message || "Terjadi kesalahan saat menolak permintaan edit.", "error");
+    } finally {
+      setIsRespondingEdit(false);
+    }
+  };
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const persenResepDokter = String(initialPersenResepDokter ?? "0");
@@ -541,19 +618,178 @@ export function SalesCounterEditByIdEditor({
     <>
       <form onSubmit={handleSubmit} className="space-y-6 p-3 sm:p-6 max-w-5xl w-full max-w-full overflow-hidden">
       {readOnly && (
-        <div className="rounded-md px-4 py-3 text-sm font-medium"
+        <div className="rounded-md px-4 py-3 text-sm font-medium space-y-2.5"
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
-          {status === "APPROVED_BY_NSM"
-            ? "Outlet ini sudah berstatus Fully Approved pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja)."
-            : isOwner === false
-            ? "Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only). Perubahan hanya dapat dilakukan oleh pemilik draf (MR)."
-            : "Mode Lihat (Read-Only)."}
+          <p>
+            {status === "APPROVED_BY_NSM"
+              ? "Outlet ini sudah berstatus Fully Approved pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja)."
+              : isOwner
+              ? "Mode Lihat (Read-Only) — Outlet ini sudah disetujui oleh Atasan. Untuk melakukan perubahan rencana, Anda dapat mengajukan permohonan edit ke Atasan."
+              : "Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only)."}
+          </p>
+          {isOwner && !hasPendingEditRequest && status !== "APPROVED_BY_NSM" && !requestEditBoxOpen && (
+            <div>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setRequestEditBoxOpen(true)}
+                style={{ background: "var(--color-blue)", color: "#ffffff" }}
+              >
+                Ajukan Permohonan Edit
+              </Button>
+            </div>
+          )}
         </div>
       )}
-      {!readOnly && status && status !== "DRAFT" && status !== "REVISI" && status !== "APPROVED_BY_NSM" && (
+
+      {hasPendingEditRequest && (
+        <div
+          className="rounded-lg p-4 text-xs font-medium space-y-2.5 border"
+          style={{
+            background: "var(--color-warning-light, #fef3c7)",
+            borderColor: "var(--color-warning, #f59e0b)",
+            color: "var(--color-warning-dark, #92400e)",
+          }}
+        >
+          <div>
+            <p className="font-semibold text-xs flex items-center gap-1.5" style={{ color: "var(--color-warning-dark, #92400e)" }}>
+              <span>⚠️</span>
+              <span>Permintaan Izin Edit dari MR ({namaOutlet || kodePI})</span>
+            </p>
+            <p className="mt-1 font-normal text-xs leading-relaxed" style={{ color: "var(--color-text)" }}>
+              {pendingEditRequestNotes ? (
+                <>Alasan pengajuan: <em>&ldquo;{pendingEditRequestNotes}&rdquo;</em></>
+              ) : (
+                "Pemilik draf mengajukan izin untuk mengedit kembali outlet ini yang sudah disetujui."
+              )}
+            </p>
+          </div>
+
+          {canRespondEdit ? (
+            <div className="pt-2 space-y-2 border-t" style={{ borderColor: "#fde68a" }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isRespondingEdit}
+                  onClick={handleGrantEdit}
+                  style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}
+                >
+                  {isRespondingEdit ? "Memproses…" : "Setujui Izin Edit (Kembali ke Revisi)"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={declineBoxOpen ? "ghost" : "danger"}
+                  disabled={isRespondingEdit}
+                  onClick={() => setDeclineBoxOpen(!declineBoxOpen)}
+                >
+                  {declineBoxOpen ? "Batal Menolak" : "Tolak Permintaan Edit"}
+                </Button>
+              </div>
+
+              {declineBoxOpen && (
+                <div className="pt-2 space-y-2 border-t" style={{ borderColor: "#fde68a" }}>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-medium" style={{ color: "var(--color-text)" }}>
+                      Alasan Menolak Permintaan Edit (wajib diisi):
+                    </span>
+                    <textarea
+                      value={declineReason}
+                      onChange={(e) => setDeclineReason(e.target.value)}
+                      rows={2}
+                      placeholder="Jelaskan alasan mengapa permintaan izin edit ini ditolak…"
+                      className="input-field text-xs rounded border p-2"
+                      style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+                    />
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="danger"
+                      disabled={isRespondingEdit || !declineReason.trim()}
+                      onClick={handleDeclineEdit}
+                    >
+                      {isRespondingEdit ? "Menolak…" : "Konfirmasi Tolak Permintaan"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setDeclineBoxOpen(false)}
+                    >
+                      Batal
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-[11px] font-normal opacity-90">
+              {isOwner
+                ? "Permintaan Anda sedang menunggu persetujuan dari Atasan (ASM/SM/NSM)."
+                : "Menunggu respon persetujuan dari Atasan."}
+            </div>
+          )}
+        </div>
+      )}
+
+      {requestEditBoxOpen && (
+        <div
+          className="rounded-lg p-4 text-xs font-medium space-y-2.5 border"
+          style={{
+            background: "var(--color-warning-bg, #fef3c7)",
+            color: "var(--color-warning, #b45309)",
+            border: "1px solid var(--color-warning, #f59e0b)",
+          }}
+        >
+          <p className="font-semibold text-sm">
+            Permohonan Izin Edit Outlet ({namaOutlet || kodePI})
+          </p>
+          <p className="font-normal leading-relaxed text-xs">
+            Outlet ini sedang terkunci untuk diedit karena sudah disetujui Atasan. Silakan ajukan permohonan izin edit ke Atasan dengan menyertakan alasan. Jika disetujui, status outlet akan dikembalikan ke <strong>Revisi</strong> agar Anda dapat mengedit form kembali.
+          </p>
+          <div className="space-y-2 pt-1">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-normal" style={{ color: "var(--color-text)" }}>
+                Alasan permohonan edit (opsional) — akan dikirim ke Atasan yang menyetujui
+              </span>
+              <textarea
+                value={requestEditReason}
+                onChange={(e) => setRequestEditReason(e.target.value)}
+                rows={2}
+                placeholder="mis. ada koreksi jumlah atau estimasi produk yang perlu diperbaiki…"
+                className="input-field text-xs rounded border p-2"
+                style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
+              />
+            </label>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isRequestingEdit}
+                onClick={handleRequestEditSubmit}
+                style={{ background: "var(--color-blue)", color: "#ffffff" }}
+              >
+                {isRequestingEdit ? "Mengirim…" : "Kirim Permohonan Edit ke Atasan"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setRequestEditBoxOpen(false)}
+              >
+                Batal
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {!readOnly && isOwner && status === "SUBMITTED_TO_ASM" && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
-          style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #b45309)", border: "1px solid var(--color-warning, #f59e0b)" }}>
-          Outlet ini sudah berstatus <strong>{formatHumanStatus(status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {status === "SUBMITTED_TO_NSM" ? "NSM" : status === "SUBMITTED_TO_SM" || status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
+          style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
+          Outlet ini sedang dalam status <strong>Menunggu Persetujuan ASM</strong>. Perubahan yang Anda simpan akan langsung memperbarui draf yang sedang ditinjau oleh ASM.
         </div>
       )}
       <div className="space-y-6">
@@ -1034,7 +1270,11 @@ export function SalesCounterEditByIdEditor({
       {/* ACTION BUTTONS */}
       <div className="flex justify-end gap-3 pt-4 pb-10 md:pb-0 border-t" style={{ borderColor: "var(--color-border)" }}>
         {readOnly ? (
-          <Button type="button" variant="secondary" onClick={() => router.push(`/sc/${scId}`)}>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => router.push(`/sc/${scId}`)}
+          >
             Kembali ke Detail
           </Button>
         ) : (
@@ -1043,11 +1283,7 @@ export function SalesCounterEditByIdEditor({
               Batal
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting
-                ? "Menyimpan..."
-                : status && status !== "DRAFT" && status !== "REVISI"
-                ? "Ajukan Edit"
-                : "Simpan Perubahan"}
+              {isSubmitting ? "Menyimpan..." : "Simpan Perubahan"}
             </Button>
           </>
         )}

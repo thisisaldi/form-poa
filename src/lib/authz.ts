@@ -581,14 +581,18 @@ export function canUserEditScForm(
 
   const userLevel = roleLevel[userRole] ?? -1;
   const lockLevel = getScEditLockLevel(status);
+  const isOwner = sessionUserId === ownerId;
 
-  // MR (Owner): Can edit / ajukan edit for their own SC form if not fully approved
-  if (sessionUserId === ownerId) {
-    return true;
+  // DRAFT & REVISI: hanya pemilik (atau ADMIN) yang dapat mengedit
+  if (lockLevel === -1) {
+    return isOwner;
   }
 
-  // Managers (ASM, SM, NSM):
-  // Can edit directly if userLevel >= lockLevel
+  // Status dalam alur approval (lockLevel >= 0):
+  // Diizinkan mengedit jika userLevel >= lockLevel.
+  // Contoh:
+  // - SUBMITTED_TO_ASM (lockLevel 0): MR (level 0) masih bisa edit (0 >= 0).
+  // - APPROVED_BY_ASM (lockLevel 1): MR (level 0) terkunci (0 < 1), hanya ASM ke atas yang bisa edit.
   if (userLevel >= 0 && lockLevel >= 0) {
     return userLevel >= lockLevel;
   }

@@ -188,32 +188,40 @@ export async function submitSalesCounterFormAction(
             const reviserRole = lastRevLog.actor?.role;
             const fromStatus = lastRevLog.fromStatus;
 
+            // Sesuai SOP POA: Resubmit revisi kembali untuk direview ulang oleh pengapprove terakhir
             if (
+              fromStatus === PoaStatus.APPROVED_BY_NSM
+            ) {
+              targetStatus = PoaStatus.SUBMITTED_TO_NSM;
+              targetHolderId = await resolveHolderForRole(tx, actor, "NSM");
+            } else if (
               reviserRole === "NSM" ||
               fromStatus === PoaStatus.SUBMITTED_TO_NSM ||
               fromStatus === PoaStatus.APPROVED_BY_SM
             ) {
-              targetStatus = PoaStatus.SUBMITTED_TO_NSM;
-              targetHolderId = (lastRevLog.actor?.role === "NSM" && lastRevLog.actor.isActive)
-                ? lastRevLog.actorId
-                : await resolveHolderForRole(tx, actor, "NSM");
+              // Jika status sebelumnya di level NSM (sudah diapprove SM), saat diajukan kembali
+              // harus direview ulang oleh pengapprove terakhir yaitu SM
+              targetHolderId = await resolveHolderForRole(tx, actor, "SM");
+              if (targetHolderId) {
+                targetStatus = PoaStatus.SUBMITTED_TO_SM;
+              } else {
+                targetStatus = PoaStatus.SUBMITTED_TO_NSM;
+                targetHolderId = await resolveHolderForRole(tx, actor, "NSM");
+              }
             } else if (
               reviserRole === "SM" ||
               fromStatus === PoaStatus.SUBMITTED_TO_SM ||
               fromStatus === PoaStatus.APPROVED_BY_ASM
             ) {
-              targetStatus = PoaStatus.SUBMITTED_TO_SM;
-              targetHolderId = (lastRevLog.actor?.role === "SM" && lastRevLog.actor.isActive)
-                ? lastRevLog.actorId
-                : await resolveHolderForRole(tx, actor, "SM");
-            } else if (
-              reviserRole === "ASM" ||
-              fromStatus === PoaStatus.SUBMITTED_TO_ASM
-            ) {
-              targetStatus = PoaStatus.SUBMITTED_TO_ASM;
-              targetHolderId = (lastRevLog.actor?.role === "ASM" && lastRevLog.actor.isActive)
-                ? lastRevLog.actorId
-                : await resolveHolderForRole(tx, actor, "ASM");
+              // Jika status sebelumnya di level SM (sudah diapprove ASM), saat diajukan kembali
+              // harus direview ulang oleh pengapprove terakhir yaitu ASM
+              targetHolderId = await resolveHolderForRole(tx, actor, "ASM");
+              if (targetHolderId) {
+                targetStatus = PoaStatus.SUBMITTED_TO_ASM;
+              } else {
+                targetStatus = PoaStatus.SUBMITTED_TO_SM;
+                targetHolderId = await resolveHolderForRole(tx, actor, "SM");
+              }
             } else {
               const res = await resolveSubmitTargetForUser(tx, actor);
               targetStatus = res.targetStatus;

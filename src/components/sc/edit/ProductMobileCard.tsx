@@ -5,6 +5,7 @@ import { Req, InfoTooltip } from "./ui";
 import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
 import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
+import { HoverTextTooltip } from "@/components/sc/ui/HoverTextTooltip";
 
 export interface ProductMobileCardProps {
   row: any;
@@ -323,26 +324,52 @@ export function ProductMobileCard({
       {/* Top: Product Combobox directly + Collapse Toggle + Delete Button */}
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
-          <Combobox
-            name={`product-mob-${idx}`}
-            options={productsOptions.filter((option: any) => {
+          {(() => {
+            const selectedOption = productsOptions.find(
+              (o: any) => (o.value || o.kodeProduk) === row.kodeProduk
+            );
+            const productName = selectedOption?.label || masterProduct?.namaProduk || canvasserProduct?.pro_name || row.kodeProduk;
+
+            const filteredOptions = productsOptions.filter((option: any) => {
               const optionCode = option.value || option.kodeProduk;
               if (optionCode === row.kodeProduk) return true;
               return !rows.some((otherRow, otherIdx) => otherIdx !== idx && otherRow.kodeProduk === optionCode);
-            })}
-            value={row.kodeProduk}
-            onChange={(val) => {
-              const comps = getCompetitorsForRow(val);
-              const compNames = comps.map((c) => c.namaKompetitor).join(", ");
-              onUpdateRow(idx, {
-                kodeProduk: val,
-                ...(compNames ? { produkKompetitor: compNames } : {}),
+            });
+
+            if (row.kodeProduk && !filteredOptions.some((o: any) => (o.value || o.kodeProduk) === row.kodeProduk)) {
+              filteredOptions.unshift({
+                value: row.kodeProduk,
+                label: productName,
               });
-            }}
-            disabled={readOnly}
-            placeholder="Pilih produk..."
-            emptyMessage="Tidak ada produk."
-          />
+            }
+
+            const comboboxEl = (
+              <Combobox
+                name={`product-mob-${idx}`}
+                options={filteredOptions}
+                value={row.kodeProduk}
+                onChange={(val) => {
+                  const comps = getCompetitorsForRow(val);
+                  const compNames = comps.map((c) => c.namaKompetitor).join(", ");
+                  onUpdateRow(idx, {
+                    kodeProduk: val,
+                    ...(compNames ? { produkKompetitor: compNames } : {}),
+                  });
+                }}
+                disabled={readOnly}
+                placeholder="Pilih produk..."
+                emptyMessage="Tidak ada produk."
+              />
+            );
+
+            return row.kodeProduk && productName ? (
+              <HoverTextTooltip text={productName} className="block w-full">
+                {comboboxEl}
+              </HoverTextTooltip>
+            ) : (
+              comboboxEl
+            );
+          })()}
         </div>
         <button
           type="button"

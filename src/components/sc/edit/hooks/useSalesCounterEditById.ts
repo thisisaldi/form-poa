@@ -87,7 +87,7 @@ export function useSalesCounterEditById({
 
   const [rowQuarter, setRowQuarter] = useState(initialRowQuarter);
   const [periodeAwal, setPeriodeAwal] = useState(initialPeriodeAwal);
-  const [lamaPeriode, setLamaPeriode] = useState(initialLamaPeriode);
+  const [lamaPeriode, setLamaPeriode] = useState(3);
 
   const effectivePoaPeriod = `${poaYear}-Q${rowQuarter}`;
   const quarterMonths = useMemo(() => quarterToMonths(effectivePoaPeriod), [effectivePoaPeriod]);
@@ -120,13 +120,20 @@ export function useSalesCounterEditById({
       groupMap.get(p.kodeProduk)!.push(p);
     }
 
-    const startYear = parseInt(initialPeriodeAwal.slice(0, 4), 10);
-    const startMonth = parseInt(initialPeriodeAwal.slice(4, 6), 10);
-    const numMonths = Math.max(1, initialLamaPeriode || 3);
-    const periodMonths: string[] = [];
-    for (let i = 0; i < numMonths; i++) {
-      const d = new Date(startYear, startMonth - 1 + i, 1);
-      periodMonths.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+    // Selalu gunakan 3 bulan kuartal (mis. 2026-Q3 -> Jul, Agu, Sep) agar tetap tampil 3 box walaupun 0
+    let periodMonths: string[] = [];
+    try {
+      periodMonths = quarterToMonths(`${poaYear}-Q${initialRowQuarter}`);
+    } catch {
+      periodMonths = [];
+    }
+    if (periodMonths.length !== 3) {
+      const startYear = parseInt(initialPeriodeAwal.slice(0, 4), 10);
+      const startMonth = parseInt(initialPeriodeAwal.slice(4, 6), 10);
+      for (let i = 0; i < 3; i++) {
+        const d = new Date(startYear, startMonth - 1 + i, 1);
+        periodMonths.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+      }
     }
 
     const groupedRows: SelectedProductRow[] = [];
@@ -139,28 +146,27 @@ export function useSalesCounterEditById({
         }
       }
 
-      const hasMultipleMonths = items.some((it) => it.periodeMonth);
-      let monthlyQty: string[] | undefined = undefined;
+      // Selalu sediakan 3 bulan kuartal (tetap pertahankan 3 box walaupun 0)
       let totalQty = 0;
+      const monthlyQty = periodMonths.map((m) => {
+        if (monthMap.has(m)) {
+          const q = monthMap.get(m)!;
+          totalQty += q;
+          return String(q);
+        }
+        return "0";
+      });
 
-      if (hasMultipleMonths && periodMonths.length > 1) {
-        monthlyQty = periodMonths.map((m) => {
-          if (monthMap.has(m)) {
-            const q = monthMap.get(m)!;
-            totalQty += q;
-            return String(q);
-          }
-          return "0";
-        });
-      } else {
+      const hasAnyMonthMapped = items.some((it) => it.periodeMonth && monthMap.has(it.periodeMonth));
+      if (!hasAnyMonthMapped && primary.qtyPerBulan) {
         const def = primary.qtyPerBulan || 0;
-        totalQty = def * numMonths;
-        if (periodMonths.length > 1) {
-          monthlyQty = Array(numMonths).fill(String(def || "0"));
+        totalQty = def * 3;
+        for (let i = 0; i < monthlyQty.length; i++) {
+          monthlyQty[i] = String(def);
         }
       }
 
-      const avgQty = numMonths > 0 ? totalQty / numMonths : (primary.qtyPerBulan || 0);
+      const avgQty = totalQty / 3;
       const formattedAvg = avgQty % 1 === 0 ? avgQty.toString() : parseFloat(avgQty.toFixed(2)).toString();
       const totalRencana = items.reduce((sum, it) => sum + (it.rencanaTotalBiaya || 0), 0);
 
@@ -714,11 +720,8 @@ export function useSalesCounterEditById({
     : null;
 
   const monthlyMonths = useMemo(() => {
-    if (periodeAwal && /^\d{6}$/.test(periodeAwal) && lamaPeriode > 0) {
-      return expandPeriodeMonths(periodeAwal, lamaPeriode);
-    }
     return quarterMonths;
-  }, [quarterMonths, periodeAwal, lamaPeriode]);
+  }, [quarterMonths]);
 
   const monthlyBreakdown = useMemo(() => {
     return monthlyMonths.map((m: string, mIdx: number) => {

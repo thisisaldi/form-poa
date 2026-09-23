@@ -370,13 +370,19 @@ export function useSalesCounterEditor({
           groupMap.get(p.kodeProduk)!.push(p);
         }
 
-        const startYear = parseInt(draft.periodeAwal?.slice(0, 4) || "2026", 10);
-        const startMonth = parseInt(draft.periodeAwal?.slice(4, 6) || "1", 10);
-        const numMonths = Math.max(1, draft.lamaPeriode || 3);
-        const periodMonths: string[] = [];
-        for (let i = 0; i < numMonths; i++) {
-          const d = new Date(startYear, startMonth - 1 + i, 1);
-          periodMonths.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+        let periodMonths: string[] = [];
+        try {
+          periodMonths = quarterToMonths(`${poaYear}-Q${rowQuarter}`);
+        } catch {
+          periodMonths = [];
+        }
+        if (periodMonths.length !== 3) {
+          const startYear = parseInt(draft.periodeAwal?.slice(0, 4) || "2026", 10);
+          const startMonth = parseInt(draft.periodeAwal?.slice(4, 6) || "1", 10);
+          for (let i = 0; i < 3; i++) {
+            const d = new Date(startYear, startMonth - 1 + i, 1);
+            periodMonths.push(`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`);
+          }
         }
 
         const groupedRows: SelectedProductRow[] = [];
@@ -389,28 +395,27 @@ export function useSalesCounterEditor({
             }
           }
 
-          const hasMultipleMonths = items.some((it) => it.periodeMonth);
-          let monthlyQty: string[] | undefined = undefined;
+          // Selalu sediakan 3 bulan kuartal (tetap pertahankan 3 box walaupun 0)
           let totalQty = 0;
+          const monthlyQty = periodMonths.map((m) => {
+            if (monthMap.has(m)) {
+              const q = monthMap.get(m)!;
+              totalQty += q;
+              return String(q);
+            }
+            return "0";
+          });
 
-          if (hasMultipleMonths && periodMonths.length > 1) {
-            monthlyQty = periodMonths.map((m) => {
-              if (monthMap.has(m)) {
-                const q = monthMap.get(m)!;
-                totalQty += q;
-                return String(q);
-              }
-              return "0";
-            });
-          } else {
+          const hasAnyMonthMapped = items.some((it) => it.periodeMonth && monthMap.has(it.periodeMonth));
+          if (!hasAnyMonthMapped && primary.qtyPerBulan) {
             const def = Number(primary.qtyPerBulan) || 0;
-            totalQty = def * numMonths;
-            if (periodMonths.length > 1) {
-              monthlyQty = Array(numMonths).fill(String(def || "0"));
+            totalQty = def * 3;
+            for (let i = 0; i < monthlyQty.length; i++) {
+              monthlyQty[i] = String(def);
             }
           }
 
-          const avgQty = numMonths > 0 ? totalQty / numMonths : (Number(primary.qtyPerBulan) || 0);
+          const avgQty = totalQty / 3;
           const formattedAvg = avgQty % 1 === 0 ? avgQty.toString() : parseFloat(avgQty.toFixed(2)).toString();
           const totalRencana = items.reduce((sum, it) => sum + (Number(it.rencanaTotalBiaya) || 0), 0);
 

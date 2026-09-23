@@ -10,6 +10,7 @@ import { getSalesCountersByOutlet } from "../(app)/sc/[id]/_services/getSalesCou
 import { getSalesCounterProduct } from "../(app)/sc/[id]/_services/getSalesCounterProduct";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { canUserEditScForm } from "@/lib/authz";
+import { quarterToMonths } from "@/lib/quarterUtils";
 
 async function requireSession() {
   const session = await getCurrentUser();
@@ -101,26 +102,25 @@ export async function saveSalesCounterFormAction(
       ? periodeAwalParam
       : defaultPeriodeAwal;
 
-  let lamaPeriode = defaultLamaPeriode;
-  if (typeof lamaPeriodeParam === "number" && lamaPeriodeParam > 0) {
-    lamaPeriode = lamaPeriodeParam;
-  } else {
+  // Generate calendar months for this period
+  // Sales Counter POA periods are quarterly (e.g. 2026-Q3), which consist of 3 calendar months.
+  let periodMonths: string[] = [];
+  try {
+    periodMonths = quarterToMonths(period);
+  } catch {
+    periodMonths = [];
+  }
+  if (periodMonths.length !== 3) {
     const startYear = parseInt(periodeAwal.slice(0, 4), 10);
     const startMonth = parseInt(periodeAwal.slice(4, 6), 10);
-    const endMonth = quarter * 3;
-    const calcDuration = (parseInt(year, 10) - startYear) * 12 + (endMonth - startMonth + 1);
-    lamaPeriode = calcDuration > 0 ? calcDuration : defaultLamaPeriode;
+    periodMonths = [];
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(startYear, startMonth - 1 + i, 1);
+      const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+      periodMonths.push(yyyymm);
+    }
   }
-
-  // Generate calendar months for this period
-  const startYear = parseInt(periodeAwal.slice(0, 4), 10);
-  const startMonth = parseInt(periodeAwal.slice(4, 6), 10);
-  const periodMonths: string[] = [];
-  for (let i = 0; i < (lamaPeriode || 1); i++) {
-    const d = new Date(startYear, startMonth - 1 + i, 1);
-    const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-    periodMonths.push(yyyymm);
-  }
+  const lamaPeriode = 3;
 
   // Build full list of product items across months
   const productItemsToInsert: Array<{
@@ -369,90 +369,15 @@ export async function saveSalesCounterFormAction(
       // Save PoaScForm since there are changes
       let poaSc: any = null;
       if (existing) {
-        // If owner (MR) edits a form that is already in approval flow or approved,
-        // reset status 1 level back (e.g., from NSM back to SM, from SM back to ASM).
         let targetStatus = existing.status;
         let targetHolderId = existing.currentHolderId;
-
-        const isApprovalFlowOrApproved =
-          existing.status !== PoaStatus.DRAFT && existing.status !== PoaStatus.REVISI;
-
-        if (session.userId === existing.ownerId && isApprovalFlowOrApproved) {
-          const ownerUser = await tx.user.findUnique({
-            where: { nip: session.userId },
-            select: { nip: true, nipAtasan: true, role: true },
-          });
-
-          const ownerRole = ownerUser?.role || "MR";
-
-          if (ownerRole === "ASM") {
-            // ASM owner: reset to SM review (never down to ASM review)
-            let smNip = ownerUser?.nipAtasan || null;
-            if (!smNip) {
-              const sm = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["SM", "NSM"] } },
-                select: { nip: true },
-              });
-              smNip = sm?.nip || null;
-            }
-            targetStatus = PoaStatus.SUBMITTED_TO_SM;
-            targetHolderId = smNip;
-          } else if (ownerRole === "SM") {
-            // SM owner: reset to NSM review
-            let nsmNip = ownerUser?.nipAtasan || null;
-            if (!nsmNip) {
-              const nsm = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
-                select: { nip: true },
-              });
-              nsmNip = nsm?.nip || null;
-            }
-            targetStatus = PoaStatus.SUBMITTED_TO_NSM;
-            targetHolderId = nsmNip;
-          } else {
-            // Owner is MR
-            // Walk up reportsTo to find the active manager and their role
-            let mgr: { nip: string; role: string } | null = null;
-            let curNip: string | null = ownerUser?.nipAtasan || null;
-            while (curNip) {
-              const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
-                await tx.user.findUnique({
-                  where: { nip: curNip },
-                  select: { nip: true, role: true, nipAtasan: true, isActive: true },
-                });
-              if (!p) break;
-              if (p.isActive && ["ASM", "SM", "NSM", "ADMIN"].includes(p.role)) {
-                mgr = p;
-                break;
-              }
-              curNip = p.nipAtasan;
-            }
-            if (!mgr) {
-              mgr = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["ASM", "SM", "NSM"] } },
-                select: { nip: true, role: true },
-              });
-            }
-
-            if (mgr?.role === "SM") {
-              targetStatus = PoaStatus.SUBMITTED_TO_SM;
-              targetHolderId = mgr.nip;
-            } else if (mgr?.role === "NSM" || mgr?.role === "ADMIN") {
-              targetStatus = PoaStatus.SUBMITTED_TO_NSM;
-              targetHolderId = mgr.nip;
-            } else {
-              targetStatus = PoaStatus.SUBMITTED_TO_ASM;
-              targetHolderId = mgr?.nip || null;
-            }
-          }
-        }
 
         poaSc = await tx.poaScForm.update({
           where: { id: existing.id },
           data: {
             period,
-            periodeAwal,
-            lamaPeriode,
+            periodeAwal: periodMonths[0] || periodeAwal,
+            lamaPeriode: 3,
             status: targetStatus,
             currentHolderId: targetHolderId,
             version: existing.version + 1,
@@ -468,8 +393,8 @@ export async function saveSalesCounterFormAction(
         poaSc = await tx.poaScForm.create({
           data: {
             period,
-            periodeAwal,
-            lamaPeriode,
+            periodeAwal: periodMonths[0] || periodeAwal,
+            lamaPeriode: 3,
             kodePI: outletId,
             namaOutlet,
             ownerId: session.userId,
