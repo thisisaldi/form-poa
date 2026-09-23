@@ -40,7 +40,10 @@ export interface SalesCounterEditByIdEditorProps {
   masterProducts: Product[];
   readOnly?: boolean;
   isOwner?: boolean;
+  userRole?: string;
   status?: string;
+  hasPendingEditRequest?: boolean;
+  pendingEditRequestNotes?: string;
 }
 
 export interface OutletOptionItem {

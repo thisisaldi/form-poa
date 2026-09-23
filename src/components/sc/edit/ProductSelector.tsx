@@ -6,6 +6,7 @@ import { Req, InfoTooltip } from "./ui";
 import { formatRpNumber as formatRp } from "./utils/formatEditUtils";
 import { satuanLabel, formatHnaLabel } from "./utils/productMatcherUtils";
 import { Combobox } from "@/components/ui/Combobox";
+import { HoverTextTooltip } from "@/components/sc/ui/HoverTextTooltip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { UnitInput } from "./UnitInput";
 import { ProductMobileCard, ProductMobileGrandTotal, ProductMobileToolbar } from "./ProductMobileCard";
@@ -349,26 +350,27 @@ export function ProductSelector({
     setMobileOpenCards(nextMap);
   };
 
-  const numMonths = Math.max(1, lamaPeriode || 3);
+  const numMonths = Math.max(3, lamaPeriode || 3);
   const monthNamesIndo = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
   const monthLabels: string[] = useMemo(() => {
     if (!periodeAwal) {
-      return Array.from({ length: numMonths }, (_, mIdx) => `B${mIdx + 1}`);
+      return ["B1", "B2", "B3"];
     }
-    const clean = periodeAwal.replace(/[^0-9]/g, "");
-    if (clean.length < 6) {
-      return Array.from({ length: numMonths }, (_, mIdx) => `B${mIdx + 1}`);
+    const qMatch = periodeAwal.match(/Q([1-4])/i);
+    let q = 1;
+    if (qMatch) {
+      q = parseInt(qMatch[1], 10);
+    } else {
+      const clean = periodeAwal.replace(/[^0-9]/g, "");
+      if (clean.length >= 6) {
+        const month = parseInt(clean.slice(4, 6), 10);
+        q = Math.floor((month - 1) / 3) + 1;
+      }
     }
-    const year = parseInt(clean.slice(0, 4), 10);
-    const month = parseInt(clean.slice(4, 6), 10); // 1-based
-    const startMonths = year * 12 + (month - 1);
-    return Array.from({ length: numMonths }, (_, i) => {
-      const m = startMonths + i;
-      const monthIndex = m % 12;
-      return monthNamesIndo[monthIndex] || `B${i + 1}`;
-    });
-  }, [periodeAwal, numMonths]);
+    const qStartMonthIdx = Math.max(0, Math.min(3, q - 1)) * 3;
+    return [0, 1, 2].map((i) => monthNamesIndo[qStartMonthIdx + i]);
+  }, [periodeAwal]);
 
   const monthNamesStr = monthLabels.join("+");
 
@@ -699,9 +701,13 @@ export function ProductSelector({
                     <tr key={idx} id={row.kodeProduk ? `sc-product-row-${row.kodeProduk}` : `sc-product-row-index-${idx}`} className="align-top hover:bg-[var(--color-bg-subtle)] transition-colors">
                       {/* Column 1: Product Selection, Competitor & Potensi */}
                       <td className={`py-2.5 pl-4 pr-2.5 space-y-2 ${colProdukWidth}`}>
-                        <Combobox
-                          name={`product-${idx}`}
-                          options={productsOptions.filter((option: any) => {
+                        {(() => {
+                          const selectedOption = productsOptions.find(
+                            (o: any) => (o.value || o.kodeProduk) === row.kodeProduk
+                          );
+                          const productName = selectedOption?.label || masterProduct?.namaProduk || canvasserProduct?.pro_name || row.kodeProduk;
+
+                          const filteredOptions = productsOptions.filter((option: any) => {
                             const optionCode = option.value || option.kodeProduk;
                             if (optionCode === row.kodeProduk) {
                               return true;
@@ -711,20 +717,42 @@ export function ProductSelector({
                                 otherIdx !== idx &&
                                 otherRow.kodeProduk === optionCode
                             );
-                          })}
-                          value={row.kodeProduk}
-                          onChange={(val) => {
-                            const comps = getCompetitorsForRow(val);
-                            const compNames = comps.map((c) => c.namaKompetitor).join(", ");
-                            onUpdateRow(idx, {
-                              kodeProduk: val,
-                              ...(compNames ? { produkKompetitor: compNames } : {}),
+                          });
+
+                          if (row.kodeProduk && !filteredOptions.some((o: any) => (o.value || o.kodeProduk) === row.kodeProduk)) {
+                            filteredOptions.unshift({
+                              value: row.kodeProduk,
+                              label: productName,
                             });
-                          }}
-                          disabled={readOnly}
-                          placeholder="Cari produk..."
-                          emptyMessage="Tidak ada produk."
-                        />
+                          }
+
+                          const comboboxEl = (
+                            <Combobox
+                              name={`product-${idx}`}
+                              options={filteredOptions}
+                              value={row.kodeProduk}
+                              onChange={(val) => {
+                                const comps = getCompetitorsForRow(val);
+                                const compNames = comps.map((c) => c.namaKompetitor).join(", ");
+                                onUpdateRow(idx, {
+                                  kodeProduk: val,
+                                  ...(compNames ? { produkKompetitor: compNames } : {}),
+                                });
+                              }}
+                              disabled={readOnly}
+                              placeholder="Cari produk..."
+                              emptyMessage="Tidak ada produk."
+                            />
+                          );
+
+                          return row.kodeProduk && productName ? (
+                            <HoverTextTooltip text={productName} className="block w-full">
+                              {comboboxEl}
+                            </HoverTextTooltip>
+                          ) : (
+                            comboboxEl
+                          );
+                        })()}
                         {row.kodeProduk && (
                           <div className="text-[11px] leading-tight space-y-0.5" style={{ color: "var(--color-text-muted)" }}>
                             {masterProduct && (

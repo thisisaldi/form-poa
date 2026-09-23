@@ -35,7 +35,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const ownerIdParam = _req.nextUrl.searchParams.get("ownerId");
+  const ownerIdParam = _req.nextUrl.searchParams.get("ownerId") || _req.nextUrl.searchParams.get("owner");
 
   let targetOwnerId = ownerIdParam || session.userId;
   let targetPeriod = id;

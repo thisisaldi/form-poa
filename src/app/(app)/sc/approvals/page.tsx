@@ -117,6 +117,7 @@ export default async function SalesCounterApprovalsPage({
       products: true,
       persons: true,
       entertainItems: true,
+      auditLogs: true,
     },
     orderBy: { updatedAt: "desc" },
   });
@@ -235,6 +236,11 @@ export default async function SalesCounterApprovalsPage({
         periodeMonth: e.periodeMonth,
         biayaEntertain: Number(e.biayaEntertain.toString()),
       })),
+      ownerName: d.owner?.name,
+      ownerNip: d.owner?.nip,
+      auditLogs: (d as any).auditLogs || [],
+      updatedAt: d.updatedAt,
+      createdAt: d.createdAt,
     };
   });
 
@@ -373,7 +379,7 @@ export default async function SalesCounterApprovalsPage({
       approvedCount,
       belumCount,
       totalBudgetSc,
-      targetHref: `/sc/${g.forms[0]?.id || g.period}`,
+      targetHref: `/sc/${g.period}?owner=${g.nip}`,
       forms: g.forms.map((f) => ({
         id: f.id,
         kodePI: f.kodePI,

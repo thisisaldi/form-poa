@@ -10,6 +10,7 @@ import { getSalesCountersByOutlet } from "../(app)/sc/[id]/_services/getSalesCou
 import { getSalesCounterProduct } from "../(app)/sc/[id]/_services/getSalesCounterProduct";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { canUserEditScForm } from "@/lib/authz";
+import { quarterToMonths } from "@/lib/quarterUtils";
 
 async function requireSession() {
   const session = await getCurrentUser();
@@ -101,26 +102,25 @@ export async function saveSalesCounterFormAction(
       ? periodeAwalParam
       : defaultPeriodeAwal;
 
-  let lamaPeriode = defaultLamaPeriode;
-  if (typeof lamaPeriodeParam === "number" && lamaPeriodeParam > 0) {
-    lamaPeriode = lamaPeriodeParam;
-  } else {
+  // Generate calendar months for this period
+  // Sales Counter POA periods are quarterly (e.g. 2026-Q3), which consist of 3 calendar months.
+  let periodMonths: string[] = [];
+  try {
+    periodMonths = quarterToMonths(period);
+  } catch {
+    periodMonths = [];
+  }
+  if (periodMonths.length !== 3) {
     const startYear = parseInt(periodeAwal.slice(0, 4), 10);
     const startMonth = parseInt(periodeAwal.slice(4, 6), 10);
-    const endMonth = quarter * 3;
-    const calcDuration = (parseInt(year, 10) - startYear) * 12 + (endMonth - startMonth + 1);
-    lamaPeriode = calcDuration > 0 ? calcDuration : defaultLamaPeriode;
+    periodMonths = [];
+    for (let i = 0; i < 3; i++) {
+      const d = new Date(startYear, startMonth - 1 + i, 1);
+      const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+      periodMonths.push(yyyymm);
+    }
   }
-
-  // Generate calendar months for this period
-  const startYear = parseInt(periodeAwal.slice(0, 4), 10);
-  const startMonth = parseInt(periodeAwal.slice(4, 6), 10);
-  const periodMonths: string[] = [];
-  for (let i = 0; i < (lamaPeriode || 1); i++) {
-    const d = new Date(startYear, startMonth - 1 + i, 1);
-    const yyyymm = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-    periodMonths.push(yyyymm);
-  }
+  const lamaPeriode = 3;
 
   // Build full list of product items across months
   const productItemsToInsert: Array<{
@@ -369,95 +369,15 @@ export async function saveSalesCounterFormAction(
       // Save PoaScForm since there are changes
       let poaSc: any = null;
       if (existing) {
-        // If owner (MR) edits a form that is already in approval flow or approved,
-        // reset status 1 level back (e.g., from NSM back to SM, from SM back to ASM).
         let targetStatus = existing.status;
         let targetHolderId = existing.currentHolderId;
-
-        const isApprovalFlowOrApproved =
-          existing.status !== PoaStatus.DRAFT && existing.status !== PoaStatus.REVISI;
-
-        if (session.userId === existing.ownerId && isApprovalFlowOrApproved) {
-          const ownerUser = await tx.user.findUnique({
-            where: { nip: session.userId },
-            select: { nip: true, nipAtasan: true, role: true },
-          });
-
-          const ownerRole = ownerUser?.role || "MR";
-
-          if (ownerRole === "ASM") {
-            // ASM owner: reset to SM review (never down to ASM review)
-            let smNip = ownerUser?.nipAtasan || null;
-            if (!smNip) {
-              const sm = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["SM", "NSM"] } },
-                select: { nip: true },
-              });
-              smNip = sm?.nip || null;
-            }
-            targetStatus = PoaStatus.SUBMITTED_TO_SM;
-            targetHolderId = smNip;
-          } else if (ownerRole === "SM") {
-            // SM owner: reset to NSM review
-            let nsmNip = ownerUser?.nipAtasan || null;
-            if (!nsmNip) {
-              const nsm = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
-                select: { nip: true },
-              });
-              nsmNip = nsm?.nip || null;
-            }
-            targetStatus = PoaStatus.SUBMITTED_TO_NSM;
-            targetHolderId = nsmNip;
-          } else {
-            // Owner is MR
-            let asmNip = ownerUser?.nipAtasan || null;
-            if (!asmNip) {
-              const asm = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["ASM", "SM", "NSM"] } },
-                select: { nip: true },
-              });
-              asmNip = asm?.nip || null;
-            }
-
-            let smNip: string | null = null;
-            if (asmNip) {
-              const asmUser = await tx.user.findUnique({
-                where: { nip: asmNip },
-                select: { nipAtasan: true },
-              });
-              smNip = asmUser?.nipAtasan || null;
-            }
-            if (!smNip) {
-              const sm = await tx.user.findFirst({
-                where: { isActive: true, role: { in: ["SM", "NSM"] } },
-                select: { nip: true },
-              });
-              smNip = sm?.nip || null;
-            }
-
-            if (
-              existing.status === PoaStatus.SUBMITTED_TO_NSM ||
-              existing.status === PoaStatus.APPROVED_BY_SM ||
-              existing.status === PoaStatus.SUBMITTED_TO_SM
-            ) {
-              // Step back from NSM -> back to SM review, or stay at SM review if already at SM (stuck di SM)
-              targetStatus = PoaStatus.SUBMITTED_TO_SM;
-              targetHolderId = smNip;
-            } else {
-              // Step back from ASM -> back to ASM review
-              targetStatus = PoaStatus.SUBMITTED_TO_ASM;
-              targetHolderId = asmNip;
-            }
-          }
-        }
 
         poaSc = await tx.poaScForm.update({
           where: { id: existing.id },
           data: {
             period,
-            periodeAwal,
-            lamaPeriode,
+            periodeAwal: periodMonths[0] || periodeAwal,
+            lamaPeriode: 3,
             status: targetStatus,
             currentHolderId: targetHolderId,
             version: existing.version + 1,
@@ -473,8 +393,8 @@ export async function saveSalesCounterFormAction(
         poaSc = await tx.poaScForm.create({
           data: {
             period,
-            periodeAwal,
-            lamaPeriode,
+            periodeAwal: periodMonths[0] || periodeAwal,
+            lamaPeriode: 3,
             kodePI: outletId,
             namaOutlet,
             ownerId: session.userId,
@@ -611,40 +531,46 @@ export async function saveSalesCounterFormAction(
           snapshot.person = personDiffs;
         }
 
-        // Compare products
-        const oldProdMap = new Map<string, any>(
-          existing.products.map((p: any) => [
-            p.kodeProduk,
-            {
-              kodeProduk: p.kodeProduk,
+        // Compare products with 3-month breakdown
+        const oldProdMap = new Map<string, {
+          namaProduk: string;
+          produkKompetitor: string | null;
+          months: Map<string, number>;
+        }>();
+
+        for (const p of existing.products) {
+          let entry = oldProdMap.get(p.kodeProduk);
+          if (!entry) {
+            entry = {
               namaProduk: p.namaProduk,
               produkKompetitor: p.produkKompetitor || null,
-              qtyPerBulan: p.qtyPerBulan,
-              persenMatriksSc: parseFloat(Number(p.persenMatriksSc).toFixed(2)),
-              persenDiskon: parseFloat(Number(p.persenDiskon).toFixed(2)),
-              persenCashback: parseFloat(Number(p.persenCashback).toFixed(2)),
-              rencanaTotalBiaya: parseFloat(Number(p.rencanaTotalBiaya).toFixed(2)),
-            },
-          ])
-        );
-
-        const activeNewProducts = validProducts
-          .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
-          .map((p) => {
-            const master = masterProducts.find((mp: any) => mp.kodeProduk === p.kodeProduk);
-            return {
-              kodeProduk: p.kodeProduk,
-              namaProduk: master?.namaProduk || p.kodeProduk,
-              produkKompetitor: p.produkKompetitor || null,
-              qtyPerBulan: parseInt(p.qtyPerBulan, 10) || 0,
-              persenMatriksSc: parseFloat(parseFloat(p.persenMatriksSc || "0").toFixed(2)),
-              persenDiskon: parseFloat(parseFloat(p.persenDiskon || "0").toFixed(2)),
-              persenCashback: parseFloat(parseFloat(p.persenCashback || "0").toFixed(2)),
-              rencanaTotalBiaya: parseFloat((p.rencanaTotalBiaya || 0).toFixed(2)),
+              months: new Map<string, number>(),
             };
-          });
+            oldProdMap.set(p.kodeProduk, entry);
+          }
+          entry.months.set(p.periodeMonth, p.qtyPerBulan);
+        }
 
-        const newProdMap = new Map<string, any>(activeNewProducts.map((p) => [p.kodeProduk, p]));
+        const newProdMap = new Map<string, {
+          namaProduk: string;
+          produkKompetitor: string | null;
+          months: Map<string, number>;
+        }>();
+
+        for (const item of productItemsToInsert) {
+          let entry = newProdMap.get(item.kodeProduk);
+          if (!entry) {
+            const master = masterProducts.find((mp: any) => mp.kodeProduk === item.kodeProduk);
+            entry = {
+              namaProduk: master?.namaProduk || item.kodeProduk,
+              produkKompetitor: item.produkKompetitor || null,
+              months: new Map<string, number>(),
+            };
+            newProdMap.set(item.kodeProduk, entry);
+          }
+          entry.months.set(item.periodeMonth, item.qtyPerBulan);
+        }
+
         const productDiffs: any[] = [];
 
         for (const [code, newP] of newProdMap.entries()) {
@@ -652,45 +578,37 @@ export async function saveSalesCounterFormAction(
           if (!oldP) {
             productDiffs.push({
               type: "add",
-              ...newP,
+              kodeProduk: code,
+              namaProduk: newP.namaProduk,
+              monthly: periodMonths.map((m, idx) => ({
+                periodeMonth: m,
+                bulanKe: idx + 1,
+                qty: newP.months.get(m) ?? 0,
+              })),
             });
           } else {
-            const updateDiff: any = { type: "update", kodeProduk: code, namaProduk: newP.namaProduk };
-            let updated = false;
+            let hasQtyChange = false;
+            const monthlyDiffs = periodMonths.map((m, idx) => {
+              const oldQty = oldP.months.get(m) ?? 0;
+              const newQty = newP.months.get(m) ?? 0;
+              if (oldQty !== newQty) {
+                hasQtyChange = true;
+              }
+              return {
+                periodeMonth: m,
+                bulanKe: idx + 1,
+                old_qty: oldQty,
+                new_qty: newQty,
+              };
+            });
 
-            if (oldP.produkKompetitor !== newP.produkKompetitor) {
-              updateDiff.old_produkKompetitor = oldP.produkKompetitor;
-              updateDiff.new_produkKompetitor = newP.produkKompetitor;
-              updated = true;
-            }
-            if (oldP.qtyPerBulan !== newP.qtyPerBulan) {
-              updateDiff.old_qtyPerBulan = oldP.qtyPerBulan;
-              updateDiff.new_qtyPerBulan = newP.qtyPerBulan;
-              updated = true;
-            }
-            if (oldP.persenMatriksSc !== newP.persenMatriksSc) {
-              updateDiff.old_persenMatriksSc = oldP.persenMatriksSc;
-              updateDiff.new_persenMatriksSc = newP.persenMatriksSc;
-              updated = true;
-            }
-            if (oldP.persenDiskon !== newP.persenDiskon) {
-              updateDiff.old_persenDiskon = oldP.persenDiskon;
-              updateDiff.new_persenDiskon = newP.persenDiskon;
-              updated = true;
-            }
-            if (oldP.persenCashback !== newP.persenCashback) {
-              updateDiff.old_persenCashback = oldP.persenCashback;
-              updateDiff.new_persenCashback = newP.persenCashback;
-              updated = true;
-            }
-            if (oldP.rencanaTotalBiaya !== newP.rencanaTotalBiaya) {
-              updateDiff.old_rencanaTotalBiaya = oldP.rencanaTotalBiaya;
-              updateDiff.new_rencanaTotalBiaya = newP.rencanaTotalBiaya;
-              updated = true;
-            }
-
-            if (updated) {
-              productDiffs.push(updateDiff);
+            if (hasQtyChange) {
+              productDiffs.push({
+                type: "update",
+                kodeProduk: code,
+                namaProduk: newP.namaProduk,
+                monthly: monthlyDiffs,
+              });
             }
           }
         }
@@ -699,7 +617,13 @@ export async function saveSalesCounterFormAction(
           if (!newProdMap.has(code)) {
             productDiffs.push({
               type: "delete",
-              ...oldP,
+              kodeProduk: code,
+              namaProduk: oldP.namaProduk,
+              monthly: periodMonths.map((m, idx) => ({
+                periodeMonth: m,
+                bulanKe: idx + 1,
+                qty: oldP.months.get(m) ?? 0,
+              })),
             });
           }
         }

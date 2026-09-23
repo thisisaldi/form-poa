@@ -13,15 +13,19 @@ export const metadata = { title: "Detail POA Sales Counter · Form POA" };
 
 export default async function SalesCounterDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ owner?: string }>;
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
 
   const { id } = await params;
+  const sp = searchParams ? await searchParams : undefined;
+  const owner = sp?.owner;
 
-  const data = await getSalesCounterDetailData(id, session.userId, session.role);
+  const data = await getSalesCounterDetailData(id, session.userId, session.role, owner);
   if (!data) notFound();
   if (!data.hasAccess || !data.poa || !data.scDrafts) redirect("/sc/dashboard");
 

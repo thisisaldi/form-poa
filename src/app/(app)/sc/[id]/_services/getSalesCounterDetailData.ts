@@ -24,7 +24,8 @@ interface MasterProductItem {
 export async function getSalesCounterDetailData(
   id: string,
   sessionUserId: string,
-  sessionRole: string
+  sessionRole: string,
+  ownerNip?: string
 ) {
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: sessionUserId } });
 
@@ -40,6 +41,9 @@ export async function getSalesCounterDetailData(
   if (formById) {
     targetOwnerId = formById.ownerId;
     targetPeriod = formById.period;
+  } else if (ownerNip) {
+    targetOwnerId = ownerNip;
+    targetPeriod = id;
   }
 
   // Fast-path access check

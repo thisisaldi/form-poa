@@ -21,7 +21,7 @@ export default async function EditSalesCounterByIdPage({
   const data = await getSalesCounterFormById(scId, session.userId, session.role);
   if (!data) notFound();
 
-  const { form, products, userCanEdit, isOwner } = data;
+  const { form, products, userCanEdit, isOwner, hasPendingEditRequest, pendingEditRequestNotes } = data;
 
   return (
     <div className="max-w-7xl w-full space-y-5">
@@ -72,7 +72,10 @@ export default async function EditSalesCounterByIdPage({
           masterProducts={products}
           readOnly={!userCanEdit}
           isOwner={isOwner}
+          userRole={session.role}
           status={form.status}
+          hasPendingEditRequest={hasPendingEditRequest}
+          pendingEditRequestNotes={pendingEditRequestNotes}
         />
       </Card>
     </div>

@@ -154,11 +154,12 @@ export function SalesCounterLineItemEditor({
   );
 
   const isFullyApproved = activeDraft?.status === "APPROVED_BY_NSM";
-  const isSubmittingEditRequest =
+  const isLocked = Boolean(
     activeDraft &&
     activeDraft.status !== "DRAFT" &&
     activeDraft.status !== "REVISI" &&
-    !isFullyApproved;
+    activeDraft.status !== "SUBMITTED_TO_ASM"
+  );
 
   const currentStatus = activeDraft ? activeDraft.status : "DRAFT";
   const currentVersion = activeDraft ? activeDraft.version : 1;
@@ -728,7 +729,7 @@ export function SalesCounterLineItemEditor({
           <div className="flex items-start justify-between flex-wrap gap-3">
             <div>
               <h2 className="text-xl font-bold" style={{ color: "var(--color-text)" }}>
-                {isFullyApproved
+                {isFullyApproved || isLocked
                   ? `Detail Rencana POA (${activeDraft?.namaOutlet || outletId})`
                   : activeDraft
                   ? `Edit Rencana POA (${activeDraft.namaOutlet || outletId})`
@@ -780,16 +781,16 @@ export function SalesCounterLineItemEditor({
             </div>
           )}
 
-          {isSubmittingEditRequest && (
+          {isLocked && !isFullyApproved && (
             <div
               className="rounded-md px-4 py-3 text-sm font-medium"
               style={{
-                background: "var(--color-warning-bg, #fef3c7)",
-                color: "var(--color-warning, #b45309)",
-                border: "1px solid var(--color-warning, #f59e0b)",
+                background: "var(--color-blue-light, #eff6ff)",
+                color: "var(--color-blue)",
+                border: "1px solid var(--color-blue)",
               }}
             >
-              Outlet ini sudah berstatus <strong>{formatHumanStatus(activeDraft?.status)}</strong> pada periode ini. Anda dapat mengubah data rencana ini dan menyimpannya sebagai <strong>Ajukan Edit</strong> (status akan di-reset untuk di-review kembali oleh {activeDraft?.status === "SUBMITTED_TO_NSM" ? "NSM" : activeDraft?.status === "SUBMITTED_TO_SM" || activeDraft?.status === "APPROVED_BY_SM" ? "SM" : "ASM"}).
+              Outlet ini sudah berstatus <strong>{formatHumanStatus(activeDraft?.status)}</strong> pada periode ini sehingga rencana tidak dapat diubah langsung (Mode Lihat Saja). Untuk mengajukan perubahan, silakan gunakan tombol <strong>Ajukan Edit</strong> pada halaman Detail.
             </div>
           )}
 
@@ -1408,16 +1409,12 @@ export function SalesCounterLineItemEditor({
 
         {/* Action Buttons */}
         <div className="flex justify-end gap-3 pt-4 pb-10 md:pb-0 border-t" style={{ borderColor: "var(--color-border)" }}>
-          <Button type="button" variant={isFullyApproved ? "secondary" : "ghost"} onClick={handleCancel} disabled={isPending}>
-            {isFullyApproved ? "Kembali" : "Batal"}
+          <Button type="button" variant={isFullyApproved || isLocked ? "secondary" : "ghost"} onClick={handleCancel} disabled={isPending}>
+            {isFullyApproved || isLocked ? "Kembali" : "Batal"}
           </Button>
-          {!isFullyApproved && (
+          {!isFullyApproved && !isLocked && (
             <Button type="submit" disabled={isPending}>
-              {isPending
-                ? "Menyimpan..."
-                : isSubmittingEditRequest
-                ? "Ajukan Edit"
-                : "Simpan Rencana"}
+              {isPending ? "Menyimpan..." : "Simpan Rencana"}
             </Button>
           )}
         </div>

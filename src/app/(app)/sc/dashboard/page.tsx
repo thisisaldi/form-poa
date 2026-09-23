@@ -529,7 +529,8 @@ export default async function SalesCounterDashboardPage({
                 const isDraft = p.status === "DRAFT";
                 const isFullyApproved = p.status === "APPROVED_BY_NSM" || (p.status as any) === "APPROVED_BY_ASD" || (p.status as any) === "APPROVED_BY_SD";
                 const canAddOutlet = isMR && !isFullyApproved;
-                const detailHref = `/sc/${p.id}`;
+                const isSelf = p.owner.nip === actor.nip;
+                const detailHref = isSelf ? `/sc/${p.period}` : `/sc/${p.period}?owner=${p.owner.nip}`;
                 return (
                   <div
                     key={`mobile_${p.period}_${p.owner.nip}`}
@@ -665,7 +666,8 @@ export default async function SalesCounterDashboardPage({
                     const isDraft = p.status === "DRAFT";
                     const isFullyApproved = p.status === "APPROVED_BY_NSM" || (p.status as any) === "APPROVED_BY_ASD" || (p.status as any) === "APPROVED_BY_SD";
                     const canAddOutlet = isMR && !isFullyApproved;
-                    const detailHref = `/sc/${p.id}`;
+                    const isSelf = p.owner.nip === actor.nip;
+                    const detailHref = isSelf ? `/sc/${p.period}` : `/sc/${p.period}?owner=${p.owner.nip}`;
                     return (
                       <tr key={`${p.period}_${p.owner.nip}`} className="hover:bg-[var(--color-bg-subtle)]/50 transition-colors">
                         <td className="py-3 whitespace-nowrap">
