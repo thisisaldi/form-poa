@@ -1307,10 +1307,38 @@ export function PlanningPhase(props: {
               const marginBaruPct = MARGIN_CAP_PCT - (diskonBaru - base.diskonLamaPct);
               const growthPct = salesLama > 0 ? (totalSales / salesLama - 1) * 100 : null;
               const turun = marginBaruPct < MARGIN_CAP_PCT;
+              const marginColor = turun ? "var(--color-error)" : "var(--color-success, #16a34a)";
               return (
-                <p className="text-xs mt-1" style={{ color: turun ? "var(--color-error)" : "var(--color-text-muted)" }}>
-                  sales/bln {formatRp(salesLama)} → {formatRp(totalSales)}{growthPct != null && ` (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}%)`} · margin {MARGIN_CAP_PCT}% → {marginBaruPct.toFixed(1)}% (diskon {base.diskonLamaPct.toFixed(1)}% → {diskonBaru.toFixed(1)}%)
-                </p>
+                <div
+                  className="flex gap-4 mt-1.5 px-3 py-2 rounded-lg text-xs"
+                  style={{ background: "var(--color-bg-subtle)", border: `1px solid ${turun ? "var(--color-error)" : "var(--color-border)"}` }}
+                >
+                  <div>
+                    <div style={{ color: "var(--color-text-faint)" }}>Sales/bln</div>
+                    <div className="font-semibold" style={{ color: "var(--color-text)" }}>
+                      {formatRp(salesLama)} <span style={{ color: "var(--color-text-faint)" }}>→</span> {formatRp(totalSales)}
+                      {growthPct != null && (
+                        <span className="ml-1 font-normal" style={{ color: growthPct >= 0 ? "var(--color-success, #16a34a)" : "var(--color-error)" }}>
+                          ({growthPct >= 0 ? "+" : ""}{growthPct.toFixed(1)}%)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ borderLeft: "1px solid var(--color-border)" }} />
+                  <div>
+                    <div style={{ color: "var(--color-text-faint)" }}>Margin</div>
+                    <div className="font-semibold" style={{ color: marginColor }}>
+                      {MARGIN_CAP_PCT}% <span style={{ color: "var(--color-text-faint)" }}>→</span> {marginBaruPct.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div style={{ borderLeft: "1px solid var(--color-border)" }} />
+                  <div>
+                    <div style={{ color: "var(--color-text-faint)" }}>Diskon</div>
+                    <div className="font-semibold" style={{ color: "var(--color-text)" }}>
+                      {base.diskonLamaPct.toFixed(1)}% <span style={{ color: "var(--color-text-faint)" }}>→</span> {diskonBaru.toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
               );
             })()}
 
