@@ -14,6 +14,7 @@ import type { PoaForm as PoaFormType, User as UserType, PoaStatus } from "@prism
 import { displayRole } from "@/lib/role";
 import { formatCurrency } from "@/lib/format";
 import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
+import { DashboardExportButton } from "@/components/poa/DashboardExportButton";
 
 // Hospital dashboard (this page lists PoaForm — hospital POA) drops the
 // "Jt/M/Rb" suffix, same as the hospital draft (DraftChecklist.tsx) —
@@ -145,6 +146,21 @@ async function DashboardContent({
   const where = q
     ? { AND: [visibleFilter, { owner: { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { nip: { contains: q, mode: "insensitive" as const } }] } }] }
     : visibleFilter;
+
+  // Quarters offered in the export dropdown — only ones with an actual POA
+  // that has line items, not just "last 8 calendar quarters" (2026-09-23:
+  // exporting an empty quarter is pointless), and NOT just any POA row —
+  // `items: { some: {} }` excludes empty DRAFT stubs (a POA row created by
+  // opening "Buat POA" but never filled in), same class of ghost-period bug
+  // mrProgressPeriod below already had to guard against (found here: an
+  // otherwise-untouched 2027-Q3 showing up from a bare stub). groupBy is a
+  // cheap aggregate (same shape as the mrProgressPeriod query below), so
+  // this stays fine even at ADMIN/GM's company-wide visibleFilter scope
+  // per docs/PERFORMANCE.md. Skipped for MR (no export button for them).
+  const availableQuartersPromise = isMR
+    ? Promise.resolve([])
+    : prisma.poaForm.groupBy({ by: ["period"], where: { AND: [visibleFilter, { items: { some: {} } }] }, _count: { _all: true } })
+        .then((rows) => rows.map((r) => r.period).sort((a, b) => b.localeCompare(a)));
 
   const totalPoaCount = await prisma.poaForm.count({ where });
   const totalPages = pageSize ? Math.max(1, Math.ceil(totalPoaCount / pageSize)) : 1;
@@ -361,6 +377,8 @@ async function DashboardContent({
     statusCounts = Object.fromEntries(statusRows.map(r => [r.status, r._count._all]));
   }
 
+  const availableQuarters = await availableQuartersPromise;
+
   return (
     <div className="space-y-6">
       {/* Action-buttons row — was inline next to the header title in the
@@ -381,27 +399,13 @@ async function DashboardContent({
             2026-08-14 per explicit request: SFE (and VIEWER, already unaffected
             by this check) should get the bulk export too, not just per-POA
             one-by-one via canView. See matching block in /api/export/team.
-            No ?period= here (2026-08-26) — /api/export/team now defaults to
-            the CURRENT quarter on its own when period is omitted, superseding
-            the 2026-08-04 "every quarter the team has data for" default,
-            which was unbounded-by-history for ADMIN/GM/SFE/VIEWER's
-            company-wide scope and the reported cause of this route's 502s. */}
-        {!isMR && (
-          <a href="/api/export/team">
-            <Button variant="secondary" size="sm">↓ Export Excel (Kuartal Ini)</Button>
-          </a>
-        )}
-        {/* "Semua Periode" (2026-08-31) — explicit opt-in per docs/PERFORMANCE.md
-            §2 point 3 ("opsi lihat semua harus eksplisit, bukan default"),
-            open to every non-MR role including company-wide ADMIN/GM/SFE/
-            VIEWER (explicit stakeholder request, accepting the risk noted in
-            PERFORMANCE.md — the fullReportScope 2-sheet trim in
-            /api/export/team is the mitigation for that scope). */}
-        {!isMR && (
-          <a href="/api/export/team?period=all">
-            <Button variant="secondary" size="sm">↓ Export Excel (Semua Periode)</Button>
-          </a>
-        )}
+            Quarter picker (2026-09-23) replaces the two hardcoded "Kuartal
+            Ini"/"Semua Periode" links — /api/export/team already accepts any
+            explicit ?period=YYYY-QN, this just exposes that as a dropdown
+            instead of only current-quarter/all. recentQuarters() is pure date
+            math (no DB query), so it's free even at ADMIN/GM's company-wide
+            scope per docs/PERFORMANCE.md. */}
+        {!isMR && availableQuarters.length > 0 && <DashboardExportButton quarters={availableQuarters} />}
       </div>
 
       {!isMR && pendingCount > 0 && (
