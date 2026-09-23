@@ -328,27 +328,54 @@ export function SalesCounterActivityTimeline({
                         Perubahan Produk ({snap.product.length}):
                       </span>
                       <ul className="list-disc list-inside space-y-0.5 text-[11px]" style={{ color: "var(--color-text-muted)" }}>
-                        {snap.product.slice(0, 5).map((p: any, pIdx: number) => (
-                          <li key={pIdx}>
-                            {p.type === "add" && (
-                              <span className="text-emerald-600 font-medium">
-                                Tambah: {p.namaProduk || p.kodeProduk} (Qty: {p.qtyPerBulan}/bln)
-                              </span>
-                            )}
-                            {p.type === "delete" && (
-                              <span className="text-rose-600 font-medium">
-                                Hapus: {p.namaProduk || p.kodeProduk}
-                              </span>
-                            )}
-                            {p.type === "update" && (
-                              <span>
-                                Ubah: {p.namaProduk || p.kodeProduk}
-                                {p.new_qtyPerBulan !== undefined && ` · Qty ${p.old_qtyPerBulan} → ${p.new_qtyPerBulan}/bln`}
-                                {p.new_persenDiskon !== undefined && ` · Diskon ${p.old_persenDiskon}% → ${p.new_persenDiskon}%`}
-                              </span>
-                            )}
-                          </li>
-                        ))}
+                        {snap.product.slice(0, 5).map((p: any, pIdx: number) => {
+                          const hasMonthly = Array.isArray(p.monthly) && p.monthly.length > 0;
+                          return (
+                            <li key={pIdx}>
+                              {p.type === "add" && (
+                                <div>
+                                  <span className="text-emerald-600 font-medium">
+                                    Tambah: {p.namaProduk || p.kodeProduk}
+                                  </span>
+                                  {hasMonthly ? (
+                                    <span className="ml-1.5 text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+                                      ({p.monthly.map((m: any) => `${formatMonthKey(m.periodeMonth)}: ${m.qty}`).join(", ")})
+                                    </span>
+                                  ) : (
+                                    p.qtyPerBulan !== undefined && <span> (Qty: {p.qtyPerBulan}/bln)</span>
+                                  )}
+                                </div>
+                              )}
+                              {p.type === "delete" && (
+                                <span className="text-rose-600 font-medium">
+                                  Hapus: {p.namaProduk || p.kodeProduk}
+                                </span>
+                              )}
+                              {p.type === "update" && (
+                                <div>
+                                  <span>Ubah: <strong>{p.namaProduk || p.kodeProduk}</strong></span>
+                                  {hasMonthly ? (
+                                    <div className="pl-2 space-y-0.5 mt-0.5">
+                                      {p.monthly
+                                        .filter((m: any) => m.old_qty !== m.new_qty)
+                                        .map((m: any, mIdx: number) => (
+                                          <div key={mIdx} className="text-[10px]">
+                                            · {formatMonthKey(m.periodeMonth)}: Qty {m.old_qty} &rarr;{" "}
+                                            <span className="font-semibold text-emerald-600">{m.new_qty}</span>
+                                          </div>
+                                        ))}
+                                    </div>
+                                  ) : (
+                                    <span>
+                                      {p.new_qtyPerBulan !== undefined && ` · Qty ${p.old_qtyPerBulan} → ${p.new_qtyPerBulan}/bln`}
+                                      {p.new_persenDiskon !== undefined && ` · Diskon ${p.old_persenDiskon}% → ${p.new_persenDiskon}%`}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
                         {snap.product.length > 5 && (
                           <li className="text-[10px] italic">...dan {snap.product.length - 5} produk lainnya</li>
                         )}

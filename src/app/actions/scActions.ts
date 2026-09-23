@@ -531,40 +531,46 @@ export async function saveSalesCounterFormAction(
           snapshot.person = personDiffs;
         }
 
-        // Compare products
-        const oldProdMap = new Map<string, any>(
-          existing.products.map((p: any) => [
-            p.kodeProduk,
-            {
-              kodeProduk: p.kodeProduk,
+        // Compare products with 3-month breakdown
+        const oldProdMap = new Map<string, {
+          namaProduk: string;
+          produkKompetitor: string | null;
+          months: Map<string, number>;
+        }>();
+
+        for (const p of existing.products) {
+          let entry = oldProdMap.get(p.kodeProduk);
+          if (!entry) {
+            entry = {
               namaProduk: p.namaProduk,
               produkKompetitor: p.produkKompetitor || null,
-              qtyPerBulan: p.qtyPerBulan,
-              persenMatriksSc: parseFloat(Number(p.persenMatriksSc).toFixed(2)),
-              persenDiskon: parseFloat(Number(p.persenDiskon).toFixed(2)),
-              persenCashback: parseFloat(Number(p.persenCashback).toFixed(2)),
-              rencanaTotalBiaya: parseFloat(Number(p.rencanaTotalBiaya).toFixed(2)),
-            },
-          ])
-        );
-
-        const activeNewProducts = validProducts
-          .filter((p) => p.kodeProduk && (parseFloat(p.qtyPerBulan) || 0) > 0)
-          .map((p) => {
-            const master = masterProducts.find((mp: any) => mp.kodeProduk === p.kodeProduk);
-            return {
-              kodeProduk: p.kodeProduk,
-              namaProduk: master?.namaProduk || p.kodeProduk,
-              produkKompetitor: p.produkKompetitor || null,
-              qtyPerBulan: parseInt(p.qtyPerBulan, 10) || 0,
-              persenMatriksSc: parseFloat(parseFloat(p.persenMatriksSc || "0").toFixed(2)),
-              persenDiskon: parseFloat(parseFloat(p.persenDiskon || "0").toFixed(2)),
-              persenCashback: parseFloat(parseFloat(p.persenCashback || "0").toFixed(2)),
-              rencanaTotalBiaya: parseFloat((p.rencanaTotalBiaya || 0).toFixed(2)),
+              months: new Map<string, number>(),
             };
-          });
+            oldProdMap.set(p.kodeProduk, entry);
+          }
+          entry.months.set(p.periodeMonth, p.qtyPerBulan);
+        }
 
-        const newProdMap = new Map<string, any>(activeNewProducts.map((p) => [p.kodeProduk, p]));
+        const newProdMap = new Map<string, {
+          namaProduk: string;
+          produkKompetitor: string | null;
+          months: Map<string, number>;
+        }>();
+
+        for (const item of productItemsToInsert) {
+          let entry = newProdMap.get(item.kodeProduk);
+          if (!entry) {
+            const master = masterProducts.find((mp: any) => mp.kodeProduk === item.kodeProduk);
+            entry = {
+              namaProduk: master?.namaProduk || item.kodeProduk,
+              produkKompetitor: item.produkKompetitor || null,
+              months: new Map<string, number>(),
+            };
+            newProdMap.set(item.kodeProduk, entry);
+          }
+          entry.months.set(item.periodeMonth, item.qtyPerBulan);
+        }
+
         const productDiffs: any[] = [];
 
         for (const [code, newP] of newProdMap.entries()) {
@@ -572,45 +578,37 @@ export async function saveSalesCounterFormAction(
           if (!oldP) {
             productDiffs.push({
               type: "add",
-              ...newP,
+              kodeProduk: code,
+              namaProduk: newP.namaProduk,
+              monthly: periodMonths.map((m, idx) => ({
+                periodeMonth: m,
+                bulanKe: idx + 1,
+                qty: newP.months.get(m) ?? 0,
+              })),
             });
           } else {
-            const updateDiff: any = { type: "update", kodeProduk: code, namaProduk: newP.namaProduk };
-            let updated = false;
+            let hasQtyChange = false;
+            const monthlyDiffs = periodMonths.map((m, idx) => {
+              const oldQty = oldP.months.get(m) ?? 0;
+              const newQty = newP.months.get(m) ?? 0;
+              if (oldQty !== newQty) {
+                hasQtyChange = true;
+              }
+              return {
+                periodeMonth: m,
+                bulanKe: idx + 1,
+                old_qty: oldQty,
+                new_qty: newQty,
+              };
+            });
 
-            if (oldP.produkKompetitor !== newP.produkKompetitor) {
-              updateDiff.old_produkKompetitor = oldP.produkKompetitor;
-              updateDiff.new_produkKompetitor = newP.produkKompetitor;
-              updated = true;
-            }
-            if (oldP.qtyPerBulan !== newP.qtyPerBulan) {
-              updateDiff.old_qtyPerBulan = oldP.qtyPerBulan;
-              updateDiff.new_qtyPerBulan = newP.qtyPerBulan;
-              updated = true;
-            }
-            if (oldP.persenMatriksSc !== newP.persenMatriksSc) {
-              updateDiff.old_persenMatriksSc = oldP.persenMatriksSc;
-              updateDiff.new_persenMatriksSc = newP.persenMatriksSc;
-              updated = true;
-            }
-            if (oldP.persenDiskon !== newP.persenDiskon) {
-              updateDiff.old_persenDiskon = oldP.persenDiskon;
-              updateDiff.new_persenDiskon = newP.persenDiskon;
-              updated = true;
-            }
-            if (oldP.persenCashback !== newP.persenCashback) {
-              updateDiff.old_persenCashback = oldP.persenCashback;
-              updateDiff.new_persenCashback = newP.persenCashback;
-              updated = true;
-            }
-            if (oldP.rencanaTotalBiaya !== newP.rencanaTotalBiaya) {
-              updateDiff.old_rencanaTotalBiaya = oldP.rencanaTotalBiaya;
-              updateDiff.new_rencanaTotalBiaya = newP.rencanaTotalBiaya;
-              updated = true;
-            }
-
-            if (updated) {
-              productDiffs.push(updateDiff);
+            if (hasQtyChange) {
+              productDiffs.push({
+                type: "update",
+                kodeProduk: code,
+                namaProduk: newP.namaProduk,
+                monthly: monthlyDiffs,
+              });
             }
           }
         }
@@ -619,7 +617,13 @@ export async function saveSalesCounterFormAction(
           if (!newProdMap.has(code)) {
             productDiffs.push({
               type: "delete",
-              ...oldP,
+              kodeProduk: code,
+              namaProduk: oldP.namaProduk,
+              monthly: periodMonths.map((m, idx) => ({
+                periodeMonth: m,
+                bulanKe: idx + 1,
+                qty: oldP.months.get(m) ?? 0,
+              })),
             });
           }
         }
