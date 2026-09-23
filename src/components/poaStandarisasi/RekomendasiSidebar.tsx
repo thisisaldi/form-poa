@@ -19,7 +19,7 @@ import {
   type SurveyRekomendasiOutletRow,
   type KriteriaByOutlet,
 } from "@/app/actions/customer";
-import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow } from "@/app/actions/poaStandarisasi";
+import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, getStandarisasiGroupGapAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow, type StandarisasiGroupGapRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
 import { formatKategoriLabel } from "@/lib/hargaST";
 
@@ -27,8 +27,9 @@ const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
 const SIDEBAR_BLUE = "var(--color-blue)";
 const SIDEBAR_PURPLE = "var(--color-purple, #7c3aed)";
+const SIDEBAR_RED = "var(--color-error, #dc2626)";
 
-type Tab = "survey" | "kriteria" | "standarisasi" | "sales";
+type Tab = "survey" | "kriteria" | "standarisasi" | "groupGap" | "sales";
 
 function edgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -58,6 +59,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
   const [standarisasiRows, setStandarisasiRows] = useState<StandarisasiProdukOutletRow[] | null>(null);
   const [dplRows, setDplRows] = useState<{ kodeProduk: string; prdAkhir: string }[] | null>(null);
   const [salesHistoryRows, setSalesHistoryRows] = useState<SalesHistoryOutletRow[] | null>(null);
+  const [groupGapRows, setGroupGapRows] = useState<StandarisasiGroupGapRow[] | null>(null);
   const [, startLoad] = useTransition();
 
   useEffect(() => {
@@ -72,13 +74,15 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       setStandarisasiRows(null);
       setSalesHistoryRows(null);
       setDplRows(null);
+      setGroupGapRows(null);
       if (!kodePI) return;
-      const [survey, kriteria, standarisasi, salesHistory, dpl] = await Promise.all([
+      const [survey, kriteria, standarisasi, salesHistory, dpl, groupGap] = await Promise.all([
         getSurveyRekomendasiByOutletAggregate(kodePI),
         getKriteriaByOutlet(kodePI),
         getStandarisasiProdukByOutletAction(kodePI, pengajuanId),
         getSalesHistoryByOutletAction(kodePI),
         getActiveDplByOutletAction(kodePI),
+        getStandarisasiGroupGapAction(kodePI, pengajuanId),
       ]);
       if (cancelled) return;
       setSurveyRows(survey);
@@ -86,6 +90,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       setStandarisasiRows(standarisasi);
       setSalesHistoryRows(salesHistory);
       setDplRows(dpl);
+      setGroupGapRows(groupGap);
     });
     return () => { cancelled = true; };
   }, [kodePI, pengajuanId]);
@@ -126,6 +131,8 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
     return [...rows].sort((a, b) => Number(standarisasiKode.has(a.kodeProduk)) - Number(standarisasiKode.has(b.kodeProduk)));
   }
 
+  const groupGapKode = useMemo(() => new Set((groupGapRows ?? []).map((r) => r.kodeProduk)), [groupGapRows]);
+
   if (!kodePI) return null;
 
   if (activeTab === null) {
@@ -143,6 +150,11 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
         <button type="button" onClick={() => setActiveTab("sales")} style={edgeTabStyle(SIDEBAR_PURPLE)}>
           Historical Sales
         </button>
+        {groupGapKode.size > 0 && (
+          <button type="button" onClick={() => setActiveTab("groupGap")} style={edgeTabStyle(SIDEBAR_RED)}>
+            Gap Group ({groupGapKode.size})
+          </button>
+        )}
       </div>
     );
   }
@@ -162,6 +174,9 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
           <button type="button" onClick={() => setActiveTab("kriteria")} style={pillStyle(SIDEBAR_GREEN, activeTab === "kriteria")}>Produk Rekomendasi</button>
           <button type="button" onClick={() => setActiveTab("standarisasi")} style={pillStyle(SIDEBAR_BLUE, activeTab === "standarisasi")}>Sudah Standarisasi</button>
           <button type="button" onClick={() => setActiveTab("sales")} style={pillStyle(SIDEBAR_PURPLE, activeTab === "sales")}>Historical Sales</button>
+          {groupGapKode.size > 0 && (
+            <button type="button" onClick={() => setActiveTab("groupGap")} style={pillStyle(SIDEBAR_RED, activeTab === "groupGap")}>Gap Group ({groupGapKode.size})</button>
+          )}
         </div>
         <button
           type="button"
@@ -177,6 +192,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
         {activeTab === "kriteria" && <KriteriaOutletPanel rows={kriteriaRows} productByKode={productByKode} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
         {activeTab === "standarisasi" && <StandarisasiOutletPanel rows={standarisasiRows === null || kriteriaRows === null || dplRows === null ? null : standarisasiMerged} />}
         {activeTab === "sales" && <SalesHistoryOutletPanel rows={salesHistoryRows} />}
+        {activeTab === "groupGap" && <StandarisasiGroupGapPanel rows={groupGapRows} />}
       </div>
     </div>
   );
@@ -317,6 +333,22 @@ function KriteriaOutletPanel({ rows, productByKode, standarisasiKode, sortByStan
               </div>
             ))}
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Tab "Gap Group" — produk sudah standarisasi di outlet LAIN dalam group corporate yang sama, tapi belum di outlet terpilih (2026-09-22). Cuma muncul kalau ada gap (tab edge button self-hides via groupGapKode.size > 0). */
+function StandarisasiGroupGapPanel({ rows }: { rows: StandarisasiGroupGapRow[] | null }) {
+  const empty = <LoadingOrEmpty rows={rows} emptyText="Tidak ada gap — semua produk yang sudah standarisasi di group ini juga sudah standarisasi di outlet ini." />;
+  if (!rows || rows.length === 0) return empty;
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => (
+        <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-error, #dc2626)" }}>
+          <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
+          <div className="text-xs mt-0.5" style={{ color: "var(--color-error, #dc2626)" }}>{r.detail}</div>
         </div>
       ))}
     </div>

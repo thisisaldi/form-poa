@@ -427,6 +427,96 @@ export async function getStandarisasiProsesKodeByOutletAction(kodePI: string): P
   return rows.map((r: (typeof rows)[number]) => r.kodeProduk);
 }
 
+export interface StandarisasiGroupGapRow {
+  kodeProduk: string;
+  namaProduk: string;
+  namaOutletLain: string;
+  detail: string;
+}
+
+/**
+ * Produk yang sudah standarisasi di outlet LAIN dalam group corporate yang
+ * sama (Outlet.groupRS), tapi BELUM standarisasi di outlet yang sedang
+ * dipilih — deteksi gap "cabang belum ada standarisasi padahal group sudah
+ * deal corporate" (2026-09-22 user request, Brian's memo). Pakai 3 dari 4
+ * sinyal computeStatusPengajuanMap (sales 3 bulan, pernah submit pengajuan,
+ * label kriteriaBaru) — DPL SENGAJA di-skip di sini, karena itu 1 HTTP call
+ * live ke Exodus per outlet (getDiskonByOutlet); dipanggil per sibling
+ * outlet dalam satu group akan jadi N-HTTP-call-dalam-loop, pola yang
+ * dilarang docs/PERFORMANCE.md §2.4 — 3 sinyal DB-only sudah cukup representatif
+ * buat gap detection ini (bukan penentu status resmi Baru/Perpanjangan).
+ * "NON CHAIN"/null groupRS bukan group corporate sungguhan → selalu [].
+ */
+export async function getStandarisasiGroupGapAction(kodePI: string, excludePengajuanId?: string): Promise<StandarisasiGroupGapRow[]> {
+  if (!kodePI) return [];
+  const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { groupRS: true } });
+  if (!outlet?.groupRS || outlet.groupRS === "NON CHAIN") return [];
+
+  const siblings = await prisma.outlet.findMany({
+    where: { groupRS: outlet.groupRS, kodePI: { not: kodePI } },
+    select: { kodePI: true, namaOutlet: true },
+  });
+  if (siblings.length === 0) return [];
+  const siblingKodePI = siblings.map((s: (typeof siblings)[number]) => s.kodePI);
+  const namaOutletByKode = new Map<string, string>(siblings.map((s: (typeof siblings)[number]) => [s.kodePI, s.namaOutlet]));
+
+  // Sama 3 sinyal di setiap outlet dalam group (termasuk outlet sendiri) —
+  // supaya "punya sinyal di outlet lain" vs "belum punya sinyal di outlet
+  // sendiri" dibandingkan dengan basis yang identik, bukan dua definisi beda.
+  const allKodePI = [kodePI, ...siblingKodePI];
+  const [salesRows, priorSubmittedRows, kriteriaRows] = await Promise.all([
+    prisma.outletSalesMonthly.findMany({
+      where: { kodePI: { in: allKodePI }, qty: { gt: 0 } },
+      select: { kodePI: true, itemKode: true },
+    }),
+    prisma.poaStandarisasiProduk.findMany({
+      where: {
+        pengajuan: {
+          kodePI: { in: allKodePI },
+          submittedAt: { not: null },
+          ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
+        },
+      },
+      select: { kodeProduk: true, pengajuan: { select: { kodePI: true } } },
+    }),
+    prisma.outletProductKriteria.findMany({
+      where: { kodePI: { in: allKodePI } },
+      select: { kodePI: true, kodeProduk: true, kriteriaBaru: true },
+    }),
+  ]);
+
+  const ownKode = new Set<string>();
+  const byKodeOtherOutlet = new Map<string, string>(); // kodeProduk -> a sibling kodePI that has the signal
+  function record(kodeProduk: string, rowKodePI: string) {
+    if (rowKodePI === kodePI) { ownKode.add(kodeProduk); return; }
+    if (!byKodeOtherOutlet.has(kodeProduk)) byKodeOtherOutlet.set(kodeProduk, rowKodePI);
+  }
+  for (const r of salesRows) record(r.itemKode, r.kodePI);
+  for (const r of priorSubmittedRows) record(r.kodeProduk, r.pengajuan.kodePI);
+  for (const r of kriteriaRows) {
+    if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) record(r.kodeProduk, r.kodePI);
+  }
+
+  const kodeProdukList = [...byKodeOtherOutlet.keys()].filter((k) => !ownKode.has(k));
+  if (kodeProdukList.length === 0) return [];
+  const products = await prisma.product.findMany({
+    where: { kodeProduk: { in: kodeProdukList } },
+    select: { kodeProduk: true, namaProduk: true },
+  });
+  const namaProdukByKode = new Map<string, string>(products.map((p: (typeof products)[number]) => [p.kodeProduk, p.namaProduk]));
+
+  return kodeProdukList.map((kodeProduk) => {
+    const siblingKode = byKodeOtherOutlet.get(kodeProduk)!;
+    const namaOutletLain = namaOutletByKode.get(siblingKode) ?? siblingKode;
+    return {
+      kodeProduk,
+      namaProduk: namaProdukByKode.get(kodeProduk) ?? kodeProduk,
+      namaOutletLain,
+      detail: `Group ${outlet.groupRS} · sudah standarisasi di ${namaOutletLain}`,
+    };
+  }).sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
+}
+
 export interface SalesHistoryOutletRow {
   kodeProduk: string;
   namaProduk: string;

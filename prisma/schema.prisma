@@ -618,6 +618,10 @@ model Outlet {
 
   @@index([statusOutlet])
   @@index([sector])
+  // Added 2026-09-22 for getStandarisasiGroupGapAction (Gap Group sidebar
+  // tab) — first real WHERE-clause query on groupRS (previously only
+  // sorted in-memory); Outlet has 35k+ rows and groupRS was unindexed.
+  @@index([groupRS])
 }
 
 // ─── Product Master Data ──────────────────────────────────────────────────────
