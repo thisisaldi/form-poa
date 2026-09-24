@@ -121,6 +121,16 @@ export default async function PoaDetailPage({
   const doctorExodusApprovedBy: Record<string, string | null> = Object.fromEntries(
     [...doctorApprovalByKey.entries()].map(([key, a]) => [key, a.exodusApprovedBy])
   );
+  // Tombol "Deal" (2026-09-24) — cuma relevan untuk dokter yang sudah fully
+  // approved (status APPROVED_BY_*). canDeal = owner/ADMIN dan belum Deal.
+  const doctorDeal: Record<string, { dealAt: string | null; canDeal: boolean }> = Object.fromEntries(
+    [...doctorApprovalByKey.entries()]
+      .filter(([, a]) => a.status.startsWith("APPROVED_BY_"))
+      .map(([key, a]) => [key, {
+        dealAt: a.dealAt ? a.dealAt.toISOString() : null,
+        canDeal: !a.dealAt && (poa.ownerId === actor.nip || actor.role === "ADMIN"),
+      }])
+  );
   const doctorKeysInDraft = new Map<string, { kodePI: string; namaCust: string }>();
   for (const it of poa.items as PoaLineItem[]) {
     if (!it.kodePI) continue;
@@ -544,6 +554,7 @@ export default async function PoaDetailPage({
         doctorEditRequests={doctorEditRequests}
         doctorRejectInfo={doctorRejectInfo}
         doctorExodusApprovedBy={doctorExodusApprovedBy}
+        doctorDeal={doctorDeal}
         canDeleteDoctor={canDeleteDoctor}
         doctorCanEdit={doctorCanEdit}
         activePssp={activePssp}

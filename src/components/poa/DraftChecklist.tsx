@@ -5,10 +5,11 @@ import Link from "next/link";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { spesLabel } from "@/lib/spesialisasi";
 import { getAllPakets } from "@/lib/paketProduk";
-import { submitDoctorAction } from "@/app/actions/poa";
+import { submitDoctorAction, dealDoctorAction } from "@/app/actions/poa";
 import type { DoctorActions, DoctorEditRequestInfo, DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
 import { DeleteDoctorButton } from "@/components/poa/DeleteDoctorButton";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
@@ -708,7 +709,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy, canDeleteDoctor,
+  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy, doctorDeal, canDeleteDoctor,
 }: {
   doctorItems: PoaLineItem[];
   checked: boolean;
@@ -745,6 +746,8 @@ function DoctorRow({
   doctorRejectInfo?: DoctorRejectInfo;
   /** Approver name set by Exodus via PATCH /api/poa-doctors/{id} (docs/exodus-poa-usage/, 2026-09-09) — display-only, does not affect doctorStatus above. */
   doctorExodusApprovedBy?: string | null;
+  /** Tombol Deal (2026-09-24) — undefined = dokter ini belum fully approved (tidak ada UI Deal). */
+  doctorDeal?: { dealAt: string | null; canDeal: boolean };
   /** Owner (or ADMIN) can delete this doctor entirely regardless of approval progress (2026-09-11 decision) — separate from userCanEdit/Lock Edit Logic above, which gates editing content, not withdrawing it. */
   canDeleteDoctor?: boolean;
 }) {
@@ -849,6 +852,25 @@ function DoctorRow({
       await submitDoctorAction(poaId, first.kodePI!, first.namaCust, doctorSubmitNotes.trim() || undefined);
       setDoctorSubmitOpen(false);
       setDoctorSubmitNotes("");
+    });
+  }
+
+  // Tombol Deal (2026-09-24) — dokter fully approved baru masuk API Exodus
+  // setelah owner/ADMIN klik Deal. Sekali klik, permanen, jadi ada popup konfirmasi.
+  const [isDealing, startDeal] = useTransition();
+  const [dealError, setDealError] = useState<string | null>(null);
+  const [dealConfirmOpen, setDealConfirmOpen] = useState(false);
+  function handleDeal() {
+    if (!poaId || !first.kodePI) return;
+    setDealError(null);
+    startDeal(async () => {
+      try {
+        await dealDoctorAction(poaId, first.kodePI!, first.namaCust);
+      } catch (e) {
+        setDealError(e instanceof Error ? e.message : "Gagal Deal.");
+      } finally {
+        setDealConfirmOpen(false);
+      }
     });
   }
 
@@ -971,6 +993,17 @@ function DoctorRow({
               Approved by Exodus: {doctorExodusApprovedBy}
             </p>
           )}
+          {doctorDeal && (
+            doctorDeal.dealAt ? (
+              <p className="text-[10px] leading-tight whitespace-nowrap font-semibold" style={{ color: "var(--color-status-approved, #008f42)" }}>
+                ✓ Deal {new Date(doctorDeal.dealAt).toLocaleDateString("id-ID")}
+              </p>
+            ) : doctorDeal.canDeal ? (
+              dealError ? <p className="text-[10px] leading-tight" style={{ color: "var(--color-error)" }}>{dealError}</p> : null
+            ) : (
+              <p className="text-[10px] leading-tight whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Belum Deal</p>
+            )
+          )}
           <p className="text-xs font-medium whitespace-nowrap" style={{ color: "var(--color-text)" }}>
             {doctorItems.length} produk
           </p>
@@ -998,6 +1031,29 @@ function DoctorRow({
                     style={{ background: "var(--color-warning)", color: "#fff" }}>
                     Approval
                   </button>
+                )}
+                {doctorDeal?.canDeal && (
+                  <button
+                    type="button"
+                    disabled={isDealing}
+                    onClick={() => { setDealError(null); setDealConfirmOpen(true); }}
+                    className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90 disabled:opacity-60"
+                    style={{ background: "var(--color-green, #16a34a)", color: "#fff" }}>
+                    {isDealing ? "Memproses…" : "Deal POA"}
+                  </button>
+                )}
+                {doctorDeal?.canDeal && (
+                  <ConfirmDialog
+                    open={dealConfirmOpen}
+                    title="Konfirmasi Deal POA"
+                    message="Data akan dipindahkan ke proses PSSP Exodus. Lanjutkan?"
+                    confirmLabel="Ya, Deal POA"
+                    cancelLabel="Batal"
+                    tone="success"
+                    confirmPending={isDealing}
+                    onConfirm={handleDeal}
+                    onCancel={() => setDealConfirmOpen(false)}
+                  />
                 )}
               </div>
               {canDeleteDoctor && poaId && (
@@ -1271,7 +1327,7 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {}, doctorExodusApprovedBy = {}, canDeleteDoctor = false }: {
+export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {}, doctorExodusApprovedBy = {}, doctorDeal: doctorDealMap = {}, canDeleteDoctor = false }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1342,6 +1398,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
   doctorCanEdit?: Record<string, boolean>;
   /** kodePI|namaCust -> approver name set by Exodus (docs/exodus-poa-usage/, 2026-09-09) — display-only. */
   doctorExodusApprovedBy?: Record<string, string | null>;
+  /** kodePI|namaCust -> state tombol Deal (2026-09-24) — cuma ada untuk dokter fully approved. */
+  doctorDeal?: Record<string, { dealAt: string | null; canDeal: boolean }>;
   /** Owner (or ADMIN) can delete any doctor here regardless of approval progress (2026-09-11 decision) — whole-draft flag, same for every doctor row (unlike doctorCanEdit, this isn't per-doctor: ownership is a property of the POA, not of each doctor within it). */
   canDeleteDoctor?: boolean;
 }) {
@@ -1492,6 +1550,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
                 doctorEditRequest={doctorEditRequests[key]}
                 doctorRejectInfo={doctorRejectInfo[key]}
                 doctorExodusApprovedBy={doctorExodusApprovedBy[key]}
+                doctorDeal={doctorDealMap[key]}
                 canDeleteDoctor={canDeleteDoctor}
               />
             ))}

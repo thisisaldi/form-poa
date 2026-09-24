@@ -159,3 +159,13 @@ export function getPreviousQuarterInfo(poaPeriod?: string | null): {
   };
 }
 
+
+/**
+ * DPL/kontrak aktif yang `prdAkhir`-nya (YYYYMM) jatuh di salah satu bulan
+ * kuartal kalender berjalan — "periode mau habis". Definisi sama dengan badge
+ * oranye "Retensi" di kartu kontrak POA Estimasi (lihat FAQ "Retensi").
+ * Dipakai POA Standarisasi (2026-09-24, user request) untuk label DPL mau habis.
+ */
+export function isEndingThisQuarter(prdAkhir: string): boolean {
+  return quarterToMonths(currentQuarter()).includes(prdAkhir);
+}

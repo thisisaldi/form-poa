@@ -76,7 +76,7 @@ export interface DoctorRejectInfo {
 
 export function PoaDetailTabs({
   items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor,
-  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo, doctorCanEdit, doctorExodusApprovedBy, canDeleteDoctor,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo, doctorCanEdit, doctorExodusApprovedBy, doctorDeal, canDeleteDoctor,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -114,6 +114,8 @@ export function PoaDetailTabs({
   doctorCanEdit?: Record<string, boolean>;
   /** kodePI|namaCust -> approver name set by Exodus (docs/exodus-poa-usage/, 2026-09-09) — display-only. */
   doctorExodusApprovedBy?: Record<string, string | null>;
+  /** kodePI|namaCust -> state tombol Deal (2026-09-24) — cuma ada untuk dokter fully approved. */
+  doctorDeal?: Record<string, { dealAt: string | null; canDeal: boolean }>;
   /** Owner (or ADMIN) can delete any doctor here regardless of approval progress (2026-09-11 decision). */
   canDeleteDoctor?: boolean;
   activePssp?: ActivePsspRow[];
@@ -231,6 +233,7 @@ export function PoaDetailTabs({
               doctorRejectInfo={doctorRejectInfo}
               doctorCanEdit={doctorCanEdit}
               doctorExodusApprovedBy={doctorExodusApprovedBy}
+              doctorDeal={doctorDeal}
               canDeleteDoctor={canDeleteDoctor}
             />
           )}

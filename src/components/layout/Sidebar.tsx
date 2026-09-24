@@ -50,6 +50,15 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ADMIN", "MR"],
   },
   {
+    href: "/poa-standarisasi/dashboard",
+    label: "Monitoring Standarisasi",
+    icon: <IconChart />,
+    // Rekap per outlet: produk sudah standarisasi vs on progress (2026-09-24,
+    // user request). Semua role sales chain — scope datanya dibatasi di
+    // getStandarisasiDashboardAction (bukan di sidebar). Sales Support tidak.
+    roles: ["MR", "ASM", "SM", "NSM", "GM", "SD", "SFE", "VIEWER", "ADMIN"],
+  },
+  {
     href: "/approvals",
     label: "Approvals",
     icon: <IconCheck />,

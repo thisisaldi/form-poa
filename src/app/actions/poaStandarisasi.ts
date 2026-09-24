@@ -14,7 +14,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, canAccessSalesSupportMemo } from "@/lib/authz";
+import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, canAccessSalesSupportMemo, getSubordinateMRNips } from "@/lib/authz";
+import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
@@ -209,6 +210,82 @@ export async function deletePoaStandarisasiAction(id: string): Promise<{ error?:
   await prisma.poaStandarisasi.delete({ where: { id } });
   revalidatePath("/poa-standarisasi");
   return {};
+}
+
+export interface StandarisasiDashboardOutletRow {
+  kodePI: string;
+  namaOutlet: string;
+  /** Produk yang pengajuannya sudah final submit dan TIDAK ditandai gagal (distinct per produk, submittedAt terbaru). */
+  sudah: { kodeProduk: string; namaProduk: string; submittedAt: Date }[];
+  /** Produk di pengajuan yang belum final submit — satu baris per (produk, pengajuan). */
+  onProgress: { kodeProduk: string; namaProduk: string; phaseLabel: string; pengajuanId: string; ownerNama: string }[];
+  /** Jumlah produk distinct yang final submit tapi ditandai gagal standarisasi (dan belum pernah sukses di outlet ini). */
+  gagal: number;
+}
+
+/**
+ * Monitoring rekap POA Standarisasi per outlet (2026-09-24, user request):
+ * berapa dan produk apa saja yang sudah standarisasi, dan mana yang masih on
+ * progress. "Sudah" = HANYA dari pengajuan yang final submit di app ini
+ * (bukan label import kriteria / DPL aktif — itu butuh panggilan Exodus per
+ * outlet, terlalu berat untuk halaman company-wide, lihat docs/PERFORMANCE.md).
+ *
+ * Scope: ADMIN/GM/SD/SFE/VIEWER company-wide (kecuali pengajuan milik akun
+ * dummy, sama seperti getSubordinateMRNips), ASM/SM/NSM = MR di bawah rantainya
+ * (BFS ber-cache, bukan rekursi per node), MR = milik sendiri. Satu findMany
+ * (nested select) tanpa query di dalam loop; volume kecil (29 pengajuan saat
+ * ditulis), jadi tanpa window periode — status "sudah" memang kumulatif.
+ */
+export async function getStandarisasiDashboardAction(): Promise<{ rows: StandarisasiDashboardOutletRow[]; canOpenDetail: boolean }> {
+  const { actor } = await requireActor();
+  if (actor.role === "SALES_SUPPORT") throw new Error("Anda tidak berhak mengakses ini.");
+
+  const companyWide = actor.role === "ADMIN" || actor.role === "GM" || actor.role === "SD" || actor.role === "SFE" || actor.role === "VIEWER";
+  const where: Prisma.PoaStandarisasiWhereInput = companyWide
+    ? { owner: { isDummy: false } }
+    : { ownerId: { in: actor.role === "MR" ? [actor.nip] : await getSubordinateMRNips(actor) } };
+
+  const pengajuan = await prisma.poaStandarisasi.findMany({
+    where,
+    select: {
+      id: true, kodePI: true, currentPhase: true, submittedAt: true,
+      outlet: { select: { namaOutlet: true } },
+      owner: { select: { name: true } },
+      produk: { select: { standarisasiGagal: true, product: { select: { kodeProduk: true, namaProduk: true } } } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  type Acc = { namaOutlet: string; sudah: Map<string, { kodeProduk: string; namaProduk: string; submittedAt: Date }>; onProgress: StandarisasiDashboardOutletRow["onProgress"]; gagal: Set<string> };
+  const byOutlet = new Map<string, Acc>();
+  for (const p of pengajuan) {
+    const acc: Acc = byOutlet.get(p.kodePI) ?? { namaOutlet: p.outlet.namaOutlet, sudah: new Map(), onProgress: [], gagal: new Set<string>() };
+    byOutlet.set(p.kodePI, acc);
+    const phaseLabel = PHASES.find((ph) => ph.id === p.currentPhase)?.label ?? p.currentPhase;
+    for (const prod of p.produk) {
+      const { kodeProduk, namaProduk } = prod.product;
+      if (!p.submittedAt) {
+        acc.onProgress.push({ kodeProduk, namaProduk, phaseLabel, pengajuanId: p.id, ownerNama: p.owner.name });
+      } else if (prod.standarisasiGagal) {
+        acc.gagal.add(kodeProduk);
+      } else {
+        const prev = acc.sudah.get(kodeProduk);
+        if (!prev || prev.submittedAt < p.submittedAt) acc.sudah.set(kodeProduk, { kodeProduk, namaProduk, submittedAt: p.submittedAt });
+      }
+    }
+  }
+
+  const rows: StandarisasiDashboardOutletRow[] = [...byOutlet].map(([kodePI, a]) => ({
+    kodePI,
+    namaOutlet: a.namaOutlet,
+    sudah: [...a.sudah.values()].sort((x, y) => x.namaProduk.localeCompare(y.namaProduk, "id")),
+    onProgress: a.onProgress.sort((x, y) => x.namaProduk.localeCompare(y.namaProduk, "id")),
+    gagal: [...a.gagal].filter((k) => !a.sudah.has(k)).length,
+  }));
+  rows.sort((x, y) => (y.sudah.length + y.onProgress.length) - (x.sudah.length + x.onProgress.length) || x.namaOutlet.localeCompare(y.namaOutlet, "id"));
+
+  // Halaman detail wizard cuma untuk ADMIN/MR (lihat [id]/page.tsx) — role lain view-only.
+  return { rows, canOpenDetail: actor.role === "ADMIN" || actor.role === "MR" };
 }
 
 export async function listMyPoaStandarisasiAction() {

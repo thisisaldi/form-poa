@@ -30,6 +30,8 @@
 
 ⚠️ Poin 1 konklusi chat ("POA butuh API GET dr Exodus utk dapat batas approval role berdasarkan logic approval Exodus") **di luar scope dokumen ini** — itu arah kebalikan (POA sebagai *client* yang memanggil API milik Exodus, pola yang sama dengan `src/lib/exodusApi.ts` yang sudah ada untuk data kunjungan), bukan endpoint yang POA sediakan. Belum jelas apa persisnya "batas approval role" yang dimaksud dan apakah masih relevan setelah `approveUntil` di `GET /api/poa-doctors` menjawab kebutuhan serupa dari sisi Exodus. Lihat `01-business-rules.md` §Open questions.
 
+🟢 **Tombol Deal, 2026-09-24 (permintaan Aldi)**: setelah fully approved (level sesuai `exodusRequiredRole`), dokter BARU masuk `GET /api/poa-doctors` setelah owner POA (atau ADMIN) klik **Deal** di halaman detail POA — per dokter, sekali klik permanen (tidak ada undo dari UI). Field `PoaDoctorApproval.dealAt`/`dealByNip`; gate di `buildDoctorRows` (`src/lib/poaDoctorsRows.ts`). Data lama di-backfill (grandfather) supaya API Exodus tidak berubah. Detail di `docs/API.md`.
+
 ## Ringkasan
 
 Tim Exodus perlu tahu POA dokter mana yang sudah "dipakai" di sisi mereka, supaya tidak dobel-pakai. `GET /api/poa-doctors`/`GET /api/poa-doctors/{id}` mengekspos flag `usedInExodus` (boolean) per dokter; `PATCH /api/poa-doctors/{id}` menuliskannya — satu endpoint, set sekali, append-only (bukan submit+approve terpisah seperti draf awal dokumen ini).

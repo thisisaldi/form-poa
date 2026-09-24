@@ -28,6 +28,7 @@ import {
   submitPoaStandarisasiAction,
   uploadPoaStandarisasiFileAction,
   getStatusPengajuanPreviewAction,
+  getActiveDplByOutletAction,
   getEstimasiDiskonPreviewAction,
   getMarginWarningBaselineAction,
   type MarginBaseline,
@@ -40,6 +41,7 @@ import {
   getSpNonSalesMemoKepadaDefaultAction,
 } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import { isEndingThisQuarter } from "@/lib/quarterUtils";
 import {
   type PoaStandarisasiDetail,
   type PlanningInput,
@@ -1035,6 +1037,19 @@ export function PlanningPhase(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kodePI, kodeProdukKey]);
 
+  // Label "DPL mau habis" (2026-09-24, user request): DPL aktif di outlet ini yang
+  // periodenya berakhir di kuartal kalender berjalan (definisi sama dengan badge
+  // Retensi oranye di POA Estimasi) — ditampilkan di bawah Status Pengajuan.
+  const [dplEndByKode, setDplEndByKode] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!kodePI) { setDplEndByKode({}); return; }
+    let cancelled = false;
+    getActiveDplByOutletAction(kodePI).then((rows) => {
+      if (!cancelled) setDplEndByKode(Object.fromEntries(rows.map((r) => [r.kodeProduk, r.prdAkhir])));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [kodePI]);
+
   // Pre-fills "Estimasi Diskon (PI)" and "Estimasi Diskon Distributor" from
   // live Exodus discount (same source as Finalisasi's read-only Discount
   // Final / Diskon Distributor) so the MR sees a real default instead of a
@@ -1241,6 +1256,11 @@ export function PlanningPhase(props: {
                 >
                   {p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"}
                 </div>
+                {p.kodeProduk && dplEndByKode[p.kodeProduk] && isEndingThisQuarter(dplEndByKode[p.kodeProduk]) && (
+                  <div className="text-[11px] font-semibold mt-1" style={{ color: "#d97706" }} title="DPL aktif untuk produk ini di outlet ini berakhir di kuartal berjalan">
+                    ⚠ DPL habis {dplEndByKode[p.kodeProduk].slice(4)}/{dplEndByKode[p.kodeProduk].slice(0, 4)}
+                  </div>
+                )}
               </div>
               <div className="w-40 shrink-0">
                 <span className="text-xs font-medium block mb-1">Skema</span>

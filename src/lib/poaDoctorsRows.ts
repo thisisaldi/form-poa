@@ -55,7 +55,7 @@ export const poaDoctorRowsSelect = {
     orderBy: { createdAt: "asc" as const },
   },
   doctorApprovals: {
-    select: { kodePI: true, namaCust: true, status: true, usedInExodus: true, exodusApprovedBy: true },
+    select: { kodePI: true, namaCust: true, status: true, usedInExodus: true, exodusApprovedBy: true, dealAt: true },
   },
 } satisfies Prisma.PoaFormSelect;
 
@@ -434,6 +434,11 @@ export function buildDoctorRows(
     // said ASM/SM was as far as that submission needed to go).
     const doctorStatus = approval?.status ?? poa.status;
     if (!isFullyApproved(doctorStatus)) return [];
+    // Tombol "Deal" (2026-09-24, user request): fully approved SAJA belum
+    // cukup — owner harus klik Deal dulu. Baris tanpa PoaDoctorApproval
+    // (data lama, status cuma di level POA) tidak punya tempat nyimpen dealAt,
+    // jadi dianggap sudah Deal (sama seperti backfill migration-nya).
+    if (approval && !approval.dealAt) return [];
     const until = approveUntil(doctorStatus);
 
     const aktifStats = dokter.kodeCust && dokter.kodePI

@@ -69,6 +69,34 @@ export async function submitDoctorAction(
   revalidatePath(`/poa/${poaId}`);
 }
 
+/**
+ * Tombol "Deal" (2026-09-24, user request) — setelah dokter fully approved
+ * (status APPROVED_BY_* terminal, level sesuai exodusRequiredRole), owner POA
+ * (atau ADMIN) klik Deal dulu baru dokter ini masuk GET /api/poa-doctors.
+ * Sekali klik, permanen — sengaja TIDAK lewat canEdit karena dokter yang
+ * sudah approved memang terkunci untuk diedit (edit-lock), tapi owner tetap
+ * harus bisa Deal.
+ */
+export async function dealDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<void> {
+  const session = await requireSession();
+  const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
+
+  const approval = await prisma.poaDoctorApproval.findUnique({
+    where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } },
+    include: { poa: { select: { ownerId: true } } },
+  });
+  if (!approval) throw new Error("Dokter tidak ditemukan.");
+  if (approval.poa.ownerId !== actor.nip && actor.role !== "ADMIN") throw new Error("Hanya pemilik POA yang bisa klik Deal.");
+  if (!approval.status.startsWith("APPROVED_BY_")) throw new Error("Dokter ini belum fully approved.");
+  if (approval.dealAt) throw new Error("Dokter ini sudah Deal.");
+
+  await prisma.poaDoctorApproval.update({
+    where: { id: approval.id },
+    data: { dealAt: new Date(), dealByNip: actor.nip },
+  });
+  revalidatePath(`/poa/${poaId}`);
+}
+
 // ─── Per-doctor approval actions (docs/poa-per-doctor-approval/) ──────────────
 // approve/reject/cancel/request-edit all target ONE doctor
 // (kodePI + namaCust, same doctorKey used by DraftChecklist.tsx) within the

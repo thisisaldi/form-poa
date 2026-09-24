@@ -21,6 +21,7 @@ import {
 } from "@/app/actions/customer";
 import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, getSalesLast3MonthsByOutletAction, getStandarisasiGroupGapAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow, type StandarisasiGroupGapRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
+import { isEndingThisQuarter } from "@/lib/quarterUtils";
 
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
@@ -110,8 +111,8 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
   // submitted pengajuan for it) — 2026-08-26 bug report: the tab itself only
   // read source (1), showing empty whenever no in-app submission existed yet
   // even though source (2) had plenty of labeled products.
-  const standarisasiMerged: { kodeProduk: string; namaProduk: string; detail: string }[] = useMemo(() => {
-    const byKode = new Map<string, { kodeProduk: string; namaProduk: string; detail: string }>();
+  const standarisasiMerged: { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }[] = useMemo(() => {
+    const byKode = new Map<string, { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }>();
     for (const r of standarisasiRows ?? []) {
       byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: r.namaProduk, detail: `${r.statusPengajuan} · ${r.tipeStandarisasi} · disubmit ${new Date(r.submittedAt).toLocaleDateString("id-ID")}` });
     }
@@ -121,7 +122,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
     }
     for (const r of dplRows ?? []) {
       if (byKode.has(r.kodeProduk)) continue;
-      byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk, detail: `DPL aktif s/d ${r.prdAkhir.slice(4)}/${r.prdAkhir.slice(0, 4)}` });
+      byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk, detail: `DPL aktif s/d ${r.prdAkhir.slice(4)}/${r.prdAkhir.slice(0, 4)}`, expiring: isEndingThisQuarter(r.prdAkhir) });
     }
     return Array.from(byKode.values()).sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
   }, [standarisasiRows, kriteriaRows, dplRows, productByKode]);
@@ -298,7 +299,7 @@ function RecommendationPill({ color, children }: { color: string; children: Reac
  */
 function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode }: {
   rows: KriteriaByOutlet[] | null;
-  dplRows: { kodeProduk: string; diskonPct: number }[] | null;
+  dplRows: { kodeProduk: string; diskonPct: number; prdAkhir: string }[] | null;
   salesQtrRows: { kodeProduk: string; salesRp: number }[] | null;
   productByKode: Map<string, Product>;
 }) {
@@ -307,6 +308,7 @@ function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode }: {
   if (!loaded || rows.length === 0) return empty;
 
   const dplByKode = new Map(dplRows.map((d) => [d.kodeProduk, d.diskonPct]));
+  const dplEndByKode = new Map(dplRows.map((d) => [d.kodeProduk, d.prdAkhir]));
   const salesByKode = new Map(salesQtrRows.map((s) => [s.kodeProduk, s.salesRp]));
   const nama = (kode: string) => productByKode.get(kode)?.namaProduk ?? kode;
 
@@ -334,6 +336,7 @@ function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode }: {
                   <RecommendationPill color="#d97706">DPL {dplByKode.get(r.kodeProduk)}%</RecommendationPill>
                 </div>
                 <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>Diskon Pelunasan · Belum ada sales tercatat</div>
+                {isEndingThisQuarter(dplEndByKode.get(r.kodeProduk) ?? "") && (<div className="text-xs mt-1 font-semibold" style={{ color: "#d97706" }}>⚠ Periode DPL mau habis ({(dplEndByKode.get(r.kodeProduk) ?? "").slice(4)}/{(dplEndByKode.get(r.kodeProduk) ?? "").slice(0, 4)})</div>)}
               </div>
             ))}
           </div>
@@ -395,7 +398,7 @@ function StandarisasiGroupGapPanel({ rows }: { rows: StandarisasiGroupGapRow[] |
   );
 }
 
-function StandarisasiOutletPanel({ rows }: { rows: { kodeProduk: string; namaProduk: string; detail: string }[] | null }) {
+function StandarisasiOutletPanel({ rows }: { rows: { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }[] | null }) {
   const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada produk yang sudah standarisasi di outlet ini." />;
   if (!rows || rows.length === 0) return empty;
   return (
@@ -403,7 +406,7 @@ function StandarisasiOutletPanel({ rows }: { rows: { kodeProduk: string; namaPro
       {rows.map((r) => (
         <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
           <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>{r.detail}</div>
+          <div className="text-xs mt-0.5" style={{ color: r.expiring ? "#d97706" : "var(--color-text-faint)", fontWeight: r.expiring ? 600 : undefined }}>{r.expiring && "⚠ "}{r.detail}{r.expiring && " · periode mau habis"}</div>
         </div>
       ))}
     </div>
