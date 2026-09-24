@@ -20,6 +20,8 @@
 - `ROLE_OPTIONS` di `AdminTabs.tsx` ditambah `SALES_SUPPORT` biar admin bisa bikin akun baru lewat UI, bukan cuma NIP pertama ini yang manual di-script.
 - Akses file diperluas: bukan cuma memo, tapi juga dokumen bukti standarisasi (`PoaStandarisasiSpNonSalesDocument`) — ternyata sebelumnya TIDAK ke-cover sama sekali di `resolvePoaStandarisasiFileOwner` (pre-existing gap, ketemu pas nambahin akses Sales Support, sekarang sudah ditambal untuk SEMUA role, bukan cuma Sales Support).
 
+🟢 **Update 2026-09-24 (user request) — view Sales Support**: input "No SP Memo" DIHAPUS dari `/sales-support` (tidak perlu diisi lagi; `updateSpNonSalesMemoNoSpAction` dihapus, kolom `PoaStandarisasi.spNonSalesMemoNoSp` dibiarkan di DB tanpa dipakai) dan note footer "No SP memo…" juga dihapus dari docx. Tiap baris memo bisa dibuka buat lihat produk + qty, alasan, dan bukti standarisasi; ada ringkasan (total/belum/sudah di-sign), filter status, dan pencarian. Tampilan dirapikan pakai `Card`/pola tabel yang sama dengan `/poa-standarisasi`.
+
 ⬜ **Belum diverifikasi end-to-end di browser** — sudah ada beberapa iterasi koreksi requirement (Kepada, gabung tombol, bukti standarisasi) sejak implementasi awal, belum sempat dites ulang penuh dari nol di browser.
 
 Sisa item non-blocking dari §7 (#5-9 di `01-business-rules.md` — scope Sales Support, cara akun dibuat) tetap jalan dengan asumsi tertulis, belum dikonfirmasi ulang ke stakeholder.

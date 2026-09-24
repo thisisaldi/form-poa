@@ -1642,17 +1642,6 @@ async function generateSpNonSalesMemoActionImpl(id: string, input: { kepada: str
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
-/** "No SP memo" di footer — diisi manual oleh Sales Support sendiri (RESOLVED, docs/sp-non-sales-memo/01-business-rules.md §4), kapan saja setelah memo ada, terpisah dari generate. */
-export async function updateSpNonSalesMemoNoSpAction(id: string, noSp: string): Promise<void> {
-  const { actor } = await requireActor();
-  if (!canAccessSalesSupportMemo(actor)) throw new Error("Anda tidak berhak mengedit ini.");
-  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id }, select: { spNonSalesMemoGeneratedAt: true } });
-  if (!pengajuan?.spNonSalesMemoGeneratedAt) throw new Error("Memo belum digenerate.");
-
-  await prisma.poaStandarisasi.update({ where: { id }, data: { spNonSalesMemoNoSp: noSp.trim() || null } });
-  revalidatePath("/sales-support");
-}
-
 /** Centang "sudah di-sign" — self-report oleh Sales Support (RESOLVED, §1.3: tidak ada approval berlapis, tidak ada upload ulang). Toggle-able (uncheck buat koreksi salah centang). */
 export async function toggleSpNonSalesMemoSignedAction(id: string, signed: boolean): Promise<void> {
   const { actor } = await requireActor();
@@ -1673,7 +1662,6 @@ export interface SalesSupportMemoRow {
   namaOutlet: string;
   nomor: string;
   alasan: string | null;
-  noSp: string | null;
   generatedAt: Date;
   driveFileId: string;
   namaPengusul: string;
@@ -1684,6 +1672,8 @@ export interface SalesSupportMemoRow {
   // clarification) — Sales Support teruskan DUA-duanya ke GOJ, jadi listing
   // ini juga perlu nampilin bukti standarisasi, bukan cuma memo.
   buktiStandarisasi: { id: string; fileName: string; driveFileId: string }[];
+  /** Produk di pengajuan ini + qty SP Non Sales (box) — buat info di baris memo (2026-09-24, user request). */
+  produk: { kodeProduk: string; namaProduk: string; satuan: string; qty: number | null }[];
 }
 
 /** Listing company-wide semua memo yang sudah digenerate (docs/sp-non-sales-memo/03-ui-and-access.md — asumsi kerja company-wide, belum dipersempit region/distributor). */
@@ -1697,6 +1687,7 @@ export async function listSalesSupportMemosAction(): Promise<SalesSupportMemoRow
       outlet: { select: { namaOutlet: true } },
       owner: { select: { name: true } },
       spNonSalesDocuments: { select: { id: true, fileName: true, driveFileId: true } },
+      produk: { select: { spNonSalesJumlahBox: true, product: { select: { kodeProduk: true, namaProduk: true, satuan: true } } }, orderBy: { createdAt: "asc" } },
     },
     orderBy: { spNonSalesMemoGeneratedAt: "desc" },
   });
@@ -1716,13 +1707,13 @@ export async function listSalesSupportMemosAction(): Promise<SalesSupportMemoRow
     namaOutlet: p.outlet.namaOutlet,
     nomor: p.spNonSalesMemoNomor ?? "-",
     alasan: p.spNonSalesMemoAlasan,
-    noSp: p.spNonSalesMemoNoSp,
     generatedAt: p.spNonSalesMemoGeneratedAt!,
     driveFileId: p.spNonSalesMemoDriveFileId!,
     namaPengusul: p.owner.name,
     signedAt: p.spNonSalesSignedAt,
     signedByNama: p.spNonSalesSignedByNip ? signerNameByNip.get(p.spNonSalesSignedByNip) ?? p.spNonSalesSignedByNip : null,
     buktiStandarisasi: p.spNonSalesDocuments,
+    produk: p.produk.map((pr: (typeof p.produk)[number]) => ({ kodeProduk: pr.product.kodeProduk, namaProduk: pr.product.namaProduk, satuan: pr.product.satuan, qty: pr.spNonSalesJumlahBox != null ? parseFloat(pr.spNonSalesJumlahBox.toString()) : null })),
   }));
 }
 

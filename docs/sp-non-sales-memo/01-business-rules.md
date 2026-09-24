@@ -84,7 +84,7 @@ Hormat kami,                          Menyetujui,
 ```
 Note : No SP memo ini 2026000179 (PML)
 ```
-Nomor terpisah dari nomor memo di header (`DSS/IX/189.26` vs `2026000179`). **Diisi manual oleh Sales Support sendiri** (dikonfirmasi 2026-09-23: "no sp memo itu isi sendiri dari sales support nya") — bukan auto-generate, bukan dari sistem lain. Field bebas teks, boleh kosong.
+Nomor terpisah dari nomor memo di header (`DSS/IX/189.26` vs `2026000179`). **DIHAPUS 2026-09-24 (user request): footer ini dan input "No SP Memo" di view Sales Support sudah tidak dipakai lagi.** Catatan lama: **diisi manual oleh Sales Support sendiri** (dikonfirmasi 2026-09-23: "no sp memo itu isi sendiri dari sales support nya") — bukan auto-generate, bukan dari sistem lain. Field bebas teks, boleh kosong.
 
 ## §7 Open questions — status & assumptions dipakai untuk v1
 

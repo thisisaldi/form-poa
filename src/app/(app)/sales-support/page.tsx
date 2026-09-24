@@ -19,7 +19,7 @@ export default async function SalesSupportPage() {
       <div>
         <h1>Memo SP Non Sales</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Memo yang sudah digenerate MR, siap diproses tanda tangan.
+          Memo yang sudah digenerate MR. Unduh memo dan cek bukti standarisasinya, proses tanda tangan, lalu centang kalau sudah di-sign.
         </p>
       </div>
       <SalesSupportMemoTable rows={rows} />
