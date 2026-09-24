@@ -687,15 +687,43 @@ async function computeEstimasiPerBulan(
  * dengan "% Diskon (DPL/DPF)" di POA Estimasi (getDiskonByOutlet: Exodus live,
  * fallback DiskonKontrak). Detail = prdAkhir terjauh per produk.
  */
-export async function getActiveDplByOutletAction(kodePI: string): Promise<{ kodeProduk: string; prdAkhir: string }[]> {
+export async function getActiveDplByOutletAction(kodePI: string): Promise<{ kodeProduk: string; prdAkhir: string; diskonPct: number }[]> {
   if (!kodePI) return [];
   const now = new Date();
   const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const byKode = new Map<string, string>();
+  const byKode = new Map<string, { prdAkhir: string; diskonPct: number }>();
   for (const c of await getDiskonByOutlet(kodePI)) {
-    if (c.prdAwal <= ym && ym <= c.prdAkhir && (byKode.get(c.kodeProduk) ?? "") < c.prdAkhir) byKode.set(c.kodeProduk, c.prdAkhir);
+    if (c.prdAwal <= ym && ym <= c.prdAkhir && (byKode.get(c.kodeProduk)?.prdAkhir ?? "") < c.prdAkhir) {
+      byKode.set(c.kodeProduk, { prdAkhir: c.prdAkhir, diskonPct: c.newOnPi });
+    }
   }
-  return Array.from(byKode, ([kodeProduk, prdAkhir]) => ({ kodeProduk, prdAkhir }));
+  return Array.from(byKode, ([kodeProduk, v]) => ({ kodeProduk, ...v }));
+}
+
+/**
+ * Sales per produk di outlet ini untuk 3 bulan penuh terakhir (jendela SAMA
+ * dengan sinyal sales di computeStatusPengajuanMap, supaya "Sudah ada sales"
+ * di sidebar konsisten dengan label Baru/Perpanjangan). Nilai Rp = qty × HNA
+ * — konvensi repo (OutletSalesMonthly cuma nyimpen qty, lihat
+ * targetCalculation.ts). Cuma produk dengan qty > 0 yang dikembalikan.
+ */
+export async function getSalesLast3MonthsByOutletAction(kodePI: string): Promise<{ kodeProduk: string; salesRp: number }[]> {
+  if (!kodePI) return [];
+  const now = new Date();
+  const last3Months = [1, 2, 3].map((i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const rows = await prisma.outletSalesMonthly.findMany({
+    where: { kodePI, periode: { in: last3Months }, qty: { gt: 0 } },
+    select: { itemKode: true, qty: true },
+  });
+  if (rows.length === 0) return [];
+  const qtyByKode = new Map<string, number>();
+  for (const r of rows) qtyByKode.set(r.itemKode, (qtyByKode.get(r.itemKode) ?? 0) + parseFloat(r.qty.toString()));
+  const products = await prisma.product.findMany({ where: { kodeProduk: { in: [...qtyByKode.keys()] } }, select: { kodeProduk: true, hna: true } });
+  const hnaByKode = new Map<string, number>(products.map((p: (typeof products)[number]) => [p.kodeProduk, parseFloat(p.hna.toString())]));
+  return [...qtyByKode].map(([kodeProduk, qty]) => ({ kodeProduk, salesRp: qty * (hnaByKode.get(kodeProduk) ?? 0) }));
 }
 
 /**

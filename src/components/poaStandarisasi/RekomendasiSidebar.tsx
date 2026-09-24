@@ -19,9 +19,8 @@ import {
   type SurveyRekomendasiOutletRow,
   type KriteriaByOutlet,
 } from "@/app/actions/customer";
-import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, getStandarisasiGroupGapAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow, type StandarisasiGroupGapRow } from "@/app/actions/poaStandarisasi";
+import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, getSalesLast3MonthsByOutletAction, getStandarisasiGroupGapAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow, type StandarisasiGroupGapRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
-import { formatKategoriLabel } from "@/lib/hargaST";
 
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
@@ -29,7 +28,7 @@ const SIDEBAR_BLUE = "var(--color-blue)";
 const SIDEBAR_PURPLE = "var(--color-purple, #7c3aed)";
 const SIDEBAR_RED = "var(--color-error, #dc2626)";
 
-type Tab = "survey" | "kriteria" | "standarisasi" | "groupGap" | "sales";
+type Tab = "survey" | "kriteria" | "standarisasiSales" | "groupGap";
 
 function edgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -57,7 +56,8 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
   const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiOutletRow[] | null>(null);
   const [kriteriaRows, setKriteriaRows] = useState<KriteriaByOutlet[] | null>(null);
   const [standarisasiRows, setStandarisasiRows] = useState<StandarisasiProdukOutletRow[] | null>(null);
-  const [dplRows, setDplRows] = useState<{ kodeProduk: string; prdAkhir: string }[] | null>(null);
+  const [dplRows, setDplRows] = useState<{ kodeProduk: string; prdAkhir: string; diskonPct: number }[] | null>(null);
+  const [salesQtrRows, setSalesQtrRows] = useState<{ kodeProduk: string; salesRp: number }[] | null>(null);
   const [salesHistoryRows, setSalesHistoryRows] = useState<SalesHistoryOutletRow[] | null>(null);
   const [groupGapRows, setGroupGapRows] = useState<StandarisasiGroupGapRow[] | null>(null);
   const [, startLoad] = useTransition();
@@ -74,14 +74,16 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       setStandarisasiRows(null);
       setSalesHistoryRows(null);
       setDplRows(null);
+      setSalesQtrRows(null);
       setGroupGapRows(null);
       if (!kodePI) return;
-      const [survey, kriteria, standarisasi, salesHistory, dpl, groupGap] = await Promise.all([
+      const [survey, kriteria, standarisasi, salesHistory, dpl, salesQtr, groupGap] = await Promise.all([
         getSurveyRekomendasiByOutletAggregate(kodePI),
         getKriteriaByOutlet(kodePI),
         getStandarisasiProdukByOutletAction(kodePI, pengajuanId),
         getSalesHistoryByOutletAction(kodePI),
         getActiveDplByOutletAction(kodePI),
+        getSalesLast3MonthsByOutletAction(kodePI),
         getStandarisasiGroupGapAction(kodePI, pengajuanId),
       ]);
       if (cancelled) return;
@@ -90,6 +92,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       setStandarisasiRows(standarisasi);
       setSalesHistoryRows(salesHistory);
       setDplRows(dpl);
+      setSalesQtrRows(salesQtr);
       setGroupGapRows(groupGap);
     });
     return () => { cancelled = true; };
@@ -144,11 +147,8 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
         <button type="button" onClick={() => setActiveTab("kriteria")} style={edgeTabStyle(SIDEBAR_GREEN)}>
           Produk Rekomendasi
         </button>
-        <button type="button" onClick={() => setActiveTab("standarisasi")} style={edgeTabStyle(SIDEBAR_BLUE)}>
-          Sudah Standarisasi
-        </button>
-        <button type="button" onClick={() => setActiveTab("sales")} style={edgeTabStyle(SIDEBAR_PURPLE)}>
-          Historical Sales
+        <button type="button" onClick={() => setActiveTab("standarisasiSales")} style={edgeTabStyle(SIDEBAR_BLUE)}>
+          Standarisasi & Historis Sales
         </button>
         {groupGapKode.size > 0 && (
           <button type="button" onClick={() => setActiveTab("groupGap")} style={edgeTabStyle(SIDEBAR_RED)}>
@@ -172,8 +172,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
         <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 6, flexWrap: "wrap" }}>
           <button type="button" onClick={() => setActiveTab("survey")} style={pillStyle(SIDEBAR_ORANGE, activeTab === "survey")}>Data Survey</button>
           <button type="button" onClick={() => setActiveTab("kriteria")} style={pillStyle(SIDEBAR_GREEN, activeTab === "kriteria")}>Produk Rekomendasi</button>
-          <button type="button" onClick={() => setActiveTab("standarisasi")} style={pillStyle(SIDEBAR_BLUE, activeTab === "standarisasi")}>Sudah Standarisasi</button>
-          <button type="button" onClick={() => setActiveTab("sales")} style={pillStyle(SIDEBAR_PURPLE, activeTab === "sales")}>Historical Sales</button>
+          <button type="button" onClick={() => setActiveTab("standarisasiSales")} style={pillStyle(SIDEBAR_BLUE, activeTab === "standarisasiSales")}>Standarisasi & Historis Sales</button>
           {groupGapKode.size > 0 && (
             <button type="button" onClick={() => setActiveTab("groupGap")} style={pillStyle(SIDEBAR_RED, activeTab === "groupGap")}>Gap Group ({groupGapKode.size})</button>
           )}
@@ -189,9 +188,19 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
 
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-3">
         {activeTab === "survey" && <SurveyOutletPanel rows={surveyRows} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
-        {activeTab === "kriteria" && <KriteriaOutletPanel rows={kriteriaRows} productByKode={productByKode} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
-        {activeTab === "standarisasi" && <StandarisasiOutletPanel rows={standarisasiRows === null || kriteriaRows === null || dplRows === null ? null : standarisasiMerged} />}
-        {activeTab === "sales" && <SalesHistoryOutletPanel rows={salesHistoryRows} />}
+        {activeTab === "kriteria" && <KriteriaOutletPanel rows={kriteriaRows} dplRows={dplRows} salesQtrRows={salesQtrRows} productByKode={productByKode} />}
+        {activeTab === "standarisasiSales" && (
+          <div className="space-y-4">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: SIDEBAR_BLUE }}>Sudah Standarisasi</div>
+              <StandarisasiOutletPanel rows={standarisasiRows === null || kriteriaRows === null || dplRows === null ? null : standarisasiMerged} />
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: SIDEBAR_PURPLE }}>Historical Sales</div>
+              <SalesHistoryOutletPanel rows={salesHistoryRows} />
+            </div>
+          </div>
+        )}
         {activeTab === "groupGap" && <StandarisasiGroupGapPanel rows={groupGapRows} />}
       </div>
     </div>
@@ -268,73 +277,104 @@ function SurveyOutletPanel({ rows, standarisasiKode, sortByStandarisasi }: { row
   );
 }
 
+function RecommendationPill({ color, children }: { color: string; children: React.ReactNode }) {
+  return (
+    <span
+      className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0 whitespace-nowrap"
+      style={{ color, border: `1px solid ${color}`, background: `color-mix(in srgb, ${color} 10%, transparent)` }}
+    >
+      {children}
+    </span>
+  );
+}
+
 /**
- * "Produk Rekomendasi" section buckets (2026-08-27, user request) — each row
- * lands in exactly ONE bucket by priority order (a row could technically
- * match more than one condition, e.g. Blue Ocean + Tidak Ada Sales — first
- * match wins so a product never appears twice), rows matching none of the 3
- * (e.g. kategori "Low Hanging Fruit" with a kriteriaBaru other than "Sudah
- * Terstandarisasi - Tidak Ada Sales") are NOT shown in this tab — only the 3
- * buckets the user specified, in this exact order.
+ * "Produk Rekomendasi" (layout baru 2026-09-24, user request) — produk
+ * rekomendasi (kriteria) di outlet ini dikelompokkan per status DPL/sales:
+ * (1) sudah DPL tapi belum ada sales, (2) sudah ada sales (3 bln terakhir)
+ * tapi belum DPL, (3) belum ada keduanya. Produk yang SUDAH punya DPL DAN
+ * sales bukan gap, jadi tidak ditampilkan di sini (tetap kelihatan di tab
+ * "Standarisasi & Historis Sales").
  */
-const KRITERIA_SECTIONS: { key: string; label: string; color: string; match: (r: KriteriaByOutlet) => boolean }[] = [
-  {
-    key: "sudah-standarisasi-corporate",
-    label: "Sudah Standarisasi Corporate",
-    color: "var(--color-orange, #ea580c)",
-    match: (r) => r.kriteriaBaru === "Produk Sudah Terstandarisasi - Tidak Ada Sales",
-  },
-  {
-    key: "blue-ocean",
-    label: "Produk Rekomendasi PM (Kompetisi Rendah)",
-    color: SIDEBAR_BLUE,
-    match: (r) => r.kategori === "Blue Ocean",
-  },
-  {
-    key: "red-ocean",
-    label: "Produk Rekomendasi PM (Kompetisi Tinggi)",
-    color: "var(--color-red, #dc2626)",
-    match: (r) => r.kategori === "Red Ocean",
-  },
-];
+function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode }: {
+  rows: KriteriaByOutlet[] | null;
+  dplRows: { kodeProduk: string; diskonPct: number }[] | null;
+  salesQtrRows: { kodeProduk: string; salesRp: number }[] | null;
+  productByKode: Map<string, Product>;
+}) {
+  const loaded = rows !== null && dplRows !== null && salesQtrRows !== null;
+  const empty = <LoadingOrEmpty rows={loaded ? rows : null} emptyText="Belum ada kriteria produk untuk outlet ini." />;
+  if (!loaded || rows.length === 0) return empty;
 
-function KriteriaOutletPanel({ rows, productByKode, standarisasiKode, sortByStandarisasi }: { rows: KriteriaByOutlet[] | null; productByKode: Map<string, Product>; standarisasiKode: Set<string>; sortByStandarisasi: <T extends { kodeProduk: string }>(rows: T[]) => T[] }) {
-  const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada kriteria produk untuk outlet ini." />;
-  if (!rows || rows.length === 0) return empty;
+  const dplByKode = new Map(dplRows.map((d) => [d.kodeProduk, d.diskonPct]));
+  const salesByKode = new Map(salesQtrRows.map((s) => [s.kodeProduk, s.salesRp]));
+  const nama = (kode: string) => productByKode.get(kode)?.namaProduk ?? kode;
 
-  const remaining = [...rows];
-  const sections = KRITERIA_SECTIONS.map((section) => {
-    const matched: KriteriaByOutlet[] = [];
-    for (let i = remaining.length - 1; i >= 0; i--) {
-      if (section.match(remaining[i])) matched.push(...remaining.splice(i, 1));
-    }
-    return { ...section, rows: sortByStandarisasi(matched.reverse()) };
-  }).filter((s) => s.rows.length > 0);
+  const dplNoSales = rows.filter((r) => dplByKode.has(r.kodeProduk) && !salesByKode.has(r.kodeProduk));
+  const salesNoDpl = rows.filter((r) => salesByKode.has(r.kodeProduk) && !dplByKode.has(r.kodeProduk));
+  const neither = rows.filter((r) => !dplByKode.has(r.kodeProduk) && !salesByKode.has(r.kodeProduk));
+  if (dplNoSales.length + salesNoDpl.length + neither.length === 0) return empty;
 
-  if (sections.length === 0) return empty;
+  const card = "rounded-xl border px-3.5 py-3 shadow-sm";
+  const cardStyle = { background: "var(--color-bg)", borderColor: "var(--color-border)" };
+  const heading = (label: string, color: string) => (
+    <div className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color }}>{label}</div>
+  );
 
   return (
-    <div className="space-y-4">
-      {sections.map((section) => (
-        <div key={section.key}>
-          <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: section.color }}>
-            {section.label} ({section.rows.length})
-          </div>
-          <div className="space-y-1.5">
-            {section.rows.map((r) => (
-              <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+    <div className="space-y-5">
+      {dplNoSales.length > 0 && (
+        <div>
+          {heading("Sudah DPL, Belum Ada Sales", SIDEBAR_ORANGE)}
+          <div className="space-y-2">
+            {dplNoSales.map((r) => (
+              <div key={r.kodeProduk} className={card} style={cardStyle}>
                 <div className="flex items-start justify-between gap-2">
-                  <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk}</div>
-                  <StandarisasiBadge done={standarisasiKode.has(r.kodeProduk)} />
+                  <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>{nama(r.kodeProduk)}</div>
+                  <RecommendationPill color="#d97706">DPL {dplByKode.get(r.kodeProduk)}%</RecommendationPill>
                 </div>
-                <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-                  {r.paket} · {r.kriteriaBaru} · <span style={{ color: "var(--color-text-muted)" }}>{formatKategoriLabel(r.kategori)}</span>
-                </div>
+                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>Diskon Pelunasan · Belum ada sales tercatat</div>
               </div>
             ))}
           </div>
         </div>
-      ))}
+      )}
+
+      {salesNoDpl.length > 0 && (
+        <div>
+          {heading("Sudah Ada Sales, Belum DPL", SIDEBAR_BLUE)}
+          <div className="space-y-2">
+            {salesNoDpl.map((r) => (
+              <div key={r.kodeProduk} className={card} style={cardStyle}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>{nama(r.kodeProduk)}</div>
+                  <RecommendationPill color="#2563eb">
+                    {(salesByKode.get(r.kodeProduk) ?? 0).toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })}
+                  </RecommendationPill>
+                </div>
+                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>Sales 3 bln terakhir · Belum ada DPL</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {neither.length > 0 && (
+        <div>
+          {heading("Tidak Ada Sales & DPL", "var(--color-text-faint)")}
+          <div className="space-y-2">
+            {neither.map((r) => (
+              <div key={r.kodeProduk} className={card} style={{ ...cardStyle, opacity: 0.7 }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm font-bold" style={{ color: "var(--color-text-faint)" }}>{nama(r.kodeProduk)}</div>
+                  <RecommendationPill color="#7c3aed">{r.paket}</RecommendationPill>
+                </div>
+                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>Belum ada Sales & DPL</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
