@@ -686,6 +686,8 @@ export function SalesCounterLineItemEditor({
       namaProduk: string;
       avgSalesPerMonth: number;
       totalSalesPeriode: number;
+      avgQtyPerMonth: number;
+      totalQtyPeriode: number;
     }[] = [];
 
     const seen = new Set<string>();
@@ -711,16 +713,20 @@ export function SalesCounterLineItemEditor({
         matchedCanvasser?.pro_name ||
         `Produk (${rawCode})`;
 
+      const avgQty = b3QtyMap?.get(norm) ?? b3QtyMap?.get(rawCode) ?? 0;
+
       results.push({
         kodeProduk: rawCode,
         namaProduk,
         avgSalesPerMonth: avgSales,
         totalSalesPeriode: avgSales * (lamaPeriode || 1),
+        avgQtyPerMonth: avgQty,
+        totalQtyPeriode: avgQty * (lamaPeriode || 1),
       });
     }
 
     return results.sort((a, b) => b.avgSalesPerMonth - a.avgSalesPerMonth);
-  }, [b3SalesMap, selectedProducts, products, canvasserProducts, lamaPeriode]);
+  }, [b3SalesMap, b3QtyMap, selectedProducts, products, canvasserProducts, lamaPeriode]);
 
   return (
     <>

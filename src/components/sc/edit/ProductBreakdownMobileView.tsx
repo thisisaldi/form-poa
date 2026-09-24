@@ -4,12 +4,15 @@ import React, { useState } from "react";
 import { formatRp } from "../detail/SalesCounterStatsPanel";
 import { formatShortMonth } from "../detail/utils/formatDateUtils";
 import type { ProductDetailRowsSummary } from "../detail/types/outletTable";
+import { formatUb } from "../utils/competitorAnalysisUtils";
 
 export interface UnselectedProductItem {
   kodeProduk: string;
   namaProduk: string;
   avgSalesPerMonth: number;
   totalSalesPeriode: number;
+  avgQtyPerMonth?: number;
+  totalQtyPeriode?: number;
 }
 
 export interface ProductBreakdownMobileViewProps {
@@ -324,6 +327,7 @@ export function ProductBreakdownMobileView({
                   </span>
                   <span className="font-semibold shrink-0 whitespace-nowrap" style={{ color: "var(--color-text)" }}>
                     Rp&nbsp;{formatRp(u.totalSalesPeriode)}
+                    {u.totalQtyPeriode != null && u.totalQtyPeriode > 0 && ` (${formatUb(u.totalQtyPeriode)} UB)`}
                   </span>
                 </div>
               ))}

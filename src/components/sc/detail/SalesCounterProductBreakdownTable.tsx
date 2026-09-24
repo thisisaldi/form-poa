@@ -5,12 +5,15 @@ import { formatRp } from "./SalesCounterStatsPanel";
 import { formatShortMonth } from "./utils/formatDateUtils";
 import type { ProductDetailRowsSummary } from "./types/outletTable";
 import { ProductBreakdownMobileView } from "../edit/ProductBreakdownMobileView";
+import { formatUb } from "../utils/competitorAnalysisUtils";
 
 export interface UnselectedProductItem {
   kodeProduk: string;
   namaProduk: string;
   avgSalesPerMonth: number;
   totalSalesPeriode: number;
+  avgQtyPerMonth?: number;
+  totalQtyPeriode?: number;
 }
 
 export interface SalesCounterProductBreakdownTableProps {
@@ -51,6 +54,12 @@ export function SalesCounterProductBreakdownTable({
   }, [unselectedProducts]);
 
   const totalUnselectedSalesPeriod = totalUnselectedSalesMonth * (lama || 1);
+
+  const totalUnselectedQtyMonth = useMemo(() => {
+    return unselectedProducts.reduce((sum, p) => sum + (p.avgQtyPerMonth || 0), 0);
+  }, [unselectedProducts]);
+
+  const totalUnselectedQtyPeriod = totalUnselectedQtyMonth * (lama || 1);
 
   const renderGrowthCell = (
     growthPct: number | null | undefined,
@@ -706,10 +715,10 @@ export function SalesCounterProductBreakdownTable({
                     <th className={`text-left ${cellPadding} font-semibold ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
                       Produk SC
                     </th>
-                    <th className={`text-right ${cellPadding} font-semibold ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
+                    <th className={`text-right ${cellPadding} font-semibold whitespace-nowrap ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
                       Histori Rata-rata
                     </th>
-                    <th className={`text-right ${cellPadding} font-semibold ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
+                    <th className={`text-right ${cellPadding} font-semibold whitespace-nowrap ${fontSizeHeader}`} style={{ color: "var(--color-text-muted)" }}>
                       Potensi Periode ({lama || 1} bln)
                     </th>
                   </tr>
@@ -722,7 +731,7 @@ export function SalesCounterProductBreakdownTable({
                       style={{ borderBottom: "1px solid var(--color-border)" }}
                     >
                       <td
-                        className={`${cellPadding} text-left tabular-nums ${fontSizeBase}`}
+                        className={`${cellPadding} text-left tabular-nums whitespace-nowrap ${fontSizeBase}`}
                         style={{ color: "var(--color-text-muted)" }}
                       >
                         {idx + 1}
@@ -731,36 +740,40 @@ export function SalesCounterProductBreakdownTable({
                         {p.namaProduk}
                       </td>
                       <td
-                        className={`${cellPadding} text-right tabular-nums font-mono ${fontSizeBase}`}
+                        className={`${cellPadding} text-right tabular-nums font-mono whitespace-nowrap ${fontSizeBase}`}
                         style={{ color: "var(--color-text)" }}
                       >
                         {formatRp(p.avgSalesPerMonth)}
+                        {p.avgQtyPerMonth != null && p.avgQtyPerMonth > 0 && ` (${formatUb(p.avgQtyPerMonth)} UB)`}
                       </td>
                       <td
-                        className={`${cellPadding} text-right tabular-nums font-mono font-medium ${fontSizeBase}`}
+                        className={`${cellPadding} text-right tabular-nums font-mono font-medium whitespace-nowrap ${fontSizeBase}`}
                         style={{ color: "var(--color-text)" }}
                       >
                         {formatRp(p.totalSalesPeriode)}
+                        {p.totalQtyPeriode != null && p.totalQtyPeriode > 0 && ` (${formatUb(p.totalQtyPeriode)} UB)`}
                       </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="align-middle font-semibold" style={{ background: "var(--color-bg-subtle)" }}>
-                    <td colSpan={2} className={`${cellPadding} text-left ${fontSizeBase}`} style={{ color: "var(--color-text)" }}>
+                    <td colSpan={2} className={`${cellPadding} text-left whitespace-nowrap ${fontSizeBase}`} style={{ color: "var(--color-text)" }}>
                       Total ({unselectedProducts.length} Produk)
                     </td>
                     <td
-                      className={`${cellPadding} text-right tabular-nums font-mono font-bold ${fontSizeBase}`}
+                      className={`${cellPadding} text-right tabular-nums font-mono font-bold whitespace-nowrap ${fontSizeBase}`}
                       style={{ color: "var(--color-text)" }}
                     >
                       {formatRp(totalUnselectedSalesMonth)}
+                      {totalUnselectedQtyMonth > 0 && ` (${formatUb(totalUnselectedQtyMonth)} UB)`}
                     </td>
                     <td
-                      className={`${cellPadding} text-right tabular-nums font-mono font-bold ${fontSizeBase}`}
+                      className={`${cellPadding} text-right tabular-nums font-mono font-bold whitespace-nowrap ${fontSizeBase}`}
                       style={{ color: "var(--color-text)" }}
                     >
                       {formatRp(totalUnselectedSalesPeriod)}
+                      {totalUnselectedQtyPeriod > 0 && ` (${formatUb(totalUnselectedQtyPeriod)} UB)`}
                     </td>
                   </tr>
                 </tfoot>
