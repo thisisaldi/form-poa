@@ -578,6 +578,8 @@ export function SalesCounterEditByIdEditor({
       namaProduk: string;
       avgSalesPerMonth: number;
       totalSalesPeriode: number;
+      avgQtyPerMonth: number;
+      totalQtyPeriode: number;
     }[] = [];
 
     const seen = new Set<string>();
@@ -603,16 +605,20 @@ export function SalesCounterEditByIdEditor({
         matchedCanvasser?.pro_name ||
         `Produk (${rawCode})`;
 
+      const avgQty = b3QtyMap?.get(norm) ?? b3QtyMap?.get(rawCode) ?? 0;
+
       results.push({
         kodeProduk: rawCode,
         namaProduk,
         avgSalesPerMonth: avgSales,
         totalSalesPeriode: avgSales * (lamaPeriode || 1),
+        avgQtyPerMonth: avgQty,
+        totalQtyPeriode: avgQty * (lamaPeriode || 1),
       });
     }
 
     return results.sort((a, b) => b.avgSalesPerMonth - a.avgSalesPerMonth);
-  }, [b3SalesMap, products, masterProducts, canvasserProducts, lamaPeriode]);
+  }, [b3SalesMap, b3QtyMap, products, masterProducts, canvasserProducts, lamaPeriode]);
 
   return (
     <>

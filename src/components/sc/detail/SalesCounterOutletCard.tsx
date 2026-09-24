@@ -116,6 +116,7 @@ export function SalesCounterOutletCard({
     productDetailRows,
     isLoadingIncentiveHistory,
     b3SalesMap,
+    b3QtyMap,
   } = outletData;
 
   const [showAllUnselected, setShowAllUnselected] = useState(false);
@@ -132,6 +133,8 @@ export function SalesCounterOutletCard({
       namaProduk: string;
       avgSalesPerMonth: number;
       totalSalesPeriode: number;
+      avgQtyPerMonth: number;
+      totalQtyPeriode: number;
     }[] = [];
 
     const seen = new Set<string>();
@@ -154,16 +157,20 @@ export function SalesCounterOutletCard({
         matchedMaster?.nama_item ||
         `Produk (${rawCode})`;
 
+      const avgQty = b3QtyMap?.get(norm) ?? b3QtyMap?.get(rawCode) ?? 0;
+
       results.push({
         kodeProduk: rawCode,
         namaProduk,
         avgSalesPerMonth: avgSales,
         totalSalesPeriode: avgSales * (lama || 1),
+        avgQtyPerMonth: avgQty,
+        totalQtyPeriode: avgQty * (lama || 1),
       });
     }
 
     return results.sort((a, b) => b.avgSalesPerMonth - a.avgSalesPerMonth);
-  }, [b3SalesMap, selectedProductCodes, allScProducts, lama]);
+  }, [b3SalesMap, b3QtyMap, selectedProductCodes, allScProducts, lama]);
 
   const totalUnselectedSalesMonth = useMemo(() => {
     return unselectedProducts.reduce((sum, p) => sum + p.avgSalesPerMonth, 0);

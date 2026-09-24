@@ -26,6 +26,7 @@ import {
 
 interface CachedB3OutletData {
   b3SalesMap: Map<string, number>;
+  b3QtyMap?: Map<string, number>;
   b3TotalOutletSalesPerMonth: number;
   b3TotalCount: number;
   allScProducts: any[];
@@ -69,6 +70,7 @@ export function useSalesCounterOutletData({
   const cachedInsentifHistory = draft.kodePI ? insentifHistoryCache.get(draft.kodePI) : undefined;
 
   const [b3SalesMap, setB3SalesMap] = useState<Map<string, number>>(() => cachedB3?.b3SalesMap || new Map());
+  const [b3QtyMap, setB3QtyMap] = useState<Map<string, number>>(() => cachedB3?.b3QtyMap || new Map());
   const [cashbackData, setCashbackData] = useState<any>(() => cachedCashback || null);
   const [clientScData, setClientScData] = useState<{ codes: Set<string>; total: number } | null>(() => cachedB3?.clientScData || null);
   const [isLoadingB3, setIsLoadingB3] = useState<boolean>(() => !cachedB3);
@@ -108,6 +110,7 @@ export function useSalesCounterOutletData({
     if (b3Cache.has(b3CacheKey)) {
       const cached = b3Cache.get(b3CacheKey)!;
       setB3SalesMap(cached.b3SalesMap);
+      if (cached.b3QtyMap) setB3QtyMap(cached.b3QtyMap);
       setB3TotalOutletSalesPerMonth(cached.b3TotalOutletSalesPerMonth);
       setB3TotalCount(cached.b3TotalCount);
       setAllScProducts(cached.allScProducts);
@@ -136,6 +139,7 @@ export function useSalesCounterOutletData({
 
         // Filter parsed product sales to SC products
         const filteredMap = new Map<string, number>();
+        const filteredQtyMap = new Map<string, number>();
         let sumAvg = 0;
         let scProductSalesCount = 0;
         const seenNorm = new Set<string>();
@@ -150,6 +154,9 @@ export function useSalesCounterOutletData({
             if (isSc) {
               filteredMap.set(code, avgVal);
               filteredMap.set(norm, avgVal);
+              const avgQty = parsed.productQtyMap?.get(code) ?? parsed.productQtyMap?.get(norm) ?? 0;
+              filteredQtyMap.set(code, avgQty);
+              filteredQtyMap.set(norm, avgQty);
               if (avgVal > 0) {
                 sumAvg += avgVal;
                 scProductSalesCount++;
@@ -160,11 +167,13 @@ export function useSalesCounterOutletData({
 
         if (sumAvg > 0 || filteredMap.size > 0) {
           setB3SalesMap(filteredMap);
+          setB3QtyMap(filteredQtyMap);
           setB3TotalOutletSalesPerMonth(sumAvg);
           setB3TotalCount(scProductSalesCount);
           setIsLoadingB3(false);
           b3Cache.set(b3CacheKey, {
             b3SalesMap: filteredMap,
+            b3QtyMap: filteredQtyMap,
             b3TotalOutletSalesPerMonth: sumAvg,
             b3TotalCount: scProductSalesCount,
             allScProducts: products,
@@ -177,11 +186,13 @@ export function useSalesCounterOutletData({
         const scProCodes = Array.from(scCodes);
         if (scProCodes.length === 0) {
           setB3SalesMap(new Map());
+          setB3QtyMap(new Map());
           setB3TotalOutletSalesPerMonth(0);
           setB3TotalCount(0);
           setIsLoadingB3(false);
           b3Cache.set(b3CacheKey, {
             b3SalesMap: new Map(),
+            b3QtyMap: new Map(),
             b3TotalOutletSalesPerMonth: 0,
             b3TotalCount: 0,
             allScProducts: products,
@@ -199,21 +210,27 @@ export function useSalesCounterOutletData({
             );
             if (activeItems.length > 0) {
               const map = new Map<string, number>();
+              const qMap = new Map<string, number>();
               let sumB3 = 0;
               for (const it of activeItems) {
                 if (it.pro_code) {
                   const val = Number(it.average_sales) || 0;
+                  const qVal = Number(it.average_qty) || 0;
                   map.set(it.pro_code, val);
                   map.set(it.pro_code.replace(/^0+/, ""), val);
+                  qMap.set(it.pro_code, qVal);
+                  qMap.set(it.pro_code.replace(/^0+/, ""), qVal);
                   sumB3 += val;
                 }
               }
               setB3SalesMap(map);
+              setB3QtyMap(qMap);
               setB3TotalOutletSalesPerMonth(sumB3);
               setB3TotalCount(activeItems.length);
               setIsLoadingB3(false);
               b3Cache.set(b3CacheKey, {
                 b3SalesMap: map,
+                b3QtyMap: qMap,
                 b3TotalOutletSalesPerMonth: sumB3,
                 b3TotalCount: activeItems.length,
                 allScProducts: products,
@@ -223,11 +240,13 @@ export function useSalesCounterOutletData({
             }
 
             setB3SalesMap(new Map());
+            setB3QtyMap(new Map());
             setB3TotalOutletSalesPerMonth(0);
             setB3TotalCount(0);
             setIsLoadingB3(false);
             b3Cache.set(b3CacheKey, {
               b3SalesMap: new Map(),
+              b3QtyMap: new Map(),
               b3TotalOutletSalesPerMonth: 0,
               b3TotalCount: 0,
               allScProducts: products,
@@ -265,13 +284,20 @@ export function useSalesCounterOutletData({
     getScOutletB3SalesAction(b3Info.period, draft.kodePI, proCodes)
       .then((res) => {
         const map = new Map<string, number>();
+        const qMap = new Map<string, number>();
         if (res?.data && Array.isArray(res.data)) {
           for (const item of res.data) {
-            if (item.pro_code) map.set(item.pro_code, item.average_sales || 0);
+            if (item.pro_code) {
+              map.set(item.pro_code, item.average_sales || 0);
+              map.set(item.pro_code.replace(/^0+/, ""), item.average_sales || 0);
+              qMap.set(item.pro_code, item.average_qty || 0);
+              qMap.set(item.pro_code.replace(/^0+/, ""), item.average_qty || 0);
+            }
           }
         }
         if (map.size > 0) {
           setB3SalesMap(map);
+          setB3QtyMap(qMap);
         }
         setIsLoadingB3(false);
       })
@@ -483,6 +509,7 @@ export function useSalesCounterOutletData({
     b3RangeLabel,
     b3TotalCount,
     b3SalesMap,
+    b3QtyMap,
     b3TotalOutletSalesPerMonth,
     isLoadingB3,
     cashbackData,
