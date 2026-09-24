@@ -19,7 +19,7 @@ import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
-import { getDiscountsForOutlet, type ExodusDiscountPct } from "@/lib/exodusApi";
+import { getDiscountsForOutlet, getLiveProductPricing, type ExodusDiscountPct } from "@/lib/exodusApi";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
@@ -1588,6 +1588,14 @@ async function generateSpNonSalesMemoActionImpl(id: string, input: { kepada: str
 
   const driveConfig = await prisma.googleDriveConfig.findUnique({ where: { id: 1 } });
 
+  // Kolom "PT NIE" di memo = principal produk (Product.principalName). Kolom itu
+  // baru terisi untuk sebagian kecil produk (diisi bertahap dari Exodus, bukan
+  // import lengkap), jadi yang kosong dilengkapi live dari Exodus dulu — SEBELUM
+  // transaksi, supaya HTTP call tidak makan waktu transaksi. Sengaja tidak
+  // ditulis balik ke DB (write-through lengkap ada di poaDoctorsRows.ts, yang
+  // ngisi principalId/code/category sekaligus). Exodus down -> tetap "-".
+  const livePricing = pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => !p.product.principalName) ? await getLiveProductPricing() : null;
+
   const now = new Date();
   // Counter reset per TAHUN (2026-09-23 user correction: "POA001.26" →
   // "POA002.26", no reset mentioned across months) — periode key is just the
@@ -1609,7 +1617,7 @@ async function generateSpNonSalesMemoActionImpl(id: string, input: { kepada: str
       namaOutlet: `${pengajuan.outlet.namaOutlet} / ${pengajuan.kodePI}`,
       namaPengusul: pengajuan.owner.name,
       produk: pengajuan.produk.map((p: (typeof pengajuan.produk)[number]) => ({
-        ptNie: p.product.principalName ?? "-",
+        ptNie: p.product.principalName ?? livePricing?.get(p.product.kodeProduk)?.principalName ?? "-",
         kodeProduk: p.product.kodeProduk,
         namaProduk: p.product.namaProduk,
         qtyBox: p.spNonSalesJumlahBox != null ? p.spNonSalesJumlahBox.toString() : "-",

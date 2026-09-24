@@ -126,8 +126,6 @@ export async function buildSpNonSalesMemoDocx(data: SpNonSalesMemoData): Promise
           tabStops: [{ type: "left", position: 5000 }],
           children: [new TextRun(`(${data.signerHormatKami || "-"})\t(${data.signerMenyetujui || "-"})`)],
         }),
-        new Paragraph({ text: "" }),
-        new Paragraph({ children: [new TextRun({ text: "Note : No SP memo ini diisi manual oleh Sales Support.", italics: true })] }),
       ],
     }],
   });
