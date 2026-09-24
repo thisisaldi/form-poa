@@ -160,7 +160,7 @@ async function DashboardContent({
   const availableQuartersPromise = isMR
     ? Promise.resolve([])
     : prisma.poaForm.groupBy({ by: ["period"], where: { AND: [visibleFilter, { items: { some: {} } }] }, _count: { _all: true } })
-        .then((rows) => rows.map((r) => r.period).sort((a, b) => b.localeCompare(a)));
+        .then((rows: any[]) => rows.map((r: any) => r.period).sort((a: string, b: string) => b.localeCompare(a)));
 
   const totalPoaCount = await prisma.poaForm.count({ where });
   const totalPages = pageSize ? Math.max(1, Math.ceil(totalPoaCount / pageSize)) : 1;

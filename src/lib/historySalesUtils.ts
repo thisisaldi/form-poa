@@ -318,8 +318,8 @@ export function parseOutletHistorySales(
     if (key === "total_sales" || key === "average_sales") continue;
     if (val && typeof val === "object") {
       const item = val as any;
-      const salesAvg = Number(item.sales_value_avg) || 0;
-      const qtyAvg = Number(item.history_sales_avg) || 0;
+      const salesAvg = Number(item.sales_value_avg ?? item.average_sales ?? item.sales_value) || 0;
+      const qtyAvg = Number(item.history_sales_avg ?? item.sales_qty_avg ?? item.average_qty ?? item.history_sales ?? item.sales_qty) || 0;
       const salesVal = Number(item.sales_value) || 0;
       const salesQty = Number(item.sales_qty) || 0;
 
