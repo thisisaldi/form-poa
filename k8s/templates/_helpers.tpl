@@ -127,7 +127,7 @@ Create vault agent inject config template for .env.production file
 {{- define "k8s.vaultAgentInjectConfigTemplate.env.production" }}
 {{- printf "{{- with secret \"%s/production\" -}}" .Values.vault.secretBasePath }}
 {{ `{{- range $key, $value := .Data.data }}` }}
-{{ `{{ $key }}={{ $value | print "%q" }}` }}
+{{ `{{ $key }}={{ $value | printf "%q" }}` }}
 {{ `{{- end -}}` }}
 {{ `{{- end -}}` }}
 {{- end }}
