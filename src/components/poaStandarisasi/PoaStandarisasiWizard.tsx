@@ -2097,6 +2097,7 @@ function Step5SpNonSalesDplDpf({
   canEdit: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<"spNonSales" | "dplDpf">("spNonSales");
+  const router = useRouter();
   const [jumlahByProdukId, setJumlahByProdukId] = useState<Record<string, string>>(() =>
     Object.fromEntries(pengajuan.produk.map((p) => [p.id, p.spNonSalesJumlahBox != null ? String(p.spNonSalesJumlahBox) : ""]))
   );
@@ -2167,7 +2168,9 @@ function Step5SpNonSalesDplDpf({
       fd.set("pengajuanId", pengajuan.id);
       const res = await uploadSpNonSalesDocumentAction(fd);
       if (res.error) throw new Error(res.error);
-      window.location.reload();
+      // router.refresh(), bukan window.location.reload(): reload penuh membuang isian
+      // yang belum disimpan (Jumlah SP Non Sales, Kepada, Alasan).
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload gagal.");
     } finally {
@@ -2180,9 +2183,10 @@ function Step5SpNonSalesDplDpf({
     setError(null);
     try {
       await deleteSpNonSalesDocumentAction(documentId);
-      window.location.reload();
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal menghapus.");
+    } finally {
       setBusy(false);
     }
   }

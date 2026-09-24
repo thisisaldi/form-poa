@@ -7,7 +7,7 @@
  * (metadata block + one table) that hand-building it here is less overhead
  * than checking in and maintaining a .docx master file.
  */
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, AlignmentType, WidthType, BorderStyle, HeadingLevel } from "docx";
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, AlignmentType, WidthType, BorderStyle } from "docx";
 
 const ROMAN_MONTHS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 
@@ -60,7 +60,14 @@ function bodyCell(text: string, alignment: (typeof AlignmentType)[keyof typeof A
 }
 
 function metaRow(label: string, value: string): Paragraph {
-  return new Paragraph({ children: [new TextRun({ text: `${label.padEnd(9, " ")}: `, bold: false }), new TextRun(value)] });
+  // Kolom label / titik dua / nilai dijajarkan pakai tab stop (bukan spasi —
+  // font proporsional bikin padding spasi tidak lurus). Hanging indent supaya
+  // nilai yang panjang dan turun baris tetap lurus dengan kolom nilai.
+  return new Paragraph({
+    tabStops: [{ type: "left", position: 1300 }, { type: "left", position: 1500 }],
+    indent: { left: 1500, hanging: 1500 },
+    children: [new TextRun(`${label}\t:\t${value}`)],
+  });
 }
 
 const TANGGAL_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -94,7 +101,8 @@ export async function buildSpNonSalesMemoDocx(data: SpNonSalesMemoData): Promise
   const doc = new Document({
     sections: [{
       children: [
-        new Paragraph({ alignment: AlignmentType.CENTER, heading: HeadingLevel.HEADING_1, children: [new TextRun("MEMO")] }),
+        // Tanpa style heading (default heading Word berwarna biru) — hitam eksplisit sesuai memo asli.
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "MEMO", bold: true, color: "000000", size: 32 })] }),
         new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun("GA HO – Dept. Sales Support")] }),
         new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(data.nomor)] }),
         new Paragraph({ text: "" }),
