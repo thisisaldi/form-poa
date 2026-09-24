@@ -1828,7 +1828,8 @@ function FinalisasiPhase({
       fd.set("pengajuanId", pengajuan.id);
       fd.set("kind", "formApproval");
       fd.set("produkId", produkId);
-      await uploadPoaStandarisasiFileAction(fd);
+      const res = await uploadPoaStandarisasiFileAction(fd);
+      if (res.error) throw new Error(res.error);
       window.location.reload();
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : "Upload gagal.");
@@ -2146,7 +2147,8 @@ function Step5SpNonSalesDplDpf({
         pengajuan.produk.map((p) => ({ produkId: p.id, jumlahBox: jumlahByProdukId[p.id] || null }))
       );
       if (!pengajuan.spNonSalesMemoGeneratedAt) {
-        await generateSpNonSalesMemoAction(pengajuan.id, { kepada: memoKepada, alasan: memoAlasan });
+        const gen = await generateSpNonSalesMemoAction(pengajuan.id, { kepada: memoKepada, alasan: memoAlasan });
+        if (gen.error) throw new Error(gen.error);
       }
       await submitSpNonSalesRequestAction(pengajuan.id);
       window.location.reload();
@@ -2163,7 +2165,8 @@ function Step5SpNonSalesDplDpf({
       const fd = new FormData();
       fd.set("file", file);
       fd.set("pengajuanId", pengajuan.id);
-      await uploadSpNonSalesDocumentAction(fd);
+      const res = await uploadSpNonSalesDocumentAction(fd);
+      if (res.error) throw new Error(res.error);
       window.location.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload gagal.");

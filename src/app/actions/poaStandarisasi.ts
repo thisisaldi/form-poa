@@ -39,6 +39,26 @@ async function requireActor() {
   return { session, actor };
 }
 
+/**
+ * Production build Next.js MENYAMARKAN pesan dari Error yang di-throw Server
+ * Action (client cuma dapat "An error occurred in the Server Components
+ * render..." + digest), jadi pesan yang memang ditujukan ke user (validasi,
+ * diagnostik Google Drive) tidak pernah sampai. Action yang butuh pesannya
+ * kelihatan dibungkus ini: error dikembalikan sebagai nilai `{ error }`.
+ * redirect()/notFound() (digest NEXT_*) tetap di-rethrow supaya tidak rusak.
+ */
+export type ActionResult = { error?: string };
+async function runAction(fn: () => Promise<unknown>): Promise<ActionResult> {
+  try {
+    await fn();
+    return {};
+  } catch (e) {
+    const digest = (e as { digest?: unknown } | null)?.digest;
+    if (typeof digest === "string" && digest.startsWith("NEXT_")) throw e;
+    return { error: e instanceof Error ? e.message : "Terjadi kesalahan." };
+  }
+}
+
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v));
@@ -1418,7 +1438,11 @@ function sanitizeForFileName(s: string): string {
  * separate from the survey folder and from each other (2026-09-07, user
  * request — see src/lib/googleDrive.ts).
  */
-export async function uploadPoaStandarisasiFileAction(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
+export async function uploadPoaStandarisasiFileAction(formData: FormData): Promise<ActionResult> {
+  return runAction(() => uploadPoaStandarisasiFileActionImpl(formData));
+}
+
+async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
   if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
   const { session, actor } = await requireActor();
   if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
@@ -1460,7 +1484,7 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
     // does), so the safe diagnostic is appended into the message itself.
     const diag = describeGoogleDriveConfig();
     console.error("[poaStandarisasi/upload] Google Drive upload failed:", err, diag);
-    throw new Error(`Upload ke Google Drive gagal, coba lagi. (${JSON.stringify(diag)})`);
+    throw new Error(`Upload ke Google Drive gagal: ${err instanceof Error ? err.message : String(err)}. Cek folder tujuan sudah di-share ke service account. (${JSON.stringify(diag)})`);
   }
 
   if (kind === "suratKft") {
@@ -1544,7 +1568,11 @@ export async function getSpNonSalesMemoKepadaDefaultAction(): Promise<string> {
  * bersamaan), file di-upload ke folder spNonSales existing (reuse folder
  * yang sama dengan upload dokumen lama).
  */
-export async function generateSpNonSalesMemoAction(id: string, input: { kepada: string; alasan: string }): Promise<void> {
+export async function generateSpNonSalesMemoAction(id: string, input: { kepada: string; alasan: string }): Promise<ActionResult> {
+  return runAction(() => generateSpNonSalesMemoActionImpl(id, input));
+}
+
+async function generateSpNonSalesMemoActionImpl(id: string, input: { kepada: string; alasan: string }): Promise<void> {
   if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({
@@ -1703,7 +1731,11 @@ export async function updateSpNonSalesDistributorsAction(id: string, distributor
 }
 
 /** Uploads a "Permintaan SP Non Sales" document — multiple files allowed per pengajuan (shared, not per produk), own admin-settable Drive folder. */
-export async function uploadSpNonSalesDocumentAction(formData: FormData): Promise<{ driveFileId: string; fileName: string }> {
+export async function uploadSpNonSalesDocumentAction(formData: FormData): Promise<ActionResult> {
+  return runAction(() => uploadSpNonSalesDocumentActionImpl(formData));
+}
+
+async function uploadSpNonSalesDocumentActionImpl(formData: FormData): Promise<{ driveFileId: string; fileName: string }> {
   if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
   const { session, actor } = await requireActor();
   if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
@@ -1736,7 +1768,7 @@ export async function uploadSpNonSalesDocumentAction(formData: FormData): Promis
   } catch (err) {
     const diag = describeGoogleDriveConfig();
     console.error("[poaStandarisasi/uploadSpNonSales] Google Drive upload failed:", err, diag);
-    throw new Error(`Upload ke Google Drive gagal, coba lagi. (${JSON.stringify(diag)})`);
+    throw new Error(`Upload ke Google Drive gagal: ${err instanceof Error ? err.message : String(err)}. Cek folder tujuan sudah di-share ke service account. (${JSON.stringify(diag)})`);
   }
 
   await prisma.poaStandarisasiSpNonSalesDocument.create({
