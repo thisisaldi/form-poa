@@ -1,19 +1,21 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { periodLabel } from "./kpiUi";
 
-/** Simple month picker for /kpi-perpanjangan — navigates via ?period=YYYY-MM. */
+/** Month picker for /kpi-perpanjangan — navigates via ?period=YYYY-MM. */
 export function KpiPeriodPicker({ periods, period }: { periods: string[]; period: string }) {
   const router = useRouter();
   return (
     <select
       value={period}
       onChange={(e) => router.push(`/kpi-perpanjangan?period=${e.target.value}`)}
-      className="rounded border px-3 py-2 text-sm"
-      style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+      aria-label="Pilih periode"
+      className="rounded-md border px-3 py-1.5 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-1"
+      style={{ borderColor: "var(--color-border)", color: "var(--color-text)", background: "var(--color-surface)" }}
     >
       {periods.map((p) => (
-        <option key={p} value={p}>{p}</option>
+        <option key={p} value={p}>{periodLabel(p)}</option>
       ))}
     </select>
   );

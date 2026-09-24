@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
+import { loadIdentities, dedupeByIdentity, allNips } from "@/lib/kpiIdentity";
 import { resolveTargetByNipAndMonths } from "@/lib/targetHospitalValue";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { runKpiAbsensiSync, type KpiAbsensiSyncResult } from "@/lib/sync/kpiAbsensiSync";
@@ -84,12 +85,16 @@ export type KpiPersonnelRow = {
 export async function getKpiMonitoringData(period: string): Promise<KpiPersonnelRow[]> {
   await requireAdmin();
 
-  const personnel = (await prisma.user.findMany({
+  const allPersonnel = (await prisma.user.findMany({
     where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
     select: { nip: true, name: true, role: true, jabatan: true },
     orderBy: { name: "asc" },
   })) as { nip: string; name: string; role: string; jabatan: string | null }[];
-  if (personnel.length === 0) return [];
+  if (allPersonnel.length === 0) return [];
+  // Same person under several NIPs (NIP changed, e.g. P->L) shows once, and
+  // their entries are read across all their NIPs — see src/lib/kpiIdentity.ts.
+  const identities = await loadIdentities(allPersonnel.map((p) => p.nip));
+  const personnel = dedupeByIdentity(allPersonnel, identities);
 
   const nips: string[] = personnel.map((p) => p.nip);
   const mrNips: string[] = personnel.filter((p) => p.role === "MR").map((p) => p.nip);
@@ -112,14 +117,20 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
   // has a nipMR column at all, see that function's doc comment in
   // src/lib/targetHospitalValue.ts).
   const [entries, targetByNipPeriode, assignments] = await Promise.all([
-    prisma.kpiMonthlyEntry.findMany({ where: { nip: { in: nips }, period } }) as Promise<KpiEntryRow[]>,
+    prisma.kpiMonthlyEntry.findMany({ where: { nip: { in: personnel.flatMap((p) => allNips(p.nip, identities.get(p.nip))) }, period } }) as Promise<KpiEntryRow[]>,
     resolveTargetByNipAndMonths(mrNips, [periodeYYYYMM]),
     mrNips.length > 0
       ? (prisma.mrOutletAssignment.findMany({ where: { nipMR: { in: mrNips } }, select: { nipMR: true, kodePI: true } }) as Promise<{ nipMR: string; kodePI: string }[]>)
       : Promise.resolve([] as { nipMR: string; kodePI: string }[]),
   ]);
 
-  const entryByNip = new Map(entries.map((e) => [e.nip, e]));
+  const entryRaw = new Map(entries.map((e) => [e.nip, e]));
+  // Own NIP's entry wins; otherwise fall back to an entry left under one of the person's other NIPs.
+  const entryByNip = new Map<string, KpiEntryRow>();
+  for (const p of personnel) {
+    const e = allNips(p.nip, identities.get(p.nip)).map((n) => entryRaw.get(n)).find(Boolean);
+    if (e) entryByNip.set(p.nip, e);
+  }
 
   const targetByMr = new Map<string, number>();
   for (const nip of mrNips) {

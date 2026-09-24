@@ -14,16 +14,22 @@
  * (re)written from the API — safe to re-run for the current month as more
  * attendance records accumulate day by day.
  *
- * PTID comes from User.sippAbsPtId, seeded from the HR-provided master
- * file (scripts/importSippPtidFromHrFile.ts, run 2026-09-23) — ground
+ * PTID comes from the HR master file (scripts/importSippPtidFromHrFile.ts ->
+ * SippEmployee.ptid, and User.sippAbsPtId for the current NIP) — ground
  * truth per NIP, not a prefix guess (the old P/L/F-prefix guess had ~1,083
- * "P"-prefixed NIPs wrong, actually PTID 7 not 1). A NIP missing from that
- * import (sippAbsPtId still null) is reported as an error, not silently
- * skipped — re-run the import script when HR sends a refreshed file.
+ * "P"-prefixed NIPs wrong, actually PTID 7 not 1). A current NIP with no PTID
+ * is reported as an error, not silently skipped — re-run the import script
+ * when HR sends a refreshed file.
+ *
+ * NIP changes (2026-09-24): the same normalized HR name = the same person, so
+ * attendance is gathered across ALL of a person's NIPs that overlap the month
+ * (see kpiIdentity.ts), merged, then averaged; the result is stored under
+ * the current NIP.
  */
 
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
+import { loadIdentities, dedupeByIdentity } from "@/lib/kpiIdentity";
 import { getAbsensiByNip, computeAvgLateHours, monthDateRange } from "@/lib/sippApi";
 
 export interface KpiAbsensiSyncResult {
@@ -47,19 +53,29 @@ export async function runKpiAbsensiSync(period?: string): Promise<KpiAbsensiSync
     return result;
   }
 
-  const personnel = (await prisma.user.findMany({
+  const allPersonnel = (await prisma.user.findMany({
     where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
     select: { nip: true, sippAbsPtId: true },
   })) as { nip: string; sippAbsPtId: number | null }[];
-  if (personnel.length === 0) return result;
+  if (allPersonnel.length === 0) return result;
+  const identities = await loadIdentities(allPersonnel.map((p) => p.nip));
+  const personnel = dedupeByIdentity(allPersonnel, identities);
 
   const existingEntries = (await prisma.kpiMonthlyEntry.findMany({
-    where: { nip: { in: personnel.map((p) => p.nip) }, period: targetPeriod },
+    where: { nip: { in: personnel.flatMap((p) => [p.nip, ...(identities.get(p.nip)?.nips.map((a) => a.nip) ?? [])]) }, period: targetPeriod },
     select: { nip: true, absensiSource: true, absensiValue: true },
   })) as { nip: string; absensiSource: string; absensiValue: unknown }[];
-  const manualNips = new Set(existingEntries.filter((e) => e.absensiSource === "MANUAL" && e.absensiValue != null).map((e) => e.nip));
+  const manualEntryNips = new Set(existingEntries.filter((e) => e.absensiSource === "MANUAL" && e.absensiValue != null).map((e) => e.nip));
+  // A manual value entered under any of the person's NIPs counts.
+  const manualNips = new Set(
+    personnel
+      .filter((p) => [p.nip, ...(identities.get(p.nip)?.nips.map((a) => a.nip) ?? [])].some((n) => manualEntryNips.has(n)))
+      .map((p) => p.nip)
+  );
 
   const { startDate, endDate } = monthDateRange(targetPeriod);
+  const monthStart = new Date(`${startDate}T00:00:00Z`);
+  const monthEnd = new Date(`${endDate}T23:59:59Z`);
 
   for (const p of personnel) {
     result.scanned++;
@@ -69,17 +85,29 @@ export async function runKpiAbsensiSync(period?: string): Promise<KpiAbsensiSync
     }
 
     try {
-      const ptId = p.sippAbsPtId;
-      if (ptId == null) {
+      // Own NIP always; aliases only if their employment overlaps the month (saves SIPP calls).
+      const aliases = (identities.get(p.nip)?.nips ?? []).filter(
+        (a) => a.nip !== p.nip && (!a.tglMasuk || a.tglMasuk <= monthEnd) && (!a.tglKeluar || a.tglKeluar >= monthStart)
+      );
+      const ownPtId = p.sippAbsPtId ?? identities.get(p.nip)?.nips.find((a) => a.nip === p.nip)?.ptid ?? null;
+      if (ownPtId == null) {
         result.errors.push(`${p.nip}: no PTID mapping (not in HR master file — see scripts/importSippPtidFromHrFile.ts)`);
         continue;
       }
-      const recordsForTargetMonth = await getAbsensiByNip(p.nip, ptId, startDate, endDate);
 
-      if (recordsForTargetMonth == null) {
-        result.errors.push(`${p.nip}: SIPP call failed`);
-        continue;
+      const recordsForTargetMonth: NonNullable<Awaited<ReturnType<typeof getAbsensiByNip>>> = [];
+      let failed = false;
+      const lookups: [string, number][] = [[p.nip, ownPtId], ...aliases.map((a): [string, number] => [a.nip, a.ptid])];
+      for (const [nip, ptId] of lookups) {
+        const recs = await getAbsensiByNip(nip, ptId, startDate, endDate);
+        if (recs == null) {
+          result.errors.push(`${p.nip}: SIPP call failed${nip === p.nip ? "" : ` (alias ${nip})`}`);
+          failed = true;
+          break;
+        }
+        recordsForTargetMonth.push(...recs);
       }
+      if (failed) continue;
       const avgLateHours = computeAvgLateHours(recordsForTargetMonth);
       if (avgLateHours == null) {
         result.noData++;

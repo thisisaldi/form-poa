@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getKpiMonitoringData } from "@/app/actions/kpi";
-import { Card } from "@/components/ui/Card";
 import { KpiTable } from "@/components/kpi/KpiTable";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
+import { periodLabel } from "@/components/kpi/kpiUi";
 import { SyncAbsensiButton } from "@/components/kpi/SyncAbsensiButton";
 import { SyncCallActivityButton } from "@/components/kpi/SyncCallActivityButton";
 import { KpiDashboardStats } from "@/components/kpi/KpiDashboardStats";
@@ -50,29 +50,19 @@ export default async function KpiPerpanjanganPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div>
           <h1>Monitoring KPI Perpanjangan</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {rows.length} personil (MR/ASM/SM) · {scoredCount} sudah lengkap 4 pilar · periode {period}
+            {periodLabel(period)} · {rows.length} personil · {scoredCount} sudah lengkap 4 pilar
           </p>
         </div>
-        <div className="flex items-start gap-2">
+        <div className="flex flex-wrap items-start gap-2">
           <KpiPeriodPicker periods={periods} period={period} />
           <SyncCallActivityButton period={period} />
           <SyncAbsensiButton period={period} />
         </div>
       </div>
-
-      <Card>
-        <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-          Business Result (Sales, 50%) dan Market Development (Customer Expansion, 15%) dihitung otomatis dari
-          data yang sudah ada. Activity &amp; Coverage (Call Activity, 25%) dan Attitude (Absensi, 10%) bisa
-          disinkron dari Exodus/SIPP (tombol di atas) atau diisi manual — override manual selalu menang atas
-          hasil sync berikutnya. Beberapa formula masih ASUMSI kerja, belum dikonfirmasi stakeholder — lihat{" "}
-          <code className="text-[11px]">docs/kpi-monitoring/01-business-rules.md §7</code>.
-        </p>
-      </Card>
 
       <KpiDashboardStats rows={rows} />
 

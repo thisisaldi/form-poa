@@ -16,6 +16,7 @@
 import sql from "mssql";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
+import { loadIdentities, dedupeByIdentity, allNips } from "@/lib/kpiIdentity";
 import { CALL_ACTIVITY_STANDARD_BY_ROLE, callActivityRealisasiFromDailyAvgs } from "@/lib/kpiScoring";
 
 export interface KpiCallActivitySyncResult {
@@ -33,8 +34,16 @@ function wibMonthStartUtc(period: string): string {
   return new Date(Date.UTC(y, m - 1, 1) - 7 * 3600_000).toISOString().slice(0, 19).replace("T", " ");
 }
 
-/** Average visits per active day, per NIP, split at 08:00/15:00 WIB. NIPs with no visits are absent from the map. */
-export async function queryDailyAvgsByNip(period: string, nips: string[]): Promise<Map<string, { avgDay: number; avgOff: number }>> {
+/**
+ * Average visits per active day per PERSON (a person may have several NIPs —
+ * see kpiIdentity.ts), split at 08:00/15:00 WIB. A day counts as active if ANY
+ * of the person's NIPs visited that day. People with no visits are absent
+ * from the map. `people[].id` is whatever key the caller wants back.
+ */
+export async function queryDailyAvgsByPerson(
+  period: string,
+  people: { id: string; nips: string[] }[]
+): Promise<Map<string, { avgDay: number; avgOff: number }>> {
   const [y, m] = period.split("-").map(Number);
   const nextPeriod = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
   const pool = new sql.ConnectionPool(env.MSSQL_CONNECTION_STRING);
@@ -45,21 +54,31 @@ export async function queryDailyAvgsByNip(period: string, nips: string[]): Promi
       .request()
       .input("start", sql.VarChar, wibMonthStartUtc(period))
       .input("end", sql.VarChar, wibMonthStartUtc(nextPeriod))
-      .query<{ nip: string; days: number; dayVisits: number; offVisits: number }>(`
-        SELECT user_nip AS nip, COUNT(*) AS days, SUM(dayVisits) AS dayVisits, SUM(offVisits) AS offVisits
-        FROM (
-          SELECT user_nip, CAST(DATEADD(hour, 7, visit_start_date) AS date) AS d,
-                 SUM(CASE WHEN DATEPART(hour, DATEADD(hour, 7, visit_start_date)) BETWEEN 8 AND 14 THEN 1 ELSE 0 END) AS dayVisits,
-                 SUM(CASE WHEN DATEPART(hour, DATEADD(hour, 7, visit_start_date)) BETWEEN 8 AND 14 THEN 0 ELSE 1 END) AS offVisits
-          FROM exodus_sfe.dbo.visit_realizations
-          WHERE visit_start_date >= CONVERT(datetime, @start, 120) AND visit_start_date < CONVERT(datetime, @end, 120)
-          GROUP BY user_nip, CAST(DATEADD(hour, 7, visit_start_date) AS date)
-        ) x
-        GROUP BY user_nip`);
-    const wanted = new Set(nips);
+      .query<{ nip: string; d: Date; dayVisits: number; offVisits: number }>(`
+        SELECT user_nip AS nip, CAST(DATEADD(hour, 7, visit_start_date) AS date) AS d,
+               SUM(CASE WHEN DATEPART(hour, DATEADD(hour, 7, visit_start_date)) BETWEEN 8 AND 14 THEN 1 ELSE 0 END) AS dayVisits,
+               SUM(CASE WHEN DATEPART(hour, DATEADD(hour, 7, visit_start_date)) BETWEEN 8 AND 14 THEN 0 ELSE 1 END) AS offVisits
+        FROM exodus_sfe.dbo.visit_realizations
+        WHERE visit_start_date >= CONVERT(datetime, @start, 120) AND visit_start_date < CONVERT(datetime, @end, 120)
+        GROUP BY user_nip, CAST(DATEADD(hour, 7, visit_start_date) AS date)`);
+
+    const rowsByNip = new Map<string, { nip: string; d: Date; dayVisits: number; offVisits: number }[]>();
+    for (const r of recordset) rowsByNip.set(r.nip, [...(rowsByNip.get(r.nip) ?? []), r]);
+
     const map = new Map<string, { avgDay: number; avgOff: number }>();
-    for (const r of recordset) {
-      if (wanted.has(r.nip)) map.set(r.nip, { avgDay: r.dayVisits / r.days, avgOff: r.offVisits / r.days });
+    for (const person of people) {
+      const perDay = new Map<string, { dayVisits: number; offVisits: number }>();
+      for (const nip of person.nips) {
+        for (const r of rowsByNip.get(nip) ?? []) {
+          const k = r.d.toISOString().slice(0, 10);
+          const cur = perDay.get(k) ?? { dayVisits: 0, offVisits: 0 };
+          perDay.set(k, { dayVisits: cur.dayVisits + r.dayVisits, offVisits: cur.offVisits + r.offVisits });
+        }
+      }
+      if (perDay.size === 0) continue;
+      let day = 0, off = 0;
+      for (const v of perDay.values()) { day += v.dayVisits; off += v.offVisits; }
+      map.set(person.id, { avgDay: day / perDay.size, avgOff: off / perDay.size });
     }
     return map;
   } finally {
@@ -74,19 +93,26 @@ export async function runKpiCallActivitySync(period?: string): Promise<KpiCallAc
 
   const result: KpiCallActivitySyncResult = { period: targetPeriod, scanned: 0, updated: 0, skippedManual: 0, noData: 0, errors: [] };
 
-  const personnel = (await prisma.user.findMany({
+  const allPersonnel = (await prisma.user.findMany({
     where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
     select: { nip: true, role: true },
   })) as { nip: string; role: string }[];
-  if (personnel.length === 0) return result;
+  if (allPersonnel.length === 0) return result;
+  const identities = await loadIdentities(allPersonnel.map((p) => p.nip));
+  const personnel = dedupeByIdentity(allPersonnel, identities);
 
   const existingEntries = (await prisma.kpiMonthlyEntry.findMany({
-    where: { nip: { in: personnel.map((p) => p.nip) }, period: targetPeriod },
+    where: { nip: { in: personnel.flatMap((p) => allNips(p.nip, identities.get(p.nip))) }, period: targetPeriod },
     select: { nip: true, callActivitySource: true, callActivityRealisasi: true },
   })) as { nip: string; callActivitySource: string; callActivityRealisasi: unknown }[];
-  const manualNips = new Set(existingEntries.filter((e) => e.callActivitySource === "MANUAL" && e.callActivityRealisasi != null).map((e) => e.nip));
+  const manualEntryNips = new Set(existingEntries.filter((e) => e.callActivitySource === "MANUAL" && e.callActivityRealisasi != null).map((e) => e.nip));
+  // A manual value entered under any of the person's NIPs counts.
+  const manualNips = new Set(personnel.filter((p) => allNips(p.nip, identities.get(p.nip)).some((n) => manualEntryNips.has(n))).map((p) => p.nip));
 
-  const avgByNip = await queryDailyAvgsByNip(targetPeriod, personnel.map((p) => p.nip));
+  const avgByNip = await queryDailyAvgsByPerson(
+    targetPeriod,
+    personnel.map((p) => ({ id: p.nip, nips: allNips(p.nip, identities.get(p.nip)) }))
+  );
 
   for (const p of personnel) {
     result.scanned++;

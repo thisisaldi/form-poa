@@ -1362,15 +1362,6 @@ model SpNonSalesMemoCounter {
   seq     Int    @default(0)
 }
 
-// Cross-replica mutex for in-process schedulers (see
-// salesHistoryMonthlyScheduler.ts) — multiple pods each run their own
-// setTimeout/setInterval, so without this every replica would re-run the
-// same sync at ~the same instant. Claimed via a single atomic
-// `INSERT ... ON CONFLICT DO UPDATE ... WHERE lockedAt < now() - staleAfter`
-// (see acquireSyncLock in syncLock.ts) — self-heals if a replica dies
-// mid-run instead of holding the lock forever, unlike a session-level
-// pg_advisory_lock (which doesn't survive Prisma's pooled connections
-// reliably) or a long-held transaction.
 // HR master of every NIP ever issued (seeded by scripts/importSippPtidFromHrFile.ts).
 // Same normalized name = same person (confirmed 2026-09-24), so this is how KPI
 // Monitoring follows someone across NIP changes (e.g. P->L) and finds each
@@ -1387,6 +1378,15 @@ model SippEmployee {
   @@map("sipp_employees")
 }
 
+// Cross-replica mutex for in-process schedulers (see
+// salesHistoryMonthlyScheduler.ts) — multiple pods each run their own
+// setTimeout/setInterval, so without this every replica would re-run the
+// same sync at ~the same instant. Claimed via a single atomic
+// `INSERT ... ON CONFLICT DO UPDATE ... WHERE lockedAt < now() - staleAfter`
+// (see acquireSyncLock in syncLock.ts) — self-heals if a replica dies
+// mid-run instead of holding the lock forever, unlike a session-level
+// pg_advisory_lock (which doesn't survive Prisma's pooled connections
+// reliably) or a long-held transaction.
 model SyncLock {
   key      String   @id
   lockedAt DateTime
