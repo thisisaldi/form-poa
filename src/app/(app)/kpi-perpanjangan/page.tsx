@@ -42,7 +42,8 @@ export default async function KpiPerpanjanganPage({
 
   const params = await searchParams;
   const periods = recentPeriods();
-  const period = params.period && /^\d{4}-\d{2}$/.test(params.period) ? params.period : periods[0];
+  // Default = last COMPLETED month (periods[1]): sales actual and visit data only land after a month ends.
+  const period = params.period && /^\d{4}-\d{2}$/.test(params.period) ? params.period : periods[1];
 
   const rows = await getKpiMonitoringData(period);
   const scoredCount = rows.filter((r) => r.totalScore != null).length;
