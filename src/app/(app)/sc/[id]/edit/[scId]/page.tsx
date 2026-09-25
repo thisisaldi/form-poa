@@ -23,11 +23,15 @@ export default async function EditSalesCounterByIdPage({
 
   const { form, products, userCanEdit, isOwner, hasPendingEditRequest, pendingEditRequestNotes } = data;
 
+  const detailHref = isOwner
+    ? `/sc/${form.period}`
+    : `/sc/${form.period}?owner=${form.owner.nip}`;
+
   return (
     <div className="max-w-7xl w-full space-y-5">
       <div>
         <Link
-          href={`/sc/${scId}`}
+          href={detailHref}
           className="text-xs mb-1 inline-flex items-center gap-1"
           style={{ color: "var(--color-text-faint)" }}
         >
@@ -73,6 +77,8 @@ export default async function EditSalesCounterByIdPage({
           readOnly={!userCanEdit}
           isOwner={isOwner}
           userRole={session.role}
+          detailHref={detailHref}
+          ownerNip={form.owner.nip}
           status={form.status}
           hasPendingEditRequest={hasPendingEditRequest}
           pendingEditRequestNotes={pendingEditRequestNotes}
