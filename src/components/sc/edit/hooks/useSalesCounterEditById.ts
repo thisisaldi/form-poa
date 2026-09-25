@@ -364,27 +364,58 @@ export function useSalesCounterEditById({
 
         // Canvasser products & draft product validation
         setCanvasserProducts(bundle.canvasserProducts);
-        const validCodes = new Set(bundle.canvasserProducts.map((cp: any) => cp.pro_code).filter(Boolean));
+        const validCodes = new Set<string>();
+        for (const cp of bundle.canvasserProducts || []) {
+          if (cp.pro_code) {
+            validCodes.add(cp.pro_code);
+            validCodes.add(String(cp.pro_code).replace(/^0+/, ""));
+            validCodes.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
+          }
+          if (cp.kode_item) {
+            validCodes.add(cp.kode_item);
+            validCodes.add(String(cp.kode_item).replace(/^0+/, ""));
+            validCodes.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
+          }
+        }
         setProducts((prev) => {
           const filtered = prev.filter(
-            (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""))
+            (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, "").toUpperCase())
           );
           return filtered.length > 0
             ? filtered
             : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
         });
 
-        // B3 sales
+        // B3 sales - strictly filtered to SC products
         if (bundle.b3SalesResponse) {
           setB3HistorySalesData(bundle.b3SalesResponse);
           const parsed = parseOutletHistorySales(bundle.b3SalesResponse, kodePI);
-          if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
-            setB3SalesMap(parsed.productSalesMap);
-            setB3QtyMap(parsed.productQtyMap);
-            setOutletTotalAvgB3Sales(parsed.averageSales);
+          const filteredSalesMap = new Map<string, number>();
+          const filteredQtyMap = new Map<string, number>();
+          let scTotalAvgSales = 0;
+          if (parsed.productSalesMap && parsed.productSalesMap.size > 0) {
+            for (const [code, avgVal] of parsed.productSalesMap.entries()) {
+              const norm = code.replace(/^0+/, "").toUpperCase();
+              if (validCodes.has(code) || validCodes.has(norm)) {
+                filteredSalesMap.set(code, avgVal);
+                filteredSalesMap.set(norm, avgVal);
+                const avgQty = parsed.productQtyMap?.get(code) ?? parsed.productQtyMap?.get(norm) ?? 0;
+                filteredQtyMap.set(code, avgQty);
+                filteredQtyMap.set(norm, avgQty);
+                if (avgVal > 0) {
+                  scTotalAvgSales += avgVal;
+                }
+              }
+            }
+          }
+
+          if (scTotalAvgSales > 0 || filteredSalesMap.size > 0) {
+            setB3SalesMap(filteredSalesMap);
+            setB3QtyMap(filteredQtyMap);
+            setOutletTotalAvgB3Sales(scTotalAvgSales);
           } else {
             // Fallback if needed
-            const scProCodes = Array.from(validCodes) as string[];
+            const scProCodes = Array.from(new Set((bundle.canvasserProducts || []).map((cp: any) => cp.pro_code).filter(Boolean))) as string[];
             if (scProCodes.length > 0) {
               getScOutletB3SalesAction(b3Info.period, kodePI, scProCodes).then((fallbackRes) => {
                 if (!isMounted) return;

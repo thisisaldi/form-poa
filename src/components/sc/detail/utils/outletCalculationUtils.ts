@@ -1,4 +1,4 @@
-import { getB3ByQuarter } from "@/lib/b3Utils";
+import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { formatMonthKey, formatShortMonth } from "./formatDateUtils";
 import type { ScProductItemData } from "../../types";
 import type { HistoryInsentifInfo } from "../types/insentif";
@@ -82,7 +82,7 @@ export function computeHistoryInsentifInfo(
   const allKeys = Object.keys(insentifHistoryData).sort();
   if (allKeys.length === 0) return null;
 
-  const b3InfoQuarter = getB3ByQuarter(period || poaId);
+  const b3InfoQuarter = getB3RollingPeriodInfo(period || poaId);
   const yr = Math.floor(b3InfoQuarter.period / 100);
   const mo = b3InfoQuarter.period % 100;
 

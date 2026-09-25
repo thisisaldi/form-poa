@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useTransition } from "react";
 import { quarterToMonths } from "@/lib/quarterUtils";
-import { getB3ByQuarter } from "@/lib/b3Utils";
+import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import type { ScDraftFormItem } from "../types";
 import { getScCashbackPoaAction, postHistorySalesAction } from "@/app/actions/canvasser";
 import { calculateCashbackDetails } from "../edit/hooks/useSalesCounterCashback";
@@ -36,7 +36,7 @@ export function useSalesCounterDetail({
   const b3Info = useMemo(() => {
     if (!poaPeriod) return null;
     try {
-      return getB3ByQuarter(poaPeriod);
+      return getB3RollingPeriodInfo(poaPeriod);
     } catch {
       return null;
     }

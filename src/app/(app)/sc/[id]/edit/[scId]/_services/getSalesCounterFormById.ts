@@ -48,9 +48,24 @@ export async function getSalesCounterFormById(
   ]);
 
   const targetOutlet = rawOutlets.find((o) => o.kodePI === form.kodePI);
-  const scCodes = new Set(scProductRes?.data?.map((cp: any) => cp.pro_code) || []);
+  const scCodes = new Set<string>();
+  if (scProductRes?.data) {
+    for (const cp of scProductRes.data) {
+      if (cp.pro_code) {
+        scCodes.add(cp.pro_code);
+        scCodes.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
+      }
+      if (cp.kode_item) {
+        scCodes.add(cp.kode_item);
+        scCodes.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
+      }
+    }
+  }
   const scOnlyProducts = scCodes.size > 0
-    ? form.products.filter((p: any) => scCodes.has(p.kodeProduk) || scCodes.has(String(p.kodeProduk || "").replace(/^0+/, "")))
+    ? form.products.filter((p: any) => {
+        const norm = String(p.kodeProduk || "").replace(/^0+/, "").toUpperCase();
+        return scCodes.has(p.kodeProduk) || scCodes.has(norm);
+      })
     : form.products;
 
   const serialized = {

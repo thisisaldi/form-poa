@@ -151,10 +151,14 @@ export function SalesCounterOutletCard({
         const c2 = (p.kode_item || "").replace(/^0+/, "").toUpperCase();
         return c1 === norm || c2 === norm;
       });
+
+      // Hanya produk SC dari get-sales-counter-product yang boleh muncul
+      if (!matchedMaster) continue;
+
       const namaProduk =
-        matchedMaster?.pro_name ||
-        matchedMaster?.namaProduk ||
-        matchedMaster?.nama_item ||
+        matchedMaster.pro_name ||
+        matchedMaster.namaProduk ||
+        matchedMaster.nama_item ||
         `Produk (${rawCode})`;
 
       const avgQty = b3QtyMap?.get(norm) ?? b3QtyMap?.get(rawCode) ?? 0;
