@@ -15,7 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips } from "@/lib/authz";
 import { loadIdentities, dedupeByIdentity, allNips } from "@/lib/kpiIdentity";
-import { resolveTargetByNipAndMonths } from "@/lib/targetHospitalValue";
+import { resolveTargetForNipGroups } from "@/lib/targetHospitalValue";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { runKpiAbsensiSync, type KpiAbsensiSyncResult } from "@/lib/sync/kpiAbsensiSync";
 import { runKpiCallActivitySync, type KpiCallActivitySyncResult } from "@/lib/sync/kpiCallActivitySync";
@@ -109,18 +109,43 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
     absensiSource: string | null;
   };
 
+  // ASM/SM roll-up: reuse authz's role-aware subtree walk (only role+nip are
+  // read by getSubordinateMRNips) rather than re-deriving org depth here.
+  const subtreeCache = new Map<string, string[]>();
+  async function subordinateMrNips(nip: string, role: string): Promise<string[]> {
+    if (role === "MR") return [nip];
+    const key = `${role}:${nip}`;
+    const cached = subtreeCache.get(key);
+    if (cached) return cached;
+    const list = await getSubordinateMRNips({ nip, role: role as Role } as User);
+    subtreeCache.set(key, list);
+    return list;
+  }
+
+  const mrsUnderByNip = new Map<string, string[]>();
+  for (const p of personnel) mrsUnderByNip.set(p.nip, await subordinateMrNips(p.nip, p.role));
+  // Every MR that counts toward anyone's numbers (an ASM/SM's team can include
+  // MRs that aren't rows of this listing themselves).
+  const allMrNips = [...new Set([...mrNips, ...[...mrsUnderByNip.values()].flat()])];
+  const periodeInt = parseInt(periodeYYYYMM, 10);
+
   // Sales target: TargetHospitalValue is natively monthly (periode YYYYMM,
   // same granularity as this page's period picker) — no quarter conversion
   // needed, unlike PoaForm.target which is set once per quarter and would
   // require mapping this month back to its quarter first. Resolved LIVE via
-  // resolveTargetByNipAndMonths (2026-09-14 — TargetHospitalValue no longer
-  // has a nipMR column at all, see that function's doc comment in
-  // src/lib/targetHospitalValue.ts).
-  const [entries, targetByNipPeriode, assignments] = await Promise.all([
+  // resolveTargetForNipGroups (2026-09-14 — TargetHospitalValue no longer
+  // has a nipMR column at all, see resolveTargetByNipAndMonths' doc comment in
+  // src/lib/targetHospitalValue.ts). Targets AND outlet assignments are both
+  // scoped to THIS period (2026-09-25 fix: actual sales used to read the
+  // assignments of every period while the target used only this one, so an MR
+  // who changed outlets got another month's outlets' sales against this
+  // month's target). An ASM/SM's target counts each GT once across the whole
+  // team, not once per MR.
+  const [entries, targetByNip, assignments] = await Promise.all([
     prisma.kpiMonthlyEntry.findMany({ where: { nip: { in: personnel.flatMap((p) => allNips(p.nip, identities.get(p.nip))) }, period } }) as Promise<KpiEntryRow[]>,
-    resolveTargetByNipAndMonths(mrNips, [periodeYYYYMM]),
-    mrNips.length > 0
-      ? (prisma.mrOutletAssignment.findMany({ where: { nipMR: { in: mrNips } }, select: { nipMR: true, kodePI: true } }) as Promise<{ nipMR: string; kodePI: string }[]>)
+    resolveTargetForNipGroups(mrsUnderByNip, periodeYYYYMM),
+    allMrNips.length > 0
+      ? (prisma.mrOutletAssignment.findMany({ where: { nipMR: { in: allMrNips }, periode: periodeInt }, select: { nipMR: true, kodePI: true } }) as Promise<{ nipMR: string; kodePI: string }[]>)
       : Promise.resolve([] as { nipMR: string; kodePI: string }[]),
   ]);
 
@@ -132,12 +157,6 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
     if (e) entryByNip.set(p.nip, e);
   }
 
-  const targetByMr = new Map<string, number>();
-  for (const nip of mrNips) {
-    const v = targetByNipPeriode.get(`${nip}|${periodeYYYYMM}`);
-    if (v != null) targetByMr.set(nip, v);
-  }
-
   const outletsByMr = new Map<string, string[]>();
   for (const a of assignments) outletsByMr.set(a.nipMR, [...(outletsByMr.get(a.nipMR) ?? []), a.kodePI]);
   const allOutlets = [...new Set(assignments.map((a) => a.kodePI))];
@@ -147,8 +166,13 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
     : [];
   const salesByOutlet = new Map(salesRows.map((r) => [r.kodePI, toNum(r.valueSales)]));
 
-  function mrSalesActual(nip: string): number {
-    return (outletsByMr.get(nip) ?? []).reduce((s, o) => s + (salesByOutlet.get(o) ?? 0), 0);
+  /** Sales of a team's outlets, each outlet counted once even if two MRs both hold it. */
+  function teamSalesActual(mrs: string[]): number {
+    const outlets = new Set<string>();
+    for (const n of mrs) for (const o of outletsByMr.get(n) ?? []) outlets.add(o);
+    let sum = 0;
+    for (const o of outlets) sum += salesByOutlet.get(o) ?? 0;
+    return sum;
   }
 
   // Customer Expansion proxy (§2c, working assumption): active PSSP contracts
@@ -169,25 +193,12 @@ export async function getKpiMonitoringData(period: string): Promise<KpiPersonnel
     return set.size;
   }
 
-  // ASM/SM roll-up: reuse authz's role-aware subtree walk (only role+nip are
-  // read by getSubordinateMRNips) rather than re-deriving org depth here.
-  const subtreeCache = new Map<string, string[]>();
-  async function subordinateMrNips(nip: string, role: string): Promise<string[]> {
-    if (role === "MR") return [nip];
-    const key = `${role}:${nip}`;
-    const cached = subtreeCache.get(key);
-    if (cached) return cached;
-    const list = await getSubordinateMRNips({ nip, role: role as Role } as User);
-    subtreeCache.set(key, list);
-    return list;
-  }
-
   const rows: KpiPersonnelRow[] = [];
   for (const p of personnel) {
-    const mrsUnder = await subordinateMrNips(p.nip, p.role);
+    const mrsUnder = mrsUnderByNip.get(p.nip) ?? [];
 
-    const salesTargetRp = mrsUnder.reduce((s, n) => s + (targetByMr.get(n) ?? 0), 0);
-    const salesActualRp = mrsUnder.reduce((s, n) => s + mrSalesActual(n), 0);
+    const salesTargetRp = targetByNip.get(p.nip) ?? 0;
+    const salesActualRp = teamSalesActual(mrsUnder);
     const salesAchievementPct = salesTargetRp > 0 ? (salesActualRp / salesTargetRp) * 100 : null;
     const salesScore = salesAchievementPct != null ? scoreSalesAchievement(salesAchievementPct) : null;
 

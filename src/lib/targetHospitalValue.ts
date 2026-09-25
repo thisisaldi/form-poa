@@ -15,6 +15,52 @@ import { quarterToMonths } from "@/lib/quarterUtils";
 import type { User } from "@prisma/client";
 
 /**
+ * Target for a GROUP of MR nips in one month (KPI Monitoring: an ASM/SM's
+ * team = the MRs under them). Same GT-holder logic as
+ * resolveTargetByNipAndMonths, but each GT counts ONCE per group — two MRs in
+ * the same team holding outlets under the same GT would otherwise each add
+ * that GT's full target and inflate the team's denominator. A group of one
+ * nip = that MR's own target. Still 2 queries total (docs/PERFORMANCE.md §2
+ * point 4).
+ */
+export async function resolveTargetForNipGroups(groups: Map<string, string[]>, month: string): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const allNips = [...new Set([...groups.values()].flat())];
+  if (allNips.length === 0) return result;
+
+  const assignments = (await prisma.mrOutletAssignment.findMany({
+    where: { nipMR: { in: allNips }, periode: parseInt(month, 10) },
+    select: { nipMR: true, outlet: { select: { namaGT: true } } },
+  })) as { nipMR: string; outlet: { namaGT: string | null } }[];
+  const targetRows = (await prisma.targetHospitalValue.findMany({
+    where: { periode: month },
+    select: { namaGT: true, target: true },
+  })) as { namaGT: string; target: { toString(): string } }[];
+
+  const targetByNormGT = new Map<string, number>();
+  for (const r of targetRows) {
+    const k = normalizeGTName(r.namaGT);
+    targetByNormGT.set(k, (targetByNormGT.get(k) ?? 0) + parseFloat(r.target.toString()));
+  }
+  const gtsByNip = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    if (!a.outlet.namaGT) continue;
+    const set = gtsByNip.get(a.nipMR) ?? new Set<string>();
+    set.add(normalizeGTName(a.outlet.namaGT));
+    gtsByNip.set(a.nipMR, set);
+  }
+
+  for (const [key, nips] of groups) {
+    const gts = new Set<string>();
+    for (const n of nips) for (const g of gtsByNip.get(n) ?? []) gts.add(g);
+    let sum = 0;
+    for (const g of gts) sum += targetByNormGT.get(g) ?? 0;
+    result.set(key, sum);
+  }
+  return result;
+}
+
+/**
  * Batched nip×periode -> target resolver, LIVE via GT holder (2026-09-14 —
  * TargetHospitalValue no longer carries a nipMR snapshot column at all, see
  * schema doc comment/migration). Still exactly 2 queries regardless of how
