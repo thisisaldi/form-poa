@@ -8,6 +8,7 @@ export function SalesCounterDetailTabs({
   scDrafts = [],
   poaId,
   poaPeriod,
+  owner,
   showSubmit,
   userCanEdit,
   canApprove,
@@ -22,6 +23,7 @@ export function SalesCounterDetailTabs({
   scDrafts?: ScDraftFormItem[];
   poaId?: string;
   poaPeriod: string;
+  owner?: string;
   poaStatus?: any;
   poaVersion?: number;
   showSubmit?: boolean;
@@ -44,6 +46,7 @@ export function SalesCounterDetailTabs({
           scDrafts={safeScDrafts}
           poaId={poaId}
           poaPeriod={poaPeriod}
+          owner={owner}
           showSubmit={showSubmit}
           userCanEdit={userCanEdit}
           canApprove={canApprove}

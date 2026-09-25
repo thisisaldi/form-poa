@@ -91,6 +91,7 @@ export default async function SalesCounterDetailPage({
         poaPeriod={poa.period}
         poaStatus={poa.status}
         poaVersion={poa.version}
+        owner={owner || poa.owner.nip}
         showSubmit={isOwner && hasSubmittableOutlets}
         userCanEdit={userCanEdit}
         canApprove={canApprove}

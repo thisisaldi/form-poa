@@ -53,7 +53,7 @@ export async function GET(
 
   // Authorization check
   const isSelf = targetOwnerId === session.userId;
-  const isSpecialRole = (["ADMIN", "GM", "SFE", "VIEWER"] as string[]).includes(session.role);
+  const isSpecialRole = (["ADMIN", "GM", "SFE", "VIEWER", "SD"] as string[]).includes(session.role);
 
   let hasAccess = false;
   if (isSelf || isSpecialRole) {
