@@ -41,6 +41,8 @@ export interface SalesCounterEditByIdEditorProps {
   readOnly?: boolean;
   isOwner?: boolean;
   userRole?: string;
+  detailHref?: string;
+  ownerNip?: string;
   status?: string;
   hasPendingEditRequest?: boolean;
   pendingEditRequestNotes?: string;
