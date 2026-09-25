@@ -101,6 +101,14 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
+    href: "/evaluasi-kontrak-non-hospital",
+    label: "Evaluasi Kontrak Non-Hospital",
+    icon: <IconChart />,
+    // Evaluasi kontrak skema Non-Hospital (docs/evaluasi-kontrak-non-hospital/,
+    // 2026-09-25) — ADMIN-only for v1, same as /kpi-perpanjangan.
+    roles: ["ADMIN"],
+  },
+  {
     href: "/sales-support",
     label: "Memo SP Non Sales",
     icon: <IconTable />,

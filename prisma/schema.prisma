@@ -179,6 +179,10 @@ model User {
   kpiMonthlyEntries      KpiMonthlyEntry[]
   kpiContractEvaluations KpiContractEvaluation[] @relation("KpiEvaluatee")
   kpiEvaluationsGiven    KpiContractEvaluation[] @relation("KpiEvaluator")
+  nhContracts            NonHospitalContract[]
+  nhMonthlyEntries       NonHospitalMonthlyEntry[]
+  nhEvaluations          KpiNonHospitalEvaluation[] @relation("NhEvaluatee")
+  nhEvaluationsGiven     KpiNonHospitalEvaluation[] @relation("NhEvaluator")
 
   // Survey upload audit trail (see docs/survey-pasien-features/)
   surveyUploadLogs SurveyUploadLog[]
@@ -1006,6 +1010,22 @@ model OutletSalesValueMonthly {
   @@index([periode])
 }
 
+// Twin of OutletSalesValueMonthly for the Non-Hospital (OMEGA) team: DIR10001B
+// DIVISI = 'OMG1' (the original only carries 'KAM1' = Hospital). Feeds Evaluasi
+// Kontrak Non-Hospital (docs/evaluasi-kontrak-non-hospital/). Synced by
+// scripts/syncOmegaSalesValueMonthly.ts.
+model OutletSalesValueMonthlyOmega {
+  id         String   @id @default(uuid())
+  kodePI     String
+  periode    String // YYYYMM
+  valueSales Decimal  @db.Decimal(18, 2)
+  syncedAt   DateTime
+
+  @@unique([kodePI, periode])
+  @@index([kodePI])
+  @@index([periode])
+}
+
 // Monthly Rupiah sales TARGET per territory (GT) — from "internal/Target
 // Hospital (in Value).xlsx", sheet "Rekap FFMedrep" (2026-07-31). One row per
 // (namaGT, periode); the source sheet is wide (one column per month), this
@@ -1281,6 +1301,72 @@ model KpiContractEvaluation {
 
   @@index([nip])
   @@index([evaluatedByNip])
+}
+
+// ─── Evaluasi Kontrak Non-Hospital ─────────────────────────────────────────────
+// See docs/evaluasi-kontrak-non-hospital/. Personil skema Non-Hospital = User
+// dengan project "OMEGA". Data kontrak diimpor ADMIN (scripts/importNonHospitalContracts.ts).
+model NonHospitalContract {
+  id           String   @id @default(uuid())
+  nip          String
+  user         User     @relation(fields: [nip], references: [nip], onDelete: Cascade)
+  jabatan      String? // PSR | SUPERVISOR | AREA MANAGER | MANAGER, teks dari sumber
+  cabang       String?
+  periodeBulan Int? // lama kontrak berjalan, bulan
+  awalKontrak  DateTime
+  akhirKontrak DateTime
+  source       String   @default("IMPORT")
+  importedAt   DateTime @default(now())
+
+  evaluations KpiNonHospitalEvaluation[]
+
+  @@unique([nip, akhirKontrak])
+  @@index([akhirKontrak])
+}
+
+// Input bulanan yang belum punya sumber otomatis (SC Menang) atau override absensi.
+model NonHospitalMonthlyEntry {
+  id               String   @id @default(uuid())
+  nip              String
+  user             User     @relation(fields: [nip], references: [nip], onDelete: Cascade)
+  period           String // "YYYY-MM"
+  scMenang         Int?
+  absensiHariTelat Int?
+  updatedByNip     String?
+  updatedAt        DateTime @updatedAt
+
+  @@unique([nip, period])
+}
+
+// Satu baris = satu keputusan. Append-only: koreksi = baris baru (status terkini = decidedAt terbaru).
+model KpiNonHospitalEvaluation {
+  id         String              @id @default(uuid())
+  nip        String
+  user       User                @relation("NhEvaluatee", fields: [nip], references: [nip], onDelete: Cascade)
+  contractId String
+  contract   NonHospitalContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  windowMulai String // "YYYY-MM"
+  windowAkhir String // "YYYY-MM"
+
+  // Snapshot saat keputusan: per indikator {real, nilai, bobot, score} + data bulanan mentah.
+  indicators Json
+  totalScore Decimal? @db.Decimal(5, 2) // null bila belum semua indikator bernilai
+  dataNotes  String?
+
+  systemRecommendationMonths Int? // 12 | 9 | 6 | 0; null bila total score belum bisa dihitung
+  status                     String // DISETUJUI | DIUBAH
+  decisionMonths             Int
+  decisionReason             String? // wajib bila status = DIUBAH
+  developmentPlanNotes       String
+
+  decidedByNip String
+  decidedBy    User     @relation("NhEvaluator", fields: [decidedByNip], references: [nip])
+  decidedAt    DateTime @default(now())
+
+  @@index([nip, decidedAt])
+  @@index([contractId, decidedAt])
+  @@index([decidedByNip])
 }
 
 // ─── Maintenance Mode ──────────────────────────────────────────────────────────
