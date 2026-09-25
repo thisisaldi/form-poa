@@ -191,10 +191,37 @@ export function SalesCounterLineItemEditor({
 
     postHistorySalesAction([outletId], b3Info.targetPeriods, scProCodes, false).then((res) => {
       const parsed = parseOutletHistorySales(res, outletId);
-      if (parsed.averageSales > 0 || parsed.productSalesMap.size > 0) {
-        setB3SalesMap(parsed.productSalesMap);
-        setB3QtyMap(parsed.productQtyMap);
-        setOutletTotalAvgB3Sales(parsed.averageSales);
+      const scCodesSet = new Set<string>();
+      for (const cp of canvasserProducts || []) {
+        if (cp.pro_code) {
+          scCodesSet.add(cp.pro_code);
+          scCodesSet.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
+        }
+        if (cp.kode_item) {
+          scCodesSet.add(cp.kode_item);
+          scCodesSet.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
+        }
+      }
+
+      const filteredMap = new Map<string, number>();
+      const filteredQtyMap = new Map<string, number>();
+      let scSumAvg = 0;
+      for (const [code, val] of parsed.productSalesMap.entries()) {
+        const norm = code.replace(/^0+/, "").toUpperCase();
+        if (scCodesSet.has(code) || scCodesSet.has(norm)) {
+          filteredMap.set(code, val);
+          filteredMap.set(norm, val);
+          const qVal = parsed.productQtyMap?.get(code) ?? parsed.productQtyMap?.get(norm) ?? 0;
+          filteredQtyMap.set(code, qVal);
+          filteredQtyMap.set(norm, qVal);
+          scSumAvg += val;
+        }
+      }
+
+      if (scSumAvg > 0 || filteredMap.size > 0) {
+        setB3SalesMap(filteredMap);
+        setB3QtyMap(filteredQtyMap);
+        setOutletTotalAvgB3Sales(scSumAvg);
         setB3HistorySalesData(res);
       } else {
         // Fallback to getScOutletB3SalesAction for all SC products
@@ -699,18 +726,24 @@ export function SalesCounterLineItemEditor({
       if (selectedNorm.has(norm)) continue;
       if (avgSales <= 0) continue;
 
+      const matchedCanvasser = canvasserProducts?.find((cp: any) => {
+        const c1 = (cp.pro_code || "").replace(/^0+/, "").toUpperCase();
+        const c2 = (cp.kode_item || "").replace(/^0+/, "").toUpperCase();
+        return c1 === norm || c2 === norm;
+      });
+
+      // Hanya produk SC dari get-sales-counter-product yang boleh muncul
+      if (!matchedCanvasser) continue;
+
       const matchedMaster = products?.find((p: any) => {
         const c1 = (p.kodeProduk || "").replace(/^0+/, "").toUpperCase();
         return c1 === norm;
       });
-      const matchedCanvasser = canvasserProducts?.find((cp: any) => {
-        const c1 = (cp.pro_code || "").replace(/^0+/, "").toUpperCase();
-        return c1 === norm;
-      });
 
       const namaProduk =
+        matchedCanvasser.pro_name ||
+        (matchedCanvasser as any).namaProduk ||
         matchedMaster?.namaProduk ||
-        matchedCanvasser?.pro_name ||
         `Produk (${rawCode})`;
 
       const avgQty = b3QtyMap?.get(norm) ?? b3QtyMap?.get(rawCode) ?? 0;

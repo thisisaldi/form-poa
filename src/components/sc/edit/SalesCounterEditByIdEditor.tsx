@@ -601,18 +601,24 @@ export function SalesCounterEditByIdEditor({
       if (selectedNorm.has(norm)) continue;
       if (avgSales <= 0) continue;
 
+      const matchedCanvasser = canvasserProducts?.find((cp: any) => {
+        const c1 = (cp.pro_code || "").replace(/^0+/, "").toUpperCase();
+        const c2 = (cp.kode_item || "").replace(/^0+/, "").toUpperCase();
+        return c1 === norm || c2 === norm;
+      });
+
+      // Hanya produk SC dari get-sales-counter-product yang boleh muncul
+      if (!matchedCanvasser) continue;
+
       const matchedMaster = masterProducts?.find((p: any) => {
         const c1 = (p.kodeProduk || "").replace(/^0+/, "").toUpperCase();
         return c1 === norm;
       });
-      const matchedCanvasser = canvasserProducts?.find((cp: any) => {
-        const c1 = (cp.pro_code || "").replace(/^0+/, "").toUpperCase();
-        return c1 === norm;
-      });
 
       const namaProduk =
+        matchedCanvasser.pro_name ||
+        (matchedCanvasser as any).namaProduk ||
         matchedMaster?.namaProduk ||
-        matchedCanvasser?.pro_name ||
         `Produk (${rawCode})`;
 
       const avgQty = b3QtyMap?.get(norm) ?? b3QtyMap?.get(rawCode) ?? 0;
