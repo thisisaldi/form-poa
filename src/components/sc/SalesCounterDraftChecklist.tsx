@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -20,6 +20,7 @@ export function SalesCounterDraftChecklist({
   scDrafts = [],
   poaId,
   poaPeriod,
+  owner,
   showSubmit,
   userCanEdit,
   canApprove,
@@ -34,6 +35,7 @@ export function SalesCounterDraftChecklist({
   scDrafts?: ScDraftFormItem[];
   poaId?: string;
   poaPeriod: string;
+  owner?: string;
   showSubmit?: boolean;
   userCanEdit?: boolean;
   canApprove?: boolean;
@@ -46,6 +48,7 @@ export function SalesCounterDraftChecklist({
   historyQuarterLabel?: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isSubmittingState, setIsSubmittingState] = useState(false);
   const [activeKompetitorDraftId, setActiveKompetitorDraftId] = useState<string | null>(null);
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
@@ -123,11 +126,27 @@ export function SalesCounterDraftChecklist({
     );
   }
 
+  const queryOwner = searchParams?.get("owner") || searchParams?.get("ownerId");
+  const effectiveOwner =
+    owner ||
+    queryOwner ||
+    (safeScDrafts.length > 0 ? safeScDrafts[0].ownerNip || safeScDrafts[0].ownerId : undefined);
+
   const exportHref = (() => {
     const base = `/api/sc/${poaId}/export`;
-    if (checked.size === 0 || checked.size === safeScDrafts.length) return base;
-    const ids = Array.from(checked).join(",");
-    return `${base}?outletIds=${encodeURIComponent(ids)}`;
+    const params = new URLSearchParams();
+
+    if (effectiveOwner) {
+      params.set("owner", effectiveOwner);
+    }
+
+    if (checked.size > 0 && checked.size < safeScDrafts.length) {
+      const ids = Array.from(checked).join(",");
+      params.set("outletIds", ids);
+    }
+
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
   })();
 
   return (
