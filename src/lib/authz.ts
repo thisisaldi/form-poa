@@ -655,8 +655,25 @@ async function getEditLockLevelForDoctor(
   return lockLevel;
 }
 
-/** Doctor-scoped twin of getLastApprover — most recent approver for THIS doctor's current cycle. */
+/**
+ * Doctor-scoped twin of getLastApprover — who owns an edit request for THIS
+ * doctor right now (the one MR asks, and the only one who can grant/decline).
+ * Normally the most recent approver this cycle. Exception (2026-09-28 user
+ * request: "asd yang grant"): while the doctor is pending at ASD/SD, the
+ * current holder there answers, not the NSM/ASD who approved into that level.
+ */
 export async function getLastApproverForDoctor(doctorApprovalId: string): Promise<{ actorId: string; role: string } | null> {
+  const current = await prisma.poaDoctorApproval.findUnique({
+    where: { id: doctorApprovalId },
+    select: { status: true, currentHolder: { select: { nip: true, role: true } } },
+  });
+  if (
+    current?.currentHolder &&
+    (current.status === PoaStatus.SUBMITTED_TO_ASD || current.status === PoaStatus.SUBMITTED_TO_SD)
+  ) {
+    return { actorId: current.currentHolder.nip, role: current.currentHolder.role };
+  }
+
   const logs = await prisma.poaAuditLog.findMany({
     where: { doctorApprovalId },
     orderBy: { createdAt: "desc" },

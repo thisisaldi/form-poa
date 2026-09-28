@@ -8,7 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { canEdit,
-  canApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor } from "@/lib/authz";
+  canApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor, hasPendingEditRequestForDoctor } from "@/lib/authz";
 import { sendEditRequestEmail, sendDoctorStatusEmail } from "@/lib/notifications";
 import { getExodusApprovalLevel } from "@/lib/exodusApi";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
@@ -56,6 +56,9 @@ const CHAIN_STATUS: Record<ChainRole, PoaStatus> = {
   ASD: PoaStatus.SUBMITTED_TO_ASD,
   SD: PoaStatus.SUBMITTED_TO_SD,
 };
+// Real Role enum value (as stored in PoaDoctorApproval.editResumeRole) → chain
+// position to resume at after a granted edit request. GM is the ASD level.
+const RESUME_CHAIN_ROLE: Partial<Record<Role, ChainRole>> = { ASM: "ASM", SM: "SM", NSM: "NSM", GM: "ASD", SD: "SD" };
 // Reverse of CHAIN_STATUS above — which chain-position role a PENDING
 // (SUBMITTED_TO_X) status implies is currently awaiting approval. Exported
 // for pendingApprovalHolderSync.ts.
@@ -534,7 +537,7 @@ export async function submitDoctor(
   // restarting the whole ASM→SM→NSM chain — see the field's doc comment in
   // schema.prisma. A reject/cancel-driven REVISI never sets this, so those
   // keep restarting from ASM as before.
-  const resumeRole = existing?.editResumeRole as "ASM" | "SM" | "NSM" | undefined;
+  const resumeRole = existing?.editResumeRole ? RESUME_CHAIN_ROLE[existing.editResumeRole] : undefined;
   const transition = !existing || existing.status === PoaStatus.REVISI
     ? resumeRole
       ? { toStatus: CHAIN_STATUS[resumeRole], nextHolderRole: resumeRole }
@@ -557,7 +560,7 @@ export async function submitDoctor(
   return applyDoctorTransition(
     poaId, kodePI, namaCust, actingUserId, transition, fromStatus, AuditAction.SUBMIT, existing, notes,
     undefined, undefined,
-    resumeRole ? null : undefined, // consume it once used; leave untouched otherwise (nothing to clear)
+    existing?.editResumeRole ? null : undefined, // consume it once used; leave untouched otherwise (nothing to clear)
     exodusRequiredRole
   );
 }
@@ -669,6 +672,10 @@ export async function requestEditDoctor(
   const lastApprover = await getLastApproverForDoctor(existing.id);
   if (!lastApprover) throw new Error(`Doctor ${namaCust} on POA ${poaId} has no approval this cycle to request an edit against`);
 
+  // Idempotent: a double-click on "Ajukan Edit" (POA #72, 2026-09-26: two
+  // REQUEST_EDIT rows 2s apart) must not log/email the approver twice.
+  if (await hasPendingEditRequestForDoctor(existing.id)) return;
+
   await prisma.poaAuditLog.create({
     data: {
       poaId,
@@ -702,16 +709,11 @@ export async function grantEditRequestDoctor(
   }
 
   // Remember who this was — the next resubmit routes straight back to this
-  // same level instead of restarting from ASM (2026-09-08 user request). Only
-  // ASM/SM/NSM are valid resume points (matches CHAIN_STATUS); anything else
-  // (shouldn't happen — only chain roles can hold/approve a doctor cycle)
-  // falls back to the normal full-restart behavior. Deliberately does NOT
-  // include GM/SD (the ASD/SD approval levels, 2026-09-09) — resuming an
-  // edit-granted doctor at ASD/SD isn't supported yet; it falls back to a
-  // full restart from ASM instead, same as any other unrecognized role here.
-  const resumeRole = (["ASM", "SM", "NSM"] as const).includes(lastApprover.role as "ASM" | "SM" | "NSM")
-    ? (lastApprover.role as Role)
-    : null;
+  // same level instead of restarting from ASM (2026-09-08 user request). Valid
+  // resume points are the chain roles (ASM/SM/NSM, plus GM = ASD and SD since
+  // 2026-09-28, when ASD/SD became the ones who answer edit requests at their
+  // own level); anything else falls back to the normal full-restart behavior.
+  const resumeRole = lastApprover.role in RESUME_CHAIN_ROLE ? (lastApprover.role as Role) : null;
 
   return applyDoctorTransition(
     poaId, kodePI, namaCust, actingUserId,
