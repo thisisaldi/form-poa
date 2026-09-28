@@ -2071,3 +2071,16 @@ model POSM {
   startDate              DateTime
   endDate                DateTime
 }
+// ─── Login Access Config ───────────────────────────────────────────────────────
+// Admin-editable login block (2026-09-28), replaces the hardcoded staging-only
+// role block in src/lib/auth.ts. Per-DB, so each environment has its own
+// setting. Roles in blockedRoles can't log in unless their NIP is in
+// allowedNips. ADMIN is never blocked. Singleton row, always id=1.
+model LoginAccessConfig {
+  id           Int      @id @default(1)
+  blockedRoles String[] @default([])
+  allowedNips  String[] @default([])
+  message      String?  @db.Text
+  updatedByNip String?
+  updatedAt    DateTime @updatedAt
+}

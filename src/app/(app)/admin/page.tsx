@@ -4,6 +4,7 @@ import { getCustomers } from "@/lib/masterData";
 import { prisma } from "@/lib/prisma";
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { MaintenanceModeToggle } from "@/components/admin/MaintenanceModeToggle";
+import { LoginAccessPanel } from "@/components/admin/LoginAccessPanel";
 import { PoaDoctorsApiCredentialPanel } from "@/components/admin/PoaDoctorsApiCredentialPanel";
 import { GoogleDriveConfigPanel } from "@/components/admin/GoogleDriveConfigPanel";
 
@@ -51,6 +52,7 @@ export default async function AdminPage() {
         )}
       </div>
       <MaintenanceModeToggle />
+      <LoginAccessPanel />
       <PoaDoctorsApiCredentialPanel />
       <GoogleDriveConfigPanel />
       <AdminTabs outlets={outlets} />
