@@ -112,3 +112,12 @@ export function totalScore(indicators: NhIndicator[]): number | null {
 export function recommendationFor(total: number | null) {
   return total == null ? null : recommendContractMonths(total);
 }
+
+/**
+ * Staging copies OMEGA users as "TEST" + real NIP ("TESTL260474", "TESTPSRL260452")
+ * while Exodus/SIPP only know the real NIP. Production NIPs are already real
+ * (no-op there), so external lookups always go through this.
+ */
+export function realNip(nip: string): string {
+  return nip.replace(/^TEST(PSR)?/, "");
+}

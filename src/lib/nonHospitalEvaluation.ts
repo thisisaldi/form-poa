@@ -19,9 +19,9 @@
 import sql from "mssql";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
-import { allNips, loadIdentities } from "@/lib/kpiIdentity";
+import { allNips, dedupeByIdentity, loadIdentities } from "@/lib/kpiIdentity";
 import {
-  addMonths, buildIndicators, recommendationFor, totalScore, visitAchievement, windowMonths,
+  addMonths, buildIndicators, realNip, recommendationFor, totalScore, visitAchievement, windowMonths,
   NH_VISIT_TARGET_PER_DAY, type NhIndicator,
 } from "@/lib/nonHospitalScoring";
 
@@ -217,6 +217,125 @@ export async function getNonHospitalEvalRows(akhirPeriod: string, onlyContractId
             developmentPlanNotes: d.developmentPlanNotes, decidedByName: d.decidedBy?.name ?? null, decidedAt: d.decidedAt.toISOString(),
           }
         : null,
+    };
+  });
+}
+
+export interface NhMonitoringRow {
+  nip: string;
+  name: string;
+  role: string;
+  jabatan: string | null;
+  gt: string | null;
+  /** Latest known contract end (NonHospitalContract) — optional, most people have none. ISO date. */
+  akhirKontrak: string | null;
+  month: NhMonthRow;
+  indicators: NhIndicator[];
+  totalScore: number | null;
+  recommendation: { months: number; label: string } | null;
+  notes: string[];
+}
+
+/**
+ * Monthly monitoring for ALL active OMEGA (Non-Hospital) MR/ASM/SM — no
+ * contract needed (contract end is optional; shown only when known). Same
+ * sources/formulas as getNonHospitalEvalRows but for the single month
+ * `period` ("YYYY-MM"). One batched query per source regardless of headcount
+ * (docs/PERFORMANCE.md §2 point 4). `scopeNips` = viewer's subtree (null = all);
+ * `nips` = optional caller filter, pushed into the personnel query.
+ */
+export async function getNonHospitalMonitoringRows(
+  period: string,
+  opts: { scopeNips?: string[] | null; nips?: string[] } = {}
+): Promise<NhMonitoringRow[]> {
+  let nipFilter = opts.scopeNips ?? null;
+  if (opts.nips) nipFilter = nipFilter ? nipFilter.filter((n) => opts.nips!.includes(n)) : opts.nips;
+
+  const all = (await prisma.user.findMany({
+    where: {
+      project: "OMEGA", role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false,
+      ...(nipFilter ? { nip: { in: nipFilter } } : {}),
+    },
+    select: { nip: true, name: true, role: true, jabatan: true, namaWilayah: true },
+    orderBy: { name: "asc" },
+  })) as { nip: string; name: string; role: string; jabatan: string | null; namaWilayah: string | null }[];
+  if (all.length === 0) return [];
+
+  const identities = await loadIdentities(all.map((p) => p.nip));
+  const people = dedupeByIdentity(all, identities);
+  const nipsOf = (nip: string) => allNips(nip, identities.get(nip));
+  const everyNip = [...new Set(people.flatMap((p) => nipsOf(p.nip)))];
+  // Exodus knows only real NIPs (staging users are TEST-prefixed) — see realNip.
+  const visitNips = [...new Set(everyNip.flatMap((n) => [n, realNip(n)]))];
+  const gts = [...new Set(people.map((p) => p.namaWilayah).filter((g): g is string => !!g))];
+  const pcode = yyyymm(period);
+
+  const [targetRows, outlets, entries, contracts, visitDays] = await Promise.all([
+    gts.length ? prisma.targetNonHospitalValue.findMany({ where: { namaGT: { in: gts }, periode: pcode }, select: { namaGT: true, target: true } }) : Promise.resolve([]),
+    gts.length ? prisma.outlet.findMany({ where: { namaGT: { in: gts } }, select: { kodePI: true, namaGT: true } }) : Promise.resolve([]),
+    prisma.nonHospitalMonthlyEntry.findMany({ where: { nip: { in: everyNip }, period }, select: { nip: true, scMenang: true, absensiHariTelat: true } }),
+    prisma.nonHospitalContract.findMany({ where: { nip: { in: everyNip } }, select: { nip: true, akhirKontrak: true }, orderBy: { akhirKontrak: "desc" } }),
+    queryVisitDays(visitNips, period, period),
+  ]);
+
+  const targetByGt = new Map<string, number>();
+  for (const r of targetRows as { namaGT: string; target: { toString(): string } }[]) {
+    targetByGt.set(r.namaGT, (targetByGt.get(r.namaGT) ?? 0) + parseFloat(r.target.toString()));
+  }
+  const outletGt = new Map((outlets as { kodePI: string; namaGT: string | null }[]).map((o) => [o.kodePI, o.namaGT]));
+  const salesRows = outletGt.size
+    ? ((await prisma.outletSalesValueMonthlyOmega.findMany({
+        where: { kodePI: { in: [...outletGt.keys()] }, periode: pcode },
+        select: { kodePI: true, valueSales: true },
+      })) as { kodePI: string; valueSales: { toString(): string } }[])
+    : [];
+  const salesByGt = new Map<string, number>();
+  for (const r of salesRows) {
+    const gt = outletGt.get(r.kodePI);
+    if (gt) salesByGt.set(gt, (salesByGt.get(gt) ?? 0) + parseFloat(r.valueSales.toString()));
+  }
+  const entryByNip = new Map((entries as { nip: string; scMenang: number | null; absensiHariTelat: number | null }[]).map((e) => [e.nip, e]));
+  const akhirByNip = new Map<string, Date>();
+  for (const c of contracts as { nip: string; akhirKontrak: Date }[]) if (!akhirByNip.has(c.nip)) akhirByNip.set(c.nip, c.akhirKontrak);
+  const visitsByNip = new Map<string, { d: Date; n: number }[]>();
+  for (const v of visitDays) visitsByNip.set(v.nip, [...(visitsByNip.get(v.nip) ?? []), v]);
+
+  return people.map((p) => {
+    const gt = p.namaWilayah;
+    const nips = nipsOf(p.nip);
+    const target = gt ? targetByGt.get(gt) ?? null : null;
+    const sales = gt ? salesByGt.get(gt) ?? null : null;
+    const ach = target != null && target > 0 && sales != null ? sales / target : null;
+
+    const days = new Map<string, number>();
+    for (const nip of new Set(nips.flatMap((n) => [n, realNip(n)]))) {
+      for (const v of visitsByNip.get(nip) ?? []) {
+        const key = v.d.toISOString().slice(0, 10);
+        if (key.slice(0, 7) === period) days.set(key, (days.get(key) ?? 0) + v.n);
+      }
+    }
+    const visit = days.size ? [...days.values()].reduce((s, x) => s + x, 0) : null;
+    const hariAktif = days.size || null;
+    const entry = nips.map((n) => entryByNip.get(n)).find(Boolean);
+    const month: NhMonthRow = {
+      period, target, sales, ach, visit, hariAktif,
+      achKunjungan: visit != null && hariAktif ? visitAchievement(visit, hariAktif) : null,
+      sc: entry?.scMenang ?? null,
+      telat: entry?.absensiHariTelat ?? null,
+    };
+
+    const notes: string[] = [];
+    if (!gt) notes.push("Wilayah/GT belum terisi, target dan sales tidak dapat dihitung");
+    else if (target == null || target === 0) notes.push("Tidak ada data target bulan ini");
+    if (visit == null) notes.push("Kunjungan kosong");
+
+    const indicators = buildIndicators({ salesAch: [ach], kunjunganAch: [month.achKunjungan], sc: [month.sc], telat: [month.telat] });
+    const total = totalScore(indicators);
+    const akhir = nips.map((n) => akhirByNip.get(n)).find(Boolean);
+    return {
+      nip: p.nip, name: p.name, role: p.role, jabatan: p.jabatan, gt,
+      akhirKontrak: akhir ? akhir.toISOString().slice(0, 10) : null,
+      month, indicators, totalScore: total, recommendation: recommendationFor(total), notes,
     };
   });
 }

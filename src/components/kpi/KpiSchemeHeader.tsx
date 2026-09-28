@@ -4,7 +4,7 @@ export type KpiScheme = "hospital" | "non-hospital";
 
 const TABS: { scheme: KpiScheme; label: string; href: string; hint: string }[] = [
   { scheme: "hospital", label: "Hospital", href: "/kpi-perpanjangan", hint: "Monitoring skor bulanan" },
-  { scheme: "non-hospital", label: "Non-Hospital", href: "/evaluasi-kontrak-non-hospital", hint: "Evaluasi kontrak per bulan berakhir" },
+  { scheme: "non-hospital", label: "Non-Hospital", href: "/evaluasi-kontrak-non-hospital", hint: "Monitoring skor bulanan" },
 ];
 
 /**

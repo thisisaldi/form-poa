@@ -96,15 +96,22 @@ export type KpiPersonnelRow = {
  * entered it yet — deliberately NOT defaulted to a band score, so missing
  * manual data reads as "belum diisi", not as a bad score).
  */
-export async function getKpiMonitoringData(period: string): Promise<KpiPersonnelRow[]> {
+export async function getKpiMonitoringData(period: string, opts?: { nips?: string[] }): Promise<KpiPersonnelRow[]> {
   const session = await requireKpiViewer();
 
   // Non-ADMIN: scope to the viewer's own subtree (self + bawahannya), same
   // pattern as POA visibility (getSubordinateOwnerNips) — not company-wide.
   // An MR sees only themself; ASM/SM/NSM see themself + everyone under them.
-  const scopeNips = session.role === "ADMIN"
+  let scopeNips = session.role === "ADMIN"
     ? null
     : await getSubordinateOwnerNips({ nip: session.nip, role: session.role as Role } as User);
+  // Optional nip filter (API ?nip=): narrows the personnel query itself, so
+  // only those people's numbers get computed. Intersects with the viewer scope
+  // — can't reach outside it.
+  if (opts?.nips) {
+    const wanted = opts.nips;
+    scopeNips = scopeNips ? scopeNips.filter((n) => wanted.includes(n)) : wanted;
+  }
 
   const allPersonnel = (await prisma.user.findMany({
     where: {

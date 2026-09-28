@@ -1,9 +1,12 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { runNonHospitalAbsensiSync, type NhAbsensiSyncResult } from "@/lib/sync/nonHospitalAbsensiSync";
+import { runNonHospitalScMenangSync, type NhScMenangSyncResult } from "@/lib/sync/nonHospitalScMenangSync";
 import { getCurrentUser } from "@/lib/session";
 import { assertWritable } from "@/lib/maintenance";
-import { getNonHospitalEvalRows, type NhEvalRow } from "@/lib/nonHospitalEvaluation";
+import { getNonHospitalEvalRows, getNonHospitalMonitoringRows, type NhEvalRow, type NhMonitoringRow } from "@/lib/nonHospitalEvaluation";
 
 // v1 access: ADMIN-only (docs/evaluasi-kontrak-non-hospital/03-ui-and-access.md §1).
 async function requireAdmin() {
@@ -88,4 +91,27 @@ export async function decideNonHospitalEvaluationAction(input: {
     },
   });
   return { ok: true };
+}
+
+/**
+ * Monthly monitoring of all OMEGA MR/ASM/SM (no contract needed). ADMIN-only
+ * for now, same as the rest of Non-Hospital (03-ui-and-access.md §1).
+ */
+export async function getNonHospitalMonitoring(period: string, opts?: { nips?: string[] }): Promise<NhMonitoringRow[]> {
+  await requireAdmin();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Periode tidak valid");
+  return getNonHospitalMonitoringRows(period, opts);
+}
+
+/** ADMIN-only, manually triggered: Absensi (hari telat, SIPP) + SC Menang (approved SC forms vs actual sales) for `period`. */
+export async function syncNonHospitalAction(
+  period: string
+): Promise<{ absensi: NhAbsensiSyncResult; scMenang: NhScMenangSyncResult }> {
+  const session = await requireAdmin();
+  await assertWritable(session.role);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Periode tidak valid");
+  const absensi = await runNonHospitalAbsensiSync(period);
+  const scMenang = await runNonHospitalScMenangSync(period);
+  revalidatePath("/evaluasi-kontrak-non-hospital");
+  return { absensi, scMenang };
 }

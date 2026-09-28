@@ -1,23 +1,26 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { getNonHospitalEvaluation } from "@/app/actions/nonHospitalEvaluation";
+import { getNonHospitalMonitoring } from "@/app/actions/nonHospitalEvaluation";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
 import { KpiSchemeHeader } from "@/components/kpi/KpiSchemeHeader";
-import { NhEvalStats } from "@/components/kpi/NhEvalStats";
-import { NhEvalTable } from "@/components/kpi/NhEvalTable";
+import { NhMonitoringTable } from "@/components/kpi/NhMonitoringTable";
+import { SyncAbsensiButton } from "@/components/kpi/SyncAbsensiButton";
 import { periodLabel } from "@/components/kpi/kpiUi";
 import { addMonths, periodOf } from "@/lib/nonHospitalScoring";
 
-/** Contract-end months offered in the picker: 3 ahead of now down to 8 back, newest first. */
-function endPeriods(): string[] {
+/** Last 12 months (including current), newest first, "YYYY-MM". */
+function recentPeriods(): string[] {
   const now = periodOf(new Date());
-  return Array.from({ length: 12 }, (_, i) => addMonths(now, 3 - i));
+  return Array.from({ length: 12 }, (_, i) => addMonths(now, -i));
 }
 
 /**
- * Evaluasi Kontrak Non-Hospital — layar evaluasi kontrak per bulan berakhirnya
- * kontrak (skema Non-Hospital: Achievement Target 50%, Kunjungan 25%, SC Menang
- * 15%, Absensi 10%). Spec: docs/evaluasi-kontrak-non-hospital/. v1 ADMIN-only.
+ * Monitoring KPI Non-Hospital (OMEGA) — bulanan, semua MR/ASM/SM aktif,
+ * tanpa syarat data kontrak (akhir kontrak opsional, tampil bila ada).
+ * Achievement 50%, Kunjungan 25%, SC Menang 15%, Absensi 10%. Spec:
+ * docs/evaluasi-kontrak-non-hospital/. v1 ADMIN-only. Layar keputusan kontrak
+ * lama (NhEvalTable) tidak dipakai lagi di halaman ini — tanpa data kontrak
+ * tidak ada isinya.
  */
 export default async function EvaluasiKontrakNonHospitalPage({
   searchParams,
@@ -29,33 +32,25 @@ export default async function EvaluasiKontrakNonHospitalPage({
   if (session.role !== "ADMIN") redirect("/summary");
 
   const params = await searchParams;
-  const periods = endPeriods();
-  // Default = next month: the contracts that need a decision now.
-  const period = params.period && /^\d{4}-\d{2}$/.test(params.period) ? params.period : periods[2];
+  const periods = recentPeriods();
+  // Default = last COMPLETED month: sales actual and visit data only land after a month ends.
+  const period = params.period && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.period) ? params.period : periods[1];
 
-  const rows = await getNonHospitalEvaluation(period);
+  const rows = await getNonHospitalMonitoring(period);
 
   return (
     <div className="space-y-5">
       <KpiSchemeHeader
         scheme="non-hospital"
-        subtitle={`Kontrak berakhir ${periodLabel(period)} · ${rows.length} personil · PSR / Supervisor / Area Manager / Manager`}
+        subtitle={`${periodLabel(period)} · ${rows.length} personil · Achievement / Kunjungan / SC Menang / Absensi`}
         controls={
           <>
             <KpiPeriodPicker periods={periods} period={period} basePath="/evaluasi-kontrak-non-hospital" />
-            <a
-              href={`/api/export/non-hospital-evaluation?period=${period}`}
-              className="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--color-bg-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2"
-              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-            >
-              Export Excel
-            </a>
+            <SyncAbsensiButton period={period} scheme="non-hospital" />
           </>
         }
       />
-
-      <NhEvalStats rows={rows} periodText={periodLabel(period)} />
-      <NhEvalTable rows={rows} akhirPeriod={period} />
+      <NhMonitoringTable rows={rows} />
     </div>
   );
 }

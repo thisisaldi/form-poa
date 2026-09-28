@@ -156,6 +156,8 @@ Target Rupiah bulanan, **GT-BASED ONLY** — `?divisi=hospital` (default, boleh 
 
 ---
 
+---
+
 Kedua endpoint berikut mengembalikan file **`.xlsx` binary** (`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`), bukan JSON — apabila diuji melalui curl gunakan `-o namafile.xlsx` agar tidak ter-print sebagai raw binary ke terminal; melalui Postman biasanya otomatis menawarkan "Save Response" / preview.
 
 ### `GET /api/poa/{id}/export`
@@ -173,6 +175,15 @@ Export Excel gabungan — seluruh POA dari subordinate MR di bawah user yang log
 - **Error**: `403` role diblokir · `404` tidak ada subordinate MR.
 
 ---
+
+## KPI Perpanjangan
+
+### `GET /api/kpi-perpanjangan?period=YYYY-MM`
+Scorecard bulanan 4 pilar per MR/ASM/SM (isi sama dengan tabel `/kpi-perpanjangan`, spec: `docs/kpi-monitoring/`). Read-only.
+- **Auth**: session cookie. `ADMIN` = semua personil aktif; `MR`/`ASM`/`SM`/`NSM` = diri sendiri + bawahan. Role lain `403`, tanpa session `401`.
+- **Query param**: `divisi` (opsional) — `hospital` (default) atau `non-hospital` (OMEGA: semua MR/ASM/SM aktif, tanpa syarat data kontrak; **ADMIN-only**, role lain `403`; row = `nip, name, role, jabatan, gt, akhirKontrak (opsional, null bila tidak ada), month{target,sales,ach,visit,hariAktif,achKunjungan,sc,telat}, indicators[], totalScore, recommendation, notes[]` — `totalScore`/`recommendation` masih `null` sampai band SC Menang & Absensi dikonfirmasi). `period` (wajib) — `YYYY-MM`, mis. `2026-08`. `nip` (opsional) — satu atau beberapa NIP dipisah koma; hanya NIP itu yang dihitung, dan tetap dibatasi scope role (NIP di luar scope diabaikan). `page` (default 1) dan `limit` (default 50, max 200) — `400` kalau tidak valid.
+- **Response 200**: `{ divisi, period, page, limit, total, count, rows[] }` (`total` = jumlah sebelum dipaginasi). Pagination di-slice setelah skor dihitung (urutan berdasar skor & skor ASM/SM bergantung timnya), jadi tanpa `nip` beban query ADMIN tetap company-wide. Tiap row: `nip, name, role, jabatan, salesTargetRp, salesActualRp, salesAchievementPct, salesScore, callActivityRealisasi, callActivityStandar, activityAchievementPct, activityScore, callActivitySource, customerAktifCount, customerScore, absensiValue, absensiScore, absensiSource, totalScore, recommendation`. Nilai `null` = belum ada data (bukan skor buruk). Urut: skor terendah / belum lengkap dulu.
+- **Error**: `400` `period` kosong/format salah · `401` · `403`.
 
 ## POA Standarisasi
 
