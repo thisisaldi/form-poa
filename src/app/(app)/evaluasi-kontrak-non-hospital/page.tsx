@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getNonHospitalEvaluation } from "@/app/actions/nonHospitalEvaluation";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
+import { KpiSchemeHeader } from "@/components/kpi/KpiSchemeHeader";
 import { NhEvalStats } from "@/components/kpi/NhEvalStats";
 import { NhEvalTable } from "@/components/kpi/NhEvalTable";
 import { periodLabel } from "@/components/kpi/kpiUi";
@@ -36,24 +37,22 @@ export default async function EvaluasiKontrakNonHospitalPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
-        <div>
-          <h1>Evaluasi Kontrak Non-Hospital</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            Kontrak berakhir {periodLabel(period)} · {rows.length} personil · PSR / Supervisor / Area Manager / Manager
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <KpiPeriodPicker periods={periods} period={period} basePath="/evaluasi-kontrak-non-hospital" />
-          <a
-            href={`/api/export/non-hospital-evaluation?period=${period}`}
-            className="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--color-bg-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2"
-            style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-          >
-            Export Excel
-          </a>
-        </div>
-      </div>
+      <KpiSchemeHeader
+        scheme="non-hospital"
+        subtitle={`Kontrak berakhir ${periodLabel(period)} · ${rows.length} personil · PSR / Supervisor / Area Manager / Manager`}
+        controls={
+          <>
+            <KpiPeriodPicker periods={periods} period={period} basePath="/evaluasi-kontrak-non-hospital" />
+            <a
+              href={`/api/export/non-hospital-evaluation?period=${period}`}
+              className="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--color-bg-subtle)] focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+            >
+              Export Excel
+            </a>
+          </>
+        }
+      />
 
       <NhEvalStats rows={rows} periodText={periodLabel(period)} />
       <NhEvalTable rows={rows} akhirPeriod={period} />

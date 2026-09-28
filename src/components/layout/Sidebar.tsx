@@ -11,6 +11,8 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   roles?: string[];
+  /** Extra route prefixes that also highlight this item (sibling pages of the same feature). */
+  alsoActiveOn?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -93,20 +95,18 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/kpi-perpanjangan",
-    label: "Monitoring KPI Perpanjangan",
+    label: "KPI Perpanjangan",
     icon: <IconChart />,
-    // KPI Personil Kinerja/Kontrak scorecard (Memo SM/ETH-II/PI/08.2026) —
-    // ADMIN-only for v1 (2026-07-30), same pattern as /monitoring. See
-    // docs/kpi-monitoring/ for the full spec.
-    roles: ["ADMIN"],
-  },
-  {
-    href: "/evaluasi-kontrak-non-hospital",
-    label: "Evaluasi Kontrak Non-Hospital",
-    icon: <IconChart />,
-    // Evaluasi kontrak skema Non-Hospital (docs/evaluasi-kontrak-non-hospital/,
-    // 2026-09-25) — ADMIN-only for v1, same as /kpi-perpanjangan.
-    roles: ["ADMIN"],
+    // Hospital + Non-Hospital are tabs of the same feature (KpiSchemeHeader);
+    // Evaluasi Kontrak Non-Hospital (docs/evaluasi-kontrak-non-hospital/) is
+    // reached through the tab, not a second menu entry.
+    alsoActiveOn: ["/evaluasi-kontrak-non-hospital"],
+    // KPI Personil Kinerja/Kontrak scorecard (Memo SM/ETH-II/PI/08.2026).
+    // ADMIN sees everyone; MR/ASM/SM/NSM see themself + bawahannya
+    // (2026-09-28, see getSubordinateOwnerNips in getKpiMonitoringData) —
+    // editing (sync/manual input) stays ADMIN-only. See docs/kpi-monitoring/
+    // for the full spec.
+    roles: ["ADMIN", "MR", "ASM", "SM", "NSM"],
   },
   {
     href: "/sales-support",
@@ -242,7 +242,9 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject,
   // Highlight only the most specific matching item (longest href prefix),
   // so e.g. "/admin/target-produk" doesn't also light up the "/admin" item.
   const activeHref = visibleItems
-    .filter((item) => pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/")))
+    .filter((item) => [item.href, ...(item.alsoActiveOn ?? [])].some((h) =>
+      pathname === h || (h !== "/dashboard" && pathname.startsWith(h + "/"))
+    ))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   const sidebarContent = (

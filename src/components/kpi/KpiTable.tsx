@@ -155,7 +155,7 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
  * override — see docs/kpi-monitoring/02-data-model.md §2 and
  * src/lib/sync/kpiAbsensiSync.ts / kpiCallActivitySync.ts.
  */
-export function KpiTable({ rows, period }: { rows: KpiPersonnelRow[]; period: string }) {
+export function KpiTable({ rows, period, canEdit = true }: { rows: KpiPersonnelRow[]; period: string; canEdit?: boolean }) {
   const [sortKey, setSortKey] = useState<SortKey | null>("totalScore");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [query, setQuery] = useState("");
@@ -241,7 +241,7 @@ export function KpiTable({ rows, period }: { rows: KpiPersonnelRow[]; period: st
                 <SortableTh label="Absensi (10%)" sortKey="absensiValue" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} title="Attitude — Kepatuhan Absensi" />
                 <SortableTh label="Total" sortKey="totalScore" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} align="left" />
                 <th className={TH_PLAIN} style={{ color: "var(--color-text-faint)" }}>Rekomendasi</th>
-                <th className={TH_PLAIN} style={{ color: "var(--color-text-faint)" }}>Input manual</th>
+                {canEdit && <th className={TH_PLAIN} style={{ color: "var(--color-text-faint)" }}>Input manual</th>}
               </tr>
             </thead>
             <tbody>
@@ -314,9 +314,11 @@ export function KpiTable({ rows, period }: { rows: KpiPersonnelRow[]; period: st
                       )}
                     </td>
 
-                    <td className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--color-border)" }}>
-                      <ManualInputRow row={r} period={period} />
-                    </td>
+                    {canEdit && (
+                      <td className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--color-border)" }}>
+                        <ManualInputRow row={r} period={period} />
+                      </td>
+                    )}
                   </tr>
                 );
               })}

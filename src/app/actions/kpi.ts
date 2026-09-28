@@ -13,7 +13,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getSubordinateMRNips } from "@/lib/authz";
+import { getSubordinateMRNips, getSubordinateOwnerNips } from "@/lib/authz";
 import { loadIdentities, dedupeByIdentity, allNips } from "@/lib/kpiIdentity";
 import { resolveTargetForNipGroups } from "@/lib/targetHospitalValue";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
@@ -39,6 +39,20 @@ async function requireAdmin() {
   const session = await getCurrentUser();
   if (!session || session.role !== "ADMIN") {
     throw new Error("KPI Monitoring is ADMIN-only for now.");
+  }
+  return session;
+}
+
+// View access (2026-09-28): ADMIN sees everyone; MR/ASM/SM/NSM see themselves
+// + their own subtree, same "self and bawahannya" pattern as everywhere else
+// in this app (getSubordinateOwnerNips — not a new RBAC concept). Editing
+// (manual input, sync) stays ADMIN-only for now, gated separately below.
+const KPI_VIEWER_ROLES = ["ADMIN", "MR", "ASM", "SM", "NSM"];
+
+async function requireKpiViewer() {
+  const session = await getCurrentUser();
+  if (!session || !KPI_VIEWER_ROLES.includes(session.role)) {
+    throw new Error("KPI Monitoring access denied for this role.");
   }
   return session;
 }
@@ -83,10 +97,23 @@ export type KpiPersonnelRow = {
  * manual data reads as "belum diisi", not as a bad score).
  */
 export async function getKpiMonitoringData(period: string): Promise<KpiPersonnelRow[]> {
-  await requireAdmin();
+  const session = await requireKpiViewer();
+
+  // Non-ADMIN: scope to the viewer's own subtree (self + bawahannya), same
+  // pattern as POA visibility (getSubordinateOwnerNips) — not company-wide.
+  // An MR sees only themself; ASM/SM/NSM see themself + everyone under them.
+  const scopeNips = session.role === "ADMIN"
+    ? null
+    : await getSubordinateOwnerNips({ nip: session.nip, role: session.role as Role } as User);
 
   const allPersonnel = (await prisma.user.findMany({
-    where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
+    where: {
+      role: { in: ["MR", "ASM", "SM"] },
+      isActive: true,
+      isDummy: false,
+      NOT: { nip: { startsWith: "TEST" } },
+      ...(scopeNips ? { nip: { in: scopeNips } } : {}),
+    },
     select: { nip: true, name: true, role: true, jabatan: true },
     orderBy: { name: "asc" },
   })) as { nip: string; name: string; role: string; jabatan: string | null }[];
