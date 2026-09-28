@@ -16,7 +16,7 @@
 import sql from "mssql";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
-import { loadIdentities, dedupeByIdentity, allNips } from "@/lib/kpiIdentity";
+import { loadIdentities, dedupeByIdentity, allNips, KPI_PERSONNEL_FILTER } from "@/lib/kpiIdentity";
 import { CALL_ACTIVITY_STANDARD_BY_ROLE, callActivityRealisasiFromDailyAvgs } from "@/lib/kpiScoring";
 
 export interface KpiCallActivitySyncResult {
@@ -94,7 +94,7 @@ export async function runKpiCallActivitySync(period?: string): Promise<KpiCallAc
   const result: KpiCallActivitySyncResult = { period: targetPeriod, scanned: 0, updated: 0, skippedManual: 0, noData: 0, errors: [] };
 
   const allPersonnel = (await prisma.user.findMany({
-    where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
+    where: { role: { in: ["MR", "ASM", "SM"] }, ...KPI_PERSONNEL_FILTER },
     select: { nip: true, role: true },
   })) as { nip: string; role: string }[];
   if (allPersonnel.length === 0) return result;

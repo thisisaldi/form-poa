@@ -14,7 +14,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateMRNips, getSubordinateOwnerNips } from "@/lib/authz";
-import { loadIdentities, dedupeByIdentity, allNips } from "@/lib/kpiIdentity";
+import { loadIdentities, dedupeByIdentity, allNips, KPI_PERSONNEL_FILTER } from "@/lib/kpiIdentity";
 import { resolveTargetForNipGroups } from "@/lib/targetHospitalValue";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
 import { runKpiAbsensiSync, type KpiAbsensiSyncResult } from "@/lib/sync/kpiAbsensiSync";
@@ -116,9 +116,7 @@ export async function getKpiMonitoringData(period: string, opts?: { nips?: strin
   const allPersonnel = (await prisma.user.findMany({
     where: {
       role: { in: ["MR", "ASM", "SM"] },
-      isActive: true,
-      isDummy: false,
-      NOT: { nip: { startsWith: "TEST" } },
+      ...KPI_PERSONNEL_FILTER,
       ...(scopeNips ? { nip: { in: scopeNips } } : {}),
     },
     select: { nip: true, name: true, role: true, jabatan: true },

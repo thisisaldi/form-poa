@@ -19,9 +19,9 @@
 import sql from "mssql";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
-import { allNips, dedupeByIdentity, loadIdentities } from "@/lib/kpiIdentity";
+import { allNips, dedupeByIdentity, loadIdentities, KPI_PERSONNEL_FILTER } from "@/lib/kpiIdentity";
 import {
-  addMonths, buildIndicators, realNip, recommendationFor, totalScore, visitAchievement, windowMonths,
+  addMonths, buildIndicators, recommendationFor, totalScore, visitAchievement, windowMonths,
   NH_VISIT_TARGET_PER_DAY, type NhIndicator,
 } from "@/lib/nonHospitalScoring";
 
@@ -253,7 +253,7 @@ export async function getNonHospitalMonitoringRows(
 
   const all = (await prisma.user.findMany({
     where: {
-      project: "OMEGA", role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false,
+      project: "OMEGA", role: { in: ["MR", "ASM", "SM"] }, ...KPI_PERSONNEL_FILTER,
       ...(nipFilter ? { nip: { in: nipFilter } } : {}),
     },
     select: { nip: true, name: true, role: true, jabatan: true, namaWilayah: true },
@@ -265,8 +265,6 @@ export async function getNonHospitalMonitoringRows(
   const people = dedupeByIdentity(all, identities);
   const nipsOf = (nip: string) => allNips(nip, identities.get(nip));
   const everyNip = [...new Set(people.flatMap((p) => nipsOf(p.nip)))];
-  // Exodus knows only real NIPs (staging users are TEST-prefixed) — see realNip.
-  const visitNips = [...new Set(everyNip.flatMap((n) => [n, realNip(n)]))];
   const gts = [...new Set(people.map((p) => p.namaWilayah).filter((g): g is string => !!g))];
   const pcode = yyyymm(period);
 
@@ -275,7 +273,7 @@ export async function getNonHospitalMonitoringRows(
     gts.length ? prisma.outlet.findMany({ where: { namaGT: { in: gts } }, select: { kodePI: true, namaGT: true } }) : Promise.resolve([]),
     prisma.nonHospitalMonthlyEntry.findMany({ where: { nip: { in: everyNip }, period }, select: { nip: true, scMenang: true, absensiHariTelat: true } }),
     prisma.nonHospitalContract.findMany({ where: { nip: { in: everyNip } }, select: { nip: true, akhirKontrak: true }, orderBy: { akhirKontrak: "desc" } }),
-    queryVisitDays(visitNips, period, period),
+    queryVisitDays(everyNip, period, period),
   ]);
 
   const targetByGt = new Map<string, number>();
@@ -308,7 +306,7 @@ export async function getNonHospitalMonitoringRows(
     const ach = target != null && target > 0 && sales != null ? sales / target : null;
 
     const days = new Map<string, number>();
-    for (const nip of new Set(nips.flatMap((n) => [n, realNip(n)]))) {
+    for (const nip of nips) {
       for (const v of visitsByNip.get(nip) ?? []) {
         const key = v.d.toISOString().slice(0, 10);
         if (key.slice(0, 7) === period) days.set(key, (days.get(key) ?? 0) + v.n);

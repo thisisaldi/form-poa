@@ -29,7 +29,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
-import { loadIdentities, dedupeByIdentity } from "@/lib/kpiIdentity";
+import { loadIdentities, dedupeByIdentity, KPI_PERSONNEL_FILTER } from "@/lib/kpiIdentity";
 import { getAbsensiByNip, computeAvgLateHours, monthDateRange } from "@/lib/sippApi";
 
 export interface KpiAbsensiSyncResult {
@@ -54,7 +54,7 @@ export async function runKpiAbsensiSync(period?: string): Promise<KpiAbsensiSync
   }
 
   const allPersonnel = (await prisma.user.findMany({
-    where: { role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false, NOT: { nip: { startsWith: "TEST" } } },
+    where: { role: { in: ["MR", "ASM", "SM"] }, ...KPI_PERSONNEL_FILTER },
     select: { nip: true, sippAbsPtId: true },
   })) as { nip: string; sippAbsPtId: number | null }[];
   if (allPersonnel.length === 0) return result;

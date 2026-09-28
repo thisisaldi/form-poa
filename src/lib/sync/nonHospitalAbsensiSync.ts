@@ -19,7 +19,7 @@
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { getAbsensiByNip, monthDateRange } from "@/lib/sippApi";
-import { realNip } from "@/lib/nonHospitalScoring";
+import { KPI_PERSONNEL_FILTER } from "@/lib/kpiIdentity";
 
 export interface NhAbsensiSyncResult {
   period: string;
@@ -41,7 +41,7 @@ export async function runNonHospitalAbsensiSync(period: string): Promise<NhAbsen
   }
 
   const people = (await prisma.user.findMany({
-    where: { project: "OMEGA", role: { in: ["MR", "ASM", "SM"] }, isActive: true, isDummy: false },
+    where: { project: "OMEGA", role: { in: ["MR", "ASM", "SM"] }, ...KPI_PERSONNEL_FILTER },
     select: { nip: true, sippAbsPtId: true },
   })) as { nip: string; sippAbsPtId: number | null }[];
   const existing = (await prisma.nonHospitalMonthlyEntry.findMany({
@@ -59,7 +59,7 @@ export async function runNonHospitalAbsensiSync(period: string): Promise<NhAbsen
     // ponytail: a genuine SIPP outage therefore reads as "tanpa data" — split in sippApi if that hides real failures.
     let records: Awaited<ReturnType<typeof getAbsensiByNip>> = null;
     for (const pt of ptIds) {
-      records = await getAbsensiByNip(realNip(p.nip), pt, startDate, endDate);
+      records = await getAbsensiByNip(p.nip, pt, startDate, endDate);
       if (records?.length) break;
     }
     if (!records?.length) return void result.noData++;
