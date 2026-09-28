@@ -244,6 +244,24 @@ async function DashboardContent({
     };
   });
 
+  // Per-customer status breakdown for the Status column chips — the POA-level
+  // badge is only a rollup (e.g. REVISI while 9 of 10 customers are already
+  // Fully Approved). One batched groupBy over the visible page, not per row
+  // (docs/PERFORMANCE.md §2 point 4).
+  const doctorStatusRows = await prisma.poaDoctorApproval.groupBy({
+    by: ["poaId", "status"],
+    where: { poaId: { in: recentPoas.map((p) => p.id) } },
+    _count: { _all: true },
+  }) as { poaId: string; status: PoaStatus; _count: { _all: number } }[];
+  const doctorBreakdown = new Map<string, { approved: number; revisi: number; proses: number }>();
+  for (const r of doctorStatusRows) {
+    const b = doctorBreakdown.get(r.poaId) ?? { approved: 0, revisi: 0, proses: 0 };
+    if (r.status === "APPROVED_BY_NSM" || r.status === "APPROVED_BY_SD") b.approved += r._count._all;
+    else if (r.status === "REVISI") b.revisi += r._count._all;
+    else b.proses += r._count._all;
+    doctorBreakdown.set(r.poaId, b);
+  }
+
   // Batched (2026-08-31 perf fix, docs/PERFORMANCE.md §2 point 4's flagged
   // gap): getEditLockLevel's poaAuditLog lookup has a unique poaId per call,
   // so cache() can't dedupe it across this per-row canEdit loop the way it
@@ -568,7 +586,21 @@ async function DashboardContent({
                       <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>{poa.owner.nip}</p>
                     </td>
                     <td className="py-3" style={{ color: "var(--color-text)" }}>{poa.period}</td>
-                    <td className="py-3"><StatusBadge status={poa.status} version={poa.version} /></td>
+                    <td className="py-3">
+                      <StatusBadge status={poa.status} version={poa.version} />
+                      {(() => {
+                        const b = doctorBreakdown.get(poa.id);
+                        if (!b) return null;
+                        const chip = "rounded border px-1.5 py-0.5 font-mono text-[11px]";
+                        return (
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {b.approved > 0 && <span className={chip} style={{ color: "var(--color-status-approved)", borderColor: "var(--color-status-approved)" }}>{b.approved} fully approved</span>}
+                            {b.proses > 0 && <span className={chip} style={{ color: "var(--color-status-pending)", borderColor: "var(--color-status-pending)" }}>{b.proses} proses</span>}
+                            {b.revisi > 0 && <span className={chip} style={{ color: "var(--color-status-revisi)", borderColor: "var(--color-status-revisi)" }}>{b.revisi} revisi</span>}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="py-3 text-right text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>
                       {target != null ? formatRp(target) : <span style={{ color: "var(--color-text-faint)" }}>-</span>}
                     </td>
