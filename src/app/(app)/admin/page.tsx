@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getCustomers } from "@/lib/masterData";
@@ -23,10 +24,16 @@ function formatPeriode(periode: string): string {
   return label ? `${label} ${year}` : periode;
 }
 
-export default async function AdminPage() {
+const SECTIONS = [
+  { key: "data", label: "Data Master", desc: "User, outlet, dokter, produk, penugasan outlet, dan semua POA" },
+  { key: "sistem", label: "Pengaturan Sistem", desc: "Maintenance, blokir login, kredensial API, dan Google Drive" },
+] as const;
+
+export default async function AdminPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
   if (session.role !== "ADMIN") redirect("/dashboard");
+  const section = (await searchParams).section === "sistem" ? "sistem" : "data";
 
   const [customers, orgStrukturMeta] = await Promise.all([
     getCustomers(),
@@ -51,11 +58,35 @@ export default async function AdminPage() {
           </p>
         )}
       </div>
-      <MaintenanceModeToggle />
-      <LoginAccessPanel />
-      <PoaDoctorsApiCredentialPanel />
-      <GoogleDriveConfigPanel />
-      <AdminTabs outlets={outlets} />
+      <div className="flex gap-1 border-b" style={{ borderColor: "var(--color-border)" }}>
+        {SECTIONS.map((t) => (
+          <Link
+            key={t.key}
+            href={t.key === "data" ? "/admin" : `/admin?section=${t.key}`}
+            className="px-4 py-2 text-sm font-semibold whitespace-nowrap -mb-px border-b-2 transition-colors"
+            style={{
+              borderColor: section === t.key ? "var(--color-blue)" : "transparent",
+              color: section === t.key ? "var(--color-blue)" : "var(--color-text-faint)",
+            }}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        {SECTIONS.find((t) => t.key === section)?.desc}
+      </p>
+
+      {section === "data" ? (
+        <AdminTabs outlets={outlets} />
+      ) : (
+        <div className="space-y-5">
+          <MaintenanceModeToggle />
+          <LoginAccessPanel />
+          <PoaDoctorsApiCredentialPanel />
+          <GoogleDriveConfigPanel />
+        </div>
+      )}
     </div>
   );
 }
