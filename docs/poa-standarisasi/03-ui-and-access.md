@@ -55,5 +55,5 @@ Berbeda dari POA Estimasi (yang punya jalur reject/revisi kembali ke DRAFT), wiz
 - Tidak ada notifikasi (email/in-app) saat pengajuan pindah phase atau menunggu approval ASM/SM.
 - Tidak ada export Excel untuk POA Standarisasi (POA Estimasi punya `src/app/api/poa/[id]/export/route.ts` — belum ada padanannya di sini, bukan terlewat, memang belum diminta).
 - Tidak ada halaman monitoring/summary company-wide untuk POA Standarisasi (kalau dibutuhkan nanti, WAJIB baca `docs/PERFORMANCE.md` dulu — lihat catatan di `02-data-model.md`).
-- Tidak ada integrasi nyata ke sistem DPL/DPF eksternal — link "+ Buat DPL/DPF baru" tetap placeholder (lihat `01-business-rules.md` §7 Q7).
+- ~~Integrasi DPL/DPF eksternal~~ — sudah ada sejak 2026-09-29 (Step 5 tab "Request DPL/DPF" → Exodus, lihat `01-business-rules.md` §6b).
 - Tidak ada jalur reject/revisi di Phase 2 — lihat "State machine" di atas.

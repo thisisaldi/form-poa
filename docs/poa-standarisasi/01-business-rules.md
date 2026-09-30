@@ -113,7 +113,7 @@ Metrik §3a sekarang menghitung margin gabungan PI+Distributor, baik sisi lama m
 - Tidak ada resubmit/reject-per-baris granular seperti `PoaDoctorApproval` reguler — approval dokter di sini murni checklist "sudah TTD" (tanda tangan fisik), bukan approve/reject in-app oleh dokter itu sendiri.
 - Tidak ada notifikasi otomatis (email/in-app) saat status Approval Atasan berubah di v1 — ASM/SM harus membuka pengajuannya sendiri untuk melihat & bertindak (approval-nya sendiri tetap blocking, lihat §2/§7 Q2 — ini hanya soal notifikasi).
 - Tidak ada halaman approval terpisah untuk ASM/SM — approval terjadi sebagai satu step di wizard yang sama, bukan route baru (dikonfirmasi eksplisit di dokumen sumber sebagai desain yang disengaja).
-- Tombol "+ Buat DPL/DPF" (Step 5 tab "Request DPL/DPF", per produk sejak 2026-09-08 — sebelumnya satu link global di footer Finalisasi) tetap placeholder di v1 (lihat §7 Q7) — bukan integrasi nyata ke sistem DPL/DPF eksternal.
+- ~~Tombol "+ Buat DPL/DPF" placeholder~~ — SUDAH DIGANTI (2026-09-29): tab "Request DPL/DPF" sekarang mengirim ajuan nyata ke Exodus, lihat §6b.
 - Sync otomatis `Outlet.jumlahBed` dari sumber eksternal — v1 hanya field manual/snapshot (lihat §7 Q8).
 
 ### §6a. Step 5 — Permintaan SP Non Sales & DPL/DPF (2026-09-08)
@@ -121,7 +121,25 @@ Metrik §3a sekarang menghitung margin gabungan PI+Distributor, baik sisi lama m
 Tahapan baru SETELAH `submittedAt` terisi (bukan phase di `PoaStandarisasiPhase`/Stepper — muncul otomatis begitu Finalisasi selesai submit, gate-nya `canEditPoaStandarisasiStep5` di `authz.ts`, kebalikan dari `canEditPoaStandarisasi` yang butuh submittedAt BELUM terisi). Judul UI sengaja masih "Step 5" placeholder, nama resminya belum diputuskan user. 2 tab:
 
 - **Permintaan SP Non Sales**: baris otomatis per produk yang ada di pengajuan (dari Planning), field jumlah (`PoaStandarisasiProduk.spNonSalesJumlahBox`, satuan `product.satuan`). Dokumen bisa lebih dari satu file per pengajuan (`PoaStandarisasiSpNonSalesDocument`, shared bukan per produk), folder Drive sendiri admin-settable (`GoogleDriveConfig.spNonSalesFolderId`). "Ajukan Permintaan SP Non Sales" (`submitSpNonSalesRequestAction`) mengunci tab ini (`spNonSalesSubmittedAt`) — tidak ada validasi jumlah minimum, lenient sama seperti field optional lain di fitur ini.
-- **Request DPL/DPF**: Distributor (reuse field `distributors` yang sama dipakai Finalisasi, diedit lagi lewat `updateSpNonSalesDistributorsAction` — phase-agnostic). Tabel Beban Discount PI/Distributor per produk = REUSE `finalDiscountPct`/`diskonDistributorPct` dari Finalisasi, read-only, tidak ada input ulang. Tombol "+ Buat DPL/DPF" per produk tetap placeholder (lihat §6).
+- **Request DPL/DPF**: Distributor (reuse field `distributors` yang sama dipakai Finalisasi, diedit lagi lewat `updateSpNonSalesDistributorsAction` — phase-agnostic). Tabel Beban Discount PI/Distributor per produk = REUSE `finalDiscountPct`/`diskonDistributorPct` dari Finalisasi, read-only, tidak ada input ulang. Tombol "Ajukan" mengirim DPL/DPF ke Exodus (§6b).
+
+### §6b. Ajukan DPL/DPF ke Exodus (2026-09-29)
+
+`submitDiscountRequestAction` (`actions/poaStandarisasi.ts`) → `submitDiscountRequest` (`lib/exodusApi.ts`) → `POST {EXODUS_API_BASE_URL}/promotion/v1/request/discount` (multipart: `request` JSON + `request-doc-file`). Gate: `canEditPoaStandarisasiStep5`.
+
+**Form**: Tipe DPL/DPF, Distributor (AMS/PPG/MPI → `distributor_id`/`distributor_name` lewat `lib/exodusDistributors.ts`: AMS=1 "ANTARMITRA SEMBADA, PT", PPG=2 "PARIT PADANG GLOBAL, PT", MPI=3 "MILLENNIUM PHARMACON INTERNATIONAL, PT"), produk terpilih + Qty. Disc PI/Dist per produk BUKAN input: dari `finalDiscountPct`/`diskonDistributorPct` (fallback live Exodus).
+
+| | DPF | DPL |
+|---|---|---|
+| Isian | Tanggal PO, Nomor PO, upload dokumen PO (wajib, PDF/JPG/PNG ≤10MB) | Periode Awal, Periode Akhir (yang dipakai bulannya) |
+| `request_doc_number` / `request_doc_date` | nomor PO / tanggal PO 00:00 WIB | `null` / `null` |
+| `start_date` / `end_date` | `null` | tgl 1 bulan awal 00:00 WIB s/d akhir bulan akhir 23:59:59.999 WIB (dikirim UTC) |
+| Qty | bilangan bulat ≥ 1 | ≥ 0 (data nyata Exodus memakai 0) |
+| File | dokumen PO | placeholder teks `DPL <kodePI>.txt` — Exodus 400 "missing request-doc-file" tanpa file, DPL tidak punya dokumen |
+
+Payload lain: `outlet_id` dari `getExodusOutletIdByCode(kodePI)` (tolak kalau null), `product_type` `ETH`/`OTC` dan `principal_distributor_*` per produk dari `core/v1/products`, `division_distributor_code` dan `distributor_product_code_prefix` = `null` (kata Exodus), `is_open_api` = `false`.
+
+**Exodus TIDAK memvalidasi** (tes staging 2026-09-29): semua payload ngawur (outlet_id/distributor_id/produk tidak ada, persen 150/-5, tipe salah, DPF tanpa PO, periode terbalik, file .exe, PO duplikat) tetap HTTP 200; satu-satunya 400 = file hilang. Response sukses cuma `{"error":{"status":false}}` — TANPA ID request, dan request baru tidak terlihat di GET `request/discount/product-outlet` (kemungkinan pending/async, belum dikonfirmasi). Konsekuensinya semua validasi ada di sisi kita, dan hasil submit disimpan lokal di `PoaStandarisasiDiscountRequest` (riwayat di tab + anti double-submit: unique `(pengajuanId, dedupKey)`, dedupKey = tipe|distributor|(nomor PO atau periode)|kode produk terurut; row di-reserve SEBELUM POST, dihapus lagi kalau POST gagal). Jangan retry otomatis kalau timeout — bisa saja request sudah terbentuk di Exodus.
 
 ## §7. Open questions — status & assumptions dipakai untuk v1
 
@@ -140,6 +158,7 @@ Sisanya (Q5-Q9) non-blocking, belum dijawab, jalan dengan asumsi kerja:
 |---|---|---|---|---|
 | Q5 | Ambang "OVER BUDGET" 30% — apakah ini angka bisnis nyata atau placeholder penulis dokumen sumber? | Tidak | 30%, adjustable via config bukan hardcode, supaya gampang diubah tanpa migration | Tim bisnis |
 | Q6 | Upload "Surat Approval Standarisasi KFT" — cakupannya per **pengajuan** (satu file untuk semua produk) atau per **produk**? | Tidak (murah diubah — tinggal pindah FK dari header ke `PoaStandarisasiProduk`) | Per pengajuan (field di header `PoaStandarisasi`, bukan di `PoaStandarisasiProduk`) | Tim bisnis |
-| Q7 | URL nyata halaman/sistem "+ Buat DPL/DPF baru" | Tidak | `href="#"` / disabled link di v1 | Tim bisnis / tim yang punya sistem DPL/DPF |
+| Q7 | ~~URL nyata halaman/sistem "+ Buat DPL/DPF baru"~~ | — | RESOLVED 2026-09-29: integrasi API Exodus (§6b) | — |
+| Q7a | Exodus: apakah request baru pending/async, ada cara ambil ID-nya, dan perlukah file untuk DPL | Tidak | Kirim placeholder teks untuk DPL, simpan riwayat lokal | Tim Exodus |
 | Q8 | Sumber data `Outlet.jumlahBed` — sync dari file eksternal (perlu source file baru) atau input manual per outlet (siapa yang isi, kapan)? | Tidak | Field nullable, diisi manual pertama kali oleh MR di form (auto-suggest ke field snapshot pengajuan `PoaStandarisasi.jumlahBedRs`), tidak ada job sync di v1 | Tim data |
 | Q9 | Jumlah minimum dokter klinis "wajib" per produk — angka tetap (mis. selalu 3) atau bervariasi per kondisi (spesialisasi, tipe produk)? | Tidak | Field manual per produk, MR menambah slot dokter sesuai kebutuhan (tidak hardcode 3) — validasi hanya "minimal 1 dokter wajib" sampai dikonfirmasi ada aturan lebih spesifik | Tim bisnis |

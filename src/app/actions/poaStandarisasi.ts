@@ -19,7 +19,8 @@ import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
-import { getDiscountsForOutlet, getLiveProductPricing, type ExodusDiscountPct } from "@/lib/exodusApi";
+import { getDiscountsForOutlet, getLiveProductPricing, getExodusOutletIdByCode, submitDiscountRequest, type ExodusDiscountPct } from "@/lib/exodusApi";
+import { EXODUS_DISTRIBUTORS, type ExodusDistributorKode } from "@/lib/exodusDistributors";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
@@ -1508,11 +1509,10 @@ async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<
 // Muncul otomatis setelah pengajuan.submittedAt terisi (Finalisasi selesai) —
 // bukan phase di PoaStandarisasiPhase, gate-nya pakai canEditPoaStandarisasiStep5
 // (kebalikan dari canEditPoaStandarisasi: butuh submittedAt SUDAH terisi,
-// bukan belum). Tab "Request DPL/DPF" cuma nampilin data existing (Beban
-// Discount PI/Distributor = finalDiscountPct/diskonDistributorPct yang sudah
-// ada, Distributor = field `distributors` yang sama) — "+ Buat DPL/DPF"
-// tetap placeholder di v1 (§6 non-goals, belum ada integrasi sistem
-// eksternal), tidak ada action baru untuk itu.
+// bukan belum). Tab "Request DPL/DPF": Beban Discount PI/Distributor =
+// finalDiscountPct/diskonDistributorPct yang sudah ada, Distributor = field
+// `distributors` yang sama; "Ajukan" kirim ke Exodus lewat
+// submitDiscountRequestAction di bawah (2026-09-29).
 
 export interface SpNonSalesJumlahInput {
   produkId: string;
@@ -1727,6 +1727,173 @@ export async function updateSpNonSalesDistributorsAction(id: string, distributor
   const filtered = distributors.filter((d): d is (typeof DISTRIBUTOR_PILIHAN)[number] => (DISTRIBUTOR_PILIHAN as readonly string[]).includes(d));
   await prisma.poaStandarisasi.update({ where: { id }, data: { distributors: filtered } });
   revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+// ─── Step 5 tab 2: Ajukan DPL/DPF ke Exodus ─────────────────────────────────
+// POST promotion/v1/request/discount (lihat submitDiscountRequest di exodusApi.ts).
+// Exodus TIDAK memvalidasi apa pun selain adanya file (semua payload ngawur
+// tetap 200 — hasil tes staging 2026-09-29) dan tidak mengembalikan ID, jadi
+// semua validasi ada di sini dan riwayat + anti double-submit disimpan lokal
+// (PoaStandarisasiDiscountRequest, row di-reserve SEBELUM POST).
+
+/** "YYYY-MM-DD" (tanggal kalender WIB) -> bagian tanggalnya, null kalau tidak valid. */
+function parseYmd(v: string): { y: number; m: number; d: number } | null {
+  const mt = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  return mt ? { y: +mt[1], m: +mt[2] - 1, d: +mt[3] } : null;
+}
+const WIB_MS = 7 * 3600e3;
+
+export interface DiscountRequestRow {
+  id: string;
+  tipe: string;
+  distributorKode: string;
+  requestDocNumber: string | null;
+  requestDocDate: Date | null;
+  startDate: Date | null;
+  endDate: Date | null;
+  submittedAt: Date;
+  submittedByNama: string;
+  produk: { kodeProduk: string; namaProduk: string; principalPct: number; distributorPct: number; quantity: number }[];
+}
+
+export async function listDiscountRequestsAction(pengajuanId: string): Promise<DiscountRequestRow[]> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id: pengajuanId }, select: { ownerId: true, kodePI: true } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!(await canViewPoaStandarisasi(actor, pengajuan))) throw new Error("Anda tidak berhak melihat pengajuan ini.");
+  const rows = await prisma.poaStandarisasiDiscountRequest.findMany({
+    where: { pengajuanId },
+    include: { submittedBy: { select: { name: true } } },
+    orderBy: { submittedAt: "desc" },
+  });
+  return rows.map((r: (typeof rows)[number]) => ({
+    id: r.id, tipe: r.tipe, distributorKode: r.distributorKode, requestDocNumber: r.requestDocNumber, requestDocDate: r.requestDocDate,
+    startDate: r.startDate, endDate: r.endDate, submittedAt: r.submittedAt, submittedByNama: r.submittedBy.name,
+    produk: r.produk as DiscountRequestRow["produk"],
+  }));
+}
+
+/**
+ * FormData: pengajuanId, tipe (DPL|DPF), distributor (AMS|PPG|MPI), produk
+ * (JSON [{produkId, quantity}]), DPL: periodeAwal/periodeAkhir ("YYYY-MM-DD",
+ * yang dipakai bulannya saja), DPF: tanggalPo, nomorPo, file (PDF/JPG/PNG).
+ * Disc PI/Dist per produk dari nilai yang sudah ada di pengajuan
+ * (finalDiscountPct/diskonDistributorPct, fallback live Exodus) — bukan input.
+ */
+export async function submitDiscountRequestAction(formData: FormData): Promise<ActionResult> {
+  return runAction(() => submitDiscountRequestActionImpl(formData));
+}
+
+async function submitDiscountRequestActionImpl(formData: FormData): Promise<void> {
+  const { actor } = await requireActor();
+  const str = (k: string) => ((formData.get(k) as string | null) ?? "").trim();
+  const pengajuanId = str("pengajuanId");
+  const tipe = str("tipe");
+  const distributorKode = str("distributor") as ExodusDistributorKode;
+
+  if (tipe !== "DPL" && tipe !== "DPF") throw new Error("Tipe diskon tidak valid.");
+  const distributor = EXODUS_DISTRIBUTORS[distributorKode];
+  if (!distributor) throw new Error("Pilih distributor dulu.");
+
+  const pengajuan = await prisma.poaStandarisasi.findUnique({
+    where: { id: pengajuanId },
+    include: { outlet: true, produk: { include: { product: true } } },
+  });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+
+  // Tanggal / periode / file
+  let requestDocNumber: string | null = null;
+  let requestDocDate: Date | null = null;
+  let startDate: Date | null = null;
+  let endDate: Date | null = null;
+  let file: { name: string; mimeType: string; buffer: Buffer };
+  if (tipe === "DPF") {
+    const tgl = parseYmd(str("tanggalPo"));
+    requestDocNumber = str("nomorPo");
+    if (!tgl) throw new Error("Tanggal PO wajib diisi.");
+    if (!requestDocNumber) throw new Error("Nomor PO wajib diisi.");
+    requestDocDate = new Date(Date.UTC(tgl.y, tgl.m, tgl.d) - WIB_MS); // 00:00 WIB, seperti data nyata Exodus
+    const f = formData.get("file");
+    if (!(f instanceof File) || f.size === 0) throw new Error("Dokumen PO wajib diupload.");
+    const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("File harus berformat PDF atau JPG/PNG.");
+    if (f.size > MAX_FILE_SIZE_BYTES) throw new Error("Ukuran file maksimum 10MB.");
+    file = { name: f.name, mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream", buffer: Buffer.from(await f.arrayBuffer()) };
+  } else {
+    const awal = parseYmd(str("periodeAwal"));
+    const akhir = parseYmd(str("periodeAkhir"));
+    if (!awal || !akhir) throw new Error("Periode awal dan akhir wajib diisi.");
+    startDate = new Date(Date.UTC(awal.y, awal.m, 1) - WIB_MS); // tgl 1 bulan awal, 00:00 WIB
+    endDate = new Date(Date.UTC(akhir.y, akhir.m + 1, 1) - WIB_MS - 1); // akhir bulan akhir, 23:59:59.999 WIB
+    if (endDate < startDate) throw new Error("Periode akhir tidak boleh sebelum periode awal.");
+    // Exodus mewajibkan request-doc-file bahkan untuk DPL, padahal DPL tidak punya dokumen (user 2026-09-29) -> placeholder teks.
+    file = { name: `DPL ${pengajuan.kodePI}.txt`, mimeType: "text/plain", buffer: Buffer.from(`Pengajuan DPL ${pengajuan.kodePI} - ${pengajuan.outlet.namaOutlet} via Form POA oleh ${actor.name}\n`) };
+  }
+
+  // Produk terpilih + disc
+  let selected: { produkId: string; quantity: number | string }[];
+  try { selected = JSON.parse(str("produk")); } catch { throw new Error("Data produk tidak valid."); }
+  if (!Array.isArray(selected) || selected.length === 0) throw new Error("Pilih minimal satu produk.");
+  const discounts = await getDiscountsForOutlet(pengajuan.kodePI);
+  const pricing = await getLiveProductPricing();
+  const products = selected.map((sel) => {
+    const prod = pengajuan.produk.find((p: (typeof pengajuan.produk)[number]) => p.id === sel.produkId);
+    if (!prod) throw new Error("Produk tidak ada di pengajuan ini.");
+    const nama = prod.product.namaProduk;
+    const qty = Number(sel.quantity);
+    if (!Number.isInteger(qty) || qty < (tipe === "DPF" ? 1 : 0)) throw new Error(`Qty ${nama} harus bilangan bulat ${tipe === "DPF" ? ">= 1" : ">= 0"}.`);
+    const principalPct = toNum(prod.finalDiscountPct) ?? discounts?.get(prod.kodeProduk)?.principalPct ?? null;
+    const distributorPct = toNum(prod.diskonDistributorPct) ?? discounts?.get(prod.kodeProduk)?.distributorPct ?? null;
+    if (principalPct == null || distributorPct == null) throw new Error(`Disc PI/Dist ${nama} belum ada.`);
+    if (principalPct < 0 || principalPct > 100 || distributorPct < 0 || distributorPct > 100) throw new Error(`Disc ${nama} di luar 0-100%.`);
+    const live = pricing?.get(prod.kodeProduk);
+    if (!live?.principalId || !live.principalCode || !live.principalName) throw new Error(`Principal ${nama} tidak ditemukan di Exodus.`);
+    return {
+      snapshot: { kodeProduk: prod.kodeProduk, namaProduk: nama, principalPct, distributorPct, quantity: qty },
+      exodus: {
+        productName: live.namaProduk ?? nama, productCode: prod.kodeProduk,
+        productType: live.namaGroupBrand === "ETHICAL" ? "ETH" : "OTC",
+        principalDistributorId: live.principalId, principalDistributorName: live.principalName, principalDistributorCode: live.principalCode,
+        principalPercentage: principalPct, distributorPercentage: distributorPct, quantity: qty,
+      },
+    };
+  });
+
+  const outletId = await getExodusOutletIdByCode(pengajuan.kodePI);
+  if (!outletId) throw new Error("Outlet tidak ditemukan di Exodus (atau Exodus sedang tidak bisa dihubungi).");
+
+  // Reserve dulu (unique dedupKey = anti double-submit), baru POST; POST gagal -> lepas reservasi.
+  const scope = tipe === "DPF" ? requestDocNumber : `${startDate!.toISOString()}~${endDate!.toISOString()}`;
+  const dedupKey = [tipe, distributorKode, scope, ...products.map((p) => p.snapshot.kodeProduk).sort()].join("|");
+  let reservation: { id: string };
+  try {
+    reservation = await prisma.poaStandarisasiDiscountRequest.create({
+      data: {
+        pengajuanId, tipe, distributorKode, requestDocNumber, requestDocDate, startDate, endDate, dedupKey,
+        produk: products.map((p) => p.snapshot),
+        submittedByNip: actor.nip,
+      },
+      select: { id: true },
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2002") throw new Error("Ajuan yang sama (tipe, distributor, PO/periode, produk) sudah pernah dikirim.");
+    throw e;
+  }
+
+  const result = await submitDiscountRequest({
+    discountType: tipe, outletId, outletCode: pengajuan.kodePI, outletName: pengajuan.outlet.namaOutlet,
+    distributorId: distributor.id, distributorName: distributor.name,
+    requestDocNumber, requestDocDate: requestDocDate?.toISOString() ?? null,
+    startDate: startDate?.toISOString() ?? null, endDate: endDate?.toISOString() ?? null,
+    products: products.map((p) => p.exodus), file,
+  });
+  if (!result.ok) {
+    await prisma.poaStandarisasiDiscountRequest.delete({ where: { id: reservation.id } });
+    console.error("[poaStandarisasi/submitDiscountRequest] Exodus gagal:", result.error);
+    throw new Error(`Gagal mengirim ke Exodus: ${result.error}`);
+  }
+  revalidatePath(`/poa-standarisasi/${pengajuanId}`);
 }
 
 /** Uploads a "Permintaan SP Non Sales" document — multiple files allowed per pengajuan (shared, not per produk), own admin-settable Drive folder. */

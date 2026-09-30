@@ -191,6 +191,7 @@ model User {
   poaStandarisasiOwned PoaStandarisasi[]
   poaStandarisasiFileAccessLogs PoaStandarisasiFileAccessLog[]
   poaStandarisasiDokterReassignLogs PoaStandarisasiDokterReassignLog[]
+  poaStandarisasiDiscountRequests PoaStandarisasiDiscountRequest[]
   poaStandarisasiSpNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
 
   // ─── Tambahan Relasi Balik untuk Sales Counter ───
@@ -1622,6 +1623,7 @@ model PoaStandarisasi {
   produk PoaStandarisasiProduk[]
   fileAccessLogs PoaStandarisasiFileAccessLog[]
   spNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
+  discountRequests    PoaStandarisasiDiscountRequest[]
 
   @@index([ownerId])
   @@index([kodePI])
@@ -1872,6 +1874,36 @@ model PoaStandarisasiSpNonSalesDocument {
   uploadedBy    User     @relation(fields: [uploadedByNip], references: [nip])
   uploadedAt    DateTime @default(now())
 
+  @@index([pengajuanId])
+}
+
+// Riwayat ajuan DPL/DPF yang sudah dikirim ke Exodus (POST
+// promotion/v1/request/discount, Step 5 tab 2, 2026-09-29). Exodus tidak
+// mengembalikan ID request di response, jadi ini satu-satunya jejak lokal +
+// pencegah double-submit (endpoint Exodus sendiri tidak menolak duplikat).
+// dedupKey = tipe|distributor|(nomor PO atau periode)|kode produk terurut,
+// unique per pengajuan — row di-reserve SEBELUM POST, dihapus lagi kalau POST
+// gagal. `produk` = snapshot [{kodeProduk,namaProduk,principalPct,distributorPct,quantity}].
+model PoaStandarisasiDiscountRequest {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasi @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  tipe             String // "DPL" | "DPF"
+  distributorKode  String // AMS | PPG | MPI
+  requestDocNumber String?
+  requestDocDate   DateTime?
+  startDate        DateTime?
+  endDate          DateTime?
+  produk           Json
+  dedupKey         String
+
+  submittedByNip String
+  submittedBy    User     @relation(fields: [submittedByNip], references: [nip])
+  submittedAt    DateTime @default(now())
+
+  @@unique([pengajuanId, dedupKey])
   @@index([pengajuanId])
 }
 

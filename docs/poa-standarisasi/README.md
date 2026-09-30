@@ -20,7 +20,7 @@ Trigger SDD yang terpenuhi (lihat `docs/sdd/01-when-and-workflow.md`): sumber da
 3. Approver Phase 2 mengikuti **struktur organisasi** (`nipAtasan` chain milik MR pembuat pengajuan) — reuse mekanisme hierarki yang sudah ada di `authz.ts`, termasuk resolusi vacant-team yang sama dipakai `Outlet.coveredByNip`/`coveredByRole`.
 4. Formula **TIDAK** dikalikan `periodeBulan` — field `estimasiNilaiRp`/`estimasiQty`/dst. adalah nilai **PER BULAN**, bukan potensi total. Field & label di-rename eksplisit jadi "per Bulan" di seluruh spec supaya tidak disalahartikan sebagai total (lihat `02-data-model.md`).
 
-Open question non-blocking (bisa jalan dengan asumsi kerja, disesuaikan belakangan) masih ada di `01-business-rules.md` §7 — termasuk ambang "OVER BUDGET" 30%, URL "+ Buat DPL/DPF baru", cakupan upload "Surat Approval Standarisasi KFT" (per pengajuan vs per produk), dan sumber data `Outlet.jumlahBed`.
+Open question non-blocking (bisa jalan dengan asumsi kerja, disesuaikan belakangan) masih ada di `01-business-rules.md` §7 — termasuk ambang "OVER BUDGET" 30%, cakupan upload "Surat Approval Standarisasi KFT" (per pengajuan vs per produk), dan sumber data `Outlet.jumlahBed`.
 
 ## Ringkasan
 

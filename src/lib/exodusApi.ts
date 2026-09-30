@@ -894,6 +894,105 @@ export async function getExodusDiskonHistory(outletCode: string): Promise<Exodus
   return [...maxByCode.entries()].map(([kodeProduk, maxDiskonPct]) => ({ kodeProduk, maxDiskonPct }));
 }
 
+export interface ExodusDiscountRequestProductInput {
+  productName: string;
+  productCode: string;
+  productType: string;
+  principalDistributorId: number;
+  principalDistributorName: string;
+  principalDistributorCode: string;
+  /** Kata Exodus: kirim null (2026-09-30) — dikirim eksplisit null kalau tidak diisi. */
+  divisionDistributorCode?: string | null;
+  distributorProductCodePrefix?: string | null;
+  principalPercentage: number;
+  distributorPercentage: number;
+  quantity: number;
+}
+
+export interface ExodusDiscountRequestInput {
+  discountType: "DPL" | "DPF";
+  outletId: number;
+  outletCode: string;
+  outletName: string;
+  distributorId: number;
+  distributorName: string;
+  /** Nomor PO — DPF only (null for DPL). */
+  requestDocNumber: string | null;
+  /** Tanggal PO — DPF only; null untuk DPL (seperti data nyata Exodus). ISO string. */
+  requestDocDate: string | null;
+  /** DPF: null (seperti data nyata Exodus). DPL: awal/akhir periode dalam UTC dari batas hari WIB (mis. "2026-09-30T17:00:00Z" = 1 Okt WIB). */
+  startDate: string | null;
+  endDate: string | null;
+  note?: string | null;
+  products: ExodusDiscountRequestProductInput[];
+  /** Dokumen pendukung (required oleh Exodus, multipart `request-doc-file`). */
+  file: { name: string; mimeType: string; buffer: Buffer };
+}
+
+export type ExodusSubmitResult = { ok: true; data: unknown } | { ok: false; error: string };
+
+/**
+ * POST /promotion/v1/request/discount (multipart: `request` JSON text +
+ * `request-doc-file`). Unlike the read helpers above this is a WRITE, so it
+ * returns a discriminated result with the failure reason instead of `null` —
+ * caller must show/log why a submit failed, and must not retry blindly
+ * (no idempotency key documented; a timeout may still have created the
+ * request on Exodus's side). Not cached, not called from any live flow yet.
+ */
+export async function submitDiscountRequest(input: ExodusDiscountRequestInput): Promise<ExodusSubmitResult> {
+  if (!isConfigured) return { ok: false, error: "Exodus API belum dikonfigurasi." };
+  const token = await getAccessToken();
+  if (!token) return { ok: false, error: "Gagal mendapatkan token Exodus." };
+
+  const request = {
+    discount_type: input.discountType,
+    outlet_id: input.outletId,
+    outlet_code: input.outletCode,
+    outlet_name: input.outletName,
+    distributor_id: input.distributorId,
+    distributor_name: input.distributorName,
+    request_doc_number: input.requestDocNumber,
+    request_doc_date: input.requestDocDate,
+    start_date: input.startDate,
+    end_date: input.endDate,
+    note: input.note ?? null,
+    is_open_api: false,
+    discount_products: input.products.map((p) => ({
+      product_name: p.productName,
+      product_code: p.productCode,
+      product_type: p.productType,
+      principal_distributor_id: p.principalDistributorId,
+      principal_distributor_name: p.principalDistributorName,
+      principal_distributor_code: p.principalDistributorCode,
+      division_distributor_code: p.divisionDistributorCode ?? null,
+      distributor_product_code_prefix: p.distributorProductCodePrefix ?? null,
+      principal_percentage: p.principalPercentage,
+      distributor_percentage: p.distributorPercentage,
+      quantity: p.quantity,
+    })),
+  };
+
+  const form = new FormData();
+  form.set("request", JSON.stringify(request));
+  form.set("request-doc-file", new Blob([new Uint8Array(input.file.buffer)], { type: input.file.mimeType }), input.file.name);
+
+  try {
+    const res = await fetchWithTimeout(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      cache: "no-store",
+    }, 30000);
+    const text = await res.text();
+    if (!res.ok) return { ok: false, error: `Exodus ${res.status}: ${text.slice(0, 500)}` };
+    let body: unknown = text;
+    try { body = JSON.parse(text); } catch { /* keep raw text */ }
+    return { ok: true, data: body };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export interface ExodusOutletMaster {
   code: string;
   name: string;

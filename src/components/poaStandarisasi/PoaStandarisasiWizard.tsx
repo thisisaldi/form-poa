@@ -35,6 +35,9 @@ import {
   saveSpNonSalesJumlahAction,
   submitSpNonSalesRequestAction,
   updateSpNonSalesDistributorsAction,
+  submitDiscountRequestAction,
+  listDiscountRequestsAction,
+  type DiscountRequestRow,
   uploadSpNonSalesDocumentAction,
   deleteSpNonSalesDocumentAction,
   generateSpNonSalesMemoAction,
@@ -2072,8 +2075,7 @@ function FinalisasiPhase({
 // dari placeholder "Step 5"). 2 tab: "Permintaan SP Non
 // Sales" (jumlah per produk + upload dokumen + submit) dan "Request DPL/DPF"
 // (read-only Beban Discount PI/Distributor per produk dari data Finalisasi,
-// Distributor editable, tombol "+ Buat DPL/DPF" tetap placeholder — belum
-// ada integrasi sistem eksternal di v1, §6 non-goals).
+// Distributor editable, tombol "Ajukan" kirim ke Exodus — 2026-09-29).
 
 function formatRelativeDays(iso: string | Date): string {
   const then = typeof iso === "string" ? new Date(iso) : iso;
@@ -2370,51 +2372,265 @@ function Step5SpNonSalesDplDpf({
 
       {activeTab === "dplDpf" && (
         <div>
-          <span className="text-sm font-medium block mb-2">Distributor</span>
-          <div className="flex gap-4 mb-4">
-            {DISTRIBUTOR_OPTIONS.map((d) => (
-              <label key={d} className="flex items-center gap-1.5 text-sm">
-                <input
-                  type="radio"
-                  name="dplDpfDistributor"
-                  checked={distributors.includes(d)}
-                  disabled={busy || !editable}
-                  onChange={() => handleDistributorChange([d])}
-                />
-                {d}
-              </label>
-            ))}
-          </div>
+          <DplDpfForm
+            pengajuanId={pengajuan.id}
+            canEdit={canEdit}
+            namaOutlet={pengajuan.outlet.namaOutlet}
+            distributor={distributors[0]}
+            onDistributorChange={(d) => handleDistributorChange([d])}
+            distributorDisabled={busy || !canEdit}
+            produk={pengajuan.produk}
+            productByKode={productByKode}
+          />
+        </div>
+      )}
+    </Card>
+  );
+}
 
+/**
+ * Form ajuan DPL/DPF (2026-09-23 user request), submit ke Exodus lewat
+ * submitDiscountRequestAction (2026-09-29, lihat docs/poa-standarisasi §6b).
+ * Field "Disc PI/Dist sebelumnya" seharusnya nilai dari pengajuan DPL/DPF
+ * SEBELUMNYA (user request), tapi karena belum ada histori tersimpan sama
+ * sekali di v1 ini, selalu kosong ("-") untuk sekarang. "Disc Campaign PI"
+ * di-skip dulu (user request, sumbernya belum jelas).
+ */
+function DplDpfForm({
+  pengajuanId,
+  canEdit,
+  namaOutlet,
+  distributor,
+  onDistributorChange,
+  distributorDisabled,
+  produk,
+  productByKode,
+}: {
+  pengajuanId: string;
+  canEdit: boolean;
+  namaOutlet: string;
+  distributor: string | undefined;
+  onDistributorChange: (d: string) => void;
+  distributorDisabled: boolean;
+  produk: PoaStandarisasiDetail["produk"];
+  productByKode: Map<string, Product>;
+}) {
+  const [tipe, setTipe] = useState<"DPL" | "DPF">("DPL");
+  const [periodeAwal, setPeriodeAwal] = useState("");
+  const [periodeAkhir, setPeriodeAkhir] = useState("");
+  const [tanggalPo, setTanggalPo] = useState("");
+  const [nomorPo, setNomorPo] = useState("");
+  const [poFile, setPoFile] = useState<File | null>(null);
+  const poFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set(produk.map((p) => p.id)));
+  const [qtyByProdukId, setQtyByProdukId] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [history, setHistory] = useState<DiscountRequestRow[]>([]);
+
+  const loadHistory = () => listDiscountRequestsAction(pengajuanId).then(setHistory).catch(() => {});
+  useEffect(() => { loadHistory(); }, [pengajuanId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSubmit() {
+    setBusy(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      const fd = new FormData();
+      fd.set("pengajuanId", pengajuanId);
+      fd.set("tipe", tipe);
+      fd.set("distributor", distributor ?? "");
+      fd.set("produk", JSON.stringify(produk.filter((p) => selected.has(p.id)).map((p) => ({ produkId: p.id, quantity: qtyByProdukId[p.id] || (tipe === "DPL" ? "0" : "") }))));
+      if (tipe === "DPL") {
+        fd.set("periodeAwal", periodeAwal);
+        fd.set("periodeAkhir", periodeAkhir);
+      } else {
+        fd.set("tanggalPo", tanggalPo);
+        fd.set("nomorPo", nomorPo);
+        if (poFile) fd.set("file", poFile);
+      }
+      const res = await submitDiscountRequestAction(fd);
+      if (res.error) throw new Error(res.error);
+      setSuccess(true);
+      setPoFile(null);
+      setNomorPo("");
+      setQtyByProdukId({});
+      await loadHistory();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gagal mengajukan.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const canSubmit =
+    canEdit && !busy && !!distributor && selected.size > 0 &&
+    (tipe === "DPL" ? !!periodeAwal && !!periodeAkhir : !!tanggalPo && !!nomorPo.trim() && !!poFile) &&
+    (tipe === "DPL" || produk.filter((p) => selected.has(p.id)).every((p) => parseInt(qtyByProdukId[p.id] ?? "", 10) >= 1));
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <span className="text-sm font-medium block" style={{ color: "var(--color-text)" }}>Ajukan DPL/DPF</span>
+
+      <div className="grid grid-cols-2 gap-3">
+          <div>
+            <span className="text-xs font-medium block mb-1">Outlet</span>
+            <div className="rounded px-3 py-2 text-sm" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>{namaOutlet}</div>
+          </div>
+          <div>
+            <span className="text-xs font-medium block mb-1">Distributor</span>
+            <Combobox
+              name="dplDpfDistributor"
+              options={DISTRIBUTOR_OPTIONS.map((d) => ({ value: d, label: d }))}
+              value={distributor ?? ""}
+              onChange={onDistributorChange}
+              disabled={distributorDisabled}
+              placeholder="Pilih distributor…"
+            />
+          </div>
+        </div>
+
+        <div>
+          <span className="text-xs font-medium block mb-1">Tipe Diskon</span>
+          <div className="flex gap-3">
+            {(["DPL", "DPF"] as const).map((value) => {
+              const active = tipe === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setTipe(value)}
+                  className="flex-1 flex items-center gap-2 rounded-lg px-4 py-2.5 transition-colors"
+                  style={{
+                    border: `1.5px solid ${active ? "var(--color-blue)" : "var(--color-border)"}`,
+                    background: active ? "var(--color-blue-light)" : "var(--color-bg)",
+                  }}
+                >
+                  <span
+                    className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                    style={{ border: `1.5px solid ${active ? "var(--color-blue)" : "var(--color-text-faint)"}` }}
+                  >
+                    {active && <span className="w-2 h-2 rounded-full" style={{ background: "var(--color-blue)" }} />}
+                  </span>
+                  <span className="text-sm font-semibold" style={{ color: active ? "var(--color-blue)" : "var(--color-text)" }}>{value}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {tipe === "DPL" ? (
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Periode Awal" type="date" value={periodeAwal} onChange={(e) => setPeriodeAwal(e.target.value)} />
+            <Input label="Periode Akhir" type="date" value={periodeAkhir} onChange={(e) => setPeriodeAkhir(e.target.value)} />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Tanggal PO" type="date" value={tanggalPo} onChange={(e) => setTanggalPo(e.target.value)} />
+            <Input label="Nomor PO" type="text" value={nomorPo} onChange={(e) => setNomorPo(e.target.value)} placeholder="Nomor PO…" />
+            <div className="col-span-2">
+              <span className="text-xs font-medium block mb-1">Upload Dokumen PO</span>
+              <input
+                ref={poFileInputRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => setPoFile(e.target.files?.[0] ?? null)}
+              />
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => poFileInputRef.current?.click()}>
+                  {poFile ? "Ganti File" : "Pilih File"}
+                </Button>
+                {poFile && <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{poFile.name}</span>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <span className="text-sm font-medium block mb-2">Produk</span>
           <table className="w-full text-xs">
             <thead>
               <tr style={{ color: "var(--color-text-faint)" }}>
+                <th className="text-left py-1 pr-2"></th>
                 <th className="text-left py-1 pr-3">Produk</th>
-                <th className="text-right py-1 px-2">Beban Discount PI</th>
-                <th className="text-right py-1 px-2">Beban Discount Distributor</th>
-                <th></th>
+                <th className="text-right py-1 px-2">Qty</th>
+                <th className="text-right py-1 px-2">Disc PI</th>
+                <th className="text-right py-1 px-2">Disc Dist</th>
+                <th className="text-right py-1 px-2">Disc PI Sebelumnya</th>
+                <th className="text-right py-1 pl-2">Disc Dist Sebelumnya</th>
               </tr>
             </thead>
             <tbody>
-              {pengajuan.produk.map((p) => {
+              {produk.map((p) => {
                 const product = productByKode.get(p.kodeProduk);
+                const isSelected = selected.has(p.id);
                 return (
                   <tr key={p.id} style={{ borderTop: "1px solid var(--color-border)" }}>
+                    <td className="py-2 pr-2"><input type="checkbox" checked={isSelected} onChange={() => toggleSelected(p.id)} /></td>
                     <td className="py-2 pr-3 font-semibold" style={{ color: "var(--color-blue)" }}>{product?.namaProduk ?? p.kodeProduk}</td>
-                    <td className="py-2 px-2 text-right">{p.finalDiscountPct != null ? `${p.finalDiscountPct}%` : "-"}</td>
-                    <td className="py-2 px-2 text-right">{p.diskonDistributorPct != null ? `${p.diskonDistributorPct}%` : "-"}</td>
-                    <td className="py-2 pl-3">
-                      {/* Placeholder only (§6 non-goals) — no real DPL/DPF system integration in v1. */}
-                      <Button size="sm" variant="secondary" disabled title="Belum tersedia — integrasi sistem DPL/DPF belum ada di v1">+ Buat DPL/DPF</Button>
+                    <td className="py-2 px-2 w-20">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        disabled={!isSelected}
+                        value={qtyByProdukId[p.id] ?? ""}
+                        onChange={(e) => setQtyByProdukId((prev) => ({ ...prev, [p.id]: e.target.value.replace(/[^0-9]/g, "") }))}
+                        className="w-full text-right rounded px-2 py-1"
+                        style={{ border: "1px solid var(--color-border)", background: isSelected ? "var(--color-bg)" : "var(--color-bg-subtle)" }}
+                        placeholder="0"
+                      />
                     </td>
+                    <td className="py-2 px-2 text-right" style={{ color: "var(--color-text-faint)" }}>{p.finalDiscountPct != null ? `${p.finalDiscountPct}%` : "-"}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: "var(--color-text-faint)" }}>{p.diskonDistributorPct != null ? `${p.diskonDistributorPct}%` : "-"}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: "var(--color-text-faint)" }}>-</td>
+                    <td className="py-2 pl-2 text-right" style={{ color: "var(--color-text-faint)" }}>-</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+
+      {error && (
+        <p className="text-xs rounded px-3 py-2" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>{error}</p>
       )}
-    </Card>
+      {success && (
+        <p className="text-xs rounded px-3 py-2" style={{ background: "var(--color-status-approved-bg, #E6F5EC)", color: "var(--color-status-approved, #008f42)" }}>✓ Terkirim ke Exodus.</p>
+      )}
+      <div className="flex justify-end border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+        <Button type="button" size="sm" disabled={!canSubmit} onClick={handleSubmit}>
+          {busy ? "Mengirim…" : "Ajukan"}
+        </Button>
+      </div>
+
+      {history.length > 0 && (
+        <div>
+          <span className="text-sm font-medium block mb-2">Riwayat Ajuan</span>
+          <div className="space-y-2">
+            {history.map((h) => (
+              <div key={h.id} className="rounded-lg px-3 py-2 text-xs" style={{ border: "1px solid var(--color-border)" }}>
+                <div className="font-medium">
+                  {h.tipe} · {h.distributorKode} · {h.tipe === "DPF" ? `PO ${h.requestDocNumber}` : `${h.startDate ? new Date(h.startDate).toLocaleDateString("id-ID", { month: "short", year: "numeric", timeZone: "Asia/Jakarta" }) : "-"} – ${h.endDate ? new Date(h.endDate).toLocaleDateString("id-ID", { month: "short", year: "numeric", timeZone: "Asia/Jakarta" }) : "-"}`}
+                </div>
+                <div style={{ color: "var(--color-text-faint)" }}>
+                  {new Date(h.submittedAt).toLocaleString("id-ID")} oleh {h.submittedByNama} · {h.produk.map((p) => `${p.namaProduk} (${p.quantity})`).join(", ")}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
