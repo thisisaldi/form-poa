@@ -663,9 +663,13 @@ export async function getStandarisasiGroupOutletsAction(kodePI: string, excludeP
   for (const r of kriteriaRows) {
     if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) record(r.kodeProduk, r.kodePI, null);
   }
+  // Cuma DPL yang enddate-nya PERSIS bulan berjalan (bukan "aktif" secara
+  // umum) — user request 2026-09-30: biar list-nya nunjukin outlet yang
+  // periode DPL-nya beneran mau/baru habis bulan ini, bukan semua yang masih
+  // jauh dari habis.
   for (const [siblingKodePIVal, contracts] of dplByOutlet) {
     for (const c of contracts) {
-      if (c.prdAwal <= ym && ym <= c.prdAkhir) record(c.kodeProduk, siblingKodePIVal, bulanTahunFromYyyymm(c.prdAkhir));
+      if (c.prdAkhir === ym) record(c.kodeProduk, siblingKodePIVal, bulanTahunFromYyyymm(c.prdAkhir));
     }
   }
 
