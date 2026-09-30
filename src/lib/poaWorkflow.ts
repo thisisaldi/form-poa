@@ -537,7 +537,26 @@ export async function submitDoctor(
   // restarting the whole ASM→SM→NSM chain — see the field's doc comment in
   // schema.prisma. A reject/cancel-driven REVISI never sets this, so those
   // keep restarting from ASM as before.
-  const resumeRole = existing?.editResumeRole ? RESUME_CHAIN_ROLE[existing.editResumeRole] : undefined;
+  let resumeRole = existing?.editResumeRole ? RESUME_CHAIN_ROLE[existing.editResumeRole] : undefined;
+  // Same "same-person skip" as collapseApproveChain below, applied to a
+  // RESUMED level instead of an in-progress approve step (2026-09-30 bug:
+  // a doctor granted edit at ASD whose ASD and SD are the same person
+  // resubmitted into SUBMITTED_TO_ASD instead of SUBMITTED_TO_SD — that
+  // person's SD queue filters on SUBMITTED_TO_SD, so it never showed up
+  // there even though currentHolderId was already correct).
+  if (resumeRole && resumeRole !== "SD") {
+    const poaWithHierarchy = await loadPoaWithHierarchy(poaId);
+    const ceiling = approvalCeiling(existing?.exodusRequiredRole ?? null);
+    let collapsed: ChainRole = resumeRole;
+    while (collapsed !== "SD" && CHAIN_LEVEL[collapsed] < CHAIN_LEVEL[ceiling]) {
+      const next: ChainRole = APPROVAL_CHAIN[CHAIN_LEVEL[collapsed]];
+      const holder = resolveNextHolder(poaWithHierarchy, collapsed);
+      const nextHolder = resolveNextHolder(poaWithHierarchy, next);
+      if (!holder || !nextHolder || holder !== nextHolder) break;
+      collapsed = next;
+    }
+    resumeRole = collapsed;
+  }
   const transition = !existing || existing.status === PoaStatus.REVISI
     ? resumeRole
       ? { toStatus: CHAIN_STATUS[resumeRole], nextHolderRole: resumeRole }
