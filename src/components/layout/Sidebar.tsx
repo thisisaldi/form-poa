@@ -48,8 +48,9 @@ const NAV_ITEMS: NavItem[] = [
     // page.tsx's note. Points at the list page (not /new directly,
     // 2026-08-20) — same "list page holds its own create button" convention
     // as Dashboard for POA Estimasi, so submitted pengajuan are actually
-    // reachable again.
-    roles: ["ADMIN", "MR"],
+    // reachable again. Dibuka ke role sales chain 2026-09-29 (user: "ikuti POA
+    // PSSP") — visibilitas per role di listVisiblePoaStandarisasiAction.
+    roles: ["ADMIN", "MR", "ASM", "SM", "NSM", "GM", "SD", "SFE", "VIEWER"],
   },
   {
     href: "/poa-standarisasi/dashboard",

@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getProducts } from "@/lib/masterData";
+import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
 import { getPoaStandarisasiDetail, getDokterOptionsAction } from "@/app/actions/poaStandarisasi";
 import { canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan, isPoaStandarisasiLevelApprover } from "@/lib/authz";
 import { APPROVAL_LEVELS } from "@/lib/discountApprovalLevel";
@@ -11,10 +12,9 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
   const { id } = await params;
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // Re-opened to MR 2026-09-10 (user request) — see new/page.tsx's note.
-  // ASM/SM/NSM still blocked here on purpose: user wants atasan approval done
-  // through its own dedicated view, not this same wizard page.
-  if (session.role !== "ADMIN" && session.role !== "MR") redirect("/dashboard");
+  // Dibuka ke role sales chain 2026-09-29 (user: "ikuti POA PSSP", membalik keputusan 2026-09-10 yang MR/ADMIN saja).
+  // Akses per pengajuan dijaga canViewPoaStandarisasi di getPoaStandarisasiDetail (null -> notFound); edit tetap owner-only.
+  if (!POA_STANDARISASI_VIEW_ROLES.includes(session.role)) redirect("/dashboard");
 
   const pengajuan = await getPoaStandarisasiDetail(id);
   if (!pengajuan) notFound();

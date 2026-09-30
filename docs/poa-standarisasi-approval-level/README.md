@@ -2,7 +2,7 @@
 
 **Sumber requirement**: user (2026-09-29), berdasarkan tabel "Syarat Level Approval DPL, DPF & Discount Custom" (screenshot dari Exodus): level approval ditentukan persentase diskon beban Principal, dihitung terpisah per produk.
 
-**Status**: 🟢 v1 diimplementasikan (2026-09-29): tabel `PoaStandarisasiProdukApproval`, approve per produk/level lewat `approvePoaStandarisasiAtasanAction`, UI per produk di Fase 2 wizard, tampilan `/approvals` untuk approver (termasuk ASD=GM dan SD). Jawaban user: angka = `estimasiDiskonPct` Planning, approval per produk, approver ASD/SD pola POA Estimasi, ASD kosong → SD menyetujui level ASD langsung, `DITOLAK` menahan pengajuan. **Belum dikerjakan**: membuka daftar/detail `/poa-standarisasi` untuk role selain MR/ADMIN (approver memakai `/approvals`, lihat `03-ui-and-access.md`), ajukan ulang setelah ditolak. ⚠️ Belum dites lewat UI/browser — hanya `scripts/checkDiscountApprovalLevel.ts` (logika urutan) dan smoke test tabel di DB.
+**Status**: 🟢 v1 diimplementasikan (2026-09-29): tabel `PoaStandarisasiProdukApproval`, approve per produk/level lewat `approvePoaStandarisasiAtasanAction`, UI per produk di Fase 2 wizard, tampilan `/approvals` untuk approver (termasuk ASD=GM dan SD). Jawaban user: angka = `estimasiDiskonPct` Planning, approval per produk, approver ASD/SD pola POA Estimasi, ASD kosong → SD menyetujui level ASD langsung, `DITOLAK` menahan pengajuan. Daftar/detail `/poa-standarisasi` juga dibuka ke role sales chain (2026-09-30, lihat `03-ui-and-access.md`). **Belum dikerjakan**: ajukan ulang setelah ditolak, Export Excel untuk atasan. ⚠️ Belum dites lewat UI/browser — hanya `scripts/checkDiscountApprovalLevel.ts` (logika urutan) dan smoke test tabel di DB.
 
 ## Ringkasan
 

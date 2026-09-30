@@ -166,7 +166,7 @@ export async function getSubordinateMRNips(user: User): Promise<string[]> {
  */
 export async function getSubordinateOwnerNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
-  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) {
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SD || user.role === Role.SFE || user.role === Role.VIEWER) {
     // Company-wide: every role that can own a POA (MR, or a vacant-team
     // ASM/SM/NSM) — same isDummy/isActive exclusions as the MR-only branch
     // above, same reasoning (dummy accounts inflate company-wide aggregates).

@@ -14,8 +14,9 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, isPoaStandarisasiLevelApprover, canAccessSalesSupportMemo, getSubordinateMRNips } from "@/lib/authz";
+import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, isPoaStandarisasiLevelApprover, canAccessSalesSupportMemo, getSubordinateMRNips, getSubordinateOwnerNips } from "@/lib/authz";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
+import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
 import { APPROVAL_LEVELS, actionableRows, discountApprovalLevel, levelsUpTo, type ApprovalLevel, type ProdukApprovalRow } from "@/lib/discountApprovalLevel";
 import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
@@ -24,6 +25,7 @@ import { getDiscountsForOutlet, getLiveProductPricing, type ExodusDiscountPct } 
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import { SALES_TEAM_ROLES } from "@/lib/role";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -280,8 +282,14 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
   if (actor.role === "SALES_SUPPORT") throw new Error("Anda tidak berhak mengakses ini.");
 
   const companyWide = actor.role === "ADMIN" || actor.role === "GM" || actor.role === "SD" || actor.role === "SFE" || actor.role === "VIEWER";
+  // owner.role in SALES_TEAM_ROLES (2026-09-30 user request): pengajuan yang
+  // dibuat langsung oleh ADMIN (biasa dipakai buat testing di production —
+  // lihat 12 baris test yang dihapus hari ini) tidak boleh nyangkut di
+  // rollup company-wide ini. Cuma perlu di branch companyWide — branch
+  // subtree di bawah sudah otomatis sales-only (getSubordinateMRNips cuma
+  // mengembalikan NIP MR).
   const where: Prisma.PoaStandarisasiWhereInput = companyWide
-    ? { owner: { isDummy: false } }
+    ? { owner: { isDummy: false, role: { in: [...SALES_TEAM_ROLES] } } }
     : { ownerId: { in: actor.role === "MR" ? [actor.nip] : await getSubordinateMRNips(actor) } };
 
   const pengajuan = await prisma.poaStandarisasi.findMany({
@@ -325,6 +333,33 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
 
   // Halaman detail wizard cuma untuk ADMIN/MR (lihat [id]/page.tsx) — role lain view-only.
   return { rows, canOpenDetail: actor.role === "ADMIN" || actor.role === "MR" };
+}
+
+/**
+ * Daftar pengajuan sesuai visibilitas POA PSSP: MR sendiri; ASM/SM/NSM sendiri
+ * + bawahan; GM/SD/SFE/VIEWER/ADMIN company-wide (tanpa akun dummy/nonaktif,
+ * plus milik sendiri). SATU query (owner in [...]) + batas 300 terbaru — jangan
+ * ganti jadi resolve approver per baris (docs/PERFORMANCE.md §2 poin 3-4).
+ */
+export async function listVisiblePoaStandarisasiAction() {
+  const { actor } = await requireActor();
+  if (!POA_STANDARISASI_VIEW_ROLES.includes(actor.role)) throw new Error("Anda tidak berhak mengakses ini.");
+  const ownerNips = [...new Set([actor.nip, ...(await getSubordinateOwnerNips(actor))])];
+  const rows = await prisma.poaStandarisasi.findMany({
+    where: { ownerId: { in: ownerNips } },
+    include: {
+      owner: { select: { name: true } },
+      outlet: { select: { namaOutlet: true } },
+      produk: { select: { id: true, product: { select: { namaProduk: true } }, standarisasiGagal: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  });
+  return rows.map((p: (typeof rows)[number]) => ({
+    ...p,
+    ownerName: p.owner.name,
+    produk: p.produk.map((prod: (typeof p.produk)[number]) => ({ id: prod.id, namaProduk: prod.product.namaProduk, standarisasiGagal: prod.standarisasiGagal })),
+  }));
 }
 
 export async function listMyPoaStandarisasiAction() {
