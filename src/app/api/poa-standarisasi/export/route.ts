@@ -22,6 +22,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getPoaStandarisasiApprovers } from "@/lib/authz";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
+import { SALES_TEAM_ROLES } from "@/lib/role";
 
 function phaseLabel(phase: string): string {
   return PHASES.find((p) => p.id === phase)?.label ?? phase;
@@ -44,7 +45,10 @@ export async function GET(_req: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const rows = await prisma.poaStandarisasi.findMany({
-    where: { ownerId: session.userId },
+    // owner.role filter (2026-09-30 user request): pengajuan yang dibuat
+    // ADMIN (testing di production, bukan tim sales) tidak boleh ikut
+    // ter-export — sama aturan dengan getStandarisasiDashboardAction.
+    where: { ownerId: session.userId, owner: { role: { in: [...SALES_TEAM_ROLES] } } },
     include: {
       outlet: { select: { namaOutlet: true } },
       produk: {

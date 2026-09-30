@@ -7,3 +7,9 @@
 export function displayRole(role: string, jabatan?: string | null): string {
   return jabatan || role;
 }
+
+// Rantai sales sesungguhnya (bukan ADMIN/GM/SD/SFE/VIEWER/SALES_SUPPORT) —
+// dipakai buat nyaring data yang dibuat non-sales (biasanya ADMIN testing di
+// production) keluar dari view/export company-wide. Lihat pemakaiannya di
+// getStandarisasiDashboardAction dan /api/poa-standarisasi/export.
+export const SALES_TEAM_ROLES = ["MR", "ASM", "SM", "NSM"] as const;

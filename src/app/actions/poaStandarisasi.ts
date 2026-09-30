@@ -24,6 +24,7 @@ import { EXODUS_DISTRIBUTORS, type ExodusDistributorKode } from "@/lib/exodusDis
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet, getDiskonByOutlets } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import { SALES_TEAM_ROLES } from "@/lib/role";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -262,8 +263,14 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
   if (actor.role === "SALES_SUPPORT") throw new Error("Anda tidak berhak mengakses ini.");
 
   const companyWide = actor.role === "ADMIN" || actor.role === "GM" || actor.role === "SD" || actor.role === "SFE" || actor.role === "VIEWER";
+  // owner.role in SALES_TEAM_ROLES (2026-09-30 user request): pengajuan yang
+  // dibuat langsung oleh ADMIN (biasa dipakai buat testing di production —
+  // lihat 12 baris test yang dihapus hari ini) tidak boleh nyangkut di
+  // rollup company-wide ini. Cuma perlu di branch companyWide — branch
+  // subtree di bawah sudah otomatis sales-only (getSubordinateMRNips cuma
+  // mengembalikan NIP MR).
   const where: Prisma.PoaStandarisasiWhereInput = companyWide
-    ? { owner: { isDummy: false } }
+    ? { owner: { isDummy: false, role: { in: [...SALES_TEAM_ROLES] } } }
     : { ownerId: { in: actor.role === "MR" ? [actor.nip] : await getSubordinateMRNips(actor) } };
 
   const pengajuan = await prisma.poaStandarisasi.findMany({
