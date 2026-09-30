@@ -384,7 +384,7 @@ function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode }: {
  * konteksnya tanpa pindah tab). Cuma dirender kalau ada sibling (lihat
  * caller di StandarisasiOutletPanel).
  */
-function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: string | null }[] }) {
+function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: string | null; salesAvg3Bulan: number | null; dplPeriode: string | null }[] }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="mt-1.5">
@@ -397,15 +397,23 @@ function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: stri
         {expanded ? "▾" : "▸"} {outlets.length} outlet sudah standarisasi
       </button>
       {expanded && (
-        <div className="mt-1 rounded-lg border max-h-32 overflow-y-auto" style={{ borderColor: "var(--color-border)" }}>
+        <div className="mt-1 rounded-lg border max-h-40 overflow-y-auto" style={{ borderColor: "var(--color-border)" }}>
           {outlets.map((o, i) => (
             <div
               key={i}
-              className="flex items-center justify-between gap-2 px-2 py-1 text-xs"
+              className="px-2 py-1 text-xs space-y-0.5"
               style={{ borderTop: i > 0 ? "1px solid var(--color-border)" : undefined, color: "var(--color-text-muted)" }}
             >
-              <span className="truncate">{o.namaOutlet}</span>
-              {o.tanggal && <span className="shrink-0" style={{ color: "var(--color-text-faint)" }}>{o.tanggal}</span>}
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">{o.namaOutlet}</span>
+                {o.tanggal && <span className="shrink-0" style={{ color: "var(--color-text-faint)" }}>{o.tanggal}</span>}
+              </div>
+              {o.salesAvg3Bulan != null && (
+                <div style={{ color: "var(--color-text-faint)" }}>
+                  Sales rata² 3 bln: {o.salesAvg3Bulan.toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })}
+                </div>
+              )}
+              {o.dplPeriode && <div style={{ color: "var(--color-text-faint)" }}>DPL periode: {o.dplPeriode}</div>}
             </div>
           ))}
         </div>
@@ -416,7 +424,7 @@ function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: stri
 
 function StandarisasiOutletPanel({ rows, groupOutletsByKode }: {
   rows: { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }[] | null;
-  groupOutletsByKode: Map<string, { namaOutlet: string; tanggal: string | null }[]>;
+  groupOutletsByKode: Map<string, { namaOutlet: string; tanggal: string | null; salesAvg3Bulan: number | null; dplPeriode: string | null }[]>;
 }) {
   const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada produk yang sudah standarisasi di outlet ini." />;
   if (!rows || rows.length === 0) return empty;

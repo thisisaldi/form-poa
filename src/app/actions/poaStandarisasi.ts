@@ -591,7 +591,7 @@ export async function getStandarisasiProsesKodeByOutletAction(kodePI: string): P
 
 export interface StandarisasiGroupOutletRow {
   kodeProduk: string;
-  outlets: { namaOutlet: string; tanggal: string | null }[];
+  outlets: { namaOutlet: string; tanggal: string | null; salesAvg3Bulan: number | null; dplPeriode: string | null }[];
 }
 
 function bulanTahunFromYyyymm(yyyymm: string): string {
@@ -613,7 +613,9 @@ function bulanTahunFromYyyymm(yyyymm: string): string {
  * kriteriaBaru) + DPL via getDiskonByOutlets (BATCHED, fallback DB-only kalau
  * Exodus live tidak dipakai untuk banyak outlet sekaligus — bukan N HTTP call
  * per outlet, larangan docs/PERFORMANCE.md §2.4). "NON CHAIN"/null groupRS
- * bukan group corporate sungguhan → selalu [].
+ * bukan group corporate sungguhan → selalu []. Tiap outlet yang lolos juga
+ * dibekali sales rata-rata 3 bulan terakhir & periode DPL (kalau ada) buat
+ * konteks di UI — 2026-09-30 user request.
  */
 export async function getStandarisasiGroupOutletsAction(kodePI: string, excludePengajuanId?: string): Promise<StandarisasiGroupOutletRow[]> {
   if (!kodePI) return [];
@@ -628,10 +630,23 @@ export async function getStandarisasiGroupOutletsAction(kodePI: string, excludeP
   const siblingKodePI = siblings.map((s: (typeof siblings)[number]) => s.kodePI);
   const namaOutletByKode = new Map<string, string>(siblings.map((s: (typeof siblings)[number]) => [s.kodePI, s.namaOutlet]));
 
-  const [salesRows, submittedRows, kriteriaRows, dplByOutlet] = await Promise.all([
+  const now = new Date();
+  const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const last3Months = [1, 2, 3].map((i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  const [salesEverRows, sales3BulanRows, submittedRows, kriteriaRows, dplByOutlet] = await Promise.all([
     prisma.outletSalesMonthly.findMany({
       where: { kodePI: { in: siblingKodePI }, qty: { gt: 0 } },
       select: { kodePI: true, itemKode: true },
+    }),
+    // Sama window 3-bulan-terakhir seperti getSalesLast3MonthsByOutletAction,
+    // tapi batched lintas semua sibling outlet sekaligus (no N+1).
+    prisma.outletSalesMonthly.findMany({
+      where: { kodePI: { in: siblingKodePI }, periode: { in: last3Months }, qty: { gt: 0 } },
+      select: { kodePI: true, itemKode: true, qty: true },
     }),
     prisma.poaStandarisasiProduk.findMany({
       where: {
@@ -650,33 +665,59 @@ export async function getStandarisasiGroupOutletsAction(kodePI: string, excludeP
     getDiskonByOutlets(siblingKodePI),
   ]);
 
-  const now = new Date();
-  const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // qty 3-bulan-terakhir per (kodeProduk, kodePI) -> Rp rata-rata/bulan (hna diambil setelahnya, sekali query).
+  const qty3BulanByPair = new Map<string, number>();
+  for (const r of sales3BulanRows) {
+    const key = `${r.itemKode}|${r.kodePI}`;
+    qty3BulanByPair.set(key, (qty3BulanByPair.get(key) ?? 0) + parseFloat(r.qty.toString()));
+  }
+  const kodeProdukForHna = [...new Set(sales3BulanRows.map((r: (typeof sales3BulanRows)[number]) => r.itemKode))];
+  const hnaByKode = new Map<string, number>();
+  if (kodeProdukForHna.length > 0) {
+    const products = await prisma.product.findMany({ where: { kodeProduk: { in: kodeProdukForHna } }, select: { kodeProduk: true, hna: true } });
+    for (const p of products) hnaByKode.set(p.kodeProduk, parseFloat(p.hna.toString()));
+  }
+  const salesAvg3BulanByPair = new Map<string, number>();
+  for (const [key, qty] of qty3BulanByPair) {
+    const kodeProduk = key.split("|")[0];
+    salesAvg3BulanByPair.set(key, (qty * (hnaByKode.get(kodeProduk) ?? 0)) / 3);
+  }
+
+  // Periode DPL (prdAwal – prdAkhir) per pair, cuma yang enddate-nya PERSIS
+  // bulan berjalan (bukan "aktif" secara umum) — user request 2026-09-30:
+  // biar list-nya nunjukin outlet yang periode DPL-nya beneran mau/baru habis
+  // bulan ini, bukan semua yang masih jauh dari habis.
+  const dplPeriodeByPair = new Map<string, string>();
+  for (const [siblingKodePIVal, contracts] of dplByOutlet) {
+    for (const c of contracts) {
+      if (c.prdAkhir === ym) dplPeriodeByPair.set(`${c.kodeProduk}|${siblingKodePIVal}`, `${bulanTahunFromYyyymm(c.prdAwal)} – ${bulanTahunFromYyyymm(c.prdAkhir)}`);
+    }
+  }
+
   const byKode = new Map<string, Map<string, string | null>>(); // kodeProduk -> siblingKodePI -> tanggal
   function record(kodeProduk: string, siblingKodePIVal: string, tanggal: string | null) {
     const byOutlet = byKode.get(kodeProduk) ?? new Map<string, string | null>();
     if (!byOutlet.has(siblingKodePIVal) || (tanggal && !byOutlet.get(siblingKodePIVal))) byOutlet.set(siblingKodePIVal, tanggal);
     byKode.set(kodeProduk, byOutlet);
   }
-  for (const r of salesRows) record(r.itemKode, r.kodePI, null);
+  for (const r of salesEverRows) record(r.itemKode, r.kodePI, null);
   for (const r of submittedRows) record(r.kodeProduk, r.pengajuan.kodePI, r.pengajuan.submittedAt ? bulanTahunFromYyyymm(`${r.pengajuan.submittedAt.getFullYear()}${String(r.pengajuan.submittedAt.getMonth() + 1).padStart(2, "0")}`) : null);
   for (const r of kriteriaRows) {
     if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) record(r.kodeProduk, r.kodePI, null);
   }
-  // Cuma DPL yang enddate-nya PERSIS bulan berjalan (bukan "aktif" secara
-  // umum) — user request 2026-09-30: biar list-nya nunjukin outlet yang
-  // periode DPL-nya beneran mau/baru habis bulan ini, bukan semua yang masih
-  // jauh dari habis.
-  for (const [siblingKodePIVal, contracts] of dplByOutlet) {
-    for (const c of contracts) {
-      if (c.prdAkhir === ym) record(c.kodeProduk, siblingKodePIVal, bulanTahunFromYyyymm(c.prdAkhir));
-    }
+  for (const [kodeProduk_kodePI] of dplPeriodeByPair) {
+    const [kodeProduk, siblingKodePIVal] = kodeProduk_kodePI.split("|");
+    record(kodeProduk, siblingKodePIVal, bulanTahunFromYyyymm(ym));
   }
 
   return Array.from(byKode, ([kodeProduk, byOutlet]) => ({
     kodeProduk,
-    outlets: Array.from(byOutlet, ([kp, tanggal]) => ({ namaOutlet: namaOutletByKode.get(kp) ?? kp, tanggal }))
-      .sort((a, b) => a.namaOutlet.localeCompare(b.namaOutlet, "id")),
+    outlets: Array.from(byOutlet, ([kp, tanggal]) => ({
+      namaOutlet: namaOutletByKode.get(kp) ?? kp,
+      tanggal,
+      salesAvg3Bulan: salesAvg3BulanByPair.get(`${kodeProduk}|${kp}`) ?? null,
+      dplPeriode: dplPeriodeByPair.get(`${kodeProduk}|${kp}`) ?? null,
+    })).sort((a, b) => a.namaOutlet.localeCompare(b.namaOutlet, "id")),
   }));
 }
 
