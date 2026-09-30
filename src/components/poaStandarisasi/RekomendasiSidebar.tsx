@@ -19,7 +19,7 @@ import {
   type SurveyRekomendasiOutletRow,
   type KriteriaByOutlet,
 } from "@/app/actions/customer";
-import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, getSalesLast3MonthsByOutletAction, getStandarisasiGroupGapAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow, type StandarisasiGroupGapRow } from "@/app/actions/poaStandarisasi";
+import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, getSalesLast3MonthsByOutletAction, getStandarisasiGroupOutletsAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow, type StandarisasiGroupOutletRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
 import { isEndingThisQuarter } from "@/lib/quarterUtils";
 
@@ -29,7 +29,7 @@ const SIDEBAR_BLUE = "var(--color-blue)";
 const SIDEBAR_PURPLE = "var(--color-purple, #7c3aed)";
 const SIDEBAR_RED = "var(--color-error, #dc2626)";
 
-type Tab = "survey" | "kriteria" | "standarisasiSales" | "groupGap";
+type Tab = "survey" | "kriteria" | "standarisasiSales";
 
 function edgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -60,7 +60,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
   const [dplRows, setDplRows] = useState<{ kodeProduk: string; prdAkhir: string; diskonPct: number }[] | null>(null);
   const [salesQtrRows, setSalesQtrRows] = useState<{ kodeProduk: string; salesRp: number }[] | null>(null);
   const [salesHistoryRows, setSalesHistoryRows] = useState<SalesHistoryOutletRow[] | null>(null);
-  const [groupGapRows, setGroupGapRows] = useState<StandarisasiGroupGapRow[] | null>(null);
+  const [groupOutletRows, setGroupOutletRows] = useState<StandarisasiGroupOutletRow[] | null>(null);
   const [, startLoad] = useTransition();
 
   useEffect(() => {
@@ -76,16 +76,16 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       setSalesHistoryRows(null);
       setDplRows(null);
       setSalesQtrRows(null);
-      setGroupGapRows(null);
+      setGroupOutletRows(null);
       if (!kodePI) return;
-      const [survey, kriteria, standarisasi, salesHistory, dpl, salesQtr, groupGap] = await Promise.all([
+      const [survey, kriteria, standarisasi, salesHistory, dpl, salesQtr, groupOutlets] = await Promise.all([
         getSurveyRekomendasiByOutletAggregate(kodePI),
         getKriteriaByOutlet(kodePI),
         getStandarisasiProdukByOutletAction(kodePI, pengajuanId),
         getSalesHistoryByOutletAction(kodePI),
         getActiveDplByOutletAction(kodePI),
         getSalesLast3MonthsByOutletAction(kodePI),
-        getStandarisasiGroupGapAction(kodePI, pengajuanId),
+        getStandarisasiGroupOutletsAction(kodePI, pengajuanId),
       ]);
       if (cancelled) return;
       setSurveyRows(survey);
@@ -94,7 +94,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
       setSalesHistoryRows(salesHistory);
       setDplRows(dpl);
       setSalesQtrRows(salesQtr);
-      setGroupGapRows(groupGap);
+      setGroupOutletRows(groupOutlets);
     });
     return () => { cancelled = true; };
   }, [kodePI, pengajuanId]);
@@ -135,7 +135,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
     return [...rows].sort((a, b) => Number(standarisasiKode.has(a.kodeProduk)) - Number(standarisasiKode.has(b.kodeProduk)));
   }
 
-  const groupGapKode = useMemo(() => new Set((groupGapRows ?? []).map((r) => r.kodeProduk)), [groupGapRows]);
+  const groupOutletsByKode = useMemo(() => new Map((groupOutletRows ?? []).map((r) => [r.kodeProduk, r.outlets])), [groupOutletRows]);
 
   if (!kodePI) return null;
 
@@ -151,11 +151,6 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
         <button type="button" onClick={() => setActiveTab("standarisasiSales")} style={edgeTabStyle(SIDEBAR_BLUE)}>
           Standarisasi & Historis Sales
         </button>
-        {groupGapKode.size > 0 && (
-          <button type="button" onClick={() => setActiveTab("groupGap")} style={edgeTabStyle(SIDEBAR_RED)}>
-            Gap Group ({groupGapKode.size})
-          </button>
-        )}
       </div>
     );
   }
@@ -174,9 +169,6 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
           <button type="button" onClick={() => setActiveTab("survey")} style={pillStyle(SIDEBAR_ORANGE, activeTab === "survey")}>Data Survey</button>
           <button type="button" onClick={() => setActiveTab("kriteria")} style={pillStyle(SIDEBAR_GREEN, activeTab === "kriteria")}>Produk Rekomendasi</button>
           <button type="button" onClick={() => setActiveTab("standarisasiSales")} style={pillStyle(SIDEBAR_BLUE, activeTab === "standarisasiSales")}>Standarisasi & Historis Sales</button>
-          {groupGapKode.size > 0 && (
-            <button type="button" onClick={() => setActiveTab("groupGap")} style={pillStyle(SIDEBAR_RED, activeTab === "groupGap")}>Gap Group ({groupGapKode.size})</button>
-          )}
         </div>
         <button
           type="button"
@@ -194,7 +186,10 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
           <div className="space-y-4">
             <div>
               <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: SIDEBAR_BLUE }}>Sudah Standarisasi</div>
-              <StandarisasiOutletPanel rows={standarisasiRows === null || kriteriaRows === null || dplRows === null ? null : standarisasiMerged} />
+              <StandarisasiOutletPanel
+                rows={standarisasiRows === null || kriteriaRows === null || dplRows === null ? null : standarisasiMerged}
+                groupOutletsByKode={groupOutletsByKode}
+              />
             </div>
             <div>
               <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: SIDEBAR_PURPLE }}>Historical Sales</div>
@@ -202,7 +197,6 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
             </div>
           </div>
         )}
-        {activeTab === "groupGap" && <StandarisasiGroupGapPanel rows={groupGapRows} />}
       </div>
     </div>
   );
@@ -382,33 +376,62 @@ function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode }: {
   );
 }
 
-/** Tab "Gap Group" — produk sudah standarisasi di outlet LAIN dalam group corporate yang sama, tapi belum di outlet terpilih (2026-09-22). Cuma muncul kalau ada gap (tab edge button self-hides via groupGapKode.size > 0). */
-function StandarisasiGroupGapPanel({ rows }: { rows: StandarisasiGroupGapRow[] | null }) {
-  const empty = <LoadingOrEmpty rows={rows} emptyText="Tidak ada gap — semua produk yang sudah standarisasi di group ini juga sudah standarisasi di outlet ini." />;
-  if (!rows || rows.length === 0) return empty;
+/**
+ * Tag "Gap Group" di card "Sudah Standarisasi" — expand-on-click nunjukin
+ * outlet LAIN dalam group corporate yang sama yang juga sudah standarisasi
+ * produk ini, plus tanggal (2026-09-30, user request: gantiin tab "Gap
+ * Group" terpisah, di-merge jadi inline di sini biar langsung kelihatan
+ * konteksnya tanpa pindah tab). Cuma dirender kalau ada sibling (lihat
+ * caller di StandarisasiOutletPanel).
+ */
+function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: string | null }[] }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-error, #dc2626)" }}>
-          <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--color-error, #dc2626)" }}>{r.detail}</div>
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="text-[11px] font-bold px-1.5 py-0.5 rounded"
+        style={{ background: `color-mix(in srgb, ${SIDEBAR_RED} 10%, transparent)`, color: SIDEBAR_RED, cursor: "pointer" }}
+      >
+        {expanded ? "▾" : "▸"} {outlets.length} outlet sudah standarisasi
+      </button>
+      {expanded && (
+        <div className="mt-1 rounded-lg border max-h-32 overflow-y-auto" style={{ borderColor: "var(--color-border)" }}>
+          {outlets.map((o, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between gap-2 px-2 py-1 text-xs"
+              style={{ borderTop: i > 0 ? "1px solid var(--color-border)" : undefined, color: "var(--color-text-muted)" }}
+            >
+              <span className="truncate">{o.namaOutlet}</span>
+              {o.tanggal && <span className="shrink-0" style={{ color: "var(--color-text-faint)" }}>{o.tanggal}</span>}
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
-function StandarisasiOutletPanel({ rows }: { rows: { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }[] | null }) {
+function StandarisasiOutletPanel({ rows, groupOutletsByKode }: {
+  rows: { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }[] | null;
+  groupOutletsByKode: Map<string, { namaOutlet: string; tanggal: string | null }[]>;
+}) {
   const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada produk yang sudah standarisasi di outlet ini." />;
   if (!rows || rows.length === 0) return empty;
   return (
     <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-          <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
-          <div className="text-xs mt-0.5" style={{ color: r.expiring ? "#d97706" : "var(--color-text-faint)", fontWeight: r.expiring ? 600 : undefined }}>{r.expiring && "⚠ "}{r.detail}{r.expiring && " · periode mau habis"}</div>
-        </div>
-      ))}
+      {rows.map((r) => {
+        const groupOutlets = groupOutletsByKode.get(r.kodeProduk);
+        return (
+          <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+            <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
+            <div className="text-xs mt-0.5" style={{ color: r.expiring ? "#d97706" : "var(--color-text-faint)", fontWeight: r.expiring ? 600 : undefined }}>{r.expiring && "⚠ "}{r.detail}{r.expiring && " · periode mau habis"}</div>
+            {groupOutlets && groupOutlets.length > 0 && <GroupGapTag outlets={groupOutlets} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
