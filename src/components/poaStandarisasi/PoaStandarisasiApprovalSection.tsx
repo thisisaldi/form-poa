@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { approvePoaStandarisasiAtasanAction, getPoaStandarisasiDetail, type PoaStandarisasiDetail } from "@/app/actions/poaStandarisasi";
 import { Card } from "@/components/ui/Card";
+import type { ApprovalLevel } from "@/lib/discountApprovalLevel";
 import { Button } from "@/components/ui/Button";
 
 export interface PendingPoaStandarisasiRow {
@@ -11,7 +12,7 @@ export interface PendingPoaStandarisasiRow {
   ownerName: string;
   namaOutlet: string;
   jumlahProduk: number;
-  pendingLevel: "ASM" | "SM" | "NSM";
+  pendingLevel: ApprovalLevel;
 }
 
 /** Dedicated "tampilan atasan" for POA Standarisasi Phase 2 (2026-09-10 user
@@ -29,7 +30,7 @@ export function PoaStandarisasiApprovalSection({ pending }: { pending: PendingPo
   const [detailById, setDetailById] = useState<Record<string, PoaStandarisasiDetail | null>>({});
   const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
 
-  function act(id: string, level: "ASM" | "SM" | "NSM", decision: "DISETUJUI" | "DITOLAK") {
+  function act(id: string, level: ApprovalLevel, decision: "DISETUJUI" | "DITOLAK") {
     setError(null);
     setActingId(id);
     startTransition(async () => {

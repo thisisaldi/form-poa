@@ -1524,6 +1524,39 @@ enum SkemaPembayaranStandarisasi {
   DP
 }
 
+// Approval level dinamis per produk (docs/poa-standarisasi-approval-level/,
+// 2026-09-29) — level yang dibutuhkan ditentukan Disc PI (estimasiDiskonPct)
+// lewat discountApprovalLevel(); baris dibuat sekali saat masuk Fase 2.
+enum ApprovalLevelStandarisasi {
+  ASM
+  SM
+  NSM
+  ASD
+  SD
+}
+
+// Satu baris per produk x level yang dibutuhkan (level ASM sampai level
+// tertinggi produk itu). Pengajuan tanpa baris = jalur lama (kolom
+// statusApprovalAsm/Sm/Nsm di header). ASD kosong -> SD boleh menyetujui baris
+// level ASD langsung. decidedByNip plain (tanpa relasi), pola
+// spNonSalesSignedByNip.
+model PoaStandarisasiProdukApproval {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  level             ApprovalLevelStandarisasi
+  diskonPctSnapshot Decimal                   @db.Decimal(10, 4)
+
+  status       StatusApprovalAtasan @default(MENUNGGU)
+  decidedByNip String?
+  decidedAt    DateTime?
+
+  @@unique([produkId, level])
+  @@index([produkId])
+}
+
 enum StatusApprovalAtasan {
   MENUNGGU
   DISETUJUI
@@ -1700,6 +1733,7 @@ model PoaStandarisasiProduk {
   dokterApproval PoaStandarisasiDokterApproval[]
   dokterUser     PoaStandarisasiDokterUser[]
   dokumen        PoaStandarisasiDokumen[]
+  approvals      PoaStandarisasiProdukApproval[]
   dokterReassignLogs PoaStandarisasiDokterReassignLog[]
 
   @@unique([pengajuanId, kodeProduk])

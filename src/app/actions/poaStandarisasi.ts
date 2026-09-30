@@ -14,8 +14,9 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, canAccessSalesSupportMemo, getSubordinateMRNips } from "@/lib/authz";
+import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, isPoaStandarisasiLevelApprover, canAccessSalesSupportMemo, getSubordinateMRNips } from "@/lib/authz";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
+import { APPROVAL_LEVELS, actionableRows, discountApprovalLevel, levelsUpTo, type ApprovalLevel, type ProdukApprovalRow } from "@/lib/discountApprovalLevel";
 import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
@@ -65,6 +66,21 @@ function toNum(v: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
+/**
+ * Snapshot level approval per produk saat pengajuan masuk Fase 2
+ * (docs/poa-standarisasi-approval-level/): level dari estimasiDiskonPct (skema
+ * DP / kosong = 0% = ASM), satu baris per level ASM..level tertinggi. Dipanggil
+ * dari kedua jalur masuk Fase 2 (create langsung + advanceToApprovalAtasanAction).
+ */
+async function snapshotProdukApprovals(tx: Prisma.TransactionClient, pengajuanId: string): Promise<void> {
+  const produk = await tx.poaStandarisasiProduk.findMany({ where: { pengajuanId }, select: { id: true, skemaPembayaran: true, estimasiDiskonPct: true } });
+  const data = produk.flatMap((p: (typeof produk)[number]) => {
+    const pct = p.skemaPembayaran === "DISKON" ? toNum(p.estimasiDiskonPct) ?? 0 : 0;
+    return levelsUpTo(discountApprovalLevel(pct)).map((level) => ({ produkId: p.id, level, diskonPctSnapshot: pct }));
+  });
+  await tx.poaStandarisasiProdukApproval.createMany({ data, skipDuplicates: true });
+}
+
 // ─── Create ──────────────────────────────────────────────────────────────────
 
 /**
@@ -111,6 +127,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
     });
     await applyPlanningKpdm(tx, pengajuan.id, input.kpdmList);
     await applyPlanningProduk(tx, pengajuan.id, kodePI, input.produk, dplKode);
+    await snapshotProdukApprovals(tx, pengajuan.id);
     return pengajuan.id;
   });
 
@@ -128,6 +145,7 @@ const detailInclude = {
       dokterApproval: { include: { customer: true } },
       dokterUser: { include: { customer: true } },
       dokumen: true,
+      approvals: true,
     },
     orderBy: { createdAt: "asc" as const },
   },
@@ -192,6 +210,7 @@ function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct>
         entertainRp: d(du.entertainRp),
       })),
       dokumen: prod.dokumen,
+      approvals: prod.approvals.map((a) => ({ ...a, diskonPctSnapshot: d(a.diskonPctSnapshot) })),
     })),
   };
 }
@@ -355,17 +374,26 @@ export async function getPendingPoaStandarisasiForAtasanAction() {
     include: {
       owner: { select: { nip: true, name: true } },
       outlet: { select: { namaOutlet: true } },
-      produk: { select: { id: true } },
+      produk: { select: { id: true, approvals: { select: { level: true, status: true } } } },
     },
     orderBy: { updatedAt: "asc" },
   });
 
-  const result: (typeof candidates[number] & { pendingLevel: "ASM" | "SM" | "NSM" })[] = [];
+  const result: (typeof candidates[number] & { pendingLevel: ApprovalLevel })[] = [];
   for (const p of candidates) {
+    // Jalur baru (approval level per produk): level pertama yang punya produk
+    // menunggu (level di bawahnya sudah disetujui) dan actor adalah approver-nya.
+    if (p.produk.some((pr: (typeof p.produk)[number]) => pr.approvals.length > 0)) {
+      for (const level of APPROVAL_LEVELS) {
+        if (!hasWaitingAtLevel(p.produk, level)) continue;
+        if (await isPoaStandarisasiLevelApprover(actor, p, level)) { result.push({ ...p, pendingLevel: level }); break; }
+      }
+      continue;
+    }
     // Sequential chain (ASM -> SM -> NSM): the level still awaiting action is
     // the first one not yet DISETUJUI — same rule approvePoaStandarisasiAtasanAction
     // enforces when advancing to Phase 3.
-    const pendingLevel: "ASM" | "SM" | "NSM" =
+    const pendingLevel: ApprovalLevel =
       p.statusApprovalAsm !== "DISETUJUI" ? "ASM" : p.statusApprovalSm !== "DISETUJUI" ? "SM" : "NSM";
     if (await canApprovePoaStandarisasiAtasan(actor, p, pendingLevel)) {
       result.push({ ...p, pendingLevel });
@@ -1060,21 +1088,71 @@ export async function advanceToApprovalAtasanAction(id: string): Promise<void> {
     throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
   }
 
-  await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_ATASAN" } });
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_ATASAN" } });
+    await snapshotProdukApprovals(tx, id);
+  });
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
 // ─── Phase 2: Approval Atasan (blocking, sequential ASM → SM → NSM) ────────
 
+function hasWaitingAtLevel(produk: { id: string; approvals: { level: ApprovalLevel; status: string }[] }[], level: ApprovalLevel): boolean {
+  return actionableRows(produk.flatMap((p) => p.approvals.map((a) => ({ produkId: p.id, ...a }))), level).length > 0;
+}
+
+/**
+ * Approve/tolak di `level`. Pengajuan dengan baris PoaStandarisasiProdukApproval
+ * (jalur baru, level dinamis per produk): berlaku ke produk di level itu yang
+ * sedang menunggu — semua, atau hanya `produkIds`. Pengajuan lama tanpa baris:
+ * jalur statis ASM -> SM -> NSM di kolom header, seperti sebelumnya.
+ */
 export async function approvePoaStandarisasiAtasanAction(
   id: string,
-  level: "ASM" | "SM" | "NSM",
-  decision: "DISETUJUI" | "DITOLAK"
+  level: ApprovalLevel,
+  decision: "DISETUJUI" | "DITOLAK",
+  produkIds?: string[]
 ): Promise<void> {
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (pengajuan.currentPhase !== "APPROVAL_ATASAN") throw new Error("Pengajuan tidak sedang di fase Approval Atasan.");
+
+  const rows: ProdukApprovalRow[] = await prisma.poaStandarisasiProdukApproval.findMany({
+    where: { produk: { pengajuanId: id } },
+    select: { produkId: true, level: true, status: true },
+  });
+
+  if (rows.length === 0) {
+    if (level === "ASD" || level === "SD") throw new Error("Level ini tidak berlaku untuk pengajuan ini.");
+    await approveLegacyLevel(actor, pengajuan, level, decision);
+    revalidatePath(`/poa-standarisasi/${id}`);
+    return;
+  }
+
+  if (!(await isPoaStandarisasiLevelApprover(actor, pengajuan, level))) throw new Error("Anda tidak berhak melakukan approval di level ini.");
+  const targets = actionableRows(rows, level).filter((r) => !produkIds || produkIds.includes(r.produkId));
+  if (targets.length === 0) throw new Error("Tidak ada produk yang menunggu persetujuan Anda di level ini.");
+
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    // status: MENUNGGU di where = idempotent kalau dua klik/approver bersamaan.
+    await tx.poaStandarisasiProdukApproval.updateMany({
+      where: { produkId: { in: targets.map((t) => t.produkId) }, level, status: "MENUNGGU" },
+      data: { status: decision, decidedByNip: actor.nip, decidedAt: new Date() },
+    });
+    const remaining = await tx.poaStandarisasiProdukApproval.count({ where: { produk: { pengajuanId: id }, status: { not: "DISETUJUI" } } });
+    if (remaining === 0) await tx.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_USER_DOKTER" } });
+  });
+
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+async function approveLegacyLevel(
+  actor: Awaited<ReturnType<typeof requireActor>>["actor"],
+  pengajuan: NonNullable<Awaited<ReturnType<typeof prisma.poaStandarisasi.findUnique>>>,
+  level: "ASM" | "SM" | "NSM",
+  decision: "DISETUJUI" | "DITOLAK"
+): Promise<void> {
   if (!(await canApprovePoaStandarisasiAtasan(actor, pengajuan, level))) {
     throw new Error("Anda tidak berhak melakukan approval di level ini.");
   }
@@ -1086,14 +1164,12 @@ export async function approvePoaStandarisasiAtasanAction(
       ? { statusApprovalSm: decision, tanggalApprovalSm: new Date() }
       : { statusApprovalNsm: decision, tanggalApprovalNsm: new Date() };
 
-  const updated = await prisma.poaStandarisasi.update({ where: { id }, data });
+  const updated = await prisma.poaStandarisasi.update({ where: { id: pengajuan.id }, data });
 
   // Blocking, sequential: only advance to Phase 3 once ALL THREE are DISETUJUI.
   if (updated.statusApprovalAsm === "DISETUJUI" && updated.statusApprovalSm === "DISETUJUI" && updated.statusApprovalNsm === "DISETUJUI") {
-    await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_USER_DOKTER" } });
+    await prisma.poaStandarisasi.update({ where: { id: pengajuan.id }, data: { currentPhase: "APPROVAL_USER_DOKTER" } });
   }
-
-  revalidatePath(`/poa-standarisasi/${id}`);
 }
 
 // ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────

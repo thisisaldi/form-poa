@@ -3,7 +3,8 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getProducts } from "@/lib/masterData";
 import { getPoaStandarisasiDetail, getDokterOptionsAction } from "@/app/actions/poaStandarisasi";
-import { canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan } from "@/lib/authz";
+import { canEditPoaStandarisasi, canApprovePoaStandarisasiAtasan, isPoaStandarisasiLevelApprover } from "@/lib/authz";
+import { APPROVAL_LEVELS } from "@/lib/discountApprovalLevel";
 import { PoaStandarisasiWizard } from "@/components/poaStandarisasi/PoaStandarisasiWizard";
 
 export default async function PoaStandarisasiDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,13 +21,15 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
 
-  const [productOptions, dokterOptions, canApproveAsm, canApproveSm, canApproveNsm] = await Promise.all([
+  const [productOptions, dokterOptions, canApproveAsm, canApproveSm, canApproveNsm, levelFlags] = await Promise.all([
     getProducts(),
     getDokterOptionsAction(pengajuan.kodePI),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "ASM"),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "SM"),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "NSM"),
+    Promise.all(APPROVAL_LEVELS.map((l) => isPoaStandarisasiLevelApprover(actor, pengajuan, l))),
   ]);
+  const myApproverLevels = APPROVAL_LEVELS.filter((_, i) => levelFlags[i]);
 
   const canEdit = canEditPoaStandarisasi(actor, pengajuan);
 
@@ -39,6 +42,7 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
       canApproveAsm={canApproveAsm}
       canApproveSm={canApproveSm}
       canApproveNsm={canApproveNsm}
+      myApproverLevels={myApproverLevels}
       isOwner={pengajuan.ownerId === session.userId}
     />
   );
