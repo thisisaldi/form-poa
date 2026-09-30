@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
-import { listMyPoaStandarisasiAction } from "@/app/actions/poaStandarisasi";
+import { listVisiblePoaStandarisasiAction } from "@/app/actions/poaStandarisasi";
+import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -20,10 +21,11 @@ function phaseLabel(phase: string): string {
 export default async function PoaStandarisasiListPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  // Re-opened to MR 2026-09-10 (user request) — see new/page.tsx's note.
-  if (session.role !== "ADMIN" && session.role !== "MR") redirect("/dashboard");
+  // Dibuka ke role sales chain 2026-09-29 (user: "ikuti POA PSSP"), visibilitas dibatasi di listVisiblePoaStandarisasiAction.
+  if (!POA_STANDARISASI_VIEW_ROLES.includes(session.role)) redirect("/dashboard");
+  const canCreate = session.role === "ADMIN" || session.role === "MR";
 
-  const pengajuanList = await listMyPoaStandarisasiAction();
+  const pengajuanList = await listVisiblePoaStandarisasiAction();
 
   return (
     <div className="space-y-6">
@@ -31,29 +33,35 @@ export default async function PoaStandarisasiListPage() {
         <div>
           <h1>POA Standarisasi</h1>
           <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            Pengajuan standarisasi yang sudah Anda buat.
+            {canCreate ? "Pengajuan standarisasi yang sudah Anda buat." : "Pengajuan standarisasi tim Anda."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a href="/api/poa-standarisasi/export">
-            <Button size="sm" variant="ghost">↓ Export Excel</Button>
-          </a>
-          <Link href="/poa-standarisasi/new">
-            <Button>+ Buat Standarisasi Baru</Button>
-          </Link>
+          {canCreate && (
+            <>
+              <a href="/api/poa-standarisasi/export">
+                <Button size="sm" variant="ghost">↓ Export Excel</Button>
+              </a>
+              <Link href="/poa-standarisasi/new">
+                <Button>+ Buat Standarisasi Baru</Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Pengajuan Saya</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{canCreate ? "Pengajuan Saya" : "Pengajuan"}</CardTitle></CardHeader>
         {pengajuanList.length === 0 ? (
           <div className="py-10 text-center">
             <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
-              Belum ada pengajuan standarisasi. Buat yang pertama.
+              {canCreate ? "Belum ada pengajuan standarisasi. Buat yang pertama." : "Belum ada pengajuan standarisasi."}
             </p>
-            <Link href="/poa-standarisasi/new" className="mt-3 inline-block">
-              <Button size="sm">+ Buat Standarisasi Baru</Button>
-            </Link>
+            {canCreate && (
+              <Link href="/poa-standarisasi/new" className="mt-3 inline-block">
+                <Button size="sm">+ Buat Standarisasi Baru</Button>
+              </Link>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -61,6 +69,7 @@ export default async function PoaStandarisasiListPage() {
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
                   <th className="pb-3 pr-3 text-center text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Outlet</th>
+                  <th className="pb-3 pr-3 text-center text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Pengusul</th>
                   <th className="pb-3 pr-3 text-center text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Tipe</th>
                   <th className="pb-3 pr-3 text-center text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Tahap</th>
                   <th className="pb-3 pr-3 text-center text-xs font-medium uppercase tracking-wide whitespace-nowrap" style={{ color: "var(--color-text-faint)" }}>Produk</th>
@@ -76,6 +85,7 @@ export default async function PoaStandarisasiListPage() {
                   return (
                   <tr key={p.id}>
                     <td className="py-3 pr-3 align-top text-center" style={{ color: "var(--color-text)" }}>{p.outlet.namaOutlet}</td>
+                    <td className="py-3 pr-3 align-top text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{p.ownerName}</td>
                     <td className="py-3 pr-3 align-top text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>
                       {p.tipeStandarisasi === "PERIODIC" ? "Periodic" : p.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic"}
                     </td>
@@ -141,7 +151,7 @@ export default async function PoaStandarisasiListPage() {
                     <td className="py-3 pr-3 align-top text-center text-xs whitespace-nowrap" style={{ color: "var(--color-text-muted)" }}>{formatTanggal(p.jadwalMeetingKft)}</td>
                     <td className="py-3 align-top text-center">
                       <div className="flex items-center justify-center gap-3">
-                        {p.currentPhase === "PLANNING" && (
+                        {p.currentPhase === "PLANNING" && p.ownerId === session.userId && (
                           <DeletePoaStandarisasiButton pengajuanId={p.id} namaOutlet={p.outlet.namaOutlet} />
                         )}
                         <Link href={`/poa-standarisasi/${p.id}`} className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>

@@ -166,7 +166,7 @@ export async function getSubordinateMRNips(user: User): Promise<string[]> {
  */
 export async function getSubordinateOwnerNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
-  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) {
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SD || user.role === Role.SFE || user.role === Role.VIEWER) {
     // Company-wide: every role that can own a POA (MR, or a vacant-team
     // ASM/SM/NSM) — same isDummy/isActive exclusions as the MR-only branch
     // above, same reasoning (dummy accounts inflate company-wide aggregates).
@@ -887,7 +887,7 @@ export async function canViewPoaStandarisasi(
   user: User,
   pengajuan: { ownerId: string; kodePI: string }
 ): Promise<boolean> {
-  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) return true;
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SD || user.role === Role.SFE || user.role === Role.VIEWER) return true;
   if (pengajuan.ownerId === user.nip) return true;
   if (user.role === Role.ASM || user.role === Role.SM || user.role === Role.NSM) {
     const { asmNip, smNip, nsmNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
@@ -938,6 +938,33 @@ export async function canApprovePoaStandarisasiAtasan(
   if (level === "ASM") return user.role === Role.ASM && user.nip === asmNip;
   if (level === "SM") return user.role === Role.SM && user.nip === smNip && pengajuan.statusApprovalAsm === "DISETUJUI";
   return user.role === Role.NSM && user.nip === nsmNip && pengajuan.statusApprovalSm === "DISETUJUI";
+}
+
+/**
+ * Approval level dinamis per produk (docs/poa-standarisasi-approval-level/):
+ * is `user` the designated approver for `level` on this pengajuan? Ordering
+ * between levels (level N only after N-1 approved) is per PRODUK, checked by
+ * the caller against the PoaStandarisasiProdukApproval rows, not here.
+ * ASD = role GM (label only, see Role.SD comment in schema) that is the NSM's
+ * atasan; when there is no such GM (ASD vacant, jawaban user 2026-09-29) SD
+ * approves the ASD level directly. SD = the single role-SD user.
+ */
+export async function isPoaStandarisasiLevelApprover(
+  user: User,
+  pengajuan: { ownerId: string; kodePI: string },
+  level: "ASM" | "SM" | "NSM" | "ASD" | "SD"
+): Promise<boolean> {
+  if (user.role === Role.ADMIN) return true;
+  if (level === "SD") return user.role === Role.SD;
+  const { asmNip, smNip, nsmNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
+  if (level === "ASM") return user.role === Role.ASM && user.nip === asmNip;
+  if (level === "SM") return user.role === Role.SM && user.nip === smNip;
+  if (level === "NSM") return user.role === Role.NSM && user.nip === nsmNip;
+  // ASD
+  const nsm = nsmNip ? await prisma.user.findUnique({ where: { nip: nsmNip }, select: { nipAtasan: true } }) : null;
+  const asd = nsm?.nipAtasan ? await prisma.user.findUnique({ where: { nip: nsm.nipAtasan }, select: { nip: true, role: true } }) : null;
+  const asdNip = asd?.role === Role.GM ? asd.nip : null;
+  return asdNip ? user.role === Role.GM && user.nip === asdNip : user.role === Role.SD;
 }
 
 export async function canRequestEdit(user: User, poa: any): Promise<boolean> {

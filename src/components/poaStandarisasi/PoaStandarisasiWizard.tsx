@@ -46,6 +46,7 @@ import {
 } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import { isEndingThisQuarter } from "@/lib/quarterUtils";
+import { APPROVAL_LEVELS, type ApprovalLevel } from "@/lib/discountApprovalLevel";
 import {
   type PoaStandarisasiDetail,
   type PlanningInput,
@@ -444,6 +445,7 @@ export function PoaStandarisasiWizard({
   canApproveAsm,
   canApproveSm,
   canApproveNsm,
+  myApproverLevels,
   isOwner,
 }: {
   pengajuan: PoaStandarisasiDetail;
@@ -453,6 +455,8 @@ export function PoaStandarisasiWizard({
   canApproveAsm: boolean;
   canApproveSm: boolean;
   canApproveNsm: boolean;
+  /** Level (ASM..SD) di mana user ini approver — jalur approval level per produk. */
+  myApproverLevels: ApprovalLevel[];
   isOwner: boolean;
 }) {
   const router = useRouter();
@@ -599,8 +603,8 @@ export function PoaStandarisasiWizard({
     });
   }
 
-  function handleApprove(level: "ASM" | "SM" | "NSM", decision: "DISETUJUI" | "DITOLAK") {
-    run(async () => approvePoaStandarisasiAtasanAction(pengajuan.id, level, decision));
+  function handleApprove(level: ApprovalLevel, decision: "DISETUJUI" | "DITOLAK", produkId?: string) {
+    run(async () => approvePoaStandarisasiAtasanAction(pengajuan.id, level, decision, produkId ? [produkId] : undefined));
   }
 
   function handleAdvanceToFinalisasi() {
@@ -780,6 +784,7 @@ export function PoaStandarisasiWizard({
           canApproveAsm={canApproveAsm && isViewingCurrentPhase}
           canApproveSm={canApproveSm && isViewingCurrentPhase}
           canApproveNsm={canApproveNsm && isViewingCurrentPhase}
+          myApproverLevels={isViewingCurrentPhase ? myApproverLevels : []}
           onApprove={handleApprove}
         />
       )}
@@ -1450,14 +1455,21 @@ function ApprovalAtasanPhase({
   canApproveAsm,
   canApproveSm,
   canApproveNsm,
+  myApproverLevels,
   onApprove,
 }: {
   pengajuan: PoaStandarisasiDetail;
   canApproveAsm: boolean;
   canApproveSm: boolean;
   canApproveNsm: boolean;
-  onApprove: (level: "ASM" | "SM" | "NSM", decision: "DISETUJUI" | "DITOLAK") => void;
+  myApproverLevels: ApprovalLevel[];
+  onApprove: (level: ApprovalLevel, decision: "DISETUJUI" | "DITOLAK", produkId?: string) => void;
 }) {
+  // Jalur baru: approval level dinamis per produk (docs/poa-standarisasi-approval-level/).
+  // Pengajuan lama (tanpa baris approvals) tetap tampil jalur statis ASM -> SM -> NSM di bawah.
+  if (pengajuan.produk.some((p) => p.approvals.length > 0)) {
+    return <ApprovalPerProduk pengajuan={pengajuan} myApproverLevels={myApproverLevels} onApprove={onApprove} />;
+  }
   return (
     <Card className="mb-4">
       <CardHeader><CardTitle>Approval Atasan</CardTitle></CardHeader>
@@ -1478,6 +1490,62 @@ function ApprovalAtasanPhase({
           canAct={canApproveNsm && pengajuan.statusApprovalSm === "DISETUJUI"}
           onApprove={(d) => onApprove("NSM", d)}
         />
+      </div>
+      <p className="text-xs mt-3" style={{ color: "var(--color-text-faint)" }}>
+        Outlet <strong>{pengajuan.outlet.namaOutlet}</strong> · {pengajuan.produk.length} produk diajukan
+      </p>
+    </Card>
+  );
+}
+
+/** Approval level per produk: satu baris per produk, chip per level yang dibutuhkan, tombol di level yang sedang giliran user. */
+function ApprovalPerProduk({
+  pengajuan,
+  myApproverLevels,
+  onApprove,
+}: {
+  pengajuan: PoaStandarisasiDetail;
+  myApproverLevels: ApprovalLevel[];
+  onApprove: (level: ApprovalLevel, decision: "DISETUJUI" | "DITOLAK", produkId?: string) => void;
+}) {
+  const idx = (l: string) => APPROVAL_LEVELS.indexOf(l as ApprovalLevel);
+  const total = pengajuan.produk.reduce((n, p) => n + p.approvals.length, 0);
+  const done = pengajuan.produk.reduce((n, p) => n + p.approvals.filter((a) => a.status === "DISETUJUI").length, 0);
+  const top = pengajuan.produk.flatMap((p) => p.approvals.map((a) => a.level)).sort((a, b) => idx(b) - idx(a))[0];
+  return (
+    <Card className="mb-4">
+      <CardHeader><CardTitle>Approval Atasan</CardTitle></CardHeader>
+      <p className="text-sm mb-1" style={{ color: "var(--color-blue)" }}>
+        Level approval ditentukan Disc PI (beban Principal) per produk — butuh approval sampai <strong>{top}</strong>. Pengajuan lanjut ke Approval User/Dokter setelah semua produk disetujui di semua levelnya.
+      </p>
+      <p className="text-xs mb-3" style={{ color: "var(--color-text-faint)" }}>{done} dari {total} persetujuan selesai</p>
+      <div className="rounded p-4 mb-2 space-y-3" style={{ background: "var(--color-bg-subtle)" }}>
+        {pengajuan.produk.map((prod) => {
+          const rows = [...prod.approvals].sort((a, b) => idx(a.level) - idx(b.level));
+          const turn = rows.find((r) => r.status !== "DISETUJUI");
+          return (
+            <div key={prod.id} className="pb-3" style={{ borderBottom: "1px solid var(--color-border)" }}>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-sm font-medium">{prod.product.namaProduk}</span>
+                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>Disc PI {rows[0]?.diskonPctSnapshot ?? 0}%</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {rows.map((r) => (
+                  <div key={r.id} className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold">{r.level}</span>
+                    <StatusPill status={r.status} />
+                    {turn?.id === r.id && r.status === "MENUNGGU" && myApproverLevels.includes(r.level as ApprovalLevel) && (
+                      <>
+                        <Button size="sm" onClick={() => onApprove(r.level as ApprovalLevel, "DISETUJUI", prod.id)}>Setujui</Button>
+                        <Button size="sm" variant="danger" onClick={() => onApprove(r.level as ApprovalLevel, "DITOLAK", prod.id)}>Tolak</Button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
       <p className="text-xs mt-3" style={{ color: "var(--color-text-faint)" }}>
         Outlet <strong>{pengajuan.outlet.namaOutlet}</strong> · {pengajuan.produk.length} produk diajukan
