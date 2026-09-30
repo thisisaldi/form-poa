@@ -13,6 +13,7 @@ import { createCustomerAction } from "@/app/actions/customer";
 import { GolonganBadge } from "@/components/poaStandarisasi/GolonganBadge";
 import { RekomendasiSidebar } from "@/components/poaStandarisasi/RekomendasiSidebar";
 import { buildProductOptions } from "@/components/poa/LineItemEditor";
+import { discountApprovalLevel } from "@/lib/discountApprovalLevel";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import {
   savePlanningAction,
@@ -2567,7 +2568,8 @@ function DplDpfForm({
                 <th className="text-right py-1 px-2">Disc PI</th>
                 <th className="text-right py-1 px-2">Disc Dist</th>
                 <th className="text-right py-1 px-2">Disc PI Sebelumnya</th>
-                <th className="text-right py-1 pl-2">Disc Dist Sebelumnya</th>
+                <th className="text-right py-1 px-2">Disc Dist Sebelumnya</th>
+                <th className="text-right py-1 pl-2" title="Berdasarkan Disc PI (beban Principal), per produk">Level Approval</th>
               </tr>
             </thead>
             <tbody>
@@ -2593,7 +2595,8 @@ function DplDpfForm({
                     <td className="py-2 px-2 text-right" style={{ color: "var(--color-text-faint)" }}>{p.finalDiscountPct != null ? `${p.finalDiscountPct}%` : "-"}</td>
                     <td className="py-2 px-2 text-right" style={{ color: "var(--color-text-faint)" }}>{p.diskonDistributorPct != null ? `${p.diskonDistributorPct}%` : "-"}</td>
                     <td className="py-2 px-2 text-right" style={{ color: "var(--color-text-faint)" }}>-</td>
-                    <td className="py-2 pl-2 text-right" style={{ color: "var(--color-text-faint)" }}>-</td>
+                    <td className="py-2 px-2 text-right" style={{ color: "var(--color-text-faint)" }}>-</td>
+                    <td className="py-2 pl-2 text-right font-medium">{p.finalDiscountPct != null ? discountApprovalLevel(Number(p.finalDiscountPct)) : "-"}</td>
                   </tr>
                 );
               })}

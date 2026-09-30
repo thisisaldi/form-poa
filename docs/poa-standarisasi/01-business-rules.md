@@ -139,6 +139,8 @@ Tahapan baru SETELAH `submittedAt` terisi (bukan phase di `PoaStandarisasiPhase`
 
 Payload lain: `outlet_id` dari `getExodusOutletIdByCode(kodePI)` (tolak kalau null), `product_type` `ETH`/`OTC` dan `principal_distributor_*` per produk dari `core/v1/products`, `division_distributor_code` dan `distributor_product_code_prefix` = `null` (kata Exodus), `is_open_api` = `false`.
 
+**Level approval (info saja)**: kolom "Level Approval" per produk di tabel form, dari Disc PI (beban Principal) — `discountApprovalLevel` (`lib/discountApprovalLevel.ts`): ≤5% ASM, >5–10% SM, >10–20% NSM, >20–30% ASD, >30% SD (aturan bisnis Exodus, dihitung terpisah per produk). Approval-nya diproses Exodus, tidak memblok submit di app ini, dan terpisah dari Approval Atasan (ASM→SM) di Fase 2.
+
 **Exodus TIDAK memvalidasi** (tes staging 2026-09-29): semua payload ngawur (outlet_id/distributor_id/produk tidak ada, persen 150/-5, tipe salah, DPF tanpa PO, periode terbalik, file .exe, PO duplikat) tetap HTTP 200; satu-satunya 400 = file hilang. Response sukses cuma `{"error":{"status":false}}` — TANPA ID request, dan request baru tidak terlihat di GET `request/discount/product-outlet` (kemungkinan pending/async, belum dikonfirmasi). Konsekuensinya semua validasi ada di sisi kita, dan hasil submit disimpan lokal di `PoaStandarisasiDiscountRequest` (riwayat di tab + anti double-submit: unique `(pengajuanId, dedupKey)`, dedupKey = tipe|distributor|(nomor PO atau periode)|kode produk terurut; row di-reserve SEBELUM POST, dihapus lagi kalau POST gagal). Jangan retry otomatis kalau timeout — bisa saja request sudah terbentuk di Exodus.
 
 ## §7. Open questions — status & assumptions dipakai untuk v1
