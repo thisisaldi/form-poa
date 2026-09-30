@@ -259,7 +259,12 @@ export async function getVisiblePoaFilter(
  */
 export async function canView(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
-  if (user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE) return true; // read-only oversight, sees every POA at any status
+  // GM/VIEWER/SFE: read-only oversight, sees every POA at any status. SD
+  // (2026-09-30 fix) — top of the approval chain above GM, was missing here
+  // entirely: not auto-true, not owner, not in depthByRole below, so canView
+  // always fell through to `false` and SD got redirected to /dashboard the
+  // moment they clicked Review on a doctor pending at their own level.
+  if (user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE || user.role === Role.SD) return true;
 
   // The owner always sees their own POA, any status — normally an MR, but an
   // ASM/SM/NSM can own one too when their team is vacant (see canCreatePoa).
