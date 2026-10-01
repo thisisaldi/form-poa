@@ -26,6 +26,7 @@ import { EXODUS_DISTRIBUTORS, type ExodusDistributorKode } from "@/lib/exodusDis
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet, getDiskonByOutlets } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import { DPL_DPF_SUBMIT_DISABLED, DPL_DPF_SUBMIT_DISABLED_MESSAGE } from "@/lib/poaStandarisasiDplDpfFlag";
 import { SALES_TEAM_ROLES } from "@/lib/role";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
@@ -1832,6 +1833,7 @@ export async function submitDiscountRequestAction(formData: FormData): Promise<A
 }
 
 async function submitDiscountRequestActionImpl(formData: FormData): Promise<void> {
+  if (DPL_DPF_SUBMIT_DISABLED) throw new Error(DPL_DPF_SUBMIT_DISABLED_MESSAGE);
   const { actor } = await requireActor();
   const str = (k: string) => ((formData.get(k) as string | null) ?? "").trim();
   const pengajuanId = str("pengajuanId");

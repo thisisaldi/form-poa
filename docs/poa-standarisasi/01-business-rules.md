@@ -127,6 +127,8 @@ Tahapan baru SETELAH `submittedAt` terisi (bukan phase di `PoaStandarisasiPhase`
 
 ### §6b. Ajukan DPL/DPF ke Exodus (2026-09-29)
 
+> ⚠️ **DIMATIKAN 2026-10-01** (`DPL_DPF_SUBMIT_DISABLED = true`, `lib/poaStandarisasiDplDpfFlag.ts`): POST dengan token `client_credentials` selalu 200 tapi TIDAK membuat request di Exodus (dipindai 20.446 request via GET `/promotion/v1/request/discount` staging — tidak ada satu pun dari >20 POST tes; `product-outlet` yang dipakai sebelumnya hanya menampilkan sebagian). Tombol "Ajukan" nonaktif dan action menolak. Nyalakan lagi setelah tim Exodus menjelaskan cara POST yang benar (field/token pembuat?) dan dites ulang lewat GET list. Detail di bawah = rancangan yang sudah dibangun, belum terbukti bekerja.
+
 `submitDiscountRequestAction` (`actions/poaStandarisasi.ts`) → `submitDiscountRequest` (`lib/exodusApi.ts`) → `POST {EXODUS_API_BASE_URL}/promotion/v1/request/discount` (multipart: `request` JSON + `request-doc-file`). Gate: `canEditPoaStandarisasiStep5`.
 
 **Form**: Tipe DPL/DPF, Distributor (AMS/PPG/MPI → `distributor_id`/`distributor_name` lewat `lib/exodusDistributors.ts`: AMS=1 "ANTARMITRA SEMBADA, PT", PPG=2 "PARIT PADANG GLOBAL, PT", MPI=3 "MILLENNIUM PHARMACON INTERNATIONAL, PT"), produk terpilih + Qty. Disc PI/Dist per produk BUKAN input: dari `finalDiscountPct`/`diskonDistributorPct` (fallback live Exodus).
