@@ -274,19 +274,26 @@ export async function getOutletIdsByKodePI(): Promise<Map<string, number>> {
 /**
  * Resolves one doctor row by `uidCustomer` (PoaLineItem.id, the per-row anchor
  * item) — shared by
- * GET /api/poa-doctors/[id] and PATCH /api/poa-doctors/[id] so both apply
- * the exact same "current quarter + fully (NSM) approved" visibility rule
- * (a row invisible to GET must also be unreachable via PATCH). Deliberately
- * does NOT filter on usedInExodus — PATCH must still be able to find an
- * already-used row so it stays idempotent (see route.ts).
+ * GET /api/poa-doctors/[id] and PATCH /api/poa-doctors/[id]. GET applies the
+ * "current quarter + fully (NSM) approved" visibility rule (default,
+ * `requireCurrentQuarter: true`). PATCH passes `requireCurrentQuarter: false`
+ * (2026-10-01, Exodus report: row from 2026-Q3 404ing on PATCH the moment
+ * 2026-Q4 started, usedInExodus writes for a still-in-flight quarter getting
+ * cut off by the calendar rollover) — PATCH only ever TOGGLES usedInExodus
+ * on a row that already exists, it's not exposing new data the way GET's
+ * listing would, so the stale-quarter guard doesn't serve the same purpose
+ * there. quarterMonths is derived from the POA's OWN `period` either way
+ * (not `currentQuarter()`), so a past-quarter PATCH still computes
+ * estimasi/nilaiPssp against the right months instead of the new quarter's.
+ * Approval-status filtering in buildDoctorRows is untouched by this flag.
  */
-export async function findDoctorRowById(id: string): Promise<PoaDoctorRow | null> {
+export async function findDoctorRowById(id: string, options?: { requireCurrentQuarter?: boolean }): Promise<PoaDoctorRow | null> {
+  const requireCurrentQuarter = options?.requireCurrentQuarter ?? true;
   const item = await prisma.poaLineItem.findUnique({ where: { id }, select: { poaId: true } });
   if (!item) return null;
 
-  const quarter = currentQuarter();
   const poa: PoaWithDoctorRows | null = await prisma.poaForm.findFirst({
-    where: { id: item.poaId, period: quarter },
+    where: { id: item.poaId, ...(requireCurrentQuarter ? { period: currentQuarter() } : {}) },
     select: poaDoctorRowsSelect,
   });
   if (!poa) return null;
@@ -300,7 +307,7 @@ export async function findDoctorRowById(id: string): Promise<PoaDoctorRow | null
     getOutletIdsByKodePI(),
   ]);
 
-  return buildDoctorRows(poa, activePsspRows, quarterToMonths(quarter), productMasterByKodeProduk, customerCodeExodusByKodeCust, outletIdByKodePI).find((r) => r.uidCustomer === id) ?? null;
+  return buildDoctorRows(poa, activePsspRows, quarterToMonths(poa.period), productMasterByKodeProduk, customerCodeExodusByKodeCust, outletIdByKodePI).find((r) => r.uidCustomer === id) ?? null;
 }
 
 /** All doctor rows for one PoaForm — same grouping/filtering the list endpoint uses. */

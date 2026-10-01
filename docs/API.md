@@ -123,6 +123,13 @@ List dokter (1 baris per pasangan kodePI+namaCust, grouping sama dengan `PoaDoct
   - `produk[].productId`/`principalId`/`principalName`/`principalCode`/`categoryProduct` (2026-09-02, request tim Exodus): dari Exodus core products API (`api.pharos.id/exodus/core/v1/products` — `id`/`product_principal.{id,name,code}`/`product_category.name`), live-first (lihat `getProductMasterByKodeProduk` di `src/lib/poaDoctorsRows.ts` — beda dari `hna`/`nilaiR` di atas yang sudah frozen), fallback ke kolom `Product.exodusProductId`/`principalId`/`principalName`/`principalCode`/`categoryProduct` di DB kalau live API sedang tidak tersedia. Kolom DB ini diisi write-through — bukan lewat script import terjadwal, tapi otomatis ter-upsert setiap kali live fetch berhasil untuk kodeProduk yang dipanggil endpoint ini. `null` untuk semuanya kalau live API belum pernah berhasil ambil produk itu DAN DB juga belum pernah ke-backfill.
 - **Error**: `400` NIP kosong atau `startDate` bukan format `YYYY-MM-DD` · `404` NIP tidak ditemukan. Response `[]` (bukan error) kalau NIP valid tapi tidak punya PoaForm di kuartal yang dimaksud.
 
+### `GET` / `PATCH /api/poa-doctors/{id}`
+Detail + toggle `usedInExodus` untuk satu baris dokter (`id` = `uidCustomer`, anchor `PoaLineItem.id` dari list di atas). Sama auth (session apapun ATAU Basic Auth) dan gate "Deal"/fully-approved dengan list di atas (`findDoctorRowById`, `src/lib/poaDoctorsRows.ts`).
+- **GET** scoped ke kuartal berjalan (`PoaForm.period` vs `currentQuarter()`) — id dari kuartal lalu `404`, sama seperti baris itu memang absen di list.
+- **PATCH TIDAK di-scope ke kuartal** (2026-10-01, laporan Exodus: PATCH ke baris Q3 ikut `404` begitu kalender masuk Q4) — PATCH cuma nulis `usedInExodus`/`exodusApprovedBy` ke baris yang sudah ada, bukan nge-expose data baru, jadi rollover kuartal gak boleh motong write yang masih in-flight. Tetap `404` kalau id tidak ada / dokternya belum fully-approved/Deal.
+- **PATCH body** (opsional): `{ "usedInExodus": boolean }` (default `true` kalau body kosong) dan/atau `{ "exodusApprovedBy": string|null }` — partial update, field yang gak dikirim gak disentuh. Idempotent.
+- **Error**: `404` id tidak ditemukan/tidak visible (lihat gate di atas) · `401` auth gagal.
+
 ---
 
 ## Target Value
