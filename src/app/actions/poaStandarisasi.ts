@@ -664,24 +664,47 @@ export async function getStandarisasiGroupOutletsAction(kodePI: string): Promise
     }
   }
 
+  // Union sales-only ∪ DPL-only ∪ sales+DPL (2026-10-01 user request: tiap RS
+  // segrup ditampilin APAPUN sinyal yang dia punya, bukan cuma yang sudah
+  // punya DUA-duanya — field yang gak ada di sibling itu dibiarin null,
+  // dirender UI apa adanya (lihat GroupOutlet di RekomendasiSidebar.tsx).
+  const allPairKeys = new Set([...qty3BulanByPair.keys(), ...dplByPair.keys()]);
   const byKode = new Map<string, StandarisasiGroupOutletRow["outlets"]>();
-  for (const [key, dpl] of dplByPair) {
-    const qty = qty3BulanByPair.get(key);
-    if (qty === undefined) continue; // sudah standarisasi = sales DAN DPL
+  for (const key of allPairKeys) {
     const [kodeProduk, siblingKodePIVal] = key.split("|");
+    const qty = qty3BulanByPair.get(key);
+    const dpl = dplByPair.get(key);
     const list = byKode.get(kodeProduk) ?? [];
     list.push({
       namaOutlet: namaOutletByKode.get(siblingKodePIVal) ?? siblingKodePIVal,
-      salesAvg3Bulan: (qty * (hnaByKode.get(kodeProduk) ?? 0)) / 3,
-      dplPeriode: `${bulanTahunFromYyyymm(dpl.prdAwal)} – ${bulanTahunFromYyyymm(dpl.prdAkhir)}`,
-      dplDiskonPct: dpl.diskonPct,
+      salesAvg3Bulan: qty !== undefined ? (qty * (hnaByKode.get(kodeProduk) ?? 0)) / 3 : null,
+      dplPeriode: dpl ? `${bulanTahunFromYyyymm(dpl.prdAwal)} – ${bulanTahunFromYyyymm(dpl.prdAkhir)}` : null,
+      dplDiskonPct: dpl?.diskonPct ?? null,
     });
     byKode.set(kodeProduk, list);
   }
 
+  // Tambahin sibling yang BELUM punya sinyal apa-apa buat produk ini juga
+  // (user 2026-10-01: "dan belum" — mau liat yang belum standarisasi juga,
+  // bukan cuma yang udah) — cuma buat produk yang minimal 1 sibling LAIN-nya
+  // udah punya sinyal (artinya produk ini relevan buat group ini).
+  for (const [, outlets] of byKode) {
+    const covered = new Set(outlets.map((o) => o.namaOutlet));
+    for (const s of siblings) {
+      if (covered.has(s.namaOutlet)) continue;
+      outlets.push({ namaOutlet: s.namaOutlet, salesAvg3Bulan: null, dplPeriode: null, dplDiskonPct: null });
+    }
+  }
+
   return Array.from(byKode, ([kodeProduk, outlets]) => ({
     kodeProduk,
-    outlets: outlets.sort((a, b) => a.namaOutlet.localeCompare(b.namaOutlet, "id")),
+    // "Sudah" (minimal 1 sinyal) duluan, "belum" (dua-duanya null) belakangan.
+    outlets: outlets.sort((a, b) => {
+      const aDone = a.salesAvg3Bulan != null || a.dplPeriode != null;
+      const bDone = b.salesAvg3Bulan != null || b.dplPeriode != null;
+      if (aDone !== bDone) return aDone ? -1 : 1;
+      return a.namaOutlet.localeCompare(b.namaOutlet, "id");
+    }),
   }));
 }
 

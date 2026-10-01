@@ -358,13 +358,17 @@ function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode, group
 }
 
 /**
- * Tag "RS segrup" di kartu produk — expand-on-click nunjukin outlet LAIN dalam
- * group corporate yang sama yang sudah standarisasi produk ini (sales DAN
- * DPL), plus sales rata² 3 bln dan DPL (% + periode). Cuma dirender kalau ada
- * sibling.
+ * Tag "RS segrup" di kartu produk — expand-on-click nunjukin SEMUA outlet
+ * lain dalam group corporate yang sama buat produk ini: yang udah (minimal
+ * ada sales ATAU DPL, ditampilin apa adanya) maupun yang belum (dua-duanya
+ * null, user 2026-10-01: "dan belum" — mau liat yang belum juga, bukan cuma
+ * yang udah). Cuma dirender kalau produk ini relevan ke group (minimal 1
+ * sibling punya sinyal apa aja), lihat getStandarisasiGroupOutletsAction.
  */
 function GroupGapTag({ outlets }: { outlets: GroupOutlet[] }) {
   const [expanded, setExpanded] = useState(false);
+  const sudahCount = outlets.filter((o) => o.salesAvg3Bulan != null || o.dplPeriode != null).length;
+  const belumCount = outlets.length - sudahCount;
   return (
     <div className="mt-1.5">
       <button
@@ -373,25 +377,31 @@ function GroupGapTag({ outlets }: { outlets: GroupOutlet[] }) {
         className="text-[11px] font-bold px-1.5 py-0.5 rounded"
         style={{ background: `color-mix(in srgb, ${SIDEBAR_RED} 10%, transparent)`, color: SIDEBAR_RED, cursor: "pointer" }}
       >
-        {expanded ? "▾" : "▸"} {outlets.length} RS segrup sudah standarisasi
+        {expanded ? "▾" : "▸"} RS segrup: {sudahCount} sudah, {belumCount} belum
       </button>
       {expanded && (
         <div className="mt-1 rounded-lg border max-h-40 overflow-y-auto" style={{ borderColor: "var(--color-border)" }}>
-          {outlets.map((o, i) => (
-            <div
-              key={i}
-              className="px-2 py-1 text-xs space-y-0.5"
-              style={{ borderTop: i > 0 ? "1px solid var(--color-border)" : undefined, color: "var(--color-text-muted)" }}
-            >
-              <div className="truncate">{o.namaOutlet}</div>
-              {o.salesAvg3Bulan != null && (
-                <div style={{ color: "var(--color-text-faint)" }}>Sales rata² 3 bln: {formatRp(o.salesAvg3Bulan)}</div>
-              )}
-              {o.dplPeriode && (
-                <div style={{ color: "var(--color-text-faint)" }}>DPL{o.dplDiskonPct != null ? ` ${o.dplDiskonPct}%` : ""} · {o.dplPeriode}</div>
-              )}
-            </div>
-          ))}
+          {outlets.map((o, i) => {
+            const done = o.salesAvg3Bulan != null || o.dplPeriode != null;
+            return (
+              <div
+                key={i}
+                className="px-2 py-1 text-xs space-y-0.5"
+                style={{ borderTop: i > 0 ? "1px solid var(--color-border)" : undefined, color: "var(--color-text-muted)", opacity: done ? 1 : 0.65 }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate">{o.namaOutlet}</span>
+                  {!done && <span className="text-[10px] shrink-0" style={{ color: "var(--color-text-faint)" }}>Belum</span>}
+                </div>
+                {o.salesAvg3Bulan != null && (
+                  <div style={{ color: "var(--color-text-faint)" }}>Sales rata² 3 bln: {formatRp(o.salesAvg3Bulan)}</div>
+                )}
+                {o.dplPeriode && (
+                  <div style={{ color: "var(--color-text-faint)" }}>DPL{o.dplDiskonPct != null ? ` ${o.dplDiskonPct}%` : ""} · {o.dplPeriode}</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
