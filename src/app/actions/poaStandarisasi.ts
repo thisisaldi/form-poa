@@ -1856,7 +1856,7 @@ async function submitDiscountRequestActionImpl(formData: FormData): Promise<void
   let requestDocDate: Date | null = null;
   let startDate: Date | null = null;
   let endDate: Date | null = null;
-  let file: { name: string; mimeType: string; buffer: Buffer };
+  let file: { name: string; mimeType: string; buffer: Buffer } | undefined; // DPF only (dokumen PO); DPL tanpa file
   if (tipe === "DPF") {
     const tgl = parseYmd(str("tanggalPo"));
     requestDocNumber = str("nomorPo");
@@ -1876,8 +1876,7 @@ async function submitDiscountRequestActionImpl(formData: FormData): Promise<void
     startDate = new Date(Date.UTC(awal.y, awal.m, 1) - WIB_MS); // tgl 1 bulan awal, 00:00 WIB
     endDate = new Date(Date.UTC(akhir.y, akhir.m + 1, 1) - WIB_MS - 1); // akhir bulan akhir, 23:59:59.999 WIB
     if (endDate < startDate) throw new Error("Periode akhir tidak boleh sebelum periode awal.");
-    // Exodus mewajibkan request-doc-file bahkan untuk DPL, padahal DPL tidak punya dokumen (user 2026-09-29) -> placeholder teks.
-    file = { name: `DPL ${pengajuan.kodePI}.txt`, mimeType: "text/plain", buffer: Buffer.from(`Pengajuan DPL ${pengajuan.kodePI} - ${pengajuan.outlet.namaOutlet} via Form POA oleh ${actor.name}\n`) };
+    // DPL tidak pakai request-doc-file (dokumen PO cuma wajib untuk DPF — Mas Budi/Exodus 2026-10-01).
   }
 
   // Produk terpilih + disc
