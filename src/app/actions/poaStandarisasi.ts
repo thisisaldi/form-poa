@@ -591,7 +591,7 @@ export async function getStandarisasiProsesKodeByOutletAction(kodePI: string): P
 
 export interface StandarisasiGroupOutletRow {
   kodeProduk: string;
-  outlets: { namaOutlet: string; tanggal: string | null; salesAvg3Bulan: number | null; dplPeriode: string | null }[];
+  outlets: { namaOutlet: string; salesAvg3Bulan: number | null; dplPeriode: string | null; dplDiskonPct: number | null }[];
 }
 
 function bulanTahunFromYyyymm(yyyymm: string): string {
@@ -602,22 +602,16 @@ function bulanTahunFromYyyymm(yyyymm: string): string {
 
 /**
  * Untuk tiap produk yang sudah standarisasi di outlet LAIN dalam group
- * corporate yang sama (Outlet.groupRS) — daftar outlet + tanggal, buat
- * drill-down tag "Gap Group" di card "Sudah Standarisasi" milik outlet ini
- * (2026-09-30, user request: tab "Gap Group" terpisah dihapus, di-merge jadi
- * tag inline yang bisa diklik). Gantiin getStandarisasiGroupGapAction lama
- * (bandingin "sinyal di outlet lain" vs "belum di outlet sendiri") — sekarang
- * cuma perlu daftar sibling per produk, tidak peduli status outlet sendiri
- * (caller yang filter ke produk yang relevan, lihat RekomendasiSidebar).
- * Sama 3 sinyal DB-only (sales pernah ada, pernah submit pengajuan, label
- * kriteriaBaru) + DPL via getDiskonByOutlets (BATCHED, fallback DB-only kalau
- * Exodus live tidak dipakai untuk banyak outlet sekaligus — bukan N HTTP call
- * per outlet, larangan docs/PERFORMANCE.md §2.4). "NON CHAIN"/null groupRS
- * bukan group corporate sungguhan → selalu []. Tiap outlet yang lolos juga
- * dibekali sales rata-rata 3 bulan terakhir & periode DPL (kalau ada) buat
- * konteks di UI — 2026-09-30 user request.
+ * corporate yang sama (Outlet.groupRS) — daftar outlet + sales rata-rata 3
+ * bulan + periode DPL-nya, buat info "RS segrup" di sidebar (Produk
+ * Rekomendasi dan Standarisasi & Historis Sales). "Sudah standarisasi" =
+ * ada sales (3 bulan penuh terakhir, OutletSalesMonthly) DAN ada DPL aktif
+ * bulan berjalan (user 2026-10-01 — sebelumnya OR dari sales/pengajuan/label
+ * kriteria/DPL). DPL via getDiskonByOutlets (BATCHED, DB-only — bukan N HTTP
+ * call per outlet, larangan docs/PERFORMANCE.md §2.4). "NON CHAIN"/null
+ * groupRS bukan group corporate sungguhan → selalu [].
  */
-export async function getStandarisasiGroupOutletsAction(kodePI: string, excludePengajuanId?: string): Promise<StandarisasiGroupOutletRow[]> {
+export async function getStandarisasiGroupOutletsAction(kodePI: string): Promise<StandarisasiGroupOutletRow[]> {
   if (!kodePI) return [];
   const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { groupRS: true } });
   if (!outlet?.groupRS || outlet.groupRS === "NON CHAIN") return [];
@@ -637,30 +631,12 @@ export async function getStandarisasiGroupOutletsAction(kodePI: string, excludeP
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
 
-  const [salesEverRows, sales3BulanRows, submittedRows, kriteriaRows, dplByOutlet] = await Promise.all([
-    prisma.outletSalesMonthly.findMany({
-      where: { kodePI: { in: siblingKodePI }, qty: { gt: 0 } },
-      select: { kodePI: true, itemKode: true },
-    }),
-    // Sama window 3-bulan-terakhir seperti getSalesLast3MonthsByOutletAction,
+  const [sales3BulanRows, dplByOutlet] = await Promise.all([
+    // Window 3-bulan-terakhir yang sama dengan getSalesLast3MonthsByOutletAction,
     // tapi batched lintas semua sibling outlet sekaligus (no N+1).
     prisma.outletSalesMonthly.findMany({
       where: { kodePI: { in: siblingKodePI }, periode: { in: last3Months }, qty: { gt: 0 } },
       select: { kodePI: true, itemKode: true, qty: true },
-    }),
-    prisma.poaStandarisasiProduk.findMany({
-      where: {
-        pengajuan: {
-          kodePI: { in: siblingKodePI },
-          submittedAt: { not: null },
-          ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
-        },
-      },
-      select: { kodeProduk: true, pengajuan: { select: { kodePI: true, submittedAt: true } } },
-    }),
-    prisma.outletProductKriteria.findMany({
-      where: { kodePI: { in: siblingKodePI } },
-      select: { kodePI: true, kodeProduk: true, kriteriaBaru: true },
     }),
     getDiskonByOutlets(siblingKodePI),
   ]);
@@ -677,47 +653,35 @@ export async function getStandarisasiGroupOutletsAction(kodePI: string, excludeP
     const products = await prisma.product.findMany({ where: { kodeProduk: { in: kodeProdukForHna } }, select: { kodeProduk: true, hna: true } });
     for (const p of products) hnaByKode.set(p.kodeProduk, parseFloat(p.hna.toString()));
   }
-  const salesAvg3BulanByPair = new Map<string, number>();
-  for (const [key, qty] of qty3BulanByPair) {
-    const kodeProduk = key.split("|")[0];
-    salesAvg3BulanByPair.set(key, (qty * (hnaByKode.get(kodeProduk) ?? 0)) / 3);
-  }
 
-  // Periode DPL (prdAwal – prdAkhir) per pair, cuma yang enddate-nya PERSIS
-  // bulan berjalan (bukan "aktif" secara umum) — user request 2026-09-30:
-  // biar list-nya nunjukin outlet yang periode DPL-nya beneran mau/baru habis
-  // bulan ini, bukan semua yang masih jauh dari habis.
-  const dplPeriodeByPair = new Map<string, string>();
+  // DPL aktif bulan berjalan per (kodeProduk, kodePI) — kontrak dengan prdAkhir terjauh kalau lebih dari satu.
+  const dplByPair = new Map<string, { prdAwal: string; prdAkhir: string; diskonPct: number }>();
   for (const [siblingKodePIVal, contracts] of dplByOutlet) {
     for (const c of contracts) {
-      if (c.prdAkhir === ym) dplPeriodeByPair.set(`${c.kodeProduk}|${siblingKodePIVal}`, `${bulanTahunFromYyyymm(c.prdAwal)} – ${bulanTahunFromYyyymm(c.prdAkhir)}`);
+      if (!(c.prdAwal <= ym && ym <= c.prdAkhir)) continue;
+      const key = `${c.kodeProduk}|${siblingKodePIVal}`;
+      if ((dplByPair.get(key)?.prdAkhir ?? "") < c.prdAkhir) dplByPair.set(key, { prdAwal: c.prdAwal, prdAkhir: c.prdAkhir, diskonPct: c.newOnPi });
     }
   }
 
-  const byKode = new Map<string, Map<string, string | null>>(); // kodeProduk -> siblingKodePI -> tanggal
-  function record(kodeProduk: string, siblingKodePIVal: string, tanggal: string | null) {
-    const byOutlet = byKode.get(kodeProduk) ?? new Map<string, string | null>();
-    if (!byOutlet.has(siblingKodePIVal) || (tanggal && !byOutlet.get(siblingKodePIVal))) byOutlet.set(siblingKodePIVal, tanggal);
-    byKode.set(kodeProduk, byOutlet);
-  }
-  for (const r of salesEverRows) record(r.itemKode, r.kodePI, null);
-  for (const r of submittedRows) record(r.kodeProduk, r.pengajuan.kodePI, r.pengajuan.submittedAt ? bulanTahunFromYyyymm(`${r.pengajuan.submittedAt.getFullYear()}${String(r.pengajuan.submittedAt.getMonth() + 1).padStart(2, "0")}`) : null);
-  for (const r of kriteriaRows) {
-    if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) record(r.kodeProduk, r.kodePI, null);
-  }
-  for (const [kodeProduk_kodePI] of dplPeriodeByPair) {
-    const [kodeProduk, siblingKodePIVal] = kodeProduk_kodePI.split("|");
-    record(kodeProduk, siblingKodePIVal, bulanTahunFromYyyymm(ym));
+  const byKode = new Map<string, StandarisasiGroupOutletRow["outlets"]>();
+  for (const [key, dpl] of dplByPair) {
+    const qty = qty3BulanByPair.get(key);
+    if (qty === undefined) continue; // sudah standarisasi = sales DAN DPL
+    const [kodeProduk, siblingKodePIVal] = key.split("|");
+    const list = byKode.get(kodeProduk) ?? [];
+    list.push({
+      namaOutlet: namaOutletByKode.get(siblingKodePIVal) ?? siblingKodePIVal,
+      salesAvg3Bulan: (qty * (hnaByKode.get(kodeProduk) ?? 0)) / 3,
+      dplPeriode: `${bulanTahunFromYyyymm(dpl.prdAwal)} – ${bulanTahunFromYyyymm(dpl.prdAkhir)}`,
+      dplDiskonPct: dpl.diskonPct,
+    });
+    byKode.set(kodeProduk, list);
   }
 
-  return Array.from(byKode, ([kodeProduk, byOutlet]) => ({
+  return Array.from(byKode, ([kodeProduk, outlets]) => ({
     kodeProduk,
-    outlets: Array.from(byOutlet, ([kp, tanggal]) => ({
-      namaOutlet: namaOutletByKode.get(kp) ?? kp,
-      tanggal,
-      salesAvg3Bulan: salesAvg3BulanByPair.get(`${kodeProduk}|${kp}`) ?? null,
-      dplPeriode: dplPeriodeByPair.get(`${kodeProduk}|${kp}`) ?? null,
-    })).sort((a, b) => a.namaOutlet.localeCompare(b.namaOutlet, "id")),
+    outlets: outlets.sort((a, b) => a.namaOutlet.localeCompare(b.namaOutlet, "id")),
   }));
 }
 
@@ -752,55 +716,6 @@ export async function getSalesHistoryByOutletAction(kodePI: string): Promise<Sal
     periodeFrom: r.periodeFrom,
     periodeTo: r.periodeTo,
   }));
-}
-
-export interface StandarisasiProdukOutletRow {
-  kodeProduk: string;
-  namaProduk: string;
-  tipeStandarisasi: string;
-  statusPengajuan: string;
-  submittedAt: Date;
-}
-
-/**
- * Products already submitted (finalized) under POA Standarisasi at this
- * outlet — one row per produk, latest submission wins if resubmitted more
- * than once. Powers the "Sudah Standarisasi" sidebar tab so an MR doesn't
- * duplicate work already done for a product at this outlet (docs/TODO.md
- * #15). Excludes the pengajuan currently being edited (its own produk aren't
- * "already done" from its own point of view).
- */
-export async function getStandarisasiProdukByOutletAction(kodePI: string, excludePengajuanId?: string): Promise<StandarisasiProdukOutletRow[]> {
-  if (!kodePI) return [];
-  const rows = await prisma.poaStandarisasiProduk.findMany({
-    where: {
-      pengajuan: {
-        kodePI,
-        submittedAt: { not: null },
-        ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
-      },
-    },
-    select: {
-      kodeProduk: true,
-      statusPengajuan: true,
-      product: { select: { namaProduk: true } },
-      pengajuan: { select: { tipeStandarisasi: true, submittedAt: true } },
-    },
-    orderBy: { pengajuan: { submittedAt: "desc" } },
-  });
-
-  const byKode = new Map<string, StandarisasiProdukOutletRow>();
-  for (const r of rows) {
-    if (byKode.has(r.kodeProduk)) continue; // ordered submittedAt desc — first hit per kodeProduk is the latest
-    byKode.set(r.kodeProduk, {
-      kodeProduk: r.kodeProduk,
-      namaProduk: r.product.namaProduk,
-      tipeStandarisasi: r.pengajuan.tipeStandarisasi,
-      statusPengajuan: r.statusPengajuan,
-      submittedAt: r.pengajuan.submittedAt!,
-    });
-  }
-  return Array.from(byKode.values());
 }
 
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
@@ -884,20 +799,20 @@ async function computeEstimasiPerBulan(
 }
 
 /**
- * Kode produk yang punya DPL aktif di outlet ini — periode DPL (prdAwal..prdAkhir,
- * YYYYMM) mencakup bulan berjalan. DPL adalah output standarisasi, jadi ada DPL
- * aktif = produk sudah standarisasi (sinyal tambahan, 2026-09-21). Sumber sama
+ * DPL aktif per produk di outlet ini — periode DPL (prdAwal..prdAkhir,
+ * YYYYMM) mencakup bulan berjalan. DPF tidak dihitung (tanpa periode). DPL adalah output standarisasi, jadi ada DPL
+ * aktif = salah satu syarat produk sudah standarisasi (bersama sales, 2026-10-01). Sumber sama
  * dengan "% Diskon (DPL/DPF)" di POA Estimasi (getDiskonByOutlet: Exodus live,
  * fallback DiskonKontrak). Detail = prdAkhir terjauh per produk.
  */
-export async function getActiveDplByOutletAction(kodePI: string): Promise<{ kodeProduk: string; prdAkhir: string; diskonPct: number }[]> {
+export async function getActiveDplByOutletAction(kodePI: string): Promise<{ kodeProduk: string; prdAwal: string; prdAkhir: string; diskonPct: number }[]> {
   if (!kodePI) return [];
   const now = new Date();
   const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const byKode = new Map<string, { prdAkhir: string; diskonPct: number }>();
+  const byKode = new Map<string, { prdAwal: string; prdAkhir: string; diskonPct: number }>();
   for (const c of await getDiskonByOutlet(kodePI)) {
     if (c.prdAwal <= ym && ym <= c.prdAkhir && (byKode.get(c.kodeProduk)?.prdAkhir ?? "") < c.prdAkhir) {
-      byKode.set(c.kodeProduk, { prdAkhir: c.prdAkhir, diskonPct: c.newOnPi });
+      byKode.set(c.kodeProduk, { prdAwal: c.prdAwal, prdAkhir: c.prdAkhir, diskonPct: c.newOnPi });
     }
   }
   return Array.from(byKode, ([kodeProduk, v]) => ({ kodeProduk, ...v }));
@@ -931,81 +846,37 @@ export async function getSalesLast3MonthsByOutletAction(kodePI: string): Promise
 
 /**
  * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
- * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
- * read-only). PERPANJANGAN kalau SALAH SATU dari tiga sinyal berikut true
- * (OR, 2026-08-28 user request — "sudah standarisasi" berarti pernah
- * standarisasi dan sekarang mau diajukan lagi, jadi harus konsisten dengan
- * label "Sudah Standarisasi" sidebar, bukan cuma sinyal sales):
- * 1. Ada sales (qty > 0) produk ini di outlet ini dalam 3 bulan terakhir yang
- *    sudah selesai (OutletSalesMonthly, bulan berjalan tidak dihitung —
- *    2026-09-21 user request, sebelumnya 12 bulan via OutletSalesHistory);
- * 2. Produk ini pernah di-submit di POA Standarisasi lain di outlet yang
- *    sama (query sama seperti getStandarisasiProdukByOutletAction's "Sudah
- *    Standarisasi" — excludePengajuanId supaya pengajuan yang sedang dibuka
- *    tidak menghitung dirinya sendiri);
- * 3. Import master data `OutletProductKriteria.kriteriaBaru` untuk
- *    produk×outlet ini sudah berlabel "Produk Sudah Terstandarisasi..." (baik
- *    "- Ada Sales" maupun "- Tidak Ada Sales") — sinyal INDEPENDEN dari #1/#2
- *    (bisa saja sudah dilabeli standarisasi di import lama sebelum pernah ada
- *    sales tercatat ATAU pengajuan ter-submit di app ini). Match EXACT sama
- *    seperti RekomendasiSidebar's `standarisasiMerged` (`.startsWith(...)`),
- *    supaya auto-fill ini konsisten dengan label "Sudah Standarisasi" yang
- *    dilihat user di sidebar.
- * 4. Ada DPL aktif di bulan berjalan untuk produk×outlet ini
- *    (getActiveDplByOutletAction, 2026-09-21) — `dplKode` dari caller. Di
- *    dalam transaksi caller wajib fetch SEBELUM $transaction supaya HTTP
- *    Exodus tidak makan timeout tx.
- * Kalau keempat sinyal negatif → Baru. Batched (satu findMany per sinyal utk
- * seluruh kodeProduk sekaligus), bukan query per produk — sama pola
- * no-N+1 seperti applyPlanningProduk lainnya.
+ * user-picked (2026-08-27). PERPANJANGAN = produk "sudah standarisasi" = ada
+ * sales DAN ada DPL (user 2026-10-01; sebelumnya OR dari sales / pernah submit
+ * pengajuan / label kriteria / DPL), keduanya wajib:
+ * 1. Ada sales (qty > 0) produk ini di outlet ini dalam 3 bulan kalender
+ *    penuh terakhir (OutletSalesMonthly, bulan berjalan tidak dihitung);
+ * 2. Ada DPL aktif di bulan berjalan (getActiveDplByOutletAction) — `dplKode`
+ *    dari caller, wajib di-fetch SEBELUM $transaction supaya HTTP Exodus tidak
+ *    makan timeout tx. DPF tidak dihitung.
+ * Selain itu → Baru. `excludePengajuanId` tidak dipakai lagi (pengajuan
+ * submit sebelumnya bukan sinyal), parameternya dipertahankan supaya
+ * pemanggil tidak berubah. Batched (satu findMany untuk seluruh kodeProduk).
  */
 async function computeStatusPengajuanMap(
   client: Prisma.TransactionClient | typeof prisma,
   kodePI: string,
   kodeProdukList: string[],
-  excludePengajuanId?: string,
+  _excludePengajuanId?: string,
   dplKode?: Set<string>
 ): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
   const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
-  if (kodeProdukList.length === 0) return map;
+  if (kodeProdukList.length === 0 || !dplKode || dplKode.size === 0) return map;
   const now = new Date();
   const last3Months = [1, 2, 3].map((i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
-  const [salesRows, priorSubmittedRows, kriteriaRows] = await Promise.all([
-    client.outletSalesMonthly.findMany({
-      where: { kodePI, itemKode: { in: kodeProdukList }, periode: { in: last3Months }, qty: { gt: 0 } },
-      select: { itemKode: true },
-    }),
-    client.poaStandarisasiProduk.findMany({
-      where: {
-        kodeProduk: { in: kodeProdukList },
-        pengajuan: {
-          kodePI,
-          submittedAt: { not: null },
-          ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
-        },
-      },
-      select: { kodeProduk: true },
-    }),
-    client.outletProductKriteria.findMany({
-      where: { kodePI, kodeProduk: { in: kodeProdukList } },
-      select: { kodeProduk: true, kriteriaBaru: true },
-    }),
-  ]);
-  for (const r of salesRows) {
-    map.set(r.itemKode, "PERPANJANGAN");
-  }
-  for (const r of priorSubmittedRows) {
-    map.set(r.kodeProduk, "PERPANJANGAN");
-  }
-  for (const r of kriteriaRows) {
-    if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) map.set(r.kodeProduk, "PERPANJANGAN");
-  }
-  for (const k of kodeProdukList) {
-    if (dplKode?.has(k)) map.set(k, "PERPANJANGAN");
-  }
+  const salesRows = await client.outletSalesMonthly.findMany({
+    where: { kodePI, itemKode: { in: kodeProdukList.filter((k) => dplKode.has(k)) }, periode: { in: last3Months }, qty: { gt: 0 } },
+    select: { itemKode: true },
+  });
+  for (const r of salesRows) map.set(r.itemKode, "PERPANJANGAN");
   return map;
 }
 

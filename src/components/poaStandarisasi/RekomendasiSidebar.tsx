@@ -19,17 +19,31 @@ import {
   type SurveyRekomendasiOutletRow,
   type KriteriaByOutlet,
 } from "@/app/actions/customer";
-import { getStandarisasiProdukByOutletAction, getSalesHistoryByOutletAction, getActiveDplByOutletAction, getSalesLast3MonthsByOutletAction, getStandarisasiGroupOutletsAction, type StandarisasiProdukOutletRow, type SalesHistoryOutletRow, type StandarisasiGroupOutletRow } from "@/app/actions/poaStandarisasi";
+import { getSalesHistoryByOutletAction, getActiveDplByOutletAction, getSalesLast3MonthsByOutletAction, getStandarisasiGroupOutletsAction, type SalesHistoryOutletRow, type StandarisasiGroupOutletRow } from "@/app/actions/poaStandarisasi";
 import type { Product } from "@/lib/masterData";
 import { isEndingThisQuarter } from "@/lib/quarterUtils";
 
 const SIDEBAR_ORANGE = "var(--color-orange, #ea580c)";
 const SIDEBAR_GREEN = "var(--color-success, #16a34a)";
 const SIDEBAR_BLUE = "var(--color-blue)";
-const SIDEBAR_PURPLE = "var(--color-purple, #7c3aed)";
 const SIDEBAR_RED = "var(--color-error, #dc2626)";
 
 type Tab = "survey" | "kriteria" | "standarisasiSales";
+
+type DplRow = { kodeProduk: string; prdAwal: string; prdAkhir: string; diskonPct: number };
+type GroupOutlet = { namaOutlet: string; salesAvg3Bulan: number | null; dplPeriode: string | null; dplDiskonPct: number | null };
+type StandarisasiCard = {
+  kodeProduk: string;
+  namaProduk: string;
+  sales3Rp: number;
+  dplDiskonPct: number;
+  dplAwal: string;
+  dplAkhir: string;
+  expiring: boolean;
+  history: SalesHistoryOutletRow | null;
+};
+
+const formatRp = (n: number) => n.toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 });
 
 function edgeTabStyle(color: string): React.CSSProperties {
   return {
@@ -56,8 +70,7 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
   const [activeTab, setActiveTab] = useState<Tab | null>(null);
   const [surveyRows, setSurveyRows] = useState<SurveyRekomendasiOutletRow[] | null>(null);
   const [kriteriaRows, setKriteriaRows] = useState<KriteriaByOutlet[] | null>(null);
-  const [standarisasiRows, setStandarisasiRows] = useState<StandarisasiProdukOutletRow[] | null>(null);
-  const [dplRows, setDplRows] = useState<{ kodeProduk: string; prdAkhir: string; diskonPct: number }[] | null>(null);
+  const [dplRows, setDplRows] = useState<DplRow[] | null>(null);
   const [salesQtrRows, setSalesQtrRows] = useState<{ kodeProduk: string; salesRp: number }[] | null>(null);
   const [salesHistoryRows, setSalesHistoryRows] = useState<SalesHistoryOutletRow[] | null>(null);
   const [groupOutletRows, setGroupOutletRows] = useState<StandarisasiGroupOutletRow[] | null>(null);
@@ -72,25 +85,22 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
     startLoad(async () => {
       setSurveyRows(null);
       setKriteriaRows(null);
-      setStandarisasiRows(null);
       setSalesHistoryRows(null);
       setDplRows(null);
       setSalesQtrRows(null);
       setGroupOutletRows(null);
       if (!kodePI) return;
-      const [survey, kriteria, standarisasi, salesHistory, dpl, salesQtr, groupOutlets] = await Promise.all([
+      const [survey, kriteria, salesHistory, dpl, salesQtr, groupOutlets] = await Promise.all([
         getSurveyRekomendasiByOutletAggregate(kodePI),
         getKriteriaByOutlet(kodePI),
-        getStandarisasiProdukByOutletAction(kodePI, pengajuanId),
         getSalesHistoryByOutletAction(kodePI),
         getActiveDplByOutletAction(kodePI),
         getSalesLast3MonthsByOutletAction(kodePI),
-        getStandarisasiGroupOutletsAction(kodePI, pengajuanId),
+        getStandarisasiGroupOutletsAction(kodePI),
       ]);
       if (cancelled) return;
       setSurveyRows(survey);
       setKriteriaRows(kriteria);
-      setStandarisasiRows(standarisasi);
       setSalesHistoryRows(salesHistory);
       setDplRows(dpl);
       setSalesQtrRows(salesQtr);
@@ -99,33 +109,29 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
     return () => { cancelled = true; };
   }, [kodePI, pengajuanId]);
 
-  // "Sudah Standarisasi" has TWO independent sources, merged here so the
-  // badge (and the "Sudah Standarisasi" tab itself) reflects either: (1) an
-  // actual PoaStandarisasi pengajuan already submitted for this produk at
-  // this outlet (standarisasiRows), or (2) the OutletProductKriteria import
-  // already labels it "Produk Sudah Terstandarisasi..." (kriteriaBaru) — same
-  // label POA Estimasi's KriteriaProdukPanel checks via
-  // kriteria?.startsWith(...) for its own "Listing Corporate" sections. A
-  // product can be true via either source independently of the other (e.g.
-  // labeled standarisasi in the import long before this app ever had a
-  // submitted pengajuan for it) — 2026-08-26 bug report: the tab itself only
-  // read source (1), showing empty whenever no in-app submission existed yet
-  // even though source (2) had plenty of labeled products.
-  const standarisasiMerged: { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }[] = useMemo(() => {
-    const byKode = new Map<string, { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }>();
-    for (const r of standarisasiRows ?? []) {
-      byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: r.namaProduk, detail: `${r.statusPengajuan} · ${r.tipeStandarisasi} · disubmit ${new Date(r.submittedAt).toLocaleDateString("id-ID")}` });
-    }
-    for (const r of kriteriaRows ?? []) {
-      if (byKode.has(r.kodeProduk) || !r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) continue;
-      byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk, detail: `Kriteria: ${r.kriteriaBaru}` });
-    }
-    for (const r of dplRows ?? []) {
-      if (byKode.has(r.kodeProduk)) continue;
-      byKode.set(r.kodeProduk, { kodeProduk: r.kodeProduk, namaProduk: productByKode.get(r.kodeProduk)?.namaProduk ?? r.kodeProduk, detail: `DPL aktif s/d ${r.prdAkhir.slice(4)}/${r.prdAkhir.slice(0, 4)}`, expiring: isEndingThisQuarter(r.prdAkhir) });
-    }
-    return Array.from(byKode.values()).sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
-  }, [standarisasiRows, kriteriaRows, dplRows, productByKode]);
+  // "Sudah Standarisasi" = ada sales (3 bulan penuh terakhir) DAN ada DPL aktif
+  // bulan berjalan (user 2026-10-01; sebelumnya OR dari pengajuan submit /
+  // label kriteria / DPL). Info Historical Sales (12 bln) digabung ke kartu
+  // yang sama — satu tab, satu list. Produk yang cuma punya salah satunya
+  // tampil di tab Produk Rekomendasi, bukan di sini.
+  const standarisasiMerged: StandarisasiCard[] = useMemo(() => {
+    if (!salesQtrRows || !dplRows) return [];
+    const salesByKode = new Map(salesQtrRows.map((s) => [s.kodeProduk, s.salesRp]));
+    const historyByKode = new Map((salesHistoryRows ?? []).map((h) => [h.kodeProduk, h]));
+    return dplRows
+      .filter((d) => salesByKode.has(d.kodeProduk))
+      .map((d) => ({
+        kodeProduk: d.kodeProduk,
+        namaProduk: productByKode.get(d.kodeProduk)?.namaProduk ?? d.kodeProduk,
+        sales3Rp: salesByKode.get(d.kodeProduk)!,
+        dplDiskonPct: d.diskonPct,
+        dplAwal: d.prdAwal,
+        dplAkhir: d.prdAkhir,
+        expiring: isEndingThisQuarter(d.prdAkhir),
+        history: historyByKode.get(d.kodeProduk) ?? null,
+      }))
+      .sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
+  }, [salesQtrRows, dplRows, salesHistoryRows, productByKode]);
 
   const standarisasiKode = useMemo(() => new Set(standarisasiMerged.map((r) => r.kodeProduk)), [standarisasiMerged]);
 
@@ -181,21 +187,12 @@ export function RekomendasiSidebar({ kodePI, pengajuanId, productByKode }: { kod
 
       <div style={{ flex: 1, overflowY: "auto", padding: 14 }} className="space-y-3">
         {activeTab === "survey" && <SurveyOutletPanel rows={surveyRows} standarisasiKode={standarisasiKode} sortByStandarisasi={sortByStandarisasi} />}
-        {activeTab === "kriteria" && <KriteriaOutletPanel rows={kriteriaRows} dplRows={dplRows} salesQtrRows={salesQtrRows} productByKode={productByKode} />}
+        {activeTab === "kriteria" && <KriteriaOutletPanel rows={kriteriaRows} dplRows={dplRows} salesQtrRows={salesQtrRows} productByKode={productByKode} groupOutletsByKode={groupOutletsByKode} />}
         {activeTab === "standarisasiSales" && (
-          <div className="space-y-4">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: SIDEBAR_BLUE }}>Sudah Standarisasi</div>
-              <StandarisasiOutletPanel
-                rows={standarisasiRows === null || kriteriaRows === null || dplRows === null ? null : standarisasiMerged}
-                groupOutletsByKode={groupOutletsByKode}
-              />
-            </div>
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wide mb-1.5" style={{ color: SIDEBAR_PURPLE }}>Historical Sales</div>
-              <SalesHistoryOutletPanel rows={salesHistoryRows} />
-            </div>
-          </div>
+          <StandarisasiOutletPanel
+            rows={salesQtrRows === null || dplRows === null || salesHistoryRows === null ? null : standarisasiMerged}
+            groupOutletsByKode={groupOutletsByKode}
+          />
         )}
       </div>
     </div>
@@ -283,108 +280,90 @@ function RecommendationPill({ color, children }: { color: string; children: Reac
   );
 }
 
-/**
- * "Produk Rekomendasi" (layout baru 2026-09-24, user request) — produk
- * rekomendasi (kriteria) di outlet ini dikelompokkan per status DPL/sales:
- * (1) sudah DPL tapi belum ada sales, (2) sudah ada sales (3 bln terakhir)
- * tapi belum DPL, (3) belum ada keduanya. Produk yang SUDAH punya DPL DAN
- * sales bukan gap, jadi tidak ditampilkan di sini (tetap kelihatan di tab
- * "Standarisasi & Historis Sales").
- */
-function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode }: {
-  rows: KriteriaByOutlet[] | null;
-  dplRows: { kodeProduk: string; diskonPct: number; prdAkhir: string }[] | null;
-  salesQtrRows: { kodeProduk: string; salesRp: number }[] | null;
-  productByKode: Map<string, Product>;
-}) {
-  const loaded = rows !== null && dplRows !== null && salesQtrRows !== null;
-  const empty = <LoadingOrEmpty rows={loaded ? rows : null} emptyText="Belum ada kriteria produk untuk outlet ini." />;
-  if (!loaded || rows.length === 0) return empty;
-
-  const dplByKode = new Map(dplRows.map((d) => [d.kodeProduk, d.diskonPct]));
-  const dplEndByKode = new Map(dplRows.map((d) => [d.kodeProduk, d.prdAkhir]));
-  const salesByKode = new Map(salesQtrRows.map((s) => [s.kodeProduk, s.salesRp]));
-  const nama = (kode: string) => productByKode.get(kode)?.namaProduk ?? kode;
-
-  const dplNoSales = rows.filter((r) => dplByKode.has(r.kodeProduk) && !salesByKode.has(r.kodeProduk));
-  const salesNoDpl = rows.filter((r) => salesByKode.has(r.kodeProduk) && !dplByKode.has(r.kodeProduk));
-  const neither = rows.filter((r) => !dplByKode.has(r.kodeProduk) && !salesByKode.has(r.kodeProduk));
-  if (dplNoSales.length + salesNoDpl.length + neither.length === 0) return empty;
-
-  const card = "rounded-xl border px-3.5 py-3 shadow-sm";
-  const cardStyle = { background: "var(--color-bg)", borderColor: "var(--color-border)" };
-  const heading = (label: string, color: string) => (
-    <div className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color }}>{label}</div>
-  );
-
+/** Baris info sales + DPL satu produk (dipakai di tab Produk Rekomendasi). */
+function SalesDplInfo({ salesRp, dpl }: { salesRp: number | undefined; dpl: DplRow | undefined }) {
+  const ending = dpl ? isEndingThisQuarter(dpl.prdAkhir) : false;
   return (
-    <div className="space-y-5">
-      {dplNoSales.length > 0 && (
-        <div>
-          {heading("Sudah DPL, Belum Ada Sales", SIDEBAR_ORANGE)}
-          <div className="space-y-2">
-            {dplNoSales.map((r) => (
-              <div key={r.kodeProduk} className={card} style={cardStyle}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>{nama(r.kodeProduk)}</div>
-                  <RecommendationPill color="#d97706">DPL {dplByKode.get(r.kodeProduk)}%</RecommendationPill>
-                </div>
-                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>Diskon Pelunasan · Belum ada sales tercatat</div>
-                {isEndingThisQuarter(dplEndByKode.get(r.kodeProduk) ?? "") && (<div className="text-xs mt-1 font-semibold" style={{ color: "#d97706" }}>⚠ Periode DPL mau habis ({(dplEndByKode.get(r.kodeProduk) ?? "").slice(4)}/{(dplEndByKode.get(r.kodeProduk) ?? "").slice(0, 4)})</div>)}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {salesNoDpl.length > 0 && (
-        <div>
-          {heading("Sudah Ada Sales, Belum DPL", SIDEBAR_BLUE)}
-          <div className="space-y-2">
-            {salesNoDpl.map((r) => (
-              <div key={r.kodeProduk} className={card} style={cardStyle}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>{nama(r.kodeProduk)}</div>
-                  <RecommendationPill color="#2563eb">
-                    {(salesByKode.get(r.kodeProduk) ?? 0).toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })}
-                  </RecommendationPill>
-                </div>
-                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>Sales 3 bln terakhir · Belum ada DPL</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {neither.length > 0 && (
-        <div>
-          {heading("Tidak Ada Sales & DPL", "var(--color-text-faint)")}
-          <div className="space-y-2">
-            {neither.map((r) => (
-              <div key={r.kodeProduk} className={card} style={{ ...cardStyle, opacity: 0.7 }}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-sm font-bold" style={{ color: "var(--color-text-faint)" }}>{nama(r.kodeProduk)}</div>
-                  <RecommendationPill color="#7c3aed">{r.paket}</RecommendationPill>
-                </div>
-                <div className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>Belum ada Sales & DPL</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="text-xs mt-1 space-y-0.5" style={{ color: "var(--color-text-faint)" }}>
+      <div>{salesRp !== undefined ? <>Sales 3 bln terakhir: <strong style={{ color: "var(--color-text-muted)" }}>{formatRp(salesRp)}</strong></> : "Belum ada sales (3 bln terakhir)"}</div>
+      <div style={{ color: ending ? "#d97706" : undefined, fontWeight: ending ? 600 : undefined }}>
+        {dpl ? <>{ending && "⚠ "}DPL {dpl.diskonPct}% · {formatPeriodeYyyymm(dpl.prdAwal)} – {formatPeriodeYyyymm(dpl.prdAkhir)}{ending && " · mau habis"}</> : "Belum ada DPL"}
+      </div>
     </div>
   );
 }
 
 /**
- * Tag "Gap Group" di card "Sudah Standarisasi" — expand-on-click nunjukin
- * outlet LAIN dalam group corporate yang sama yang juga sudah standarisasi
- * produk ini, plus tanggal (2026-09-30, user request: gantiin tab "Gap
- * Group" terpisah, di-merge jadi inline di sini biar langsung kelihatan
- * konteksnya tanpa pindah tab). Cuma dirender kalau ada sibling (lihat
- * caller di StandarisasiOutletPanel).
+ * "Produk Rekomendasi" — section "Paket Produk Kontes" (user 2026-10-01):
+ * produk rekomendasi (kriteria) di outlet ini dikelompokkan per status
+ * sales/DPL: (1) ada sales, tidak ada DPL, (2) tidak ada sales, ada DPL,
+ * (3) tidak ada keduanya. Tiap produk menampilkan sales 3 bln dan DPL
+ * (% + periode) serta info RS segrup (tag Gap Group). Produk yang SUDAH
+ * punya sales DAN DPL = sudah standarisasi, bukan gap, jadi tidak
+ * ditampilkan di sini (ada di tab "Standarisasi & Historis Sales").
  */
-function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: string | null; salesAvg3Bulan: number | null; dplPeriode: string | null }[] }) {
+function KriteriaOutletPanel({ rows, dplRows, salesQtrRows, productByKode, groupOutletsByKode }: {
+  rows: KriteriaByOutlet[] | null;
+  dplRows: DplRow[] | null;
+  salesQtrRows: { kodeProduk: string; salesRp: number }[] | null;
+  productByKode: Map<string, Product>;
+  groupOutletsByKode: Map<string, GroupOutlet[]>;
+}) {
+  const loaded = rows !== null && dplRows !== null && salesQtrRows !== null;
+  const empty = <LoadingOrEmpty rows={loaded ? rows : null} emptyText="Belum ada kriteria produk untuk outlet ini." />;
+  if (!loaded || rows.length === 0) return empty;
+
+  const dplByKode = new Map(dplRows.map((d) => [d.kodeProduk, d]));
+  const salesByKode = new Map(salesQtrRows.map((s) => [s.kodeProduk, s.salesRp]));
+  const nama = (kode: string) => productByKode.get(kode)?.namaProduk ?? kode;
+
+  const salesNoDpl = rows.filter((r) => salesByKode.has(r.kodeProduk) && !dplByKode.has(r.kodeProduk));
+  const dplNoSales = rows.filter((r) => dplByKode.has(r.kodeProduk) && !salesByKode.has(r.kodeProduk));
+  const neither = rows.filter((r) => !dplByKode.has(r.kodeProduk) && !salesByKode.has(r.kodeProduk));
+  if (dplNoSales.length + salesNoDpl.length + neither.length === 0) return empty;
+
+  const card = "rounded-xl border px-3.5 py-3 shadow-sm";
+  const cardStyle = { background: "var(--color-bg)", borderColor: "var(--color-border)" };
+  const sub = (label: string, color: string, list: KriteriaByOutlet[], pill: (r: KriteriaByOutlet) => React.ReactNode, faded = false) =>
+    list.length === 0 ? null : (
+      <div>
+        <div className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color }}>{label}</div>
+        <div className="space-y-2">
+          {list.map((r) => {
+            const groupOutlets = groupOutletsByKode.get(r.kodeProduk);
+            return (
+              <div key={r.kodeProduk} className={card} style={{ ...cardStyle, opacity: faded ? 0.8 : 1 }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>{nama(r.kodeProduk)}</div>
+                  {pill(r)}
+                </div>
+                <div className="text-[11px] mt-0.5" style={{ color: "var(--color-text-faint)" }}>{r.paket}</div>
+                <SalesDplInfo salesRp={salesByKode.get(r.kodeProduk)} dpl={dplByKode.get(r.kodeProduk)} />
+                {groupOutlets && groupOutlets.length > 0 && <GroupGapTag outlets={groupOutlets} />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+
+  return (
+    <div className="space-y-4">
+      <div className="text-sm font-bold" style={{ color: "var(--color-text)" }}>Paket Produk Kontes</div>
+      {sub("Ada Sales, Tidak Ada DPL", SIDEBAR_BLUE, salesNoDpl, (r) => <RecommendationPill color="#2563eb">{formatRp(salesByKode.get(r.kodeProduk) ?? 0)}</RecommendationPill>)}
+      {sub("Tidak Ada Sales, Ada DPL", SIDEBAR_ORANGE, dplNoSales, (r) => <RecommendationPill color="#d97706">DPL {dplByKode.get(r.kodeProduk)?.diskonPct}%</RecommendationPill>)}
+      {sub("Tidak Ada Sales & DPL", "var(--color-text-faint)", neither, () => <RecommendationPill color="#7c3aed">Belum ada</RecommendationPill>, true)}
+    </div>
+  );
+}
+
+/**
+ * Tag "RS segrup" di kartu produk — expand-on-click nunjukin outlet LAIN dalam
+ * group corporate yang sama yang sudah standarisasi produk ini (sales DAN
+ * DPL), plus sales rata² 3 bln dan DPL (% + periode). Cuma dirender kalau ada
+ * sibling.
+ */
+function GroupGapTag({ outlets }: { outlets: GroupOutlet[] }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="mt-1.5">
@@ -394,7 +373,7 @@ function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: stri
         className="text-[11px] font-bold px-1.5 py-0.5 rounded"
         style={{ background: `color-mix(in srgb, ${SIDEBAR_RED} 10%, transparent)`, color: SIDEBAR_RED, cursor: "pointer" }}
       >
-        {expanded ? "▾" : "▸"} {outlets.length} outlet sudah standarisasi
+        {expanded ? "▾" : "▸"} {outlets.length} RS segrup sudah standarisasi
       </button>
       {expanded && (
         <div className="mt-1 rounded-lg border max-h-40 overflow-y-auto" style={{ borderColor: "var(--color-border)" }}>
@@ -404,42 +383,17 @@ function GroupGapTag({ outlets }: { outlets: { namaOutlet: string; tanggal: stri
               className="px-2 py-1 text-xs space-y-0.5"
               style={{ borderTop: i > 0 ? "1px solid var(--color-border)" : undefined, color: "var(--color-text-muted)" }}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="truncate">{o.namaOutlet}</span>
-                {o.tanggal && <span className="shrink-0" style={{ color: "var(--color-text-faint)" }}>{o.tanggal}</span>}
-              </div>
+              <div className="truncate">{o.namaOutlet}</div>
               {o.salesAvg3Bulan != null && (
-                <div style={{ color: "var(--color-text-faint)" }}>
-                  Sales rata² 3 bln: {o.salesAvg3Bulan.toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })}
-                </div>
+                <div style={{ color: "var(--color-text-faint)" }}>Sales rata² 3 bln: {formatRp(o.salesAvg3Bulan)}</div>
               )}
-              {o.dplPeriode && <div style={{ color: "var(--color-text-faint)" }}>DPL periode: {o.dplPeriode}</div>}
+              {o.dplPeriode && (
+                <div style={{ color: "var(--color-text-faint)" }}>DPL{o.dplDiskonPct != null ? ` ${o.dplDiskonPct}%` : ""} · {o.dplPeriode}</div>
+              )}
             </div>
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function StandarisasiOutletPanel({ rows, groupOutletsByKode }: {
-  rows: { kodeProduk: string; namaProduk: string; detail: string; expiring?: boolean }[] | null;
-  groupOutletsByKode: Map<string, { namaOutlet: string; tanggal: string | null; salesAvg3Bulan: number | null; dplPeriode: string | null }[]>;
-}) {
-  const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada produk yang sudah standarisasi di outlet ini." />;
-  if (!rows || rows.length === 0) return empty;
-  return (
-    <div className="space-y-1.5">
-      {rows.map((r) => {
-        const groupOutlets = groupOutletsByKode.get(r.kodeProduk);
-        return (
-          <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-            <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
-            <div className="text-xs mt-0.5" style={{ color: r.expiring ? "#d97706" : "var(--color-text-faint)", fontWeight: r.expiring ? 600 : undefined }}>{r.expiring && "⚠ "}{r.detail}{r.expiring && " · periode mau habis"}</div>
-            {groupOutlets && groupOutlets.length > 0 && <GroupGapTag outlets={groupOutlets} />}
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -451,28 +405,41 @@ function formatPeriodeYyyymm(yyyymm: string): string {
   return m >= 1 && m <= 12 ? `${bulan[m - 1]} ${y}` : yyyymm;
 }
 
-/** Widget "Historical Sales per Produk/Outlet" (2026-09-08, user request) —
- * flat 12-bulan rollup per produk untuk outlet terpilih, sumber sama seperti
- * warning margin §3a (OutletSalesHistory), ditampilkan apa adanya di sini. */
-function SalesHistoryOutletPanel({ rows }: { rows: SalesHistoryOutletRow[] | null }) {
-  const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada histori sales untuk outlet ini." />;
+/**
+ * Tab "Standarisasi & Historis Sales" — satu list produk yang sudah
+ * standarisasi (sales DAN DPL), tiap kartu memuat DPL (% + periode), sales 3
+ * bln terakhir, historical sales 12 bln (digabung dari widget lama "Historical
+ * Sales", user 2026-10-01), dan info RS segrup.
+ */
+function StandarisasiOutletPanel({ rows, groupOutletsByKode }: {
+  rows: StandarisasiCard[] | null;
+  groupOutletsByKode: Map<string, GroupOutlet[]>;
+}) {
+  const empty = <LoadingOrEmpty rows={rows} emptyText="Belum ada produk yang sudah standarisasi (ada sales dan DPL) di outlet ini." />;
   if (!rows || rows.length === 0) return empty;
   return (
     <div className="space-y-1.5">
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-        {rows.length} produk punya histori sales tercatat di outlet ini (12 bulan terakhir).
+        {rows.length} produk sudah standarisasi (ada sales dan DPL aktif) di outlet ini.
       </p>
-      {rows.map((r) => (
-        <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-          <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>
-            {r.totalSales12Bln.toLocaleString("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })}
+      {rows.map((r) => {
+        const groupOutlets = groupOutletsByKode.get(r.kodeProduk);
+        return (
+          <div key={r.kodeProduk} className="rounded-lg border px-3 py-2" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+            <div className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>{r.namaProduk}</div>
+            <div className="text-xs mt-0.5" style={{ color: r.expiring ? "#d97706" : "var(--color-text-faint)", fontWeight: r.expiring ? 600 : undefined }}>
+              {r.expiring && "⚠ "}DPL {r.dplDiskonPct}% · {formatPeriodeYyyymm(r.dplAwal)} – {formatPeriodeYyyymm(r.dplAkhir)}{r.expiring && " · periode mau habis"}
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--color-text-muted)" }}>Sales 3 bln terakhir: {formatRp(r.sales3Rp)}</div>
+            {r.history && (
+              <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
+                Historical sales: {formatRp(r.history.totalSales12Bln)} ({formatPeriodeYyyymm(r.history.periodeFrom)} – {formatPeriodeYyyymm(r.history.periodeTo)})
+              </div>
+            )}
+            {groupOutlets && groupOutlets.length > 0 && <GroupGapTag outlets={groupOutlets} />}
           </div>
-          <div className="text-xs mt-0.5" style={{ color: "var(--color-text-faint)" }}>
-            {formatPeriodeYyyymm(r.periodeFrom)} – {formatPeriodeYyyymm(r.periodeTo)}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
