@@ -352,16 +352,29 @@ export async function listVisiblePoaStandarisasiAction() {
     include: {
       owner: { select: { name: true } },
       outlet: { select: { namaOutlet: true } },
-      produk: { select: { id: true, product: { select: { namaProduk: true } }, standarisasiGagal: true } },
+      produk: {
+        select: {
+          id: true, product: { select: { namaProduk: true } }, standarisasiGagal: true,
+          dokterUser: { select: { customer: { select: { namaCustomer: true } } } },
+          dokterApproval: { select: { customer: { select: { namaCustomer: true } } } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: 300,
   });
-  return rows.map((p: (typeof rows)[number]) => ({
+  return rows.map((p: (typeof rows)[number]) => {
+    // Dokter: dokterUser (Finalisasi) kalau ada, fallback dokterApproval (Planning). Unik per nama.
+    const finalNames = p.produk.flatMap((x: (typeof p.produk)[number]) => x.dokterUser.map((d: (typeof x.dokterUser)[number]) => d.customer.namaCustomer));
+    const planNames = p.produk.flatMap((x: (typeof p.produk)[number]) => x.dokterApproval.map((d: (typeof x.dokterApproval)[number]) => d.customer.namaCustomer));
+    const dokter = [...new Set(finalNames.length > 0 ? finalNames : planNames)];
+    return {
     ...p,
+    dokter,
     ownerName: p.owner.name,
     produk: p.produk.map((prod: (typeof p.produk)[number]) => ({ id: prod.id, namaProduk: prod.product.namaProduk, standarisasiGagal: prod.standarisasiGagal })),
-  }));
+    };
+  });
 }
 
 export async function listMyPoaStandarisasiAction() {
