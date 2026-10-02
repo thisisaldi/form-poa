@@ -7,6 +7,6 @@
  * padahal tidak ada yang terkirim menyesatkan MR. Nyalakan lagi (false) setelah
  * tim Exodus menjelaskan cara POST yang benar dan sudah dites ulang lewat GET list.
  */
-export const DPL_DPF_SUBMIT_DISABLED = true;
+export const DPL_DPF_SUBMIT_DISABLED = false; // dinyalakan lagi 2026-10-02 (user), dengan konfirmasi GET setelah POST (confirmDiscountRequest) supaya tidak ada klaim "Terkirim" palsu
 export const DPL_DPF_SUBMIT_DISABLED_MESSAGE =
   "Pengajuan DPL/DPF dari sini belum tersedia — integrasi ke Exodus masih menunggu konfirmasi tim Exodus. Ajukan lewat sistem Exodus.";
