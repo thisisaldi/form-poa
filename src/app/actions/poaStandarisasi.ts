@@ -575,6 +575,17 @@ export async function getStandarisasiProdukForDokterAction(kodePI: string, kodeC
   return Array.from(byKode.values());
 }
 
+/** kodeCustomer dokter di outlet ini yang pernah diestimasi di POA Standarisasi (fase apa pun) — label dropdown customer di POA Estimasi. */
+export async function getStandarisasiCustomerKodesByOutletAction(kodePI: string): Promise<string[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.poaStandarisasiDokterUser.findMany({
+    where: { produk: { pengajuan: { kodePI } } },
+    select: { customer: { select: { kodeCustomer: true } } },
+    distinct: ["customerId"],
+  });
+  return rows.map((r: (typeof rows)[number]) => r.customer.kodeCustomer).filter(Boolean);
+}
+
 /**
  * Kode produk yang sedang dalam proses POA Standarisasi di outlet ini —
  * pengajuan sudah dibuat tapi belum disubmit (`submittedAt` null). Dipakai POA
