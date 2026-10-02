@@ -26,6 +26,7 @@ import { EXODUS_DISTRIBUTORS, type ExodusDistributorKode } from "@/lib/exodusDis
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet, getDiskonByOutlets } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import { DPL_DPF_SUBMIT_DISABLED, DPL_DPF_SUBMIT_DISABLED_MESSAGE } from "@/lib/poaStandarisasiDplDpfFlag";
 import { SALES_TEAM_ROLES } from "@/lib/role";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
@@ -572,6 +573,17 @@ export async function getStandarisasiProdukForDokterAction(kodePI: string, kodeC
     });
   }
   return Array.from(byKode.values());
+}
+
+/** kodeCustomer dokter di outlet ini yang pernah diestimasi di POA Standarisasi (fase apa pun) — label dropdown customer di POA Estimasi. */
+export async function getStandarisasiCustomerKodesByOutletAction(kodePI: string): Promise<string[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.poaStandarisasiDokterUser.findMany({
+    where: { produk: { pengajuan: { kodePI } } },
+    select: { customer: { select: { kodeCustomer: true } } },
+    distinct: ["customerId"],
+  });
+  return rows.map((r: (typeof rows)[number]) => r.customer.kodeCustomer).filter(Boolean);
 }
 
 /**
@@ -1832,6 +1844,7 @@ export async function submitDiscountRequestAction(formData: FormData): Promise<A
 }
 
 async function submitDiscountRequestActionImpl(formData: FormData): Promise<void> {
+  if (DPL_DPF_SUBMIT_DISABLED) throw new Error(DPL_DPF_SUBMIT_DISABLED_MESSAGE);
   const { actor } = await requireActor();
   const str = (k: string) => ((formData.get(k) as string | null) ?? "").trim();
   const pengajuanId = str("pengajuanId");
@@ -1854,7 +1867,7 @@ async function submitDiscountRequestActionImpl(formData: FormData): Promise<void
   let requestDocDate: Date | null = null;
   let startDate: Date | null = null;
   let endDate: Date | null = null;
-  let file: { name: string; mimeType: string; buffer: Buffer };
+  let file: { name: string; mimeType: string; buffer: Buffer } | undefined; // DPF only (dokumen PO); DPL tanpa file
   if (tipe === "DPF") {
     const tgl = parseYmd(str("tanggalPo"));
     requestDocNumber = str("nomorPo");
@@ -1874,8 +1887,7 @@ async function submitDiscountRequestActionImpl(formData: FormData): Promise<void
     startDate = new Date(Date.UTC(awal.y, awal.m, 1) - WIB_MS); // tgl 1 bulan awal, 00:00 WIB
     endDate = new Date(Date.UTC(akhir.y, akhir.m + 1, 1) - WIB_MS - 1); // akhir bulan akhir, 23:59:59.999 WIB
     if (endDate < startDate) throw new Error("Periode akhir tidak boleh sebelum periode awal.");
-    // Exodus mewajibkan request-doc-file bahkan untuk DPL, padahal DPL tidak punya dokumen (user 2026-09-29) -> placeholder teks.
-    file = { name: `DPL ${pengajuan.kodePI}.txt`, mimeType: "text/plain", buffer: Buffer.from(`Pengajuan DPL ${pengajuan.kodePI} - ${pengajuan.outlet.namaOutlet} via Form POA oleh ${actor.name}\n`) };
+    // DPL tidak pakai request-doc-file (dokumen PO cuma wajib untuk DPF — Mas Budi/Exodus 2026-10-01).
   }
 
   // Produk terpilih + disc

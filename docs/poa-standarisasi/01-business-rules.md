@@ -127,6 +127,8 @@ Tahapan baru SETELAH `submittedAt` terisi (bukan phase di `PoaStandarisasiPhase`
 
 ### §6b. Ajukan DPL/DPF ke Exodus (2026-09-29)
 
+> ⚠️ **DIMATIKAN 2026-10-01** (`DPL_DPF_SUBMIT_DISABLED = true`, `lib/poaStandarisasiDplDpfFlag.ts`): POST dengan token `client_credentials` selalu 200 tapi TIDAK membuat request di Exodus (dipindai 20.446 request via GET `/promotion/v1/request/discount` staging — tidak ada satu pun dari >20 POST tes; `product-outlet` yang dipakai sebelumnya hanya menampilkan sebagian). Tombol "Ajukan" nonaktif dan action menolak. Nyalakan lagi setelah tim Exodus menjelaskan cara POST yang benar (field/token pembuat?) dan dites ulang lewat GET list. Detail di bawah = rancangan yang sudah dibangun, belum terbukti bekerja.
+
 `submitDiscountRequestAction` (`actions/poaStandarisasi.ts`) → `submitDiscountRequest` (`lib/exodusApi.ts`) → `POST {EXODUS_API_BASE_URL}/promotion/v1/request/discount` (multipart: `request` JSON + `request-doc-file`). Gate: `canEditPoaStandarisasiStep5`.
 
 **Form**: Tipe DPL/DPF, Distributor (AMS/PPG/MPI → `distributor_id`/`distributor_name` lewat `lib/exodusDistributors.ts`: AMS=1 "ANTARMITRA SEMBADA, PT", PPG=2 "PARIT PADANG GLOBAL, PT", MPI=3 "MILLENNIUM PHARMACON INTERNATIONAL, PT"), produk terpilih + Qty. Disc PI/Dist per produk BUKAN input: dari `finalDiscountPct`/`diskonDistributorPct` (fallback live Exodus).
@@ -137,7 +139,7 @@ Tahapan baru SETELAH `submittedAt` terisi (bukan phase di `PoaStandarisasiPhase`
 | `request_doc_number` / `request_doc_date` | nomor PO / tanggal PO 00:00 WIB | `null` / `null` |
 | `start_date` / `end_date` | `null` | tgl 1 bulan awal 00:00 WIB s/d akhir bulan akhir 23:59:59.999 WIB (dikirim UTC) |
 | Qty | bilangan bulat ≥ 1 | ≥ 0 (data nyata Exodus memakai 0) |
-| File | dokumen PO | placeholder teks `DPL <kodePI>.txt` — Exodus 400 "missing request-doc-file" tanpa file, DPL tidak punya dokumen |
+| File (`request-doc-file`) | dokumen PO (wajib) | tidak dikirim — wajib hanya untuk DPF (Mas Budi/Exodus 2026-10-01; payload DPL tanpa file terbukti membuat request lewat Postman dengan token user) |
 
 Payload lain: `outlet_id` dari `getExodusOutletIdByCode(kodePI)` (tolak kalau null), `product_type` `ETH`/`OTC` dan `principal_distributor_*` per produk dari `core/v1/products`, `division_distributor_code` dan `distributor_product_code_prefix` = `null` (kata Exodus), `is_open_api` = `false`.
 
@@ -163,6 +165,6 @@ Sisanya (Q5-Q9) non-blocking, belum dijawab, jalan dengan asumsi kerja:
 | Q5 | Ambang "OVER BUDGET" 30% — apakah ini angka bisnis nyata atau placeholder penulis dokumen sumber? | Tidak | 30%, adjustable via config bukan hardcode, supaya gampang diubah tanpa migration | Tim bisnis |
 | Q6 | Upload "Surat Approval Standarisasi KFT" — cakupannya per **pengajuan** (satu file untuk semua produk) atau per **produk**? | Tidak (murah diubah — tinggal pindah FK dari header ke `PoaStandarisasiProduk`) | Per pengajuan (field di header `PoaStandarisasi`, bukan di `PoaStandarisasiProduk`) | Tim bisnis |
 | Q7 | ~~URL nyata halaman/sistem "+ Buat DPL/DPF baru"~~ | — | RESOLVED 2026-09-29: integrasi API Exodus (§6b) | — |
-| Q7a | Exodus: apakah request baru pending/async, ada cara ambil ID-nya, dan perlukah file untuk DPL | Tidak | Kirim placeholder teks untuk DPL, simpan riwayat lokal | Tim Exodus |
+| Q7a | Exodus: token apa yang membuat request? (2026-10-01: payload sama persis dibuat dengan token USER lewat Postman — `created_by_nip` L100005, status `submitted` — tapi token `client_credentials` kita 200 tanpa membuat apa pun). File DPL: tidak perlu (terjawab). | **Ya** | Submit tetap dimatikan (`DPL_DPF_SUBMIT_DISABLED`) | Tim Exodus |
 | Q8 | Sumber data `Outlet.jumlahBed` — sync dari file eksternal (perlu source file baru) atau input manual per outlet (siapa yang isi, kapan)? | Tidak | Field nullable, diisi manual pertama kali oleh MR di form (auto-suggest ke field snapshot pengajuan `PoaStandarisasi.jumlahBedRs`), tidak ada job sync di v1 | Tim data |
 | Q9 | Jumlah minimum dokter klinis "wajib" per produk — angka tetap (mis. selalu 3) atau bervariasi per kondisi (spesialisasi, tipe produk)? | Tidak | Field manual per produk, MR menambah slot dokter sesuai kebutuhan (tidak hardcode 3) — validasi hanya "minimal 1 dokter wajib" sampai dikonfirmasi ada aturan lebih spesifik | Tim bisnis |

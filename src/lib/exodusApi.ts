@@ -925,8 +925,8 @@ export interface ExodusDiscountRequestInput {
   endDate: string | null;
   note?: string | null;
   products: ExodusDiscountRequestProductInput[];
-  /** Dokumen pendukung (required oleh Exodus, multipart `request-doc-file`). */
-  file: { name: string; mimeType: string; buffer: Buffer };
+  /** Dokumen PO (multipart `request-doc-file`) — wajib hanya untuk DPF, DPL tanpa file (info Mas Budi/Exodus 2026-10-01). */
+  file?: { name: string; mimeType: string; buffer: Buffer };
 }
 
 export type ExodusSubmitResult = { ok: true; data: unknown } | { ok: false; error: string };
@@ -974,7 +974,7 @@ export async function submitDiscountRequest(input: ExodusDiscountRequestInput): 
 
   const form = new FormData();
   form.set("request", JSON.stringify(request));
-  form.set("request-doc-file", new Blob([new Uint8Array(input.file.buffer)], { type: input.file.mimeType }), input.file.name);
+  if (input.file) form.set("request-doc-file", new Blob([new Uint8Array(input.file.buffer)], { type: input.file.mimeType }), input.file.name);
 
   try {
     const res = await fetchWithTimeout(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount`, {
