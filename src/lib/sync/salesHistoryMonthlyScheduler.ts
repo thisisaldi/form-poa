@@ -4,7 +4,7 @@
  * and docs/form-poa/02-data-model.md §"Sync sources"). Unlike sales-history and
  * sales-value-monthly, this sync has no external-cron-triggered HTTP endpoint —
  * this fires it automatically from inside the running server instead, no ops
- * setup required. Runs once at 00:00 WIB, then every 24h.
+ * setup required. Runs once at 08:00 WIB (RUN_HOUR_WIB; dipindah dari 00:00 atas permintaan user 2026-10-02), then every 24h.
  *
  * globalThis guard prevents duplicate intervals if register() runs more than
  * once in the same process (e.g. dev-mode reloads). A SyncLock row (see
@@ -19,6 +19,7 @@ import { acquireSyncLock } from "./syncLock";
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const LOCK_KEY = "sales-history-monthly";
+const RUN_HOUR_WIB = 8;
 // Comfortably longer than one sync run (recordset upserted in 500-row
 // chunks) but short enough to self-heal same-day if a replica dies mid-run.
 const LOCK_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
@@ -26,17 +27,12 @@ const LOCK_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 // Exported for reuse by other in-process daily-at-00:00-WIB schedulers
 // (see orgAndOutletScheduler.ts) — same "one instant, shared by all
 // schedulers" clock math, no reason to duplicate it per scheduler.
-export function msUntilNextWibMidnight(): number {
+export function msUntilNextWibMidnight(hourWib = 0): number {
   const now = new Date();
   const wibNow = new Date(now.getTime() + WIB_OFFSET_MS);
-  const nextMidnightWibClock = Date.UTC(
-    wibNow.getUTCFullYear(),
-    wibNow.getUTCMonth(),
-    wibNow.getUTCDate() + 1,
-    0, 0, 0, 0
-  );
-  const nextMidnightUtcInstant = nextMidnightWibClock - WIB_OFFSET_MS;
-  return nextMidnightUtcInstant - now.getTime();
+  let nextUtcInstant = Date.UTC(wibNow.getUTCFullYear(), wibNow.getUTCMonth(), wibNow.getUTCDate(), hourWib, 0, 0, 0) - WIB_OFFSET_MS;
+  if (nextUtcInstant <= now.getTime()) nextUtcInstant += ONE_DAY_MS;
+  return nextUtcInstant - now.getTime();
 }
 
 async function runOnce() {
@@ -69,8 +65,8 @@ export function scheduleSalesHistoryMonthlySync() {
   if (globalThis.__salesHistoryMonthlySchedulerStarted) return;
   globalThis.__salesHistoryMonthlySchedulerStarted = true;
 
-  const delay = msUntilNextWibMidnight();
-  console.log(`[scheduler] sales-history-monthly: next run in ${Math.round(delay / 60000)} min (00:00 WIB)`);
+  const delay = msUntilNextWibMidnight(RUN_HOUR_WIB);
+  console.log(`[scheduler] sales-history-monthly: next run in ${Math.round(delay / 60000)} min (${String(RUN_HOUR_WIB).padStart(2, "0")}:00 WIB)`);
 
   setTimeout(function fireAndReschedule() {
     void runOnce();
