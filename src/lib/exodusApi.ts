@@ -924,6 +924,8 @@ export interface ExodusDiscountRequestInput {
   startDate: string | null;
   endDate: string | null;
   note?: string | null;
+  /** NIP user pengusul — Exodus mencatat created_by dari payload ini (bukan dari token service account; Mas Budi 2026-10-01). */
+  createdBy?: string;
   products: ExodusDiscountRequestProductInput[];
   /** Dokumen PO (multipart `request-doc-file`) — wajib hanya untuk DPF, DPL tanpa file (info Mas Budi/Exodus 2026-10-01). */
   file?: { name: string; mimeType: string; buffer: Buffer };
@@ -957,6 +959,7 @@ export async function submitDiscountRequest(input: ExodusDiscountRequestInput): 
     end_date: input.endDate,
     note: input.note ?? null,
     is_open_api: false,
+    ...(input.createdBy ? { created_by: input.createdBy } : {}),
     discount_products: input.products.map((p) => ({
       product_name: p.productName,
       product_code: p.productCode,

@@ -1945,6 +1945,8 @@ async function submitDiscountRequestActionImpl(formData: FormData): Promise<void
     distributorId: distributor.id, distributorName: distributor.name,
     requestDocNumber, requestDocDate: requestDocDate?.toISOString() ?? null,
     startDate: startDate?.toISOString() ?? null, endDate: endDate?.toISOString() ?? null,
+    // created_by = NIP user yang mengajukan (yang login di aplikasi), bukan service account — Exodus mencatat pembuat dari payload ini (Mas Budi 2026-10-01).
+    createdBy: actor.nip,
     products: products.map((p) => p.exodus), file,
   });
   if (!result.ok) {
