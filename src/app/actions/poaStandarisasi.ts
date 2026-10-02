@@ -21,7 +21,7 @@ import { APPROVAL_LEVELS, actionableRows, discountApprovalLevel, levelsUpTo, typ
 import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
-import { getDiscountsForOutlet, getLiveProductPricing, getExodusOutletIdByCode, submitDiscountRequest, type ExodusDiscountPct } from "@/lib/exodusApi";
+import { getDiscountsForOutlet, getLiveProductPricing, getExodusOutletIdByCode, submitDiscountRequest, confirmDiscountRequest, type ExodusDiscountPct } from "@/lib/exodusApi";
 import { EXODUS_DISTRIBUTORS, type ExodusDistributorKode } from "@/lib/exodusDistributors";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet, getDiskonByOutlets } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
@@ -1953,17 +1953,29 @@ async function submitDiscountRequestActionImpl(formData: FormData): Promise<void
     throw e;
   }
 
+  const sinceMs = Date.now();
   const result = await submitDiscountRequest({
     discountType: tipe, outletId, outletCode: pengajuan.kodePI, outletName: pengajuan.outlet.namaOutlet,
     distributorId: distributor.id, distributorName: distributor.name,
     requestDocNumber, requestDocDate: requestDocDate?.toISOString() ?? null,
     startDate: startDate?.toISOString() ?? null, endDate: endDate?.toISOString() ?? null,
+    // created_by = NIP user yang mengajukan (yang login di aplikasi), bukan service account — Exodus mencatat pembuat dari payload ini (Mas Budi 2026-10-01).
+    createdBy: actor.nip,
     products: products.map((p) => p.exodus), file,
   });
   if (!result.ok) {
     await prisma.poaStandarisasiDiscountRequest.delete({ where: { id: reservation.id } });
     console.error("[poaStandarisasi/submitDiscountRequest] Exodus gagal:", result.error);
     throw new Error(`Gagal mengirim ke Exodus: ${result.error}`);
+  }
+
+  // POST Exodus 200 belum menjamin request dibuat (tanpa id di respons) — wajib terkonfirmasi di GET sebelum dinyatakan terkirim.
+  const pcts = products.map((p) => p.snapshot.principalPct);
+  const confirmed = await confirmDiscountRequest({ outletCode: pengajuan.kodePI, discountType: tipe, createdBy: actor.nip, sinceMs, minPct: Math.min(...pcts), maxPct: Math.max(...pcts) });
+  if (!confirmed) {
+    await prisma.poaStandarisasiDiscountRequest.delete({ where: { id: reservation.id } });
+    console.error("[poaStandarisasi/submitDiscountRequest] POST 200 tapi request tidak ditemukan di GET Exodus", { outlet: pengajuan.kodePI, tipe, createdBy: actor.nip });
+    throw new Error("Request belum terkonfirmasi di Exodus (tidak ditemukan setelah dikirim). Cek dulu di sistem Exodus sebelum mengirim ulang agar tidak dobel, dan hubungi admin kalau berulang.");
   }
   revalidatePath(`/poa-standarisasi/${pengajuanId}`);
 }

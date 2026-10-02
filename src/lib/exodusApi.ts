@@ -924,6 +924,8 @@ export interface ExodusDiscountRequestInput {
   startDate: string | null;
   endDate: string | null;
   note?: string | null;
+  /** NIP user pengusul — Exodus mencatat created_by dari payload ini (bukan dari token service account; Mas Budi 2026-10-01). */
+  createdBy?: string;
   products: ExodusDiscountRequestProductInput[];
   /** Dokumen PO (multipart `request-doc-file`) — wajib hanya untuk DPF, DPL tanpa file (info Mas Budi/Exodus 2026-10-01). */
   file?: { name: string; mimeType: string; buffer: Buffer };
@@ -957,6 +959,7 @@ export async function submitDiscountRequest(input: ExodusDiscountRequestInput): 
     end_date: input.endDate,
     note: input.note ?? null,
     is_open_api: false,
+    ...(input.createdBy ? { created_by: input.createdBy } : {}),
     discount_products: input.products.map((p) => ({
       product_name: p.productName,
       product_code: p.productCode,
@@ -991,6 +994,52 @@ export async function submitDiscountRequest(input: ExodusDiscountRequestInput): 
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Konfirmasi request hasil submitDiscountRequest: POST Exodus selalu 200
+ * `{error.status:false}` tanpa id/ref_id, bahkan saat request DIBUANG diam-diam
+ * (token tanpa izin, 2026-10-02). Cari di GET /promotion/v1/request/discount
+ * (filter outlet_code, urut lama -> baru) request baru dengan tipe + pembuat
+ * (created_by_nip) + rentang persen yang sama. Null = tidak ditemukan.
+ */
+export async function confirmDiscountRequest(params: {
+  outletCode: string;
+  discountType: "DPL" | "DPF";
+  createdBy: string;
+  sinceMs: number;
+  minPct: number;
+  maxPct: number;
+}): Promise<{ id: number; refId: string } | null> {
+  const token = await getAccessToken();
+  if (!token) return null;
+  const near = (a: number | undefined, b: number) => a !== undefined && Math.abs(a - b) < 0.005;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+    try {
+      let rows: { id: number; ref_id: string; discount_type: string; created_by_nip: string; created_at: string; range_discount?: { min_percentage_range?: number; max_percentage_range?: number } }[] = [];
+      for (let page = 1; page <= 10; page++) {
+        const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount`);
+        url.searchParams.set("page", String(page));
+        url.searchParams.set("limit", "100");
+        url.searchParams.set("outlet_code", params.outletCode);
+        const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 8000);
+        if (!res.ok) break;
+        const body = (await res.json()) as { data?: typeof rows | null };
+        const data = body.data ?? [];
+        rows = rows.concat(data);
+        if (data.length < 100) break;
+      }
+      const hit = rows
+        .filter((r) => r.discount_type === params.discountType && r.created_by_nip === params.createdBy && new Date(r.created_at).getTime() >= params.sinceMs - 5000)
+        .filter((r) => near(r.range_discount?.min_percentage_range, params.minPct) && near(r.range_discount?.max_percentage_range, params.maxPct))
+        .sort((a, b) => b.id - a.id)[0];
+      if (hit) return { id: hit.id, refId: hit.ref_id };
+    } catch {
+      /* coba lagi */
+    }
+  }
+  return null;
 }
 
 export interface ExodusOutletMaster {
