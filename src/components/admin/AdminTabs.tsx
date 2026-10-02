@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Combobox } from "@/components/ui/Combobox";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PoaStatus } from "@prisma/client";
-import { ALL_SPESIALISASI_OPTIONS, spesLabel } from "@/lib/spesialisasi";
+import { buildSpesialisasiOptions, spesLabel } from "@/lib/spesialisasi";
 import { displayRole } from "@/lib/role";
 import { formatCurrency as formatRp } from "@/lib/format";
 import Link from "next/link";
@@ -20,7 +20,7 @@ import {
   searchOutletAssignmentsAction, addOutletAssignmentAction, removeOutletAssignmentAction, type OutletAssignmentRow,
   searchAllPoaAction, type PoaSearchRow,
 } from "@/app/actions/admin";
-import { createCustomerAction } from "@/app/actions/customer";
+import { createCustomerAction, getSpesialisasiOptionsAction } from "@/app/actions/customer";
 
 type TabKey = "user" | "outlet" | "dokter" | "produk" | "assignment" | "poa";
 
@@ -484,7 +484,9 @@ function DokterTab({ outlets }: { outlets: OutletOption[] }) {
   const outletOptions = outlets.map((o) => ({
     value: o.kodePI, label: `${o.kodePI} - ${o.namaOutlet}`, sublabel: o.groupRS ?? "NON CHAIN",
   }));
-  const spesOptions = ALL_SPESIALISASI_OPTIONS;
+  const [exodusSpec, setExodusSpec] = useState<string[]>([]);
+  useEffect(() => { getSpesialisasiOptionsAction().then(setExodusSpec); }, []);
+  const spesOptions = buildSpesialisasiOptions(exodusSpec);
 
   function runSearch() { startSearch(async () => setResults(await searchCustomersAction(query))); }
 

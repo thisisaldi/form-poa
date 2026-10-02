@@ -1,4 +1,4 @@
-import { SPESIALISASI_TO_PAKET } from "./paketProduk";
+import { SPESIALISASI_TO_PAKET, SPESIALISASI_ALIAS } from "./paketProduk";
 
 /** Maps raw database spesialisasi strings to PM-standard display labels. */
 export const SPESIALISASI_PM_LABEL: Record<string, string> = {
@@ -49,7 +49,9 @@ export const SPESIALISASI_PM_LABEL: Record<string, string> = {
 /** Returns the PM display label for a spesialisasi string, falling back to the original. */
 export function spesLabel(dbValue: string | null | undefined): string {
   if (!dbValue) return "—";
-  return SPESIALISASI_PM_LABEL[dbValue.toUpperCase()] ?? dbValue;
+  const key = dbValue.trim().toUpperCase();
+  const target = SPESIALISASI_ALIAS[key] ?? key;
+  return SPESIALISASI_PM_LABEL[key] ?? SPESIALISASI_PM_LABEL[target] ?? (target !== key ? target : dbValue);
 }
 
 /**
@@ -72,3 +74,14 @@ export const ALL_SPESIALISASI_OPTIONS = (() => {
     .map(([label, value]) => ({ value, label }))
     .sort((a, b) => a.label.localeCompare(b.label, "id"));
 })();
+
+/** Opsi dropdown dari daftar raw Exodus, dikolapskan per label PM; kosong → daftar statis. */
+export function buildSpesialisasiOptions(raws: string[]): { value: string; label: string }[] {
+  if (raws.length === 0) return ALL_SPESIALISASI_OPTIONS;
+  const byLabel = new Map<string, { value: string; label: string }>();
+  for (const raw of raws) {
+    const label = spesLabel(raw);
+    if (!byLabel.has(label)) byLabel.set(label, { value: raw, label });
+  }
+  return [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label, "id"));
+}

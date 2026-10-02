@@ -1278,3 +1278,30 @@ export function lastNMonthsRange(n: number, from: Date = new Date()): { periodeA
   const periodeAwal = `${start.getFullYear()}${String(start.getMonth() + 1).padStart(2, "0")}`;
   return { periodeAwal, periodeAkhir };
 }
+
+let specialistsCache: { list: string[]; expiresAt: number } | null = null;
+
+/** Master list spesialisasi Exodus (`core/v1/customers/specialist`) — sumber dropdown Spesialisasi. Raw strings, kosong/"NULL" dibuang. */
+export async function getExodusSpecialists(): Promise<string[] | null> {
+  if (!isConfigured) return null;
+  if (specialistsCache && specialistsCache.expiresAt > Date.now()) return specialistsCache.list;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${env.EXODUS_API_BASE_URL}/core/v1/customers/specialist`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { specialist?: unknown }; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data?.specialist)) return null;
+
+    const list = [...new Set((body.data.specialist as unknown[]).filter((s): s is string => typeof s === "string").map((s) => s.trim()).filter((s) => s && s.toUpperCase() !== "NULL"))];
+    specialistsCache = { list, expiresAt: Date.now() + OUTLET_ID_TTL_MS };
+    return list;
+  } catch {
+    return null;
+  }
+}

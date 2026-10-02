@@ -8,11 +8,11 @@ import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/hargaST";
 import { hargaST } from "@/lib/hargaST";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
+import { getCustomersByOutlet, getSpesialisasiOptionsAction, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
 import { getStandarisasiCustomerKodesByOutletAction, getStandarisasiProdukForDokterAction, getStandarisasiProsesKodeByOutletAction, type StandarisasiProdukForDokter } from "@/app/actions/poaStandarisasi";
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
-import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
+import { spesLabel, buildSpesialisasiOptions } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier, isRelevantToSpesialisasi } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
@@ -2575,6 +2575,11 @@ function AddPanel({
   // in the static list still correctly sets the `spesialisasi` state (used
   // for filtering) but the Spesialisasi combobox itself shows blank, since
   // its options list has no matching value to display (2026-08-14 bug report).
+  // Sumber utama = master list Exodus (getSpesialisasiOptionsAction), dikolapskan
+  // per label PM; kalau kosong/gagal jatuh ke daftar statis.
+  const [exodusSpec, setExodusSpec] = useState<string[]>([]);
+  useEffect(() => { getSpesialisasiOptionsAction().then(setExodusSpec); }, []);
+  const baseSpecOptions = useMemo(() => buildSpesialisasiOptions(exodusSpec), [exodusSpec]);
   const specOptions = useMemo(() => {
     const counts = new Map<string, number>(); // PM label -> count
     const rawByLabel = new Map<string, string>(); // PM label -> a raw value with that label
@@ -2583,15 +2588,15 @@ function AddPanel({
       counts.set(label, (counts.get(label) ?? 0) + 1);
       if (!rawByLabel.has(label)) rawByLabel.set(label, c.spesialisasi);
     }
-    const knownValues = new Set(ALL_SPESIALISASI_OPTIONS.map((o) => o.value));
+    const knownLabels = new Set(baseSpecOptions.map((o) => o.label));
     const extra = [...rawByLabel.entries()]
-      .filter(([, raw]) => !knownValues.has(raw))
+      .filter(([label]) => !knownLabels.has(label))
       .map(([label, raw]) => ({ value: raw, label }));
-    return [...ALL_SPESIALISASI_OPTIONS, ...extra].map((o) => {
+    return [...baseSpecOptions, ...extra].map((o) => {
       const n = counts.get(o.label) ?? 0;
       return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined, _count: n };
     }).sort((a, b) => b._count - a._count);
-  }, [customerList]);
+  }, [customerList, baseSpecOptions]);
   // customerList holds every user at the outlet, any spesialisasi — narrowed
   // to the picked spesialisasi here only as a convenience filter, never a
   // hard requirement, so an MR who doesn't know the spesialisasi can just

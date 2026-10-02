@@ -180,11 +180,41 @@ export const SPESIALISASI_TO_PAKET: Record<string, string[]> = {
 };
 
 /**
+ * Ejaan spesialisasi dari Exodus (`core/v1/customers/specialist`) yang sama
+ * dengan key paket yang sudah ada — alias (UPPERCASE) → key. Dipakai
+ * getPaketsBySpesialisasi + label PM di spesialisasi.ts.
+ */
+export const SPESIALISASI_ALIAS: Record<string, string> = {
+  "SARAF (NEUROLOGI)": "SYARAF (NEUROLOGI)",
+  "SPESIALIS SARAF": "SYARAF (NEUROLOGI)",
+  "KANDUNGAN (OBGYN)": "KANDUNGAN (OBSGYN)",
+  "OBSTETRI DAN GINEKOLOGI (SP.OG)": "KANDUNGAN (OBSGYN)",
+  "SPESIALIS OBSTETRI DAN GINEKOLOGI (KANDUNGAN)": "KANDUNGAN (OBSGYN)",
+  "ANAK (SP.A)": "ANAK (PEDIATRIC)",
+  "SPESIALIS ANAK": "ANAK (PEDIATRIC)",
+  "SPESIALIS PENYAKIT DALAM": "PENYAKIT DALAM (INTERNIST)",
+  "PENYAKIT DALAM (INTERNIST) (SP.PD)": "PENYAKIT DALAM (INTERNIST)",
+  "PSIKIATER (SPKJ)": "JIWA (PSIKIATER)",
+  "SPESIALIS PSIKIATRI (KESEHATAN JIWA)": "JIWA (PSIKIATER)",
+  "SPESIALIS BEDAH UMUM": "BEDAH (SURGEON)",
+  "SPESIALIS TELINGA HIDUNG TENGGOROK DAN BEDAH KEPALA LEHER": "THT (ENT)",
+  "SPESIALIS ANESTESIOLOGI DAN TERAPI INTENSIF": "ANESTESI",
+  "SPESIALIS PARU": "PARU (PULMONOLOGI)",
+  "SPESIALIS KULIT DAN KELAMIN": "KULIT KELAMIN (DV)",
+  "SPESIALIS ORTOPEDI DAN TRAUMATOLOGI": "BEDAH TULANG (ORTHOPEDI)",
+  "SPESIALIS BEDAH MULUT DAN MAKSILOFASIAL": "BEDAH MULUT",
+  "SPESIALIS PATOLOGI KLINIK": "PATOLOGI KLINIK",
+  "SPESIALIS GIZI KLINIK": "GIZI KLINIK",
+  "DOKTER UMUM": "UMUM (GP)",
+};
+
+/**
  * Returns the pakets that match a given spesialisasi DB value.
  * Used to prioritise focus products relevant to the doctor's specialty.
  */
 export function getPaketsBySpesialisasi(spesialisasi: string): string[] {
-  return SPESIALISASI_TO_PAKET[spesialisasi.toUpperCase()] ?? [];
+  const key = spesialisasi.trim().toUpperCase();
+  return SPESIALISASI_TO_PAKET[key] ?? SPESIALISASI_TO_PAKET[SPESIALISASI_ALIAS[key]] ?? [];
 }
 
 /** Returns 0 = matched focus, 1 = other focus, 2 = non-focus for a product given matched pakets. */
