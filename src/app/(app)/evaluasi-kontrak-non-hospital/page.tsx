@@ -5,6 +5,7 @@ import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
 import { KpiSchemeHeader } from "@/components/kpi/KpiSchemeHeader";
 import { NhMonitoringTable } from "@/components/kpi/NhMonitoringTable";
 import { SyncAbsensiButton } from "@/components/kpi/SyncAbsensiButton";
+import { KpiPageNav } from "@/components/kpi/KpiPageNav";
 import { periodLabel } from "@/components/kpi/kpiUi";
 import { addMonths, periodOf } from "@/lib/nonHospitalScoring";
 
@@ -40,6 +41,7 @@ export default async function EvaluasiKontrakNonHospitalPage({
 
   return (
     <div className="space-y-5">
+      <KpiPageNav current="monitoring" role={session.role} />
       <KpiSchemeHeader
         scheme="non-hospital"
         subtitle={`${periodLabel(period)} · ${rows.length} personil · Achievement / Kunjungan / SC Menang / Absensi`}

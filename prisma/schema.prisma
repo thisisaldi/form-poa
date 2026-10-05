@@ -1278,13 +1278,13 @@ model KpiContractEvaluation {
   periodeMulai String // "YYYY-MM"
   periodeAkhir String // "YYYY-MM"
 
-  avgSalesScore    Decimal @db.Decimal(5, 2)
-  avgActivityScore Decimal @db.Decimal(5, 2)
-  avgCustomerScore Decimal @db.Decimal(5, 2)
-  avgAbsensiScore  Decimal @db.Decimal(5, 2)
-  totalScore       Decimal @db.Decimal(5, 2)
+  avgSalesScore    Decimal? @db.Decimal(5, 2)
+  avgActivityScore Decimal? @db.Decimal(5, 2)
+  avgCustomerScore Decimal? @db.Decimal(5, 2)
+  avgAbsensiScore  Decimal? @db.Decimal(5, 2)
+  totalScore       Decimal? @db.Decimal(5, 2)
 
-  systemRecommendationMonths Int // band result: 12/9/6/0
+  systemRecommendationMonths Int? // band result: 12/9/6/0; null bila skor belum lengkap (mis. Non-Hospital, band belum dikonfirmasi)
 
   // Atasan's actual decision — may differ from the system recommendation
   // ("keputusan diusulkan atasan, tidak harus mengikuti rekomendasi asal ada
@@ -1296,10 +1296,18 @@ model KpiContractEvaluation {
   // Wajib per memo: "Evaluasi Rencana Pengembangan Personil" + rasionalisasi ke direksi.
   developmentPlanNotes String
 
+  // 2026-10-05 (docs/kpi-monitoring/04-final-layout.md §5): form evaluasi final
+  // memuat rasionalisasi ke direksi; dipakai untuk Hospital DAN Non-Hospital
+  // (Non-Hospital tanpa NonHospitalContract tidak bisa memakai KpiNonHospitalEvaluation).
+  // Satu keputusan per (nip, periodeAkhir) — terkunci setelah disimpan.
+  directionRationale String?
+  scheme             String  @default("HOSPITAL") // HOSPITAL | NON_HOSPITAL
+
   evaluatedByNip String
   evaluatedBy    User     @relation("KpiEvaluator", fields: [evaluatedByNip], references: [nip])
   evaluatedAt    DateTime @default(now())
 
+  @@unique([nip, periodeAkhir])
   @@index([nip])
   @@index([evaluatedByNip])
 }

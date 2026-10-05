@@ -95,19 +95,15 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["ADMIN"],
   },
   {
-    href: "/kpi-perpanjangan",
-    label: "KPI Perpanjangan",
+    href: "/kpi-leaderboard",
+    label: "KPI Personil",
     icon: <IconChart />,
-    // Hospital + Non-Hospital are tabs of the same feature (KpiSchemeHeader);
-    // Evaluasi Kontrak Non-Hospital (docs/evaluasi-kontrak-non-hospital/) is
-    // reached through the tab, not a second menu entry.
-    alsoActiveOn: ["/evaluasi-kontrak-non-hospital"],
-    // KPI Personil Kinerja/Kontrak scorecard (Memo SM/ETH-II/PI/08.2026).
-    // ADMIN sees everyone; MR/ASM/SM/NSM see themself + bawahannya
-    // (2026-09-28, see getSubordinateOwnerNips in getKpiMonitoringData) —
-    // editing (sync/manual input) stays ADMIN-only. See docs/kpi-monitoring/
-    // for the full spec.
-    roles: ["ADMIN", "MR", "ASM", "SM", "NSM"],
+    // One menu entry, sub-pages via KpiPageNav (2026-10-05, mockup "KPI Personil"):
+    // Leaderboard (all roles, point only), Detail KPI (ADMIN/SM/NSM) and
+    // Monitoring (/kpi-perpanjangan + Non-Hospital tab). Per-page role checks
+    // live in each page; Leaderboard is open to every logged-in role, so no
+    // `roles` filter here. See docs/kpi-monitoring/04-final-layout.md.
+    alsoActiveOn: ["/kpi-detail", "/kpi-perpanjangan", "/evaluasi-kontrak-non-hospital"],
   },
   {
     href: "/sales-support",

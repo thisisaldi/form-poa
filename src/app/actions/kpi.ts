@@ -13,27 +13,17 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getSubordinateMRNips, getSubordinateOwnerNips } from "@/lib/authz";
-import { loadIdentities, dedupeByIdentity, allNips, KPI_PERSONNEL_FILTER } from "@/lib/kpiIdentity";
-import { resolveTargetForNipGroups } from "@/lib/targetHospitalValue";
-import { getActivePsspByOutlets } from "@/app/actions/customer";
+import { getSubordinateOwnerNips } from "@/lib/authz";
 import { runKpiAbsensiSync, type KpiAbsensiSyncResult } from "@/lib/sync/kpiAbsensiSync";
 import { runKpiCallActivitySync, type KpiCallActivitySyncResult } from "@/lib/sync/kpiCallActivitySync";
-import {
-  CALL_ACTIVITY_STANDARD_BY_ROLE,
-  computeTotalScore,
-  recommendContractMonths,
-  scoreAbsensi,
-  scoreCallActivity,
-  scoreCustomerExpansion,
-  scoreSalesAchievement,
-  type ContractRecommendation,
-} from "@/lib/kpiScoring";
-import type { Role, User } from "@prisma/client";
+import { CALL_ACTIVITY_STANDARD_BY_ROLE, KPI_WEIGHTS } from "@/lib/kpiScoring";
+import { getNonHospitalMonitoringRows } from "@/lib/nonHospitalEvaluation";
+import { roleLabel } from "@/components/kpi/kpiUi";
+import { addMonths } from "@/lib/nonHospitalScoring";
+import { computeKpiRows, type KpiPersonnelRow } from "@/lib/kpiMonitoring";
 
-function toNum(v: { toString(): string } | number | string | null | undefined): number {
-  return parseFloat(String(v ?? 0)) || 0;
-}
+export type { KpiPersonnelRow } from "@/lib/kpiMonitoring";
+import type { Role, User } from "@prisma/client";
 
 async function requireAdmin() {
   const session = await getCurrentUser();
@@ -56,36 +46,6 @@ async function requireKpiViewer() {
   }
   return session;
 }
-
-export type KpiPersonnelRow = {
-  nip: string;
-  name: string;
-  role: string;
-  jabatan: string | null;
-
-  salesTargetRp: number;
-  salesActualRp: number;
-  salesAchievementPct: number | null;
-  salesScore: number | null;
-
-  callActivityRealisasi: number | null;
-  callActivityStandar: number;
-  activityAchievementPct: number | null;
-  activityScore: number | null;
-  /** "MANUAL" | "EXODUS_SYNC" — see docs/kpi-monitoring/01-business-rules.md §2b. Null when no entry exists yet. */
-  callActivitySource: string | null;
-
-  customerAktifCount: number;
-  customerScore: number;
-
-  absensiValue: number | null;
-  absensiScore: number | null;
-  /** "MANUAL" | "SIPP_SYNC" — see docs/kpi-monitoring/01-business-rules.md §2d. Null when no entry exists yet. */
-  absensiSource: string | null;
-
-  totalScore: number | null;
-  recommendation: ContractRecommendation | null;
-};
 
 /**
  * ADMIN-only listing for /kpi-perpanjangan: one row per active MR/ASM/SM,
@@ -112,190 +72,68 @@ export async function getKpiMonitoringData(period: string, opts?: { nips?: strin
     const wanted = opts.nips;
     scopeNips = scopeNips ? scopeNips.filter((n) => wanted.includes(n)) : wanted;
   }
+  return computeKpiRows(period, scopeNips);
+}
 
-  const allPersonnel = (await prisma.user.findMany({
-    where: {
-      role: { in: ["MR", "ASM", "SM"] },
-      ...KPI_PERSONNEL_FILTER,
-      ...(scopeNips ? { nip: { in: scopeNips } } : {}),
-    },
-    select: { nip: true, name: true, role: true, jabatan: true },
-    orderBy: { name: "asc" },
-  })) as { nip: string; name: string; role: string; jabatan: string | null }[];
-  if (allPersonnel.length === 0) return [];
-  // Same person under several NIPs (NIP changed, e.g. P->L) shows once, and
-  // their entries are read across all their NIPs — see src/lib/kpiIdentity.ts.
-  const identities = await loadIdentities(allPersonnel.map((p) => p.nip));
-  const personnel = dedupeByIdentity(allPersonnel, identities);
+export type LeaderboardRow = {
+  nip: string;
+  name: string;
+  /** Display role (MR/SPV/ASM/SM) for Hospital; jabatan (PSR/Supervisor/…) for Non-Hospital. */
+  role: string;
+  /** Hospital: Outlet.namaArea/namaReg of the team; Non-Hospital: namaWilayah (GT). */
+  area: string | null;
+  /** Rank in the previous month (Hospital only) for the ▲▼ movement; null = not ranked then. */
+  prevRank: number | null;
+  /** Points per pillar = band score × weight; Non-Hospital shows the total only. */
+  pillars: { sales: number; activity: number; customer: number; absensi: number } | null;
+  total: number;
+};
 
-  const nips: string[] = personnel.map((p) => p.nip);
-  const mrNips: string[] = personnel.filter((p) => p.role === "MR").map((p) => p.nip);
-  const periodeYYYYMM = period.replace("-", "");
+/**
+ * Leaderboard (docs/kpi-monitoring/04-final-layout.md §2): company-wide for ANY
+ * logged-in role (decided 2026-10-05), points only — no raw data, no band
+ * detail. Only fully-scored personnel are ranked; `unscored` counts the rest.
+ * Still on-demand compute (docs/PERFORMANCE.md §5) — same cost as the ADMIN page.
+ */
+export async function getKpiLeaderboard(scheme: "hospital" | "non-hospital", period: string): Promise<{ rows: LeaderboardRow[]; unscored: number }> {
+  const session = await getCurrentUser();
+  if (!session) throw new Error("Unauthorized");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Periode tidak valid");
 
-  type KpiEntryRow = {
-    nip: string;
-    callActivityRealisasi: number | null;
-    callActivityStandar: number | null;
-    callActivitySource: string | null;
-    absensiValue: { toString(): string } | null;
-    absensiSource: string | null;
-  };
-
-  // ASM/SM roll-up: reuse authz's role-aware subtree walk (only role+nip are
-  // read by getSubordinateMRNips) rather than re-deriving org depth here.
-  const subtreeCache = new Map<string, string[]>();
-  async function subordinateMrNips(nip: string, role: string): Promise<string[]> {
-    if (role === "MR") return [nip];
-    const key = `${role}:${nip}`;
-    const cached = subtreeCache.get(key);
-    if (cached) return cached;
-    const list = await getSubordinateMRNips({ nip, role: role as Role } as User);
-    subtreeCache.set(key, list);
-    return list;
-  }
-
-  const mrsUnderByNip = new Map<string, string[]>();
-  for (const p of personnel) mrsUnderByNip.set(p.nip, await subordinateMrNips(p.nip, p.role));
-  // Every MR that counts toward anyone's numbers (an ASM/SM's team can include
-  // MRs that aren't rows of this listing themselves).
-  const allMrNips = [...new Set([...mrNips, ...[...mrsUnderByNip.values()].flat()])];
-  const periodeInt = parseInt(periodeYYYYMM, 10);
-
-  // Sales target: TargetHospitalValue is natively monthly (periode YYYYMM,
-  // same granularity as this page's period picker) — no quarter conversion
-  // needed, unlike PoaForm.target which is set once per quarter and would
-  // require mapping this month back to its quarter first. Resolved LIVE via
-  // resolveTargetForNipGroups (2026-09-14 — TargetHospitalValue no longer
-  // has a nipMR column at all, see resolveTargetByNipAndMonths' doc comment in
-  // src/lib/targetHospitalValue.ts). Targets AND outlet assignments are both
-  // scoped to THIS period (2026-09-25 fix: actual sales used to read the
-  // assignments of every period while the target used only this one, so an MR
-  // who changed outlets got another month's outlets' sales against this
-  // month's target). An ASM/SM's target counts each GT once across the whole
-  // team, not once per MR.
-  const [entries, targetByNip, assignments] = await Promise.all([
-    prisma.kpiMonthlyEntry.findMany({ where: { nip: { in: personnel.flatMap((p) => allNips(p.nip, identities.get(p.nip))) }, period } }) as Promise<KpiEntryRow[]>,
-    resolveTargetForNipGroups(mrsUnderByNip, periodeYYYYMM),
-    allMrNips.length > 0
-      ? (prisma.mrOutletAssignment.findMany({ where: { nipMR: { in: allMrNips }, periode: periodeInt }, select: { nipMR: true, kodePI: true } }) as Promise<{ nipMR: string; kodePI: string }[]>)
-      : Promise.resolve([] as { nipMR: string; kodePI: string }[]),
-  ]);
-
-  const entryRaw = new Map(entries.map((e) => [e.nip, e]));
-  // Own NIP's entry wins; otherwise fall back to an entry left under one of the person's other NIPs.
-  const entryByNip = new Map<string, KpiEntryRow>();
-  for (const p of personnel) {
-    const e = allNips(p.nip, identities.get(p.nip)).map((n) => entryRaw.get(n)).find(Boolean);
-    if (e) entryByNip.set(p.nip, e);
-  }
-
-  const outletsByMr = new Map<string, string[]>();
-  for (const a of assignments) outletsByMr.set(a.nipMR, [...(outletsByMr.get(a.nipMR) ?? []), a.kodePI]);
-  const allOutlets = [...new Set(assignments.map((a) => a.kodePI))];
-
-  const salesRows = allOutlets.length > 0
-    ? ((await prisma.outletSalesValueMonthly.findMany({ where: { kodePI: { in: allOutlets }, periode: periodeYYYYMM }, select: { kodePI: true, valueSales: true } })) as { kodePI: string; valueSales: { toString(): string } }[])
-    : [];
-  const salesByOutlet = new Map(salesRows.map((r) => [r.kodePI, toNum(r.valueSales)]));
-
-  /** Sales of a team's outlets, each outlet counted once even if two MRs both hold it. */
-  function teamSalesActual(mrs: string[]): number {
-    const outlets = new Set<string>();
-    for (const n of mrs) for (const o of outletsByMr.get(n) ?? []) outlets.add(o);
-    let sum = 0;
-    for (const o of outlets) sum += salesByOutlet.get(o) ?? 0;
-    return sum;
-  }
-
-  // Customer Expansion proxy (§2c, working assumption): active PSSP contracts
-  // per outlet, distinct kdCust per MR's assigned outlets.
-  const activePssp = allOutlets.length > 0 ? await getActivePsspByOutlets(allOutlets) : [];
-  const custByOutlet = new Map<string, Set<string>>();
-  for (const row of activePssp) {
-    if (!row.kdOutlet) continue;
-    const set = custByOutlet.get(row.kdOutlet) ?? new Set<string>();
-    set.add(row.kdCust);
-    custByOutlet.set(row.kdOutlet, set);
-  }
-  function mrCustomerAktifCount(nip: string): number {
-    const set = new Set<string>();
-    for (const o of outletsByMr.get(nip) ?? []) {
-      for (const c of custByOutlet.get(o) ?? []) set.add(c);
+  let rows: LeaderboardRow[] = [];
+  let total = 0;
+  if (scheme === "hospital") {
+    // Previous month in parallel — only for the ▲▼ movement; costs a second company-wide compute.
+    const prevPeriod = addMonths(period, -1);
+    const [data, prevData] = await Promise.all([
+      computeKpiRows(period, null, { hospitalOnly: true }),
+      computeKpiRows(prevPeriod, null, { hospitalOnly: true }),
+    ]);
+    const prevRank = new Map(
+      prevData.filter((r) => r.totalScore != null).sort((a, b) => b.totalScore! - a.totalScore! || a.name.localeCompare(b.name)).map((r, i) => [r.nip, i + 1]),
+    );
+    total = data.length;
+    for (const r of data) {
+      if (r.totalScore == null) continue;
+      rows.push({
+        nip: r.nip, name: r.name, role: roleLabel(r.role, r.jabatan), area: r.area, prevRank: prevRank.get(r.nip) ?? null,
+        pillars: {
+          sales: r.salesScore! * KPI_WEIGHTS.sales, activity: r.activityScore! * KPI_WEIGHTS.activity,
+          customer: r.customerScore * KPI_WEIGHTS.customer, absensi: r.absensiScore! * KPI_WEIGHTS.absensi,
+        },
+        total: r.totalScore,
+      });
     }
-    return set.size;
-  }
-
-  const rows: KpiPersonnelRow[] = [];
-  for (const p of personnel) {
-    const mrsUnder = mrsUnderByNip.get(p.nip) ?? [];
-
-    const salesTargetRp = targetByNip.get(p.nip) ?? 0;
-    const salesActualRp = teamSalesActual(mrsUnder);
-    const salesAchievementPct = salesTargetRp > 0 ? (salesActualRp / salesTargetRp) * 100 : null;
-    const salesScore = salesAchievementPct != null ? scoreSalesAchievement(salesAchievementPct) : null;
-
-    // Memo §2c: SM & ASM use the AVERAGE of their MR/Spv's active-customer
-    // counts, not a union across the whole subtree.
-    let customerAktifCount: number;
-    if (p.role === "MR") {
-      customerAktifCount = mrCustomerAktifCount(p.nip);
-    } else {
-      const perMr = mrsUnder.map((n) => mrCustomerAktifCount(n));
-      customerAktifCount = perMr.length > 0 ? Math.round(perMr.reduce((s, v) => s + v, 0) / perMr.length) : 0;
+  } else {
+    const data = await getNonHospitalMonitoringRows(period, { scopeNips: null });
+    total = data.length;
+    for (const r of data) {
+      if (r.totalScore == null) continue;
+      rows.push({ nip: r.nip, name: r.name, role: r.jabatan ?? r.role, area: r.gt, prevRank: null, pillars: null, total: r.totalScore });
     }
-    const customerScore = scoreCustomerExpansion(customerAktifCount);
-
-    const entry = entryByNip.get(p.nip);
-    const callActivityStandar = entry?.callActivityStandar ?? CALL_ACTIVITY_STANDARD_BY_ROLE[p.role] ?? 0;
-    const callActivityRealisasi = entry?.callActivityRealisasi ?? null;
-    const activityAchievementPct = callActivityRealisasi != null && callActivityStandar > 0
-      ? (callActivityRealisasi / callActivityStandar) * 100
-      : null;
-    const activityScore = activityAchievementPct != null ? scoreCallActivity(activityAchievementPct) : null;
-    const callActivitySource = entry?.callActivitySource ?? null;
-
-    const absensiValue = entry?.absensiValue != null ? toNum(entry.absensiValue) : null;
-    const absensiScore = absensiValue != null ? scoreAbsensi(absensiValue) : null;
-    const absensiSource = entry?.absensiSource ?? null;
-
-    const allScored = salesScore != null && activityScore != null && customerScore != null && absensiScore != null;
-    const totalScore = allScored
-      ? computeTotalScore({ salesScore: salesScore!, activityScore: activityScore!, customerScore, absensiScore: absensiScore! })
-      : null;
-
-    rows.push({
-      nip: p.nip,
-      name: p.name,
-      role: p.role,
-      jabatan: p.jabatan,
-      salesTargetRp,
-      salesActualRp,
-      salesAchievementPct,
-      salesScore,
-      callActivityRealisasi,
-      callActivityStandar,
-      activityAchievementPct,
-      activityScore,
-      callActivitySource,
-      customerAktifCount,
-      customerScore,
-      absensiValue,
-      absensiScore,
-      absensiSource,
-      totalScore,
-      recommendation: totalScore != null ? recommendContractMonths(totalScore) : null,
-    });
   }
-
-  // Worst (or not-yet-scored) first — same convention as Monitoring page.
-  rows.sort((a, b) => {
-    if (a.totalScore == null && b.totalScore == null) return a.name.localeCompare(b.name);
-    if (a.totalScore == null) return -1;
-    if (b.totalScore == null) return 1;
-    return a.totalScore - b.totalScore;
-  });
-
-  return rows;
+  rows = rows.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  return { rows, unscored: total - rows.length };
 }
 
 /**

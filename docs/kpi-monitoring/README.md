@@ -8,6 +8,8 @@
 2. [`02-data-model.md`](./02-data-model.md) — model Prisma yang diusulkan, sumber data per indikator (existing vs baru), invariant model, dan rencana integrasi/placeholder untuk dua indikator yang belum memiliki sumber data.
 3. [`03-ui-and-access.md`](./03-ui-and-access.md) — halaman, role/akses, dan pola UI yang digunakan ulang dari fitur Monitoring/Summary yang sudah ada.
 
+4. [`04-final-layout.md`](./04-final-layout.md) — layout final KPI Personil (Leaderboard + Detail KPI + form evaluasi + export, Hospital & Non-Hospital), berdasarkan mockup `internal/KPI Personil (Copy).html`. Spec saja (2026-10-05), belum diimplementasikan; berisi gap vs kode dan pertanyaan terbuka §7.
+
 ## Status
 
 🟢 **v1 diimplementasikan 2026-07-30** — halaman `/kpi-perpanjangan` ("Monitoring KPI Perpanjangan" di sidebar), **ADMIN-only**. Tercatat di `docs/TODO.md` #67.

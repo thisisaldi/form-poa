@@ -4,6 +4,7 @@ import { getKpiMonitoringData } from "@/app/actions/kpi";
 import { KpiTable } from "@/components/kpi/KpiTable";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
 import { KpiSchemeHeader } from "@/components/kpi/KpiSchemeHeader";
+import { KpiPageNav } from "@/components/kpi/KpiPageNav";
 import { periodLabel } from "@/components/kpi/kpiUi";
 import { SyncAbsensiButton } from "@/components/kpi/SyncAbsensiButton";
 import { SyncCallActivityButton } from "@/components/kpi/SyncCallActivityButton";
@@ -57,6 +58,7 @@ export default async function KpiPerpanjanganPage({
 
   return (
     <div className="space-y-5">
+      <KpiPageNav current="monitoring" role={session.role} />
       <KpiSchemeHeader
         scheme="hospital"
         subtitle={`${periodLabel(period)} · ${rows.length} personil · ${scoredCount} sudah lengkap 4 pilar`}
