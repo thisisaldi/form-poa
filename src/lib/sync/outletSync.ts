@@ -62,7 +62,9 @@ export async function runOutletSync(): Promise<OutletSyncResult> {
   const errors: string[] = [];
 
   const activeMrs = await prisma.user.findMany({
-    where: { role: "MR", isActive: true },
+    // ASM included: Exodus returns outlets for ASM NIPs too (e.g. P060167,
+    // 95 outlets incl. GRIYA LUKA) — MR-only left those outlets missing from DB.
+    where: { role: { in: ["MR", "ASM"] }, isActive: true },
     select: { nip: true },
   });
   const nips = activeMrs.map((u: { nip: string }) => u.nip);
