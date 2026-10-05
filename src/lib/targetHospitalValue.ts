@@ -334,7 +334,9 @@ export async function resolveLiveGTHolderChain(namaGTs: string[], periode?: stri
 
   const assignments = resolvedPeriode != null
     ? ((await prisma.mrOutletAssignment.findMany({
-        where: { kodePI: { in: allOutletKodePI }, periode: resolvedPeriode },
+        // role MR only: outlet sync also writes ASM assignments (2026-10-05), and an
+        // ASM winning this Map would shift chainFor() one level up (ASM read as MR).
+        where: { kodePI: { in: allOutletKodePI }, periode: resolvedPeriode, user: { role: "MR" } },
         select: { kodePI: true, nipMR: true },
       })) as { kodePI: string; nipMR: string }[])
     : [];

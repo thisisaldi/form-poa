@@ -76,8 +76,9 @@ export async function getOutletsByUser(userId: string): Promise<MockCustomer[]> 
     toMockCustomer(o)
   );
 
-  // ASM/SM/NSM never get MrOutletAssignment rows themselves (those are only
-  // ever written for the MR role) — but they can still create a POA scoped to
+  // SM/NSM never get MrOutletAssignment rows themselves, and ASM only does
+  // when Exodus returns outlets for that NIP (outlet sync covers MR + ASM, so
+  // fromAssignments above can be non-empty for an ASM) — they can also create a POA scoped to
   // specific outlets whose own MR/ASM/SM chain is vacant down to them (see
   // canCreatePoa in authz.ts and Outlet.coveredByNip/coveredByRole).
   // Additionally, for managers simulating MR or territory planning (Option B),
