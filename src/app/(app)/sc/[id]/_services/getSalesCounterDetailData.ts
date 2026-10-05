@@ -8,7 +8,7 @@ import { getSalesCounterProduct } from "./getSalesCounterProduct";
 import { postHistorySales } from "./postHistorySales";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
-import { getB3ByQuarter } from "@/lib/b3Utils";
+import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 
 interface MasterProductItem {
@@ -194,7 +194,7 @@ export async function getSalesCounterDetailData(
   const outletScTotalCountMap = new Map<string, number>();
   const outletHistorySalesQuarterMap = new Map<string, number>();
 
-  const b3Info = getB3ByQuarter(targetPeriod);
+  const b3Info = getB3RollingPeriodInfo(targetPeriod);
   const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
 
   const [blastInSet, rawOutlets, batchHistRes] = await Promise.all([
@@ -220,7 +220,14 @@ export async function getSalesCounterDetailData(
               sales_counter_value: cp.sales_counter_value || 0,
               sales_counter_minimum: cp.sales_counter_minimum || 0,
             });
-            if (cp.pro_code) scCodes.add(cp.pro_code);
+            if (cp.pro_code) {
+              scCodes.add(cp.pro_code);
+              scCodes.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
+            }
+            if (cp.kode_item) {
+              scCodes.add(cp.kode_item);
+              scCodes.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
+            }
           }
           outletScProductCodesMap.set(kodePI, scCodes);
           outletScTotalCountMap.set(kodePI, scProductRes.data.length);
@@ -231,11 +238,11 @@ export async function getSalesCounterDetailData(
         // Check if batchHistRes already has sales for this outlet
         const parsed = parseOutletHistorySales(batchHistRes, kodePI);
         if (parsed.totalSales > 0 || parsed.productSalesMap.size > 0) {
-          // Filter to SC products
+          // Filter strictly to SC products only
           let scTotalSales = 0;
           for (const [code, val] of parsed.productSalesMap.entries()) {
-            const norm = code.replace(/^0+/, "");
-            if (scCodes.size === 0 || scCodes.has(code) || scCodes.has(norm)) {
+            const norm = code.replace(/^0+/, "").toUpperCase();
+            if (scCodes.size > 0 && (scCodes.has(code) || scCodes.has(norm))) {
               scTotalSales += (val || 0) * 3; // 3 months total
             }
           }

@@ -98,7 +98,7 @@ export async function sendEditRequestEmail(poa: PoaForm, lastApproverId: string)
   await sendEmail({
     to: lastApprover.email,
     subject: `Permintaan edit: POA ${poa.period} dari ${owner?.name ?? poa.ownerId}`,
-    html: `<p>Hi ${lastApprover.name},</p><p>${owner?.name ?? poa.ownerId} meminta izin untuk mengedit POA periode <strong>${poa.period}</strong> yang sudah Anda setujui. Buka POA ini untuk menyetujui atau menolak permintaan tersebut.</p>`,
+    html: `<p>Hi ${lastApprover.name},</p><p>${owner?.name ?? poa.ownerId} meminta izin untuk mengedit POA periode <strong>${poa.period}</strong> yang sedang/sudah Anda tangani. Buka POA ini untuk menyetujui atau menolak permintaan tersebut.</p>`,
   });
 }
 

@@ -14,7 +14,7 @@
 
 Yang sudah berjalan (diverifikasi ulang terhadap kode 2026-08-05): scorecard bulanan 4 pilar (Sales Achievement & Customer Expansion dihitung otomatis, Call Activity & Absensi berupa input manual oleh ADMIN), model `KpiMonthlyEntry`/`KpiContractEvaluation` (migration `20260730115119_add_kpi_monitoring_models`, `prisma/schema.prisma:912-997`), scoring engine (`src/lib/kpiScoring.ts`, hasilnya sesuai persis dengan contoh perhitungan pada memo — lihat `01-business-rules.md` §3), server actions `src/app/actions/kpi.ts`, dan tabel sortable dengan rekomendasi kontrak per baris (`src/components/kpi/KpiTable.tsx`).
 
-Yang **belum** dibangun: halaman/form Evaluasi Kontrak (`KpiContractEvaluation` — agregasi per periode kontrak, keputusan atasan, dan rencana pengembangan personil), dan role matrix akhir (SM/NSM sebagai evaluator — untuk v1 akses masih ADMIN-only, lihat `src/app/actions/kpi.ts:31-37`).
+Yang **belum** dibangun (spec untuk skema **Non-Hospital**: [`docs/evaluasi-kontrak-non-hospital/`](../evaluasi-kontrak-non-hospital/README.md), draft 2026-09-25; versi Hospital belum dispesifikasikan): halaman/form Evaluasi Kontrak (`KpiContractEvaluation` — agregasi per periode kontrak, keputusan atasan, dan rencana pengembangan personil), dan role matrix akhir (SM/NSM sebagai evaluator — untuk v1 akses masih ADMIN-only, lihat `src/app/actions/kpi.ts:31-37`).
 
 ⚠️ Beberapa formula menggunakan **asumsi kerja** (dipilih pengguna pada 2026-07-30 agar implementasi dapat langsung berjalan, dengan rencana "disesuaikan kemudian"), bukan hasil klarifikasi asli dari pemegang memo — lihat `01-business-rules.md` §7 sebelum mengandalkan angka-angka spesifik ini untuk keputusan kontrak yang sesungguhnya.
 

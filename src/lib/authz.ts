@@ -166,7 +166,7 @@ export async function getSubordinateMRNips(user: User): Promise<string[]> {
  */
 export async function getSubordinateOwnerNips(user: User): Promise<string[]> {
   if (user.role === Role.MR) return [user.nip];
-  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) {
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SD || user.role === Role.SFE || user.role === Role.VIEWER) {
     // Company-wide: every role that can own a POA (MR, or a vacant-team
     // ASM/SM/NSM) — same isDummy/isActive exclusions as the MR-only branch
     // above, same reasoning (dummy accounts inflate company-wide aggregates).
@@ -259,7 +259,12 @@ export async function getVisiblePoaFilter(
  */
 export async function canView(user: User, poa: PoaForm): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
-  if (user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE) return true; // read-only oversight, sees every POA at any status
+  // GM/VIEWER/SFE: read-only oversight, sees every POA at any status. SD
+  // (2026-09-30 fix) — top of the approval chain above GM, was missing here
+  // entirely: not auto-true, not owner, not in depthByRole below, so canView
+  // always fell through to `false` and SD got redirected to /dashboard the
+  // moment they clicked Review on a doctor pending at their own level.
+  if (user.role === Role.GM || user.role === Role.VIEWER || user.role === Role.SFE || user.role === Role.SD) return true;
 
   // The owner always sees their own POA, any status — normally an MR, but an
   // ASM/SM/NSM can own one too when their team is vacant (see canCreatePoa).
@@ -655,8 +660,25 @@ async function getEditLockLevelForDoctor(
   return lockLevel;
 }
 
-/** Doctor-scoped twin of getLastApprover — most recent approver for THIS doctor's current cycle. */
+/**
+ * Doctor-scoped twin of getLastApprover — who owns an edit request for THIS
+ * doctor right now (the one MR asks, and the only one who can grant/decline).
+ * Normally the most recent approver this cycle. Exception (2026-09-28 user
+ * request: "asd yang grant"): while the doctor is pending at ASD/SD, the
+ * current holder there answers, not the NSM/ASD who approved into that level.
+ */
 export async function getLastApproverForDoctor(doctorApprovalId: string): Promise<{ actorId: string; role: string } | null> {
+  const current = await prisma.poaDoctorApproval.findUnique({
+    where: { id: doctorApprovalId },
+    select: { status: true, currentHolder: { select: { nip: true, role: true } } },
+  });
+  if (
+    current?.currentHolder &&
+    (current.status === PoaStatus.SUBMITTED_TO_ASD || current.status === PoaStatus.SUBMITTED_TO_SD)
+  ) {
+    return { actorId: current.currentHolder.nip, role: current.currentHolder.role };
+  }
+
   const logs = await prisma.poaAuditLog.findMany({
     where: { doctorApprovalId },
     orderBy: { createdAt: "desc" },
@@ -720,17 +742,16 @@ export async function hasApprovalThisCycleForDoctor(doctorApprovalId: string, st
  * not be able to approve/reject past it — see [[approval-flow-edit-request-bug]].
  */
 export async function hasPendingEditRequestForDoctor(doctorApprovalId: string): Promise<boolean> {
-  const logs = await prisma.poaAuditLog.findMany({
+  // Only the LATEST log decides — any later action (APPROVE, GRANT/DECLINE,
+  // REJECT, ...) supersedes an older REQUEST_EDIT. Scanning past a newer
+  // APPROVE to find a stale REQUEST_EDIT hid the approve button (POA seq 409).
+  // Same rule as pendingEditRequestThis in poa/[id]/page.tsx.
+  const last = await prisma.poaAuditLog.findFirst({
     where: { doctorApprovalId },
     orderBy: { createdAt: "desc" },
-    select: { action: true, toStatus: true },
+    select: { action: true },
   });
-  for (const log of logs) {
-    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) return false;
-    if (log.action === AuditAction.GRANT_EDIT || log.action === AuditAction.DECLINE_EDIT) return false;
-    if (log.action === AuditAction.REQUEST_EDIT) return true;
-  }
-  return false;
+  return last?.action === AuditAction.REQUEST_EDIT;
 }
 
 /**
@@ -865,7 +886,7 @@ export async function canViewPoaStandarisasi(
   user: User,
   pengajuan: { ownerId: string; kodePI: string }
 ): Promise<boolean> {
-  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SFE || user.role === Role.VIEWER) return true;
+  if (user.role === Role.ADMIN || user.role === Role.GM || user.role === Role.SD || user.role === Role.SFE || user.role === Role.VIEWER) return true;
   if (pengajuan.ownerId === user.nip) return true;
   if (user.role === Role.ASM || user.role === Role.SM || user.role === Role.NSM) {
     const { asmNip, smNip, nsmNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
@@ -916,6 +937,33 @@ export async function canApprovePoaStandarisasiAtasan(
   if (level === "ASM") return user.role === Role.ASM && user.nip === asmNip;
   if (level === "SM") return user.role === Role.SM && user.nip === smNip && pengajuan.statusApprovalAsm === "DISETUJUI";
   return user.role === Role.NSM && user.nip === nsmNip && pengajuan.statusApprovalSm === "DISETUJUI";
+}
+
+/**
+ * Approval level dinamis per produk (docs/poa-standarisasi-approval-level/):
+ * is `user` the designated approver for `level` on this pengajuan? Ordering
+ * between levels (level N only after N-1 approved) is per PRODUK, checked by
+ * the caller against the PoaStandarisasiProdukApproval rows, not here.
+ * ASD = role GM (label only, see Role.SD comment in schema) that is the NSM's
+ * atasan; when there is no such GM (ASD vacant, jawaban user 2026-09-29) SD
+ * approves the ASD level directly. SD = the single role-SD user.
+ */
+export async function isPoaStandarisasiLevelApprover(
+  user: User,
+  pengajuan: { ownerId: string; kodePI: string },
+  level: "ASM" | "SM" | "NSM" | "ASD" | "SD"
+): Promise<boolean> {
+  if (user.role === Role.ADMIN) return true;
+  if (level === "SD") return user.role === Role.SD;
+  const { asmNip, smNip, nsmNip } = await getPoaStandarisasiApprovers(pengajuan.ownerId, pengajuan.kodePI);
+  if (level === "ASM") return user.role === Role.ASM && user.nip === asmNip;
+  if (level === "SM") return user.role === Role.SM && user.nip === smNip;
+  if (level === "NSM") return user.role === Role.NSM && user.nip === nsmNip;
+  // ASD
+  const nsm = nsmNip ? await prisma.user.findUnique({ where: { nip: nsmNip }, select: { nipAtasan: true } }) : null;
+  const asd = nsm?.nipAtasan ? await prisma.user.findUnique({ where: { nip: nsm.nipAtasan }, select: { nip: true, role: true } }) : null;
+  const asdNip = asd?.role === Role.GM ? asd.nip : null;
+  return asdNip ? user.role === Role.GM && user.nip === asdNip : user.role === Role.SD;
 }
 
 export async function canRequestEdit(user: User, poa: any): Promise<boolean> {

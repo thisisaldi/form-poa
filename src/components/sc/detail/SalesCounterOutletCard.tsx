@@ -50,11 +50,6 @@ export function SalesCounterOutletCard({
     setAtasanPanelOpen,
     submitBoxOpen,
     setSubmitBoxOpen,
-    requestEditBoxOpen,
-    setRequestEditBoxOpen,
-    requestEditReason,
-    setRequestEditReason,
-    isRequestingEdit,
     submitNotes,
     setSubmitNotes,
     actionNotes,
@@ -151,10 +146,14 @@ export function SalesCounterOutletCard({
         const c2 = (p.kode_item || "").replace(/^0+/, "").toUpperCase();
         return c1 === norm || c2 === norm;
       });
+
+      // Hanya produk SC dari get-sales-counter-product yang boleh muncul
+      if (!matchedMaster) continue;
+
       const namaProduk =
-        matchedMaster?.pro_name ||
-        matchedMaster?.namaProduk ||
-        matchedMaster?.nama_item ||
+        matchedMaster.pro_name ||
+        matchedMaster.namaProduk ||
+        matchedMaster.nama_item ||
         `Produk (${rawCode})`;
 
       const avgQty = b3QtyMap?.get(norm) ?? b3QtyMap?.get(rawCode) ?? 0;
@@ -516,16 +515,7 @@ export function SalesCounterOutletCard({
             </Link>
           )}
 
-          {isOwner && !canEditThisOutlet && !hasPendingEditRequest && draft.status !== "APPROVED_BY_NSM" && (
-            <button
-              type="button"
-              onClick={() => setRequestEditBoxOpen((v) => !v)}
-              className="text-xs font-medium px-2.5 py-1 rounded-md whitespace-nowrap transition-opacity hover:opacity-90 cursor-pointer"
-              style={{ background: "var(--color-blue)", color: "#ffffff" }}
-            >
-              Ajukan Edit
-            </button>
-          )}
+
 
           {isOwner && (draft.status === "DRAFT" || draft.status === "REVISI") && (
             <button
@@ -691,57 +681,7 @@ export function SalesCounterOutletCard({
         </div>
       )}
 
-      {requestEditBoxOpen && (
-        <div
-          className="mt-2.5 rounded-lg px-3 py-2.5 text-xs font-medium space-y-2"
-          style={{
-            background: "var(--color-warning-bg, #fef3c7)",
-            color: "var(--color-warning, #b45309)",
-            border: "1px solid var(--color-warning, #f59e0b)",
-          }}
-        >
-          <p className="font-semibold">
-            Permohonan Edit Outlet ({draft.namaOutlet})
-          </p>
-          <p className="font-normal leading-relaxed">
-            Outlet ini sedang terkunci untuk diedit karena sudah disetujui Atasan. Silakan ajukan permohonan izin edit ke Atasan dengan menyertakan alasan. Jika disetujui Atasan, status outlet akan dikembalikan ke <strong>Revisi</strong> agar Anda dapat mengedit data kembali.
-          </p>
-          <div className="space-y-2 pt-1">
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-normal" style={{ color: "var(--color-text)" }}>
-                Alasan permohonan edit (opsional) — akan dikirim ke Atasan yang menyetujui
-              </span>
-              <textarea
-                value={requestEditReason}
-                onChange={(e) => setRequestEditReason(e.target.value)}
-                rows={2}
-                placeholder="mis. ada koreksi jumlah atau estimasi produk yang perlu diperbaiki…"
-                className="input-field text-xs rounded border p-2"
-                style={{ border: "1px solid var(--color-border)", background: "var(--color-bg)" }}
-              />
-            </label>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={isRequestingEdit}
-                onClick={handleRequestEditSubmit}
-              >
-                {isRequestingEdit ? "Mengirim…" : "Kirim Permohonan Edit ke Atasan"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setRequestEditBoxOpen(false)}
-              >
-                Batal
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {submitBoxOpen && isOwner && (
         <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-primary-orange, #ea580c)" }}>

@@ -17,6 +17,18 @@ export function normalizeName(name: string): string {
   return name.toUpperCase().replace(/[^A-Z ]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Which users count as real KPI personnel (Hospital AND Non-Hospital, listing
+ * and syncs): active, not flagged dummy, and not a "TEST…" NIP. Production
+ * carries non-dummy TEST* copies of real NIPs, so the NIP check is not
+ * redundant with isDummy. Spread into a Prisma `where`.
+ */
+export const KPI_PERSONNEL_FILTER = {
+  isActive: true,
+  isDummy: false,
+  NOT: { nip: { startsWith: "TEST" } },
+} as const;
+
 export interface AliasNip {
   nip: string;
   ptid: number;

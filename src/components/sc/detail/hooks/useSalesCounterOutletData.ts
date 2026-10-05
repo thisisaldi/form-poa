@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { ScDraftFormItem, ScProductItemData } from "../../types";
-import { getB3ByQuarter } from "@/lib/b3Utils";
+import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import {
   getScCashbackPoaAction,
   getSalesCounterProductsAction,
@@ -53,7 +53,7 @@ export function useSalesCounterOutletData({
   }, [draft.period, draft.periodeAwal, poaId]);
 
   const b3Info = useMemo(() => {
-    return getB3ByQuarter(draft.period || draft.periodeAwal || poaId);
+    return getB3RollingPeriodInfo(draft.period || draft.periodeAwal || poaId);
   }, [draft.period, draft.periodeAwal, poaId]);
   const b3RangeLabel = b3Info.rangeLabel;
 
@@ -130,13 +130,25 @@ export function useSalesCounterOutletData({
 
         const products = scProdsRes?.data && Array.isArray(scProdsRes.data) ? scProdsRes.data : [];
         setAllScProducts(products);
-        const scCodes = new Set<string>(products.map((cp: any) => cp.pro_code).filter(Boolean));
+        const scCodes = new Set<string>();
+        for (const cp of products) {
+          if (cp.pro_code) {
+            scCodes.add(cp.pro_code);
+            scCodes.add(String(cp.pro_code).replace(/^0+/, ""));
+            scCodes.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
+          }
+          if (cp.kode_item) {
+            scCodes.add(cp.kode_item);
+            scCodes.add(String(cp.kode_item).replace(/^0+/, ""));
+            scCodes.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
+          }
+        }
         const clientSc = { codes: scCodes, total: products.length };
         setClientScData(clientSc);
 
         const parsed = parseOutletHistorySales(historyRes, draft.kodePI);
 
-        // Filter parsed product sales to SC products
+        // Filter parsed product sales strictly to SC products only
         const filteredMap = new Map<string, number>();
         const filteredQtyMap = new Map<string, number>();
         let sumAvg = 0;
@@ -145,11 +157,11 @@ export function useSalesCounterOutletData({
 
         if (parsed.productSalesMap && parsed.productSalesMap.size > 0) {
           for (const [code, avgVal] of parsed.productSalesMap.entries()) {
-            const norm = code.replace(/^0+/, "");
+            const norm = code.replace(/^0+/, "").toUpperCase();
             if (seenNorm.has(norm)) continue;
             seenNorm.add(norm);
 
-            const isSc = scCodes.size === 0 || scCodes.has(code) || scCodes.has(norm);
+            const isSc = scCodes.size > 0 && (scCodes.has(code) || scCodes.has(norm));
             if (isSc) {
               filteredMap.set(code, avgVal);
               filteredMap.set(norm, avgVal);

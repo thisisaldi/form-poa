@@ -25,7 +25,11 @@ Achievement % = Sales Actual / Target × 100.
 | Achievement | <80% | 80-89% | 90-99% | 100-109% | ≥110% |
 | Score | 40 | 55 | 70 | 85 | 100 |
 
-Sumber data: sudah tersedia — identik dengan perhitungan pada halaman Monitoring (`PoaForm.target` per periode, dibandingkan terhadap `OutletSalesValueMonthly` sebagai real sales). Lihat `02-data-model.md` §1.
+Sumber data: **target** = `TargetHospitalValue` per bulan (`periode YYYYMM`), dicocokkan per GT lewat penugasan outlet MR di bulan itu (`resolveTargetForNipGroups`, `src/lib/targetHospitalValue.ts`); **aktual** = `OutletSalesValueMonthly` untuk outlet yang ditugaskan ke MR di bulan yang sama (`MrOutletAssignment.periode`). Target dan aktual memakai penugasan bulan yang sama (sebelum 2026-09-25 aktual memakai penugasan semua bulan, sehingga MR yang pindah outlet mendapat sales outlet bulan lain).
+
+**ASM/SM** (⚠️ memo tidak menjelaskan; ini asumsi kerja, 2026-09-25): target dan aktual adalah **total tim** — semua MR/SPV di bawahnya. Tiap GT dihitung **sekali** untuk seluruh tim (bukan sekali per MR), dan tiap outlet dihitung sekali untuk aktual, supaya GT/outlet yang dipegang dua MR di tim yang sama tidak menggelembungkan angka. Achievement% = total aktual tim ÷ total target tim. Di data staging Agustus 2026, ini menurunkan total target seluruh atasan ±7% dibanding penjumlahan per MR.
+
+⚠️ **Terbuka**: di level **MR**, GT yang dipegang lebih dari satu MR (27 dari 233 GT di Agustus 2026) memberi tiap MR target GT penuh, padahal aktualnya hanya dari outlet miliknya — achievement MR tersebut cenderung terlihat rendah.
 
 ### 2b. Call Activity (25%)
 Achievement % = realisasi kunjungan / standar kunjungan × 100.

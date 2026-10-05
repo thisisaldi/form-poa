@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getKpiMonitoringData } from "@/app/actions/kpi";
 import { KpiTable } from "@/components/kpi/KpiTable";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
+import { KpiSchemeHeader } from "@/components/kpi/KpiSchemeHeader";
 import { periodLabel } from "@/components/kpi/kpiUi";
 import { SyncAbsensiButton } from "@/components/kpi/SyncAbsensiButton";
 import { SyncCallActivityButton } from "@/components/kpi/SyncCallActivityButton";
@@ -27,10 +28,15 @@ function recentPeriods(): string[] {
  * Internal SM/ETH-II/PI/08.2026. Spec lengkap + asumsi kerja yang masih
  * perlu klarifikasi stakeholder: docs/kpi-monitoring/.
  *
- * v1 access: ADMIN-only (2026-07-30 decision), sama pola seperti /monitoring.
+ * Akses (2026-09-28): ADMIN melihat semua personil; MR/ASM/SM/NSM melihat diri
+ * sendiri + bawahannya (pola sama seperti visibilitas POA — lihat
+ * getSubordinateOwnerNips di getKpiMonitoringData). Mengedit (sync, input
+ * manual) tetap ADMIN-only untuk v1, lihat `canEdit` di bawah.
  * Evaluasi kontrak (KpiContractEvaluation) belum dibangun — halaman ini baru
  * scorecard bulanan + input manual Call Activity/Absensi.
  */
+const KPI_VIEWER_ROLES = ["ADMIN", "MR", "ASM", "SM", "NSM"];
+
 export default async function KpiPerpanjanganPage({
   searchParams,
 }: {
@@ -38,7 +44,8 @@ export default async function KpiPerpanjanganPage({
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  if (session.role !== "ADMIN") redirect("/summary");
+  if (!KPI_VIEWER_ROLES.includes(session.role)) redirect("/summary");
+  const canEdit = session.role === "ADMIN";
 
   const params = await searchParams;
   const periods = recentPeriods();
@@ -50,23 +57,25 @@ export default async function KpiPerpanjanganPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
-        <div>
-          <h1>Monitoring KPI Perpanjangan</h1>
-          <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-            {periodLabel(period)} · {rows.length} personil · {scoredCount} sudah lengkap 4 pilar
-          </p>
-        </div>
-        <div className="flex flex-wrap items-start gap-2">
-          <KpiPeriodPicker periods={periods} period={period} />
-          <SyncCallActivityButton period={period} />
-          <SyncAbsensiButton period={period} />
-        </div>
-      </div>
+      <KpiSchemeHeader
+        scheme="hospital"
+        subtitle={`${periodLabel(period)} · ${rows.length} personil · ${scoredCount} sudah lengkap 4 pilar`}
+        controls={
+          <>
+            <KpiPeriodPicker periods={periods} period={period} />
+            {canEdit && (
+              <>
+                <SyncCallActivityButton period={period} />
+                <SyncAbsensiButton period={period} />
+              </>
+            )}
+          </>
+        }
+      />
 
       <KpiDashboardStats rows={rows} />
 
-      <KpiTable rows={rows} period={period} />
+      <KpiTable rows={rows} period={period} canEdit={canEdit} />
     </div>
   );
 }

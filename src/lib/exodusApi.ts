@@ -894,6 +894,154 @@ export async function getExodusDiskonHistory(outletCode: string): Promise<Exodus
   return [...maxByCode.entries()].map(([kodeProduk, maxDiskonPct]) => ({ kodeProduk, maxDiskonPct }));
 }
 
+export interface ExodusDiscountRequestProductInput {
+  productName: string;
+  productCode: string;
+  productType: string;
+  principalDistributorId: number;
+  principalDistributorName: string;
+  principalDistributorCode: string;
+  /** Kata Exodus: kirim null (2026-09-30) — dikirim eksplisit null kalau tidak diisi. */
+  divisionDistributorCode?: string | null;
+  distributorProductCodePrefix?: string | null;
+  principalPercentage: number;
+  distributorPercentage: number;
+  quantity: number;
+}
+
+export interface ExodusDiscountRequestInput {
+  discountType: "DPL" | "DPF";
+  outletId: number;
+  outletCode: string;
+  outletName: string;
+  distributorId: number;
+  distributorName: string;
+  /** Nomor PO — DPF only (null for DPL). */
+  requestDocNumber: string | null;
+  /** Tanggal PO — DPF only; null untuk DPL (seperti data nyata Exodus). ISO string. */
+  requestDocDate: string | null;
+  /** DPF: null (seperti data nyata Exodus). DPL: awal/akhir periode dalam UTC dari batas hari WIB (mis. "2026-09-30T17:00:00Z" = 1 Okt WIB). */
+  startDate: string | null;
+  endDate: string | null;
+  note?: string | null;
+  /** NIP user pengusul — Exodus mencatat created_by dari payload ini (bukan dari token service account; Mas Budi 2026-10-01). */
+  createdBy?: string;
+  products: ExodusDiscountRequestProductInput[];
+  /** Dokumen PO (multipart `request-doc-file`) — wajib hanya untuk DPF, DPL tanpa file (info Mas Budi/Exodus 2026-10-01). */
+  file?: { name: string; mimeType: string; buffer: Buffer };
+}
+
+export type ExodusSubmitResult = { ok: true; data: unknown } | { ok: false; error: string };
+
+/**
+ * POST /promotion/v1/request/discount (multipart: `request` JSON text +
+ * `request-doc-file`). Unlike the read helpers above this is a WRITE, so it
+ * returns a discriminated result with the failure reason instead of `null` —
+ * caller must show/log why a submit failed, and must not retry blindly
+ * (no idempotency key documented; a timeout may still have created the
+ * request on Exodus's side). Not cached, not called from any live flow yet.
+ */
+export async function submitDiscountRequest(input: ExodusDiscountRequestInput): Promise<ExodusSubmitResult> {
+  if (!isConfigured) return { ok: false, error: "Exodus API belum dikonfigurasi." };
+  const token = await getAccessToken();
+  if (!token) return { ok: false, error: "Gagal mendapatkan token Exodus." };
+
+  const request = {
+    discount_type: input.discountType,
+    outlet_id: input.outletId,
+    outlet_code: input.outletCode,
+    outlet_name: input.outletName,
+    distributor_id: input.distributorId,
+    distributor_name: input.distributorName,
+    request_doc_number: input.requestDocNumber,
+    request_doc_date: input.requestDocDate,
+    start_date: input.startDate,
+    end_date: input.endDate,
+    note: input.note ?? null,
+    is_open_api: false,
+    ...(input.createdBy ? { created_by: input.createdBy } : {}),
+    discount_products: input.products.map((p) => ({
+      product_name: p.productName,
+      product_code: p.productCode,
+      product_type: p.productType,
+      principal_distributor_id: p.principalDistributorId,
+      principal_distributor_name: p.principalDistributorName,
+      principal_distributor_code: p.principalDistributorCode,
+      division_distributor_code: p.divisionDistributorCode ?? null,
+      distributor_product_code_prefix: p.distributorProductCodePrefix ?? null,
+      principal_percentage: p.principalPercentage,
+      distributor_percentage: p.distributorPercentage,
+      quantity: p.quantity,
+    })),
+  };
+
+  const form = new FormData();
+  form.set("request", JSON.stringify(request));
+  if (input.file) form.set("request-doc-file", new Blob([new Uint8Array(input.file.buffer)], { type: input.file.mimeType }), input.file.name);
+
+  try {
+    const res = await fetchWithTimeout(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      cache: "no-store",
+    }, 30000);
+    const text = await res.text();
+    if (!res.ok) return { ok: false, error: `Exodus ${res.status}: ${text.slice(0, 500)}` };
+    let body: unknown = text;
+    try { body = JSON.parse(text); } catch { /* keep raw text */ }
+    return { ok: true, data: body };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Konfirmasi request hasil submitDiscountRequest: POST Exodus selalu 200
+ * `{error.status:false}` tanpa id/ref_id, bahkan saat request DIBUANG diam-diam
+ * (token tanpa izin, 2026-10-02). Cari di GET /promotion/v1/request/discount
+ * (filter outlet_code, urut lama -> baru) request baru dengan tipe + pembuat
+ * (created_by_nip) + rentang persen yang sama. Null = tidak ditemukan.
+ */
+export async function confirmDiscountRequest(params: {
+  outletCode: string;
+  discountType: "DPL" | "DPF";
+  createdBy: string;
+  sinceMs: number;
+  minPct: number;
+  maxPct: number;
+}): Promise<{ id: number; refId: string } | null> {
+  const token = await getAccessToken();
+  if (!token) return null;
+  const near = (a: number | undefined, b: number) => a !== undefined && Math.abs(a - b) < 0.005;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+    try {
+      let rows: { id: number; ref_id: string; discount_type: string; created_by_nip: string; created_at: string; range_discount?: { min_percentage_range?: number; max_percentage_range?: number } }[] = [];
+      for (let page = 1; page <= 10; page++) {
+        const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount`);
+        url.searchParams.set("page", String(page));
+        url.searchParams.set("limit", "100");
+        url.searchParams.set("outlet_code", params.outletCode);
+        const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 8000);
+        if (!res.ok) break;
+        const body = (await res.json()) as { data?: typeof rows | null };
+        const data = body.data ?? [];
+        rows = rows.concat(data);
+        if (data.length < 100) break;
+      }
+      const hit = rows
+        .filter((r) => r.discount_type === params.discountType && r.created_by_nip === params.createdBy && new Date(r.created_at).getTime() >= params.sinceMs - 5000)
+        .filter((r) => near(r.range_discount?.min_percentage_range, params.minPct) && near(r.range_discount?.max_percentage_range, params.maxPct))
+        .sort((a, b) => b.id - a.id)[0];
+      if (hit) return { id: hit.id, refId: hit.ref_id };
+    } catch {
+      /* coba lagi */
+    }
+  }
+  return null;
+}
+
 export interface ExodusOutletMaster {
   code: string;
   name: string;
@@ -1178,4 +1326,31 @@ export function lastNMonthsRange(n: number, from: Date = new Date()): { periodeA
   const start = new Date(from.getFullYear(), from.getMonth() - (n - 1), 1);
   const periodeAwal = `${start.getFullYear()}${String(start.getMonth() + 1).padStart(2, "0")}`;
   return { periodeAwal, periodeAkhir };
+}
+
+let specialistsCache: { list: string[]; expiresAt: number } | null = null;
+
+/** Master list spesialisasi Exodus (`core/v1/customers/specialist`) — sumber dropdown Spesialisasi. Raw strings, kosong/"NULL" dibuang. */
+export async function getExodusSpecialists(): Promise<string[] | null> {
+  if (!isConfigured) return null;
+  if (specialistsCache && specialistsCache.expiresAt > Date.now()) return specialistsCache.list;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${env.EXODUS_API_BASE_URL}/core/v1/customers/specialist`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { specialist?: unknown }; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data?.specialist)) return null;
+
+    const list = [...new Set((body.data.specialist as unknown[]).filter((s): s is string => typeof s === "string").map((s) => s.trim()).filter((s) => s && s.toUpperCase() !== "NULL"))];
+    specialistsCache = { list, expiresAt: Date.now() + OUTLET_ID_TTL_MS };
+    return list;
+  } catch {
+    return null;
+  }
 }

@@ -1172,7 +1172,7 @@ function DoctorRow({
         <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-blue)" }}>
           <p className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>Permintaan Edit</p>
           <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
-            {censorName(first.namaCust)} — MR meminta izin untuk mengedit kembali dokter ini yang sudah Anda setujui.
+            {censorName(first.namaCust)} — MR meminta izin untuk mengedit kembali dokter ini yang sedang/sudah Anda tangani.
             {doctorEditRequest.pendingEditRequestNote ? ` Alasan: "${doctorEditRequest.pendingEditRequestNote}"` : ""}
           </p>
           <form action={doctorEditRequest.grantEditRequestAction}>

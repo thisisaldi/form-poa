@@ -179,6 +179,10 @@ model User {
   kpiMonthlyEntries      KpiMonthlyEntry[]
   kpiContractEvaluations KpiContractEvaluation[] @relation("KpiEvaluatee")
   kpiEvaluationsGiven    KpiContractEvaluation[] @relation("KpiEvaluator")
+  nhContracts            NonHospitalContract[]
+  nhMonthlyEntries       NonHospitalMonthlyEntry[]
+  nhEvaluations          KpiNonHospitalEvaluation[] @relation("NhEvaluatee")
+  nhEvaluationsGiven     KpiNonHospitalEvaluation[] @relation("NhEvaluator")
 
   // Survey upload audit trail (see docs/survey-pasien-features/)
   surveyUploadLogs SurveyUploadLog[]
@@ -187,6 +191,7 @@ model User {
   poaStandarisasiOwned PoaStandarisasi[]
   poaStandarisasiFileAccessLogs PoaStandarisasiFileAccessLog[]
   poaStandarisasiDokterReassignLogs PoaStandarisasiDokterReassignLog[]
+  poaStandarisasiDiscountRequests PoaStandarisasiDiscountRequest[]
   poaStandarisasiSpNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
 
   // ─── Tambahan Relasi Balik untuk Sales Counter ───
@@ -1006,6 +1011,22 @@ model OutletSalesValueMonthly {
   @@index([periode])
 }
 
+// Twin of OutletSalesValueMonthly for the Non-Hospital (OMEGA) team: DIR10001B
+// DIVISI = 'OMG1' (the original only carries 'KAM1' = Hospital). Feeds Evaluasi
+// Kontrak Non-Hospital (docs/evaluasi-kontrak-non-hospital/). Synced by
+// scripts/syncOmegaSalesValueMonthly.ts.
+model OutletSalesValueMonthlyOmega {
+  id         String   @id @default(uuid())
+  kodePI     String
+  periode    String // YYYYMM
+  valueSales Decimal  @db.Decimal(18, 2)
+  syncedAt   DateTime
+
+  @@unique([kodePI, periode])
+  @@index([kodePI])
+  @@index([periode])
+}
+
 // Monthly Rupiah sales TARGET per territory (GT) — from "internal/Target
 // Hospital (in Value).xlsx", sheet "Rekap FFMedrep" (2026-07-31). One row per
 // (namaGT, periode); the source sheet is wide (one column per month), this
@@ -1283,6 +1304,72 @@ model KpiContractEvaluation {
   @@index([evaluatedByNip])
 }
 
+// ─── Evaluasi Kontrak Non-Hospital ─────────────────────────────────────────────
+// See docs/evaluasi-kontrak-non-hospital/. Personil skema Non-Hospital = User
+// dengan project "OMEGA". Data kontrak diimpor ADMIN (scripts/importNonHospitalContracts.ts).
+model NonHospitalContract {
+  id           String   @id @default(uuid())
+  nip          String
+  user         User     @relation(fields: [nip], references: [nip], onDelete: Cascade)
+  jabatan      String? // PSR | SUPERVISOR | AREA MANAGER | MANAGER, teks dari sumber
+  cabang       String?
+  periodeBulan Int? // lama kontrak berjalan, bulan
+  awalKontrak  DateTime
+  akhirKontrak DateTime
+  source       String   @default("IMPORT")
+  importedAt   DateTime @default(now())
+
+  evaluations KpiNonHospitalEvaluation[]
+
+  @@unique([nip, akhirKontrak])
+  @@index([akhirKontrak])
+}
+
+// Input bulanan yang belum punya sumber otomatis (SC Menang) atau override absensi.
+model NonHospitalMonthlyEntry {
+  id               String   @id @default(uuid())
+  nip              String
+  user             User     @relation(fields: [nip], references: [nip], onDelete: Cascade)
+  period           String // "YYYY-MM"
+  scMenang         Int?
+  absensiHariTelat Int?
+  updatedByNip     String?
+  updatedAt        DateTime @updatedAt
+
+  @@unique([nip, period])
+}
+
+// Satu baris = satu keputusan. Append-only: koreksi = baris baru (status terkini = decidedAt terbaru).
+model KpiNonHospitalEvaluation {
+  id         String              @id @default(uuid())
+  nip        String
+  user       User                @relation("NhEvaluatee", fields: [nip], references: [nip], onDelete: Cascade)
+  contractId String
+  contract   NonHospitalContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  windowMulai String // "YYYY-MM"
+  windowAkhir String // "YYYY-MM"
+
+  // Snapshot saat keputusan: per indikator {real, nilai, bobot, score} + data bulanan mentah.
+  indicators Json
+  totalScore Decimal? @db.Decimal(5, 2) // null bila belum semua indikator bernilai
+  dataNotes  String?
+
+  systemRecommendationMonths Int? // 12 | 9 | 6 | 0; null bila total score belum bisa dihitung
+  status                     String // DISETUJUI | DIUBAH
+  decisionMonths             Int
+  decisionReason             String? // wajib bila status = DIUBAH
+  developmentPlanNotes       String
+
+  decidedByNip String
+  decidedBy    User     @relation("NhEvaluator", fields: [decidedByNip], references: [nip])
+  decidedAt    DateTime @default(now())
+
+  @@index([nip, decidedAt])
+  @@index([contractId, decidedAt])
+  @@index([decidedByNip])
+}
+
 // ─── Maintenance Mode ──────────────────────────────────────────────────────────
 // Site-wide lockout switch (2026-07-31) — when enabled, every (app) route
 // shows only the maintenance screen for non-ADMIN roles (see (app)/layout.tsx);
@@ -1438,6 +1525,39 @@ enum SkemaPembayaranStandarisasi {
   DP
 }
 
+// Approval level dinamis per produk (docs/poa-standarisasi-approval-level/,
+// 2026-09-29) — level yang dibutuhkan ditentukan Disc PI (estimasiDiskonPct)
+// lewat discountApprovalLevel(); baris dibuat sekali saat masuk Fase 2.
+enum ApprovalLevelStandarisasi {
+  ASM
+  SM
+  NSM
+  ASD
+  SD
+}
+
+// Satu baris per produk x level yang dibutuhkan (level ASM sampai level
+// tertinggi produk itu). Pengajuan tanpa baris = jalur lama (kolom
+// statusApprovalAsm/Sm/Nsm di header). ASD kosong -> SD boleh menyetujui baris
+// level ASD langsung. decidedByNip plain (tanpa relasi), pola
+// spNonSalesSignedByNip.
+model PoaStandarisasiProdukApproval {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  level             ApprovalLevelStandarisasi
+  diskonPctSnapshot Decimal                   @db.Decimal(10, 4)
+
+  status       StatusApprovalAtasan @default(MENUNGGU)
+  decidedByNip String?
+  decidedAt    DateTime?
+
+  @@unique([produkId, level])
+  @@index([produkId])
+}
+
 enum StatusApprovalAtasan {
   MENUNGGU
   DISETUJUI
@@ -1536,6 +1656,7 @@ model PoaStandarisasi {
   produk PoaStandarisasiProduk[]
   fileAccessLogs PoaStandarisasiFileAccessLog[]
   spNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
+  discountRequests    PoaStandarisasiDiscountRequest[]
 
   @@index([ownerId])
   @@index([kodePI])
@@ -1614,6 +1735,7 @@ model PoaStandarisasiProduk {
   dokterApproval PoaStandarisasiDokterApproval[]
   dokterUser     PoaStandarisasiDokterUser[]
   dokumen        PoaStandarisasiDokumen[]
+  approvals      PoaStandarisasiProdukApproval[]
   dokterReassignLogs PoaStandarisasiDokterReassignLog[]
 
   @@unique([pengajuanId, kodeProduk])
@@ -1786,6 +1908,36 @@ model PoaStandarisasiSpNonSalesDocument {
   uploadedBy    User     @relation(fields: [uploadedByNip], references: [nip])
   uploadedAt    DateTime @default(now())
 
+  @@index([pengajuanId])
+}
+
+// Riwayat ajuan DPL/DPF yang sudah dikirim ke Exodus (POST
+// promotion/v1/request/discount, Step 5 tab 2, 2026-09-29). Exodus tidak
+// mengembalikan ID request di response, jadi ini satu-satunya jejak lokal +
+// pencegah double-submit (endpoint Exodus sendiri tidak menolak duplikat).
+// dedupKey = tipe|distributor|(nomor PO atau periode)|kode produk terurut,
+// unique per pengajuan — row di-reserve SEBELUM POST, dihapus lagi kalau POST
+// gagal. `produk` = snapshot [{kodeProduk,namaProduk,principalPct,distributorPct,quantity}].
+model PoaStandarisasiDiscountRequest {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasi @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  tipe             String // "DPL" | "DPF"
+  distributorKode  String // AMS | PPG | MPI
+  requestDocNumber String?
+  requestDocDate   DateTime?
+  startDate        DateTime?
+  endDate          DateTime?
+  produk           Json
+  dedupKey         String
+
+  submittedByNip String
+  submittedBy    User     @relation(fields: [submittedByNip], references: [nip])
+  submittedAt    DateTime @default(now())
+
+  @@unique([pengajuanId, dedupKey])
   @@index([pengajuanId])
 }
 
@@ -1984,4 +2136,17 @@ model POSM {
   visibilityPeriod       Int
   startDate              DateTime
   endDate                DateTime
+}
+// ─── Login Access Config ───────────────────────────────────────────────────────
+// Admin-editable login block (2026-09-28), replaces the hardcoded staging-only
+// role block in src/lib/auth.ts. Per-DB, so each environment has its own
+// setting. Roles in blockedRoles can't log in unless their NIP is in
+// allowedNips. ADMIN is never blocked. Singleton row, always id=1.
+model LoginAccessConfig {
+  id           Int      @id @default(1)
+  blockedRoles String[] @default([])
+  allowedNips  String[] @default([])
+  message      String?  @db.Text
+  updatedByNip String?
+  updatedAt    DateTime @updatedAt
 }

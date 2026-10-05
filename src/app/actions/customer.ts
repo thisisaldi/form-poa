@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusCustomerDatabaseByNip, getExodusDplContracts, getExodusDiskonHistory } from "@/lib/exodusApi";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusCustomerDatabaseByNip, getExodusDplContracts, getExodusDiskonHistory, getExodusSpecialists } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -1155,4 +1155,9 @@ export async function getDiskonHistoryByOutlets(kodePIs: string[]): Promise<Map<
     map.set(r.kodePI, list);
   }
   return map;
+}
+
+/** Raw spesialisasi dari Exodus buat dropdown Spesialisasi; [] kalau Exodus down → caller jatuh ke daftar statis. */
+export async function getSpesialisasiOptionsAction(): Promise<string[]> {
+  return (await getExodusSpecialists()) ?? [];
 }

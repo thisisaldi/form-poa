@@ -14,15 +14,20 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, canAccessSalesSupportMemo, getSubordinateMRNips } from "@/lib/authz";
+import { canCreatePoa, canViewPoaStandarisasi, canEditPoaStandarisasi, canEditPoaStandarisasiStep5, canApprovePoaStandarisasiAtasan, isPoaStandarisasiLevelApprover, canAccessSalesSupportMemo, getSubordinateMRNips, getSubordinateOwnerNips } from "@/lib/authz";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
+import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
+import { APPROVAL_LEVELS, actionableRows, discountApprovalLevel, levelsUpTo, type ApprovalLevel, type ProdukApprovalRow } from "@/lib/discountApprovalLevel";
 import { buildSpNonSalesMemoDocx, formatMemoNomor } from "@/lib/spNonSalesMemo";
 import { hargaST } from "@/lib/masterData";
 import type { Product as ProductLite } from "@/lib/masterData";
-import { getDiscountsForOutlet, getLiveProductPricing, type ExodusDiscountPct } from "@/lib/exodusApi";
-import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet } from "@/app/actions/customer";
+import { getDiscountsForOutlet, getLiveProductPricing, getExodusOutletIdByCode, submitDiscountRequest, confirmDiscountRequest, type ExodusDiscountPct } from "@/lib/exodusApi";
+import { EXODUS_DISTRIBUTORS, type ExodusDistributorKode } from "@/lib/exodusDistributors";
+import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet, getDiskonByOutlets } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
+import { DPL_DPF_SUBMIT_DISABLED, DPL_DPF_SUBMIT_DISABLED_MESSAGE } from "@/lib/poaStandarisasiDplDpfFlag";
+import { SALES_TEAM_ROLES } from "@/lib/role";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -63,6 +68,21 @@ function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v));
   return isNaN(n) ? null : n;
+}
+
+/**
+ * Snapshot level approval per produk saat pengajuan masuk Fase 2
+ * (docs/poa-standarisasi-approval-level/): level dari estimasiDiskonPct (skema
+ * DP / kosong = 0% = ASM), satu baris per level ASM..level tertinggi. Dipanggil
+ * dari kedua jalur masuk Fase 2 (create langsung + advanceToApprovalAtasanAction).
+ */
+async function snapshotProdukApprovals(tx: Prisma.TransactionClient, pengajuanId: string): Promise<void> {
+  const produk = await tx.poaStandarisasiProduk.findMany({ where: { pengajuanId }, select: { id: true, skemaPembayaran: true, estimasiDiskonPct: true } });
+  const data = produk.flatMap((p: (typeof produk)[number]) => {
+    const pct = p.skemaPembayaran === "DISKON" ? toNum(p.estimasiDiskonPct) ?? 0 : 0;
+    return levelsUpTo(discountApprovalLevel(pct)).map((level) => ({ produkId: p.id, level, diskonPctSnapshot: pct }));
+  });
+  await tx.poaStandarisasiProdukApproval.createMany({ data, skipDuplicates: true });
 }
 
 // ─── Create ──────────────────────────────────────────────────────────────────
@@ -111,6 +131,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
     });
     await applyPlanningKpdm(tx, pengajuan.id, input.kpdmList);
     await applyPlanningProduk(tx, pengajuan.id, kodePI, input.produk, dplKode);
+    await snapshotProdukApprovals(tx, pengajuan.id);
     return pengajuan.id;
   });
 
@@ -128,6 +149,7 @@ const detailInclude = {
       dokterApproval: { include: { customer: true } },
       dokterUser: { include: { customer: true } },
       dokumen: true,
+      approvals: true,
     },
     orderBy: { createdAt: "asc" as const },
   },
@@ -192,6 +214,7 @@ function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct>
         entertainRp: d(du.entertainRp),
       })),
       dokumen: prod.dokumen,
+      approvals: prod.approvals.map((a) => ({ ...a, diskonPctSnapshot: d(a.diskonPctSnapshot) })),
     })),
   };
 }
@@ -261,8 +284,14 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
   if (actor.role === "SALES_SUPPORT") throw new Error("Anda tidak berhak mengakses ini.");
 
   const companyWide = actor.role === "ADMIN" || actor.role === "GM" || actor.role === "SD" || actor.role === "SFE" || actor.role === "VIEWER";
+  // owner.role in SALES_TEAM_ROLES (2026-09-30 user request): pengajuan yang
+  // dibuat langsung oleh ADMIN (biasa dipakai buat testing di production —
+  // lihat 12 baris test yang dihapus hari ini) tidak boleh nyangkut di
+  // rollup company-wide ini. Cuma perlu di branch companyWide — branch
+  // subtree di bawah sudah otomatis sales-only (getSubordinateMRNips cuma
+  // mengembalikan NIP MR).
   const where: Prisma.PoaStandarisasiWhereInput = companyWide
-    ? { owner: { isDummy: false } }
+    ? { owner: { isDummy: false, role: { in: [...SALES_TEAM_ROLES] } } }
     : { ownerId: { in: actor.role === "MR" ? [actor.nip] : await getSubordinateMRNips(actor) } };
 
   const pengajuan = await prisma.poaStandarisasi.findMany({
@@ -306,6 +335,46 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
 
   // Halaman detail wizard cuma untuk ADMIN/MR (lihat [id]/page.tsx) — role lain view-only.
   return { rows, canOpenDetail: actor.role === "ADMIN" || actor.role === "MR" };
+}
+
+/**
+ * Daftar pengajuan sesuai visibilitas POA PSSP: MR sendiri; ASM/SM/NSM sendiri
+ * + bawahan; GM/SD/SFE/VIEWER/ADMIN company-wide (tanpa akun dummy/nonaktif,
+ * plus milik sendiri). SATU query (owner in [...]) + batas 300 terbaru — jangan
+ * ganti jadi resolve approver per baris (docs/PERFORMANCE.md §2 poin 3-4).
+ */
+export async function listVisiblePoaStandarisasiAction() {
+  const { actor } = await requireActor();
+  if (!POA_STANDARISASI_VIEW_ROLES.includes(actor.role)) throw new Error("Anda tidak berhak mengakses ini.");
+  const ownerNips = [...new Set([actor.nip, ...(await getSubordinateOwnerNips(actor))])];
+  const rows = await prisma.poaStandarisasi.findMany({
+    where: { ownerId: { in: ownerNips } },
+    include: {
+      owner: { select: { name: true } },
+      outlet: { select: { namaOutlet: true } },
+      produk: {
+        select: {
+          id: true, product: { select: { namaProduk: true } }, standarisasiGagal: true,
+          dokterUser: { select: { customer: { select: { namaCustomer: true } } } },
+          dokterApproval: { select: { customer: { select: { namaCustomer: true } } } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  });
+  return rows.map((p: (typeof rows)[number]) => {
+    // Dokter: dokterUser (Finalisasi) kalau ada, fallback dokterApproval (Planning). Unik per nama.
+    const finalNames = p.produk.flatMap((x: (typeof p.produk)[number]) => x.dokterUser.map((d: (typeof x.dokterUser)[number]) => d.customer.namaCustomer));
+    const planNames = p.produk.flatMap((x: (typeof p.produk)[number]) => x.dokterApproval.map((d: (typeof x.dokterApproval)[number]) => d.customer.namaCustomer));
+    const dokter = [...new Set(finalNames.length > 0 ? finalNames : planNames)];
+    return {
+    ...p,
+    dokter,
+    ownerName: p.owner.name,
+    produk: p.produk.map((prod: (typeof p.produk)[number]) => ({ id: prod.id, namaProduk: prod.product.namaProduk, standarisasiGagal: prod.standarisasiGagal })),
+    };
+  });
 }
 
 export async function listMyPoaStandarisasiAction() {
@@ -355,17 +424,26 @@ export async function getPendingPoaStandarisasiForAtasanAction() {
     include: {
       owner: { select: { nip: true, name: true } },
       outlet: { select: { namaOutlet: true } },
-      produk: { select: { id: true } },
+      produk: { select: { id: true, approvals: { select: { level: true, status: true } } } },
     },
     orderBy: { updatedAt: "asc" },
   });
 
-  const result: (typeof candidates[number] & { pendingLevel: "ASM" | "SM" | "NSM" })[] = [];
+  const result: (typeof candidates[number] & { pendingLevel: ApprovalLevel })[] = [];
   for (const p of candidates) {
+    // Jalur baru (approval level per produk): level pertama yang punya produk
+    // menunggu (level di bawahnya sudah disetujui) dan actor adalah approver-nya.
+    if (p.produk.some((pr: (typeof p.produk)[number]) => pr.approvals.length > 0)) {
+      for (const level of APPROVAL_LEVELS) {
+        if (!hasWaitingAtLevel(p.produk, level)) continue;
+        if (await isPoaStandarisasiLevelApprover(actor, p, level)) { result.push({ ...p, pendingLevel: level }); break; }
+      }
+      continue;
+    }
     // Sequential chain (ASM -> SM -> NSM): the level still awaiting action is
     // the first one not yet DISETUJUI — same rule approvePoaStandarisasiAtasanAction
     // enforces when advancing to Phase 3.
-    const pendingLevel: "ASM" | "SM" | "NSM" =
+    const pendingLevel: ApprovalLevel =
       p.statusApprovalAsm !== "DISETUJUI" ? "ASM" : p.statusApprovalSm !== "DISETUJUI" ? "SM" : "NSM";
     if (await canApprovePoaStandarisasiAtasan(actor, p, pendingLevel)) {
       result.push({ ...p, pendingLevel });
@@ -510,6 +588,17 @@ export async function getStandarisasiProdukForDokterAction(kodePI: string, kodeC
   return Array.from(byKode.values());
 }
 
+/** kodeCustomer dokter di outlet ini yang pernah diestimasi di POA Standarisasi (fase apa pun) — label dropdown customer di POA Estimasi. */
+export async function getStandarisasiCustomerKodesByOutletAction(kodePI: string): Promise<string[]> {
+  if (!kodePI) return [];
+  const rows = await prisma.poaStandarisasiDokterUser.findMany({
+    where: { produk: { pengajuan: { kodePI } } },
+    select: { customer: { select: { kodeCustomer: true } } },
+    distinct: ["customerId"],
+  });
+  return rows.map((r: (typeof rows)[number]) => r.customer.kodeCustomer).filter(Boolean);
+}
+
 /**
  * Kode produk yang sedang dalam proses POA Standarisasi di outlet ini —
  * pengajuan sudah dibuat tapi belum disubmit (`submittedAt` null). Dipakai POA
@@ -525,27 +614,29 @@ export async function getStandarisasiProsesKodeByOutletAction(kodePI: string): P
   return rows.map((r: (typeof rows)[number]) => r.kodeProduk);
 }
 
-export interface StandarisasiGroupGapRow {
+export interface StandarisasiGroupOutletRow {
   kodeProduk: string;
-  namaProduk: string;
-  namaOutletLain: string;
-  detail: string;
+  outlets: { namaOutlet: string; salesAvg3Bulan: number | null; dplPeriode: string | null; dplDiskonPct: number | null }[];
+}
+
+function bulanTahunFromYyyymm(yyyymm: string): string {
+  const bulan = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+  const m = parseInt(yyyymm.slice(4, 6), 10);
+  return m >= 1 && m <= 12 ? `${bulan[m - 1]} ${yyyymm.slice(0, 4)}` : yyyymm;
 }
 
 /**
- * Produk yang sudah standarisasi di outlet LAIN dalam group corporate yang
- * sama (Outlet.groupRS), tapi BELUM standarisasi di outlet yang sedang
- * dipilih — deteksi gap "cabang belum ada standarisasi padahal group sudah
- * deal corporate" (2026-09-22 user request, Brian's memo). Pakai 3 dari 4
- * sinyal computeStatusPengajuanMap (sales 3 bulan, pernah submit pengajuan,
- * label kriteriaBaru) — DPL SENGAJA di-skip di sini, karena itu 1 HTTP call
- * live ke Exodus per outlet (getDiskonByOutlet); dipanggil per sibling
- * outlet dalam satu group akan jadi N-HTTP-call-dalam-loop, pola yang
- * dilarang docs/PERFORMANCE.md §2.4 — 3 sinyal DB-only sudah cukup representatif
- * buat gap detection ini (bukan penentu status resmi Baru/Perpanjangan).
- * "NON CHAIN"/null groupRS bukan group corporate sungguhan → selalu [].
+ * Untuk tiap produk yang sudah standarisasi di outlet LAIN dalam group
+ * corporate yang sama (Outlet.groupRS) — daftar outlet + sales rata-rata 3
+ * bulan + periode DPL-nya, buat info "RS segrup" di sidebar (Produk
+ * Rekomendasi dan Standarisasi & Historis Sales). "Sudah standarisasi" =
+ * ada sales (3 bulan penuh terakhir, OutletSalesMonthly) DAN ada DPL aktif
+ * bulan berjalan (user 2026-10-01 — sebelumnya OR dari sales/pengajuan/label
+ * kriteria/DPL). DPL via getDiskonByOutlets (BATCHED, DB-only — bukan N HTTP
+ * call per outlet, larangan docs/PERFORMANCE.md §2.4). "NON CHAIN"/null
+ * groupRS bukan group corporate sungguhan → selalu [].
  */
-export async function getStandarisasiGroupGapAction(kodePI: string, excludePengajuanId?: string): Promise<StandarisasiGroupGapRow[]> {
+export async function getStandarisasiGroupOutletsAction(kodePI: string): Promise<StandarisasiGroupOutletRow[]> {
   if (!kodePI) return [];
   const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { groupRS: true } });
   if (!outlet?.groupRS || outlet.groupRS === "NON CHAIN") return [];
@@ -558,61 +649,88 @@ export async function getStandarisasiGroupGapAction(kodePI: string, excludePenga
   const siblingKodePI = siblings.map((s: (typeof siblings)[number]) => s.kodePI);
   const namaOutletByKode = new Map<string, string>(siblings.map((s: (typeof siblings)[number]) => [s.kodePI, s.namaOutlet]));
 
-  // Sama 3 sinyal di setiap outlet dalam group (termasuk outlet sendiri) —
-  // supaya "punya sinyal di outlet lain" vs "belum punya sinyal di outlet
-  // sendiri" dibandingkan dengan basis yang identik, bukan dua definisi beda.
-  const allKodePI = [kodePI, ...siblingKodePI];
-  const [salesRows, priorSubmittedRows, kriteriaRows] = await Promise.all([
+  const now = new Date();
+  const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const last3Months = [1, 2, 3].map((i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+
+  const [sales3BulanRows, dplByOutlet] = await Promise.all([
+    // Window 3-bulan-terakhir yang sama dengan getSalesLast3MonthsByOutletAction,
+    // tapi batched lintas semua sibling outlet sekaligus (no N+1).
     prisma.outletSalesMonthly.findMany({
-      where: { kodePI: { in: allKodePI }, qty: { gt: 0 } },
-      select: { kodePI: true, itemKode: true },
+      where: { kodePI: { in: siblingKodePI }, periode: { in: last3Months }, qty: { gt: 0 } },
+      select: { kodePI: true, itemKode: true, qty: true },
     }),
-    prisma.poaStandarisasiProduk.findMany({
-      where: {
-        pengajuan: {
-          kodePI: { in: allKodePI },
-          submittedAt: { not: null },
-          ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
-        },
-      },
-      select: { kodeProduk: true, pengajuan: { select: { kodePI: true } } },
-    }),
-    prisma.outletProductKriteria.findMany({
-      where: { kodePI: { in: allKodePI } },
-      select: { kodePI: true, kodeProduk: true, kriteriaBaru: true },
-    }),
+    getDiskonByOutlets(siblingKodePI),
   ]);
 
-  const ownKode = new Set<string>();
-  const byKodeOtherOutlet = new Map<string, string>(); // kodeProduk -> a sibling kodePI that has the signal
-  function record(kodeProduk: string, rowKodePI: string) {
-    if (rowKodePI === kodePI) { ownKode.add(kodeProduk); return; }
-    if (!byKodeOtherOutlet.has(kodeProduk)) byKodeOtherOutlet.set(kodeProduk, rowKodePI);
+  // qty 3-bulan-terakhir per (kodeProduk, kodePI) -> Rp rata-rata/bulan (hna diambil setelahnya, sekali query).
+  const qty3BulanByPair = new Map<string, number>();
+  for (const r of sales3BulanRows) {
+    const key = `${r.itemKode}|${r.kodePI}`;
+    qty3BulanByPair.set(key, (qty3BulanByPair.get(key) ?? 0) + parseFloat(r.qty.toString()));
   }
-  for (const r of salesRows) record(r.itemKode, r.kodePI);
-  for (const r of priorSubmittedRows) record(r.kodeProduk, r.pengajuan.kodePI);
-  for (const r of kriteriaRows) {
-    if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) record(r.kodeProduk, r.kodePI);
+  const kodeProdukForHna = [...new Set(sales3BulanRows.map((r: (typeof sales3BulanRows)[number]) => r.itemKode))];
+  const hnaByKode = new Map<string, number>();
+  if (kodeProdukForHna.length > 0) {
+    const products = await prisma.product.findMany({ where: { kodeProduk: { in: kodeProdukForHna } }, select: { kodeProduk: true, hna: true } });
+    for (const p of products) hnaByKode.set(p.kodeProduk, parseFloat(p.hna.toString()));
   }
 
-  const kodeProdukList = [...byKodeOtherOutlet.keys()].filter((k) => !ownKode.has(k));
-  if (kodeProdukList.length === 0) return [];
-  const products = await prisma.product.findMany({
-    where: { kodeProduk: { in: kodeProdukList } },
-    select: { kodeProduk: true, namaProduk: true },
-  });
-  const namaProdukByKode = new Map<string, string>(products.map((p: (typeof products)[number]) => [p.kodeProduk, p.namaProduk]));
+  // DPL aktif bulan berjalan per (kodeProduk, kodePI) — kontrak dengan prdAkhir terjauh kalau lebih dari satu.
+  const dplByPair = new Map<string, { prdAwal: string; prdAkhir: string; diskonPct: number }>();
+  for (const [siblingKodePIVal, contracts] of dplByOutlet) {
+    for (const c of contracts) {
+      if (!(c.prdAwal <= ym && ym <= c.prdAkhir)) continue;
+      const key = `${c.kodeProduk}|${siblingKodePIVal}`;
+      if ((dplByPair.get(key)?.prdAkhir ?? "") < c.prdAkhir) dplByPair.set(key, { prdAwal: c.prdAwal, prdAkhir: c.prdAkhir, diskonPct: c.newOnPi });
+    }
+  }
 
-  return kodeProdukList.map((kodeProduk) => {
-    const siblingKode = byKodeOtherOutlet.get(kodeProduk)!;
-    const namaOutletLain = namaOutletByKode.get(siblingKode) ?? siblingKode;
-    return {
-      kodeProduk,
-      namaProduk: namaProdukByKode.get(kodeProduk) ?? kodeProduk,
-      namaOutletLain,
-      detail: `Group ${outlet.groupRS} · sudah standarisasi di ${namaOutletLain}`,
-    };
-  }).sort((a, b) => a.namaProduk.localeCompare(b.namaProduk, "id"));
+  // Union sales-only ∪ DPL-only ∪ sales+DPL (2026-10-01 user request: tiap RS
+  // segrup ditampilin APAPUN sinyal yang dia punya, bukan cuma yang sudah
+  // punya DUA-duanya — field yang gak ada di sibling itu dibiarin null,
+  // dirender UI apa adanya (lihat GroupOutlet di RekomendasiSidebar.tsx).
+  const allPairKeys = new Set([...qty3BulanByPair.keys(), ...dplByPair.keys()]);
+  const byKode = new Map<string, StandarisasiGroupOutletRow["outlets"]>();
+  for (const key of allPairKeys) {
+    const [kodeProduk, siblingKodePIVal] = key.split("|");
+    const qty = qty3BulanByPair.get(key);
+    const dpl = dplByPair.get(key);
+    const list = byKode.get(kodeProduk) ?? [];
+    list.push({
+      namaOutlet: namaOutletByKode.get(siblingKodePIVal) ?? siblingKodePIVal,
+      salesAvg3Bulan: qty !== undefined ? (qty * (hnaByKode.get(kodeProduk) ?? 0)) / 3 : null,
+      dplPeriode: dpl ? `${bulanTahunFromYyyymm(dpl.prdAwal)} – ${bulanTahunFromYyyymm(dpl.prdAkhir)}` : null,
+      dplDiskonPct: dpl?.diskonPct ?? null,
+    });
+    byKode.set(kodeProduk, list);
+  }
+
+  // Tambahin sibling yang BELUM punya sinyal apa-apa buat produk ini juga
+  // (user 2026-10-01: "dan belum" — mau liat yang belum standarisasi juga,
+  // bukan cuma yang udah) — cuma buat produk yang minimal 1 sibling LAIN-nya
+  // udah punya sinyal (artinya produk ini relevan buat group ini).
+  for (const [, outlets] of byKode) {
+    const covered = new Set(outlets.map((o) => o.namaOutlet));
+    for (const s of siblings) {
+      if (covered.has(s.namaOutlet)) continue;
+      outlets.push({ namaOutlet: s.namaOutlet, salesAvg3Bulan: null, dplPeriode: null, dplDiskonPct: null });
+    }
+  }
+
+  return Array.from(byKode, ([kodeProduk, outlets]) => ({
+    kodeProduk,
+    // "Sudah" (minimal 1 sinyal) duluan, "belum" (dua-duanya null) belakangan.
+    outlets: outlets.sort((a, b) => {
+      const aDone = a.salesAvg3Bulan != null || a.dplPeriode != null;
+      const bDone = b.salesAvg3Bulan != null || b.dplPeriode != null;
+      if (aDone !== bDone) return aDone ? -1 : 1;
+      return a.namaOutlet.localeCompare(b.namaOutlet, "id");
+    }),
+  }));
 }
 
 export interface SalesHistoryOutletRow {
@@ -646,55 +764,6 @@ export async function getSalesHistoryByOutletAction(kodePI: string): Promise<Sal
     periodeFrom: r.periodeFrom,
     periodeTo: r.periodeTo,
   }));
-}
-
-export interface StandarisasiProdukOutletRow {
-  kodeProduk: string;
-  namaProduk: string;
-  tipeStandarisasi: string;
-  statusPengajuan: string;
-  submittedAt: Date;
-}
-
-/**
- * Products already submitted (finalized) under POA Standarisasi at this
- * outlet — one row per produk, latest submission wins if resubmitted more
- * than once. Powers the "Sudah Standarisasi" sidebar tab so an MR doesn't
- * duplicate work already done for a product at this outlet (docs/TODO.md
- * #15). Excludes the pengajuan currently being edited (its own produk aren't
- * "already done" from its own point of view).
- */
-export async function getStandarisasiProdukByOutletAction(kodePI: string, excludePengajuanId?: string): Promise<StandarisasiProdukOutletRow[]> {
-  if (!kodePI) return [];
-  const rows = await prisma.poaStandarisasiProduk.findMany({
-    where: {
-      pengajuan: {
-        kodePI,
-        submittedAt: { not: null },
-        ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
-      },
-    },
-    select: {
-      kodeProduk: true,
-      statusPengajuan: true,
-      product: { select: { namaProduk: true } },
-      pengajuan: { select: { tipeStandarisasi: true, submittedAt: true } },
-    },
-    orderBy: { pengajuan: { submittedAt: "desc" } },
-  });
-
-  const byKode = new Map<string, StandarisasiProdukOutletRow>();
-  for (const r of rows) {
-    if (byKode.has(r.kodeProduk)) continue; // ordered submittedAt desc — first hit per kodeProduk is the latest
-    byKode.set(r.kodeProduk, {
-      kodeProduk: r.kodeProduk,
-      namaProduk: r.product.namaProduk,
-      tipeStandarisasi: r.pengajuan.tipeStandarisasi,
-      statusPengajuan: r.statusPengajuan,
-      submittedAt: r.pengajuan.submittedAt!,
-    });
-  }
-  return Array.from(byKode.values());
 }
 
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
@@ -778,20 +847,20 @@ async function computeEstimasiPerBulan(
 }
 
 /**
- * Kode produk yang punya DPL aktif di outlet ini — periode DPL (prdAwal..prdAkhir,
- * YYYYMM) mencakup bulan berjalan. DPL adalah output standarisasi, jadi ada DPL
- * aktif = produk sudah standarisasi (sinyal tambahan, 2026-09-21). Sumber sama
+ * DPL aktif per produk di outlet ini — periode DPL (prdAwal..prdAkhir,
+ * YYYYMM) mencakup bulan berjalan. DPF tidak dihitung (tanpa periode). DPL adalah output standarisasi, jadi ada DPL
+ * aktif = salah satu syarat produk sudah standarisasi (bersama sales, 2026-10-01). Sumber sama
  * dengan "% Diskon (DPL/DPF)" di POA Estimasi (getDiskonByOutlet: Exodus live,
  * fallback DiskonKontrak). Detail = prdAkhir terjauh per produk.
  */
-export async function getActiveDplByOutletAction(kodePI: string): Promise<{ kodeProduk: string; prdAkhir: string; diskonPct: number }[]> {
+export async function getActiveDplByOutletAction(kodePI: string): Promise<{ kodeProduk: string; prdAwal: string; prdAkhir: string; diskonPct: number }[]> {
   if (!kodePI) return [];
   const now = new Date();
   const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const byKode = new Map<string, { prdAkhir: string; diskonPct: number }>();
+  const byKode = new Map<string, { prdAwal: string; prdAkhir: string; diskonPct: number }>();
   for (const c of await getDiskonByOutlet(kodePI)) {
     if (c.prdAwal <= ym && ym <= c.prdAkhir && (byKode.get(c.kodeProduk)?.prdAkhir ?? "") < c.prdAkhir) {
-      byKode.set(c.kodeProduk, { prdAkhir: c.prdAkhir, diskonPct: c.newOnPi });
+      byKode.set(c.kodeProduk, { prdAwal: c.prdAwal, prdAkhir: c.prdAkhir, diskonPct: c.newOnPi });
     }
   }
   return Array.from(byKode, ([kodeProduk, v]) => ({ kodeProduk, ...v }));
@@ -825,81 +894,37 @@ export async function getSalesLast3MonthsByOutletAction(kodePI: string): Promise
 
 /**
  * Status Pengajuan (Baru/Perpanjangan) — auto-derived per produk×outlet, NOT
- * user-picked (2026-08-27, user request: dulu manual dropdown, sekarang label
- * read-only). PERPANJANGAN kalau SALAH SATU dari tiga sinyal berikut true
- * (OR, 2026-08-28 user request — "sudah standarisasi" berarti pernah
- * standarisasi dan sekarang mau diajukan lagi, jadi harus konsisten dengan
- * label "Sudah Standarisasi" sidebar, bukan cuma sinyal sales):
- * 1. Ada sales (qty > 0) produk ini di outlet ini dalam 3 bulan terakhir yang
- *    sudah selesai (OutletSalesMonthly, bulan berjalan tidak dihitung —
- *    2026-09-21 user request, sebelumnya 12 bulan via OutletSalesHistory);
- * 2. Produk ini pernah di-submit di POA Standarisasi lain di outlet yang
- *    sama (query sama seperti getStandarisasiProdukByOutletAction's "Sudah
- *    Standarisasi" — excludePengajuanId supaya pengajuan yang sedang dibuka
- *    tidak menghitung dirinya sendiri);
- * 3. Import master data `OutletProductKriteria.kriteriaBaru` untuk
- *    produk×outlet ini sudah berlabel "Produk Sudah Terstandarisasi..." (baik
- *    "- Ada Sales" maupun "- Tidak Ada Sales") — sinyal INDEPENDEN dari #1/#2
- *    (bisa saja sudah dilabeli standarisasi di import lama sebelum pernah ada
- *    sales tercatat ATAU pengajuan ter-submit di app ini). Match EXACT sama
- *    seperti RekomendasiSidebar's `standarisasiMerged` (`.startsWith(...)`),
- *    supaya auto-fill ini konsisten dengan label "Sudah Standarisasi" yang
- *    dilihat user di sidebar.
- * 4. Ada DPL aktif di bulan berjalan untuk produk×outlet ini
- *    (getActiveDplByOutletAction, 2026-09-21) — `dplKode` dari caller. Di
- *    dalam transaksi caller wajib fetch SEBELUM $transaction supaya HTTP
- *    Exodus tidak makan timeout tx.
- * Kalau keempat sinyal negatif → Baru. Batched (satu findMany per sinyal utk
- * seluruh kodeProduk sekaligus), bukan query per produk — sama pola
- * no-N+1 seperti applyPlanningProduk lainnya.
+ * user-picked (2026-08-27). PERPANJANGAN = produk "sudah standarisasi" = ada
+ * sales DAN ada DPL (user 2026-10-01; sebelumnya OR dari sales / pernah submit
+ * pengajuan / label kriteria / DPL), keduanya wajib:
+ * 1. Ada sales (qty > 0) produk ini di outlet ini dalam 3 bulan kalender
+ *    penuh terakhir (OutletSalesMonthly, bulan berjalan tidak dihitung);
+ * 2. Ada DPL aktif di bulan berjalan (getActiveDplByOutletAction) — `dplKode`
+ *    dari caller, wajib di-fetch SEBELUM $transaction supaya HTTP Exodus tidak
+ *    makan timeout tx. DPF tidak dihitung.
+ * Selain itu → Baru. `excludePengajuanId` tidak dipakai lagi (pengajuan
+ * submit sebelumnya bukan sinyal), parameternya dipertahankan supaya
+ * pemanggil tidak berubah. Batched (satu findMany untuk seluruh kodeProduk).
  */
 async function computeStatusPengajuanMap(
   client: Prisma.TransactionClient | typeof prisma,
   kodePI: string,
   kodeProdukList: string[],
-  excludePengajuanId?: string,
+  _excludePengajuanId?: string,
   dplKode?: Set<string>
 ): Promise<Map<string, "BARU" | "PERPANJANGAN">> {
   const map = new Map<string, "BARU" | "PERPANJANGAN">(kodeProdukList.map((k) => [k, "BARU"]));
-  if (kodeProdukList.length === 0) return map;
+  if (kodeProdukList.length === 0 || !dplKode || dplKode.size === 0) return map;
   const now = new Date();
   const last3Months = [1, 2, 3].map((i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
-  const [salesRows, priorSubmittedRows, kriteriaRows] = await Promise.all([
-    client.outletSalesMonthly.findMany({
-      where: { kodePI, itemKode: { in: kodeProdukList }, periode: { in: last3Months }, qty: { gt: 0 } },
-      select: { itemKode: true },
-    }),
-    client.poaStandarisasiProduk.findMany({
-      where: {
-        kodeProduk: { in: kodeProdukList },
-        pengajuan: {
-          kodePI,
-          submittedAt: { not: null },
-          ...(excludePengajuanId ? { id: { not: excludePengajuanId } } : {}),
-        },
-      },
-      select: { kodeProduk: true },
-    }),
-    client.outletProductKriteria.findMany({
-      where: { kodePI, kodeProduk: { in: kodeProdukList } },
-      select: { kodeProduk: true, kriteriaBaru: true },
-    }),
-  ]);
-  for (const r of salesRows) {
-    map.set(r.itemKode, "PERPANJANGAN");
-  }
-  for (const r of priorSubmittedRows) {
-    map.set(r.kodeProduk, "PERPANJANGAN");
-  }
-  for (const r of kriteriaRows) {
-    if (r.kriteriaBaru.startsWith("Produk Sudah Terstandarisasi")) map.set(r.kodeProduk, "PERPANJANGAN");
-  }
-  for (const k of kodeProdukList) {
-    if (dplKode?.has(k)) map.set(k, "PERPANJANGAN");
-  }
+  const salesRows = await client.outletSalesMonthly.findMany({
+    where: { kodePI, itemKode: { in: kodeProdukList.filter((k) => dplKode.has(k)) }, periode: { in: last3Months }, qty: { gt: 0 } },
+    select: { itemKode: true },
+  });
+  for (const r of salesRows) map.set(r.itemKode, "PERPANJANGAN");
   return map;
 }
 
@@ -1060,21 +1085,71 @@ export async function advanceToApprovalAtasanAction(id: string): Promise<void> {
     throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
   }
 
-  await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_ATASAN" } });
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_ATASAN" } });
+    await snapshotProdukApprovals(tx, id);
+  });
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
 // ─── Phase 2: Approval Atasan (blocking, sequential ASM → SM → NSM) ────────
 
+function hasWaitingAtLevel(produk: { id: string; approvals: { level: ApprovalLevel; status: string }[] }[], level: ApprovalLevel): boolean {
+  return actionableRows(produk.flatMap((p) => p.approvals.map((a) => ({ produkId: p.id, ...a }))), level).length > 0;
+}
+
+/**
+ * Approve/tolak di `level`. Pengajuan dengan baris PoaStandarisasiProdukApproval
+ * (jalur baru, level dinamis per produk): berlaku ke produk di level itu yang
+ * sedang menunggu — semua, atau hanya `produkIds`. Pengajuan lama tanpa baris:
+ * jalur statis ASM -> SM -> NSM di kolom header, seperti sebelumnya.
+ */
 export async function approvePoaStandarisasiAtasanAction(
   id: string,
-  level: "ASM" | "SM" | "NSM",
-  decision: "DISETUJUI" | "DITOLAK"
+  level: ApprovalLevel,
+  decision: "DISETUJUI" | "DITOLAK",
+  produkIds?: string[]
 ): Promise<void> {
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
   if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
   if (pengajuan.currentPhase !== "APPROVAL_ATASAN") throw new Error("Pengajuan tidak sedang di fase Approval Atasan.");
+
+  const rows: ProdukApprovalRow[] = await prisma.poaStandarisasiProdukApproval.findMany({
+    where: { produk: { pengajuanId: id } },
+    select: { produkId: true, level: true, status: true },
+  });
+
+  if (rows.length === 0) {
+    if (level === "ASD" || level === "SD") throw new Error("Level ini tidak berlaku untuk pengajuan ini.");
+    await approveLegacyLevel(actor, pengajuan, level, decision);
+    revalidatePath(`/poa-standarisasi/${id}`);
+    return;
+  }
+
+  if (!(await isPoaStandarisasiLevelApprover(actor, pengajuan, level))) throw new Error("Anda tidak berhak melakukan approval di level ini.");
+  const targets = actionableRows(rows, level).filter((r) => !produkIds || produkIds.includes(r.produkId));
+  if (targets.length === 0) throw new Error("Tidak ada produk yang menunggu persetujuan Anda di level ini.");
+
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    // status: MENUNGGU di where = idempotent kalau dua klik/approver bersamaan.
+    await tx.poaStandarisasiProdukApproval.updateMany({
+      where: { produkId: { in: targets.map((t) => t.produkId) }, level, status: "MENUNGGU" },
+      data: { status: decision, decidedByNip: actor.nip, decidedAt: new Date() },
+    });
+    const remaining = await tx.poaStandarisasiProdukApproval.count({ where: { produk: { pengajuanId: id }, status: { not: "DISETUJUI" } } });
+    if (remaining === 0) await tx.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_USER_DOKTER" } });
+  });
+
+  revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+async function approveLegacyLevel(
+  actor: Awaited<ReturnType<typeof requireActor>>["actor"],
+  pengajuan: NonNullable<Awaited<ReturnType<typeof prisma.poaStandarisasi.findUnique>>>,
+  level: "ASM" | "SM" | "NSM",
+  decision: "DISETUJUI" | "DITOLAK"
+): Promise<void> {
   if (!(await canApprovePoaStandarisasiAtasan(actor, pengajuan, level))) {
     throw new Error("Anda tidak berhak melakukan approval di level ini.");
   }
@@ -1086,14 +1161,12 @@ export async function approvePoaStandarisasiAtasanAction(
       ? { statusApprovalSm: decision, tanggalApprovalSm: new Date() }
       : { statusApprovalNsm: decision, tanggalApprovalNsm: new Date() };
 
-  const updated = await prisma.poaStandarisasi.update({ where: { id }, data });
+  const updated = await prisma.poaStandarisasi.update({ where: { id: pengajuan.id }, data });
 
   // Blocking, sequential: only advance to Phase 3 once ALL THREE are DISETUJUI.
   if (updated.statusApprovalAsm === "DISETUJUI" && updated.statusApprovalSm === "DISETUJUI" && updated.statusApprovalNsm === "DISETUJUI") {
-    await prisma.poaStandarisasi.update({ where: { id }, data: { currentPhase: "APPROVAL_USER_DOKTER" } });
+    await prisma.poaStandarisasi.update({ where: { id: pengajuan.id }, data: { currentPhase: "APPROVAL_USER_DOKTER" } });
   }
-
-  revalidatePath(`/poa-standarisasi/${id}`);
 }
 
 // ─── Phase 3: Approval User/Dokter ──────────────────────────────────────────
@@ -1508,11 +1581,10 @@ async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<
 // Muncul otomatis setelah pengajuan.submittedAt terisi (Finalisasi selesai) —
 // bukan phase di PoaStandarisasiPhase, gate-nya pakai canEditPoaStandarisasiStep5
 // (kebalikan dari canEditPoaStandarisasi: butuh submittedAt SUDAH terisi,
-// bukan belum). Tab "Request DPL/DPF" cuma nampilin data existing (Beban
-// Discount PI/Distributor = finalDiscountPct/diskonDistributorPct yang sudah
-// ada, Distributor = field `distributors` yang sama) — "+ Buat DPL/DPF"
-// tetap placeholder di v1 (§6 non-goals, belum ada integrasi sistem
-// eksternal), tidak ada action baru untuk itu.
+// bukan belum). Tab "Request DPL/DPF": Beban Discount PI/Distributor =
+// finalDiscountPct/diskonDistributorPct yang sudah ada, Distributor = field
+// `distributors` yang sama; "Ajukan" kirim ke Exodus lewat
+// submitDiscountRequestAction di bawah (2026-09-29).
 
 export interface SpNonSalesJumlahInput {
   produkId: string;
@@ -1727,6 +1799,185 @@ export async function updateSpNonSalesDistributorsAction(id: string, distributor
   const filtered = distributors.filter((d): d is (typeof DISTRIBUTOR_PILIHAN)[number] => (DISTRIBUTOR_PILIHAN as readonly string[]).includes(d));
   await prisma.poaStandarisasi.update({ where: { id }, data: { distributors: filtered } });
   revalidatePath(`/poa-standarisasi/${id}`);
+}
+
+// ─── Step 5 tab 2: Ajukan DPL/DPF ke Exodus ─────────────────────────────────
+// POST promotion/v1/request/discount (lihat submitDiscountRequest di exodusApi.ts).
+// Exodus TIDAK memvalidasi apa pun selain adanya file (semua payload ngawur
+// tetap 200 — hasil tes staging 2026-09-29) dan tidak mengembalikan ID, jadi
+// semua validasi ada di sini dan riwayat + anti double-submit disimpan lokal
+// (PoaStandarisasiDiscountRequest, row di-reserve SEBELUM POST).
+
+/** "YYYY-MM-DD" (tanggal kalender WIB) -> bagian tanggalnya, null kalau tidak valid. */
+function parseYmd(v: string): { y: number; m: number; d: number } | null {
+  const mt = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  return mt ? { y: +mt[1], m: +mt[2] - 1, d: +mt[3] } : null;
+}
+const WIB_MS = 7 * 3600e3;
+
+export interface DiscountRequestRow {
+  id: string;
+  tipe: string;
+  distributorKode: string;
+  requestDocNumber: string | null;
+  requestDocDate: Date | null;
+  startDate: Date | null;
+  endDate: Date | null;
+  submittedAt: Date;
+  submittedByNama: string;
+  produk: { kodeProduk: string; namaProduk: string; principalPct: number; distributorPct: number; quantity: number }[];
+}
+
+export async function listDiscountRequestsAction(pengajuanId: string): Promise<DiscountRequestRow[]> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id: pengajuanId }, select: { ownerId: true, kodePI: true } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!(await canViewPoaStandarisasi(actor, pengajuan))) throw new Error("Anda tidak berhak melihat pengajuan ini.");
+  const rows = await prisma.poaStandarisasiDiscountRequest.findMany({
+    where: { pengajuanId },
+    include: { submittedBy: { select: { name: true } } },
+    orderBy: { submittedAt: "desc" },
+  });
+  return rows.map((r: (typeof rows)[number]) => ({
+    id: r.id, tipe: r.tipe, distributorKode: r.distributorKode, requestDocNumber: r.requestDocNumber, requestDocDate: r.requestDocDate,
+    startDate: r.startDate, endDate: r.endDate, submittedAt: r.submittedAt, submittedByNama: r.submittedBy.name,
+    produk: r.produk as DiscountRequestRow["produk"],
+  }));
+}
+
+/**
+ * FormData: pengajuanId, tipe (DPL|DPF), distributor (AMS|PPG|MPI), produk
+ * (JSON [{produkId, quantity}]), DPL: periodeAwal/periodeAkhir ("YYYY-MM-DD",
+ * yang dipakai bulannya saja), DPF: tanggalPo, nomorPo, file (PDF/JPG/PNG).
+ * Disc PI/Dist per produk dari nilai yang sudah ada di pengajuan
+ * (finalDiscountPct/diskonDistributorPct, fallback live Exodus) — bukan input.
+ */
+export async function submitDiscountRequestAction(formData: FormData): Promise<ActionResult> {
+  return runAction(() => submitDiscountRequestActionImpl(formData));
+}
+
+async function submitDiscountRequestActionImpl(formData: FormData): Promise<void> {
+  if (DPL_DPF_SUBMIT_DISABLED) throw new Error(DPL_DPF_SUBMIT_DISABLED_MESSAGE);
+  const { actor } = await requireActor();
+  const str = (k: string) => ((formData.get(k) as string | null) ?? "").trim();
+  const pengajuanId = str("pengajuanId");
+  const tipe = str("tipe");
+  const distributorKode = str("distributor") as ExodusDistributorKode;
+
+  if (tipe !== "DPL" && tipe !== "DPF") throw new Error("Tipe diskon tidak valid.");
+  const distributor = EXODUS_DISTRIBUTORS[distributorKode];
+  if (!distributor) throw new Error("Pilih distributor dulu.");
+
+  const pengajuan = await prisma.poaStandarisasi.findUnique({
+    where: { id: pengajuanId },
+    include: { outlet: true, produk: { include: { product: true } } },
+  });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasiStep5(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+
+  // Tanggal / periode / file
+  let requestDocNumber: string | null = null;
+  let requestDocDate: Date | null = null;
+  let startDate: Date | null = null;
+  let endDate: Date | null = null;
+  let file: { name: string; mimeType: string; buffer: Buffer } | undefined; // DPF only (dokumen PO); DPL tanpa file
+  if (tipe === "DPF") {
+    const tgl = parseYmd(str("tanggalPo"));
+    requestDocNumber = str("nomorPo");
+    if (!tgl) throw new Error("Tanggal PO wajib diisi.");
+    if (!requestDocNumber) throw new Error("Nomor PO wajib diisi.");
+    requestDocDate = new Date(Date.UTC(tgl.y, tgl.m, tgl.d) - WIB_MS); // 00:00 WIB, seperti data nyata Exodus
+    const f = formData.get("file");
+    if (!(f instanceof File) || f.size === 0) throw new Error("Dokumen PO wajib diupload.");
+    const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) throw new Error("File harus berformat PDF atau JPG/PNG.");
+    if (f.size > MAX_FILE_SIZE_BYTES) throw new Error("Ukuran file maksimum 10MB.");
+    file = { name: f.name, mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream", buffer: Buffer.from(await f.arrayBuffer()) };
+  } else {
+    const awal = parseYmd(str("periodeAwal"));
+    const akhir = parseYmd(str("periodeAkhir"));
+    if (!awal || !akhir) throw new Error("Periode awal dan akhir wajib diisi.");
+    startDate = new Date(Date.UTC(awal.y, awal.m, 1) - WIB_MS); // tgl 1 bulan awal, 00:00 WIB
+    endDate = new Date(Date.UTC(akhir.y, akhir.m + 1, 1) - WIB_MS - 1); // akhir bulan akhir, 23:59:59.999 WIB
+    if (endDate < startDate) throw new Error("Periode akhir tidak boleh sebelum periode awal.");
+    // DPL tidak pakai request-doc-file (dokumen PO cuma wajib untuk DPF — Mas Budi/Exodus 2026-10-01).
+  }
+
+  // Produk terpilih + disc
+  let selected: { produkId: string; quantity: number | string }[];
+  try { selected = JSON.parse(str("produk")); } catch { throw new Error("Data produk tidak valid."); }
+  if (!Array.isArray(selected) || selected.length === 0) throw new Error("Pilih minimal satu produk.");
+  const discounts = await getDiscountsForOutlet(pengajuan.kodePI);
+  const pricing = await getLiveProductPricing();
+  const products = selected.map((sel) => {
+    const prod = pengajuan.produk.find((p: (typeof pengajuan.produk)[number]) => p.id === sel.produkId);
+    if (!prod) throw new Error("Produk tidak ada di pengajuan ini.");
+    const nama = prod.product.namaProduk;
+    const qty = Number(sel.quantity);
+    if (!Number.isInteger(qty) || qty < (tipe === "DPF" ? 1 : 0)) throw new Error(`Qty ${nama} harus bilangan bulat ${tipe === "DPF" ? ">= 1" : ">= 0"}.`);
+    const principalPct = toNum(prod.finalDiscountPct) ?? discounts?.get(prod.kodeProduk)?.principalPct ?? null;
+    const distributorPct = toNum(prod.diskonDistributorPct) ?? discounts?.get(prod.kodeProduk)?.distributorPct ?? null;
+    if (principalPct == null || distributorPct == null) throw new Error(`Disc PI/Dist ${nama} belum ada.`);
+    if (principalPct < 0 || principalPct > 100 || distributorPct < 0 || distributorPct > 100) throw new Error(`Disc ${nama} di luar 0-100%.`);
+    const live = pricing?.get(prod.kodeProduk);
+    if (!live?.principalId || !live.principalCode || !live.principalName) throw new Error(`Principal ${nama} tidak ditemukan di Exodus.`);
+    return {
+      snapshot: { kodeProduk: prod.kodeProduk, namaProduk: nama, principalPct, distributorPct, quantity: qty },
+      exodus: {
+        productName: live.namaProduk ?? nama, productCode: prod.kodeProduk,
+        productType: live.namaGroupBrand === "ETHICAL" ? "ETH" : "OTC",
+        principalDistributorId: live.principalId, principalDistributorName: live.principalName, principalDistributorCode: live.principalCode,
+        principalPercentage: principalPct, distributorPercentage: distributorPct, quantity: qty,
+      },
+    };
+  });
+
+  const outletId = await getExodusOutletIdByCode(pengajuan.kodePI);
+  if (!outletId) throw new Error("Outlet tidak ditemukan di Exodus (atau Exodus sedang tidak bisa dihubungi).");
+
+  // Reserve dulu (unique dedupKey = anti double-submit), baru POST; POST gagal -> lepas reservasi.
+  const scope = tipe === "DPF" ? requestDocNumber : `${startDate!.toISOString()}~${endDate!.toISOString()}`;
+  const dedupKey = [tipe, distributorKode, scope, ...products.map((p) => p.snapshot.kodeProduk).sort()].join("|");
+  let reservation: { id: string };
+  try {
+    reservation = await prisma.poaStandarisasiDiscountRequest.create({
+      data: {
+        pengajuanId, tipe, distributorKode, requestDocNumber, requestDocDate, startDate, endDate, dedupKey,
+        produk: products.map((p) => p.snapshot),
+        submittedByNip: actor.nip,
+      },
+      select: { id: true },
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2002") throw new Error("Ajuan yang sama (tipe, distributor, PO/periode, produk) sudah pernah dikirim.");
+    throw e;
+  }
+
+  const sinceMs = Date.now();
+  const result = await submitDiscountRequest({
+    discountType: tipe, outletId, outletCode: pengajuan.kodePI, outletName: pengajuan.outlet.namaOutlet,
+    distributorId: distributor.id, distributorName: distributor.name,
+    requestDocNumber, requestDocDate: requestDocDate?.toISOString() ?? null,
+    startDate: startDate?.toISOString() ?? null, endDate: endDate?.toISOString() ?? null,
+    // created_by = NIP user yang mengajukan (yang login di aplikasi), bukan service account — Exodus mencatat pembuat dari payload ini (Mas Budi 2026-10-01).
+    createdBy: actor.nip,
+    products: products.map((p) => p.exodus), file,
+  });
+  if (!result.ok) {
+    await prisma.poaStandarisasiDiscountRequest.delete({ where: { id: reservation.id } });
+    console.error("[poaStandarisasi/submitDiscountRequest] Exodus gagal:", result.error);
+    throw new Error(`Gagal mengirim ke Exodus: ${result.error}`);
+  }
+
+  // POST Exodus 200 belum menjamin request dibuat (tanpa id di respons) — wajib terkonfirmasi di GET sebelum dinyatakan terkirim.
+  const pcts = products.map((p) => p.snapshot.principalPct);
+  const confirmed = await confirmDiscountRequest({ outletCode: pengajuan.kodePI, discountType: tipe, createdBy: actor.nip, sinceMs, minPct: Math.min(...pcts), maxPct: Math.max(...pcts) });
+  if (!confirmed) {
+    await prisma.poaStandarisasiDiscountRequest.delete({ where: { id: reservation.id } });
+    console.error("[poaStandarisasi/submitDiscountRequest] POST 200 tapi request tidak ditemukan di GET Exodus", { outlet: pengajuan.kodePI, tipe, createdBy: actor.nip });
+    throw new Error("Request belum terkonfirmasi di Exodus (tidak ditemukan setelah dikirim). Cek dulu di sistem Exodus sebelum mengirim ulang agar tidak dobel, dan hubungi admin kalau berulang.");
+  }
+  revalidatePath(`/poa-standarisasi/${pengajuanId}`);
 }
 
 /** Uploads a "Permintaan SP Non Sales" document — multiple files allowed per pengajuan (shared, not per produk), own admin-settable Drive folder. */

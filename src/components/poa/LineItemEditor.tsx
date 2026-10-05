@@ -8,11 +8,11 @@ import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/hargaST";
 import { hargaST } from "@/lib/hargaST";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
-import { getStandarisasiDataForDokterProdukAction, getStandarisasiProdukForDokterAction, getStandarisasiProsesKodeByOutletAction, type StandarisasiDataForDokterProduk, type StandarisasiProdukForDokter } from "@/app/actions/poaStandarisasi";
+import { getCustomersByOutlet, getSpesialisasiOptionsAction, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
+import { getStandarisasiCustomerKodesByOutletAction, getStandarisasiProdukForDokterAction, getStandarisasiProsesKodeByOutletAction, type StandarisasiProdukForDokter } from "@/app/actions/poaStandarisasi";
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
-import { spesLabel, ALL_SPESIALISASI_OPTIONS } from "@/lib/spesialisasi";
+import { spesLabel, buildSpesialisasiOptions } from "@/lib/spesialisasi";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier, isRelevantToSpesialisasi } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
@@ -1077,25 +1077,6 @@ function ProdukEntryRow({
     });
   }, [kodeCustomer, kodePI]);
 
-  // "Tarik Data POA Standarisasi" (2026-09-08) — only offered when THIS exact
-  // outlet+dokter+produk combo has a matching POA Standarisasi row that's
-  // reached Finalisasi. Re-fetched whenever the product changes (a different
-  // produk may or may not have a match). Toggle itself is local UI state,
-  // not persisted — flipping it ON just writes the pulled numbers into the
-  // normal jumlahResepHari/qtyProdukResep/statusStandarisasi fields, which
-  // ARE persisted as part of ProdukEntry like any manual edit.
-  const [standarisasiPull, setStandarisasiPull] = useState<StandarisasiDataForDokterProduk | null>(null);
-  const [tarikStandarisasi, setTarikStandarisasi] = useState(false);
-  useEffect(() => {
-    setTarikStandarisasi(false);
-    if (!kodeCustomer || !kodePI || !entry.kodeProduk) { setStandarisasiPull(null); return; }
-    let cancelled = false;
-    getStandarisasiDataForDokterProdukAction(kodePI, kodeCustomer, entry.kodeProduk).then((r) => {
-      if (!cancelled) setStandarisasiPull(r);
-    });
-    return () => { cancelled = true; };
-  }, [kodeCustomer, kodePI, entry.kodeProduk]);
-
   const productOptions = useMemo(() => {
     const opts = buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory, surveyRows);
     if (!usedKodeProduk || usedKodeProduk.size === 0) return opts;
@@ -1244,41 +1225,6 @@ function ProdukEntryRow({
           </button>
         )}
       </div>
-
-      {standarisasiPull && (
-        <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 mb-1"
-          style={{ background: "var(--color-blue-light)", border: "1px solid var(--color-blue)" }}>
-          <div>
-            <div className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>↻ Tarik Data POA Standarisasi</div>
-            <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>Rumah Sakit &amp; Dokter sama dengan POA Standarisasi produk ini.</div>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={tarikStandarisasi}
-            onClick={() => {
-              const next = !tarikStandarisasi;
-              setTarikStandarisasi(next);
-              if (next) {
-                onChange({
-                  jumlahResepHari: standarisasiPull.jumlahPasien != null ? String(standarisasiPull.jumlahPasien) : entry.jumlahResepHari,
-                  qtyProdukResep: standarisasiPull.resepPerPasienSt != null ? String(standarisasiPull.resepPerPasienSt) : entry.qtyProdukResep,
-                  hariKerjaBulan: standarisasiPull.jumlahHariPraktekPerBulan != null ? String(standarisasiPull.jumlahHariPraktekPerBulan) : entry.hariKerjaBulan,
-                  statusStandarisasi: "SUDAH_STANDARISASI",
-                });
-              }
-            }}
-            className="shrink-0 rounded-full transition-colors"
-            style={{ width: 40, height: 22, background: tarikStandarisasi ? "var(--color-blue)" : "var(--color-border-strong)", position: "relative", border: "none", cursor: "pointer" }}
-          >
-            <span style={{
-              position: "absolute", top: 2, left: tarikStandarisasi ? 20 : 2,
-              width: 18, height: 18, borderRadius: "50%", background: "#fff",
-              transition: "left 0.15s",
-            }} />
-          </button>
-        </div>
-      )}
 
       {/* Produk Kompetitor Utama */}
       <label className="flex flex-col gap-1" {...(kompetitorErr ? { "data-field-err": "true" } : {})}>
@@ -2575,6 +2521,7 @@ function AddPanel({
   const [spesialisasi, setSpesialisasi] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [customerList, setCustomerList] = useState<CustomerOption[]>([]);
+  const [standarisasiCustomerKodes, setStandarisasiCustomerKodes] = useState<Set<string>>(new Set());
   const [psspStatusList, setPsspStatusList] = useState<PsspStatusByCustomer[]>([]);
   const [loadingSpec, startLoadSpec] = useTransition();
   const [loadingCust, startLoadCust] = useTransition();
@@ -2628,6 +2575,11 @@ function AddPanel({
   // in the static list still correctly sets the `spesialisasi` state (used
   // for filtering) but the Spesialisasi combobox itself shows blank, since
   // its options list has no matching value to display (2026-08-14 bug report).
+  // Sumber utama = master list Exodus (getSpesialisasiOptionsAction), dikolapskan
+  // per label PM; kalau kosong/gagal jatuh ke daftar statis.
+  const [exodusSpec, setExodusSpec] = useState<string[]>([]);
+  useEffect(() => { getSpesialisasiOptionsAction().then(setExodusSpec); }, []);
+  const baseSpecOptions = useMemo(() => buildSpesialisasiOptions(exodusSpec), [exodusSpec]);
   const specOptions = useMemo(() => {
     const counts = new Map<string, number>(); // PM label -> count
     const rawByLabel = new Map<string, string>(); // PM label -> a raw value with that label
@@ -2636,15 +2588,15 @@ function AddPanel({
       counts.set(label, (counts.get(label) ?? 0) + 1);
       if (!rawByLabel.has(label)) rawByLabel.set(label, c.spesialisasi);
     }
-    const knownValues = new Set(ALL_SPESIALISASI_OPTIONS.map((o) => o.value));
+    const knownLabels = new Set(baseSpecOptions.map((o) => o.label));
     const extra = [...rawByLabel.entries()]
-      .filter(([, raw]) => !knownValues.has(raw))
+      .filter(([label]) => !knownLabels.has(label))
       .map(([label, raw]) => ({ value: raw, label }));
-    return [...ALL_SPESIALISASI_OPTIONS, ...extra].map((o) => {
+    return [...baseSpecOptions, ...extra].map((o) => {
       const n = counts.get(o.label) ?? 0;
       return { ...o, sublabel: n > 0 ? `${n} dokter terdaftar` : undefined, _count: n };
     }).sort((a, b) => b._count - a._count);
-  }, [customerList]);
+  }, [customerList, baseSpecOptions]);
   // customerList holds every user at the outlet, any spesialisasi — narrowed
   // to the picked spesialisasi here only as a convenience filter, never a
   // hard requirement, so an MR who doesn't know the spesialisasi can just
@@ -2716,6 +2668,8 @@ function AddPanel({
           c.isFokus ? "⭐ Rekomendasi PM" : null,
           psspPeriodLabel,
         ].filter(Boolean).join(" · "),
+        tag: c.kodeCustomer && standarisasiCustomerKodes.has(c.kodeCustomer) ? "Pernah Standarisasi" : undefined,
+        tagColor: "indigo" as const,
         tag2, tag2Color, tag3, tag3Color, _pct: pct, _prdAkhirDist: prdAkhirDist,
       };
       // Sorted by proximity of PSSP end-period to the current quarter's end first
@@ -2730,7 +2684,7 @@ function AddPanel({
       if (a._prdAkhirDist !== b._prdAkhirDist) return a._prdAkhirDist - b._prdAkhirDist;
       return (b._pct ?? -1) - (a._pct ?? -1);
     });
-  }, [customerList, spesialisasi, psspStatusByCust]);
+  }, [customerList, spesialisasi, psspStatusByCust, standarisasiCustomerKodes]);
 
   const selectedCustomer = useMemo(() => customerList.find((c) => c.id === customerId) ?? null, [customerList, customerId]);
 
@@ -2857,10 +2811,12 @@ function AddPanel({
     });
     startLoadCust(async () => setCustomerList(await getCustomersByOutlet(val)));
     getPsspStatusByOutlet(val).then(setPsspStatusList);
+    getStandarisasiCustomerKodesByOutletAction(val).then((k) => setStandarisasiCustomerKodes(new Set(k)));
   }
 
   function handleOutletChange(val: string) {
     setKodePI(val); setSpesialisasi(""); setCustomerId("");
+    setStandarisasiCustomerKodes(new Set());
     setCustomerList([]); setKriteriaList([]); setPsspEverProductNames(new Set()); setProsesStandarisasiKode(new Set()); setDiskonList([]); setDiskonHistoryList([]); setPsspStatusList([]);
     fetchOutletData(val);
   }

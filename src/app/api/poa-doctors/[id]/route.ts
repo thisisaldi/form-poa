@@ -16,6 +16,13 @@
  *
  * PATCH /api/poa-doctors/[id]
  *
+ * Does NOT apply the current-quarter scoping above (2026-10-01, Exodus
+ * report: Q3 row 404ing on PATCH right as Q4 started) — a PATCH only
+ * toggles usedInExodus on a row that already exists, it's not exposing new
+ * data the way GET's listing is, so a quarter rollover shouldn't cut off an
+ * in-flight write. Still requires the row to exist + be NSM-approved (see
+ * findDoctorRowById's `requireCurrentQuarter` param).
+ *
  * Sets usedInExodus (docs/exodus-poa-usage/). Body is OPTIONAL:
  *   - no body / `{}` / `{ "usedInExodus": true }` → mark as used (the
  *     original 2026-08-26 behavior, kept bodyless-compatible)
@@ -68,7 +75,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (unauthorized) return unauthorized;
 
   const { id } = await params;
-  const row = await findDoctorRowById(id);
+  const row = await findDoctorRowById(id, { requireCurrentQuarter: false });
   if (!row) return NextResponse.json({ error: "Baris tidak ditemukan." }, { status: 404 });
 
   // Body is optional — a missing/empty/unparseable body defaults to "mark as

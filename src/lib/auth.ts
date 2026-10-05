@@ -6,22 +6,25 @@
  */
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { env } from "@/lib/env";
 import type { User } from "@prisma/client";
 
 export type VerifyResult =
   | { ok: true; user: User; isTestPsr?: boolean }
-  | { ok: false; error: "not_found" | "inactive" | "staging_blocked" };
+  | { ok: false; error: "not_found" | "inactive" | "login_blocked" };
 
-// Staging-only login block (2026-09-11 request) — sales hierarchy roles
-// (MR through NSM) should NOT be able to log into staging, only
-// GM/ADMIN/SFE/VIEWER/SD. No dedicated APP_ENV is plumbed through to the
-// running container yet (see next.config.ts's build-time-only use of it),
-// so staging is detected via EXODUS_AUTH_URL's realm — already unique per
-// environment ("/realms/staging/" vs "/realms/production/", see .env.staging/
-// .env.production) and already loaded into env.ts, no new env var needed.
-const IS_STAGING = env.EXODUS_AUTH_URL?.includes("/realms/staging/") ?? false;
-const STAGING_BLOCKED_ROLES: readonly string[] = ["MR", "ASM", "SM", "NSM"];
+/**
+ * Admin-configured login block (LoginAccessConfig, editable at /admin). Fails
+ * OPEN on query error so a DB hiccup can't lock everyone out.
+ */
+async function isLoginBlocked(role: string, nip: string): Promise<boolean> {
+  try {
+    const cfg = await prisma.loginAccessConfig.findUnique({ where: { id: 1 } });
+    return !!cfg && cfg.blockedRoles.includes(role) && !cfg.allowedNips.includes(nip);
+  } catch (err) {
+    console.error("[auth] failed to read LoginAccessConfig, failing open:", err);
+    return false;
+  }
+}
 
 /**
  * Verify a NIP against the users table (or mock client in USE_MOCK_DB mode).
@@ -52,8 +55,8 @@ export async function verifyNip(nip: string): Promise<VerifyResult> {
   if (!user.isActive) return { ok: false, error: "inactive" };
   const effectiveRole = isTestPsr ? "MR" : user.role;
   if (user.project === 'OMEGA') return { ok: true, user, isTestPsr };
-  if (IS_STAGING && STAGING_BLOCKED_ROLES.includes(effectiveRole)) {
-    return { ok: false, error: "staging_blocked" };
+  if (user.role !== "ADMIN" && (await isLoginBlocked(effectiveRole, targetNip))) {
+    return { ok: false, error: "login_blocked" };
   }
   return { ok: true, user, isTestPsr };
 }

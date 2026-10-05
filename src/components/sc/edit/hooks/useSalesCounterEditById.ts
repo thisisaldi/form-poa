@@ -363,17 +363,29 @@ export function useSalesCounterEditById({
 
         // Canvasser products & draft product validation
         setCanvasserProducts(bundle.canvasserProducts);
-        const validCodes = new Set(bundle.canvasserProducts.map((cp: any) => cp.pro_code).filter(Boolean));
+        const validCodes = new Set<string>();
+        for (const cp of bundle.canvasserProducts || []) {
+          if (cp.pro_code) {
+            validCodes.add(cp.pro_code);
+            validCodes.add(String(cp.pro_code).replace(/^0+/, ""));
+            validCodes.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
+          }
+          if (cp.kode_item) {
+            validCodes.add(cp.kode_item);
+            validCodes.add(String(cp.kode_item).replace(/^0+/, ""));
+            validCodes.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
+          }
+        }
         setProducts((prev) => {
           const filtered = prev.filter(
-            (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, ""))
+            (r) => !r.kodeProduk || validCodes.has(r.kodeProduk) || validCodes.has(r.kodeProduk.replace(/^0+/, "").toUpperCase())
           );
           return filtered.length > 0
             ? filtered
             : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
         });
 
-        // B3 sales
+        // B3 sales - strictly filtered to SC products
         if (bundle.b3SalesResponse) {
           setB3HistorySalesData(bundle.b3SalesResponse);
           const parsed = parseOutletHistorySales(bundle.b3SalesResponse, kodePI);
