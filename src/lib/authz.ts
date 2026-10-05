@@ -742,17 +742,16 @@ export async function hasApprovalThisCycleForDoctor(doctorApprovalId: string, st
  * not be able to approve/reject past it — see [[approval-flow-edit-request-bug]].
  */
 export async function hasPendingEditRequestForDoctor(doctorApprovalId: string): Promise<boolean> {
-  const logs = await prisma.poaAuditLog.findMany({
+  // Only the LATEST log decides — any later action (APPROVE, GRANT/DECLINE,
+  // REJECT, ...) supersedes an older REQUEST_EDIT. Scanning past a newer
+  // APPROVE to find a stale REQUEST_EDIT hid the approve button (POA seq 409).
+  // Same rule as pendingEditRequestThis in poa/[id]/page.tsx.
+  const last = await prisma.poaAuditLog.findFirst({
     where: { doctorApprovalId },
     orderBy: { createdAt: "desc" },
-    select: { action: true, toStatus: true },
+    select: { action: true },
   });
-  for (const log of logs) {
-    if (log.toStatus === PoaStatus.DRAFT || log.toStatus === PoaStatus.REVISI) return false;
-    if (log.action === AuditAction.GRANT_EDIT || log.action === AuditAction.DECLINE_EDIT) return false;
-    if (log.action === AuditAction.REQUEST_EDIT) return true;
-  }
-  return false;
+  return last?.action === AuditAction.REQUEST_EDIT;
 }
 
 /**
