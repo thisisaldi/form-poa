@@ -6,7 +6,6 @@ import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { getSalesCounterProduct } from "./getSalesCounterProduct";
 import { postHistorySales } from "./postHistorySales";
-import { getScOutletB3Sales } from "./getScOutletB3Sales";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { getB3ByQuarter } from "@/lib/b3Utils";
@@ -25,7 +24,8 @@ export async function getSalesCounterDetailData(
   id: string,
   sessionUserId: string,
   sessionRole: string,
-  ownerNip?: string
+  ownerNip?: string,
+  approvalType?: string
 ) {
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: sessionUserId } });
 
@@ -46,11 +46,23 @@ export async function getSalesCounterDetailData(
     targetPeriod = id;
   }
 
+  const targetUser = targetOwnerId === sessionUserId
+    ? actor
+    : await prisma.user.findUnique({ where: { nip: targetOwnerId } });
+
+  const isAsmApproval = approvalType?.toUpperCase() === "ASM";
+  const subordinateMrIds = isAsmApproval
+    ? await getScSubordinateIdsUnder(targetOwnerId, 1)
+    : [];
+  const targetOwnerIds = isAsmApproval
+    ? Array.from(new Set([targetOwnerId, ...subordinateMrIds]))
+    : [targetOwnerId];
+
   // Fast-path access check
   let hasAccess = false;
   const isSelf = targetOwnerId === sessionUserId;
   const isSpecialRole = ["ADMIN", "GM", "SFE", "VIEWER", "SD"].includes(sessionRole);
-  const isEditRole = ["ADMIN", "ASM", "SM", "NSM"].includes(sessionRole)
+  const isEditRole = ["ADMIN", "ASM", "SM", "NSM"].includes(sessionRole);
 
   if (isSelf || isSpecialRole) {
     hasAccess = true;
@@ -58,10 +70,12 @@ export async function getSalesCounterDetailData(
     const depthByRole: Record<string, number> = { ASM: 1, SM: 2, NSM: 3 };
     const depth = depthByRole[sessionRole] ?? 1;
     const subIds = await getScSubordinateIdsUnder(sessionUserId, depth);
-    if (subIds.includes(targetOwnerId)) {
+    const isSubordinate = subIds.includes(targetOwnerId) || targetOwnerIds.some((uid) => subIds.includes(uid));
+
+    if (isSubordinate) {
       const submittedCount = await prisma.poaScForm.count({
         where: {
-          ownerId: targetOwnerId,
+          ownerId: { in: targetOwnerIds },
           period: targetPeriod,
           status: { not: PoaStatus.DRAFT },
         },
@@ -70,7 +84,7 @@ export async function getSalesCounterDetailData(
     } else {
       const holderCount = await prisma.poaScForm.count({
         where: {
-          ownerId: targetOwnerId,
+          ownerId: { in: targetOwnerIds },
           period: targetPeriod,
           currentHolderId: sessionUserId,
           status: { not: PoaStatus.DRAFT },
@@ -82,7 +96,10 @@ export async function getSalesCounterDetailData(
 
   if (!hasAccess) return { hasAccess: false };
 
-  const draftsWhere: any = { ownerId: targetOwnerId, period: targetPeriod };
+  const draftsWhere: any = {
+    ownerId: { in: targetOwnerIds },
+    period: targetPeriod,
+  };
   if (!isSelf && !isSpecialRole) {
     draftsWhere.status = { not: PoaStatus.DRAFT };
   }
@@ -110,8 +127,8 @@ export async function getSalesCounterDetailData(
       period: targetPeriod,
       status: first.status,
       version: first.version,
-      ownerId: first.ownerId,
-      owner: first.owner,
+      ownerId: isAsmApproval ? targetOwnerId : first.ownerId,
+      owner: isAsmApproval ? (targetUser || first.owner) : first.owner,
       currentHolderId: first.currentHolderId,
       currentHolder: first.currentHolder,
       auditLogs: drafts
@@ -137,7 +154,7 @@ export async function getSalesCounterDetailData(
       status: "DRAFT" as PoaStatus,
       version: 1,
       ownerId: targetOwnerId,
-      owner: actor,
+      owner: targetUser || actor,
       currentHolderId: null,
       currentHolder: null,
       auditLogs: [],
@@ -182,7 +199,7 @@ export async function getSalesCounterDetailData(
 
   const [blastInSet, rawOutlets, batchHistRes] = await Promise.all([
     getBlastInOutletSet(),
-    getSalesCounterOutletsDirect(actor.nip),
+    getSalesCounterOutletsDirect(targetOwnerId || actor.nip).catch(() => []),
     outletCodes.length > 0
       ? postHistorySales({
           piCodes: outletCodes,
@@ -228,19 +245,6 @@ export async function getSalesCounterDetailData(
           }
         }
 
-        if (scProCodes.length > 0) {
-          // Fallback 1: getScOutletB3Sales for SC products
-          const b3Items = await getScOutletB3Sales(b3Info.period, kodePI, scProCodes).catch(() => []);
-          const activeB3 = (b3Items || []).filter((it: any) => (Number(it.average_sales) || 0) > 0 || (Number(it.average_qty) || 0) > 0);
-          if (activeB3.length > 0) {
-            const totalB3Val = activeB3.reduce((sum, it) => sum + (Number(it.average_sales) || 0), 0) * 3;
-            if (totalB3Val > 0) {
-              outletHistorySalesQuarterMap.set(kodePI, totalB3Val);
-              return;
-            }
-          }
-        }
-
         outletHistorySalesQuarterMap.set(kodePI, 0);
       } catch (err) {
         console.error(`Error fetching SC data for ${kodePI}:`, err);
@@ -276,6 +280,8 @@ export async function getSalesCounterDetailData(
       jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
       jumlahPasienNonResep: (d.jumlahPasienNonResep && d.jumlahPasienNonResep > 0) ? d.jumlahPasienNonResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_non_resep ?? d.jumlahPasienNonResep ?? null),
       ownerId: d.ownerId,
+      ownerName: d.owner?.name,
+      ownerNip: d.owner?.nip,
       is_sc: outletScMap.get(d.kodePI) ?? false,
       isBlastIn: blastInSet.has(d.kodePI),
       totalScProducts,
@@ -340,13 +346,18 @@ export async function getSalesCounterDetailData(
     };
   });
 
-  const salesSummary = poa.owner.isDummy
+  const salesSummary = poa.owner?.isDummy
     ? { historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0 }
-    : await getMrSalesSummary(poa.ownerId);
+    : await getMrSalesSummary(poa.ownerId).catch(() => ({
+        historisTahunLalu: 0,
+        historisTahunLaluLabel: String(new Date().getFullYear() - 1),
+        salesYtd: 0,
+        growthPct: 0,
+      }));
 
   // Live via resolveTargetHospitalValueFallback (2026-09-14 — TargetHospitalValue
   // no longer has a nipMR column, see that function's doc comment).
-  const targetValueFromGT = /^\d{4}-Q[1-4]$/.test(poa.period)
+  const targetValueFromGT = /^\d{4}-Q[1-4]$/.test(poa.period) && poa.owner
     ? (await resolveTargetHospitalValueFallback([{ owner: poa.owner, quarter: poa.period }])).get(`${poa.ownerId}|${poa.period}`) ?? null
     : null;
 

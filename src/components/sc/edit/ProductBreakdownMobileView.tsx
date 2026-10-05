@@ -123,6 +123,15 @@ export function ProductBreakdownMobileView({
                   </span>
                 ) : null}
               </div>
+
+              {/* Histori Sales & Rata-rata */}
+              {salesHistorical > 0 ? (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2 pt-0.5 flex-wrap">
+                  <span>Histori ({lamaEffective} Bln): <strong className="font-semibold text-slate-700 dark:text-slate-200">Rp {formatRp(salesHistorical)}</strong></span>
+                  <span className="opacity-40">•</span>
+                  <span>Rata-rata: <strong className="font-semibold text-slate-700 dark:text-slate-200">Rp {formatRp(histSalesPerMonth)}/bln</strong></span>
+                </div>
+              ) : null}
             </div>
 
             {/* Monthly / Data Table (table-fixed 100% width, zero horizontal scroll) */}

@@ -265,7 +265,17 @@ export function SalesCounterProductBreakdownTable({
                           }}
                         >
                           <div className={`${prodNameMaxWidth} whitespace-normal leading-snug`}>
-                            {p.namaProduk}
+                            <div>{p.namaProduk}</div>
+                            {salesHistorical > 0 ? (
+                              <div className="mt-1 text-[10px] font-normal leading-tight space-y-0.5" style={{ color: "var(--color-text-muted)" }}>
+                                <div>Total 3 Bulan: <strong className="font-semibold" style={{ color: "var(--color-text)" }}>Rp {formatRp(salesHistorical)}</strong></div>
+                                <div>Rata-rata 3 Bulan: <strong className="font-semibold" style={{ color: "var(--color-text)" }}>Rp {formatRp(histSalesPerMonth)}/bln</strong></div>
+                              </div>
+                            ) : (
+                              <div className="mt-1 text-[10px] font-normal italic" style={{ color: "var(--color-text-faint)" }}>
+                                {isLoadingB3 ? "Memuat..." : "Belum ada histori"}
+                              </div>
+                            )}
                           </div>
                         </td>
                         {productDetailRows.distinctMonths.length > 0 && (
@@ -346,7 +356,55 @@ export function SalesCounterProductBreakdownTable({
                               }}
                             >
                               <div className={`${prodNameMaxWidth} whitespace-normal leading-snug`}>
-                                {p.namaProduk}
+                                <div>{p.namaProduk}</div>
+
+                                {/* Box Histori 3 Bulan & Rata-rata */}
+                                <div
+                                  className="mt-2.5 pt-2 border-t border-dashed space-y-1.5 font-normal text-left"
+                                  style={{ borderColor: "var(--color-border)" }}
+                                >
+                                  <div
+                                    className="text-[10px] font-semibold uppercase tracking-wider"
+                                    style={{ color: "var(--color-text-faint)" }}
+                                  >
+                                    Histori {b3RangeLabel ? `(${b3RangeLabel})` : "3 Bln"}
+                                  </div>
+
+                                  {salesHistorical > 0 ? (
+                                    <div className="space-y-1 text-[11px] leading-tight">
+                                      <div>
+                                        <div className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+                                          Total 3 Bulan
+                                        </div>
+                                        <div
+                                          className="font-bold tabular-nums"
+                                          style={{ color: "var(--color-text)" }}
+                                          title={`Rp ${Math.round(salesHistorical).toLocaleString("id-ID")}`}
+                                        >
+                                          Rp {formatRp(salesHistorical)}
+                                        </div>
+                                      </div>
+
+                                      <div className="pt-0.5">
+                                        <div className="text-[10px]" style={{ color: "var(--color-text-muted)" }}>
+                                          Rata-rata 3 Bulan
+                                        </div>
+                                        <div
+                                          className="font-bold tabular-nums"
+                                          style={{ color: "var(--color-text)" }}
+                                          title={`Rp ${Math.round(histSalesPerMonth).toLocaleString("id-ID")}`}
+                                        >
+                                          Rp {formatRp(histSalesPerMonth)}
+                                          <span className="font-normal text-[10px] opacity-75">/bln</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] italic" style={{ color: "var(--color-text-faint)" }}>
+                                      {isLoadingB3 ? "Memuat..." : "Belum ada histori"}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </td>
                           )}

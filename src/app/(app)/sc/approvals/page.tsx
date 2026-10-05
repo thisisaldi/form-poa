@@ -379,7 +379,9 @@ export default async function SalesCounterApprovalsPage({
       approvedCount,
       belumCount,
       totalBudgetSc,
-      targetHref: `/sc/${g.period}?owner=${g.nip}`,
+      targetHref: g.groupType === "ASM"
+        ? `/sc/${g.period}?owner=${g.nip}&approvalType=ASM`
+        : `/sc/${g.period}?owner=${g.nip}`,
       forms: g.forms.map((f) => ({
         id: f.id,
         kodePI: f.kodePI,

@@ -140,6 +140,11 @@ export function SalesCounterDraftChecklist({
       params.set("owner", effectiveOwner);
     }
 
+    const queryApprovalType = searchParams?.get("approvalType") || searchParams?.get("tipeApproval");
+    if (queryApprovalType) {
+      params.set("approvalType", queryApprovalType);
+    }
+
     if (checked.size > 0 && checked.size < safeScDrafts.length) {
       const ids = Array.from(checked).join(",");
       params.set("outletIds", ids);

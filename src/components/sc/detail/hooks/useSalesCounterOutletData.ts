@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from "react";
 import type { ScDraftFormItem, ScProductItemData } from "../../types";
 import { getB3ByQuarter } from "@/lib/b3Utils";
 import {
-  getScOutletB3SalesAction,
   getScCashbackPoaAction,
   getSalesCounterProductsAction,
   getScInsentifHistoryAction,
@@ -182,80 +181,19 @@ export function useSalesCounterOutletData({
           return;
         }
 
-        // Fallback 1: getScOutletB3SalesAction for all SC products in outlet
-        const scProCodes = Array.from(scCodes);
-        if (scProCodes.length === 0) {
-          setB3SalesMap(new Map());
-          setB3QtyMap(new Map());
-          setB3TotalOutletSalesPerMonth(0);
-          setB3TotalCount(0);
-          setIsLoadingB3(false);
-          b3Cache.set(b3CacheKey, {
-            b3SalesMap: new Map(),
-            b3QtyMap: new Map(),
-            b3TotalOutletSalesPerMonth: 0,
-            b3TotalCount: 0,
-            allScProducts: products,
-            clientScData: clientSc,
-          });
-          return;
-        }
-
-        getScOutletB3SalesAction(b3Info.period, draft.kodePI, scProCodes)
-          .then((b3Res) => {
-            if (!isMounted) return;
-            const items = Array.isArray(b3Res?.data) ? b3Res.data : [];
-            const activeItems = items.filter(
-              (it: any) => (Number(it.average_sales) || 0) > 0 || (Number(it.average_qty) || 0) > 0
-            );
-            if (activeItems.length > 0) {
-              const map = new Map<string, number>();
-              const qMap = new Map<string, number>();
-              let sumB3 = 0;
-              for (const it of activeItems) {
-                if (it.pro_code) {
-                  const val = Number(it.average_sales) || 0;
-                  const qVal = Number(it.average_qty) || 0;
-                  map.set(it.pro_code, val);
-                  map.set(it.pro_code.replace(/^0+/, ""), val);
-                  qMap.set(it.pro_code, qVal);
-                  qMap.set(it.pro_code.replace(/^0+/, ""), qVal);
-                  sumB3 += val;
-                }
-              }
-              setB3SalesMap(map);
-              setB3QtyMap(qMap);
-              setB3TotalOutletSalesPerMonth(sumB3);
-              setB3TotalCount(activeItems.length);
-              setIsLoadingB3(false);
-              b3Cache.set(b3CacheKey, {
-                b3SalesMap: map,
-                b3QtyMap: qMap,
-                b3TotalOutletSalesPerMonth: sumB3,
-                b3TotalCount: activeItems.length,
-                allScProducts: products,
-                clientScData: clientSc,
-              });
-              return;
-            }
-
-            setB3SalesMap(new Map());
-            setB3QtyMap(new Map());
-            setB3TotalOutletSalesPerMonth(0);
-            setB3TotalCount(0);
-            setIsLoadingB3(false);
-            b3Cache.set(b3CacheKey, {
-              b3SalesMap: new Map(),
-              b3QtyMap: new Map(),
-              b3TotalOutletSalesPerMonth: 0,
-              b3TotalCount: 0,
-              allScProducts: products,
-              clientScData: clientSc,
-            });
-          })
-          .catch(() => {
-            if (isMounted) setIsLoadingB3(false);
-          });
+        setB3SalesMap(new Map());
+        setB3QtyMap(new Map());
+        setB3TotalOutletSalesPerMonth(0);
+        setB3TotalCount(0);
+        setIsLoadingB3(false);
+        b3Cache.set(b3CacheKey, {
+          b3SalesMap: new Map(),
+          b3QtyMap: new Map(),
+          b3TotalOutletSalesPerMonth: 0,
+          b3TotalCount: 0,
+          allScProducts: products,
+          clientScData: clientSc,
+        });
       })
       .catch(() => {
         if (isMounted) setIsLoadingB3(false);
@@ -265,46 +203,6 @@ export function useSalesCounterOutletData({
       isMounted = false;
     };
   }, [draft.kodePI, b3Info.period, targetPeriodsKey, b3CacheKey]);
-
-  // Secondary fallback if expanded and b3SalesMap is empty
-  const draftProductCodesKey = useMemo(() => {
-    return draft.products.map((p) => p.kodeProduk).filter(Boolean).join(",");
-  }, [draft.products]);
-
-  useEffect(() => {
-    if (!isExpanded || !draft.kodePI) return;
-    if (b3SalesMap.size > 0) return;
-
-    const proCodes = draft.products.map((p) => p.kodeProduk).filter(Boolean);
-    if (proCodes.length === 0) {
-      setIsLoadingB3(false);
-      return;
-    }
-
-    getScOutletB3SalesAction(b3Info.period, draft.kodePI, proCodes)
-      .then((res) => {
-        const map = new Map<string, number>();
-        const qMap = new Map<string, number>();
-        if (res?.data && Array.isArray(res.data)) {
-          for (const item of res.data) {
-            if (item.pro_code) {
-              map.set(item.pro_code, item.average_sales || 0);
-              map.set(item.pro_code.replace(/^0+/, ""), item.average_sales || 0);
-              qMap.set(item.pro_code, item.average_qty || 0);
-              qMap.set(item.pro_code.replace(/^0+/, ""), item.average_qty || 0);
-            }
-          }
-        }
-        if (map.size > 0) {
-          setB3SalesMap(map);
-          setB3QtyMap(qMap);
-        }
-        setIsLoadingB3(false);
-      })
-      .catch(() => {
-        setIsLoadingB3(false);
-      });
-  }, [isExpanded, draft.kodePI, draftProductCodesKey, b3Info.period, b3SalesMap.size]);
 
   // Fetch insentif history
   useEffect(() => {
