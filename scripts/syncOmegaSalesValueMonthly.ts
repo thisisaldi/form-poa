@@ -1,7 +1,7 @@
 /**
  * Run: npx tsx scripts/syncOmegaSalesValueMonthly.ts
  * Manual trigger for the Non-Hospital (OMG1) monthly sales sync — see
- * src/lib/sync/omegaSalesValueMonthlySync.ts. No automatic schedule yet.
+ * src/lib/sync/omegaSalesValueMonthlySync.ts. Also runs daily in-process (omegaSalesValueMonthlyScheduler.ts); this is for a manual catch-up.
  */
 import "dotenv/config";
 import { runOmegaSalesValueMonthlySync } from "../src/lib/sync/omegaSalesValueMonthlySync";
