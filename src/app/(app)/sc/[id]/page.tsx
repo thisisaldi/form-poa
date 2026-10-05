@@ -16,7 +16,7 @@ export default async function SalesCounterDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ owner?: string }>;
+  searchParams?: Promise<{ owner?: string; approvalType?: string; tipeApproval?: string }>;
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
@@ -24,8 +24,9 @@ export default async function SalesCounterDetailPage({
   const { id } = await params;
   const sp = searchParams ? await searchParams : undefined;
   const owner = sp?.owner;
+  const approvalType = sp?.approvalType || sp?.tipeApproval;
 
-  const data = await getSalesCounterDetailData(id, session.userId, session.role, owner);
+  const data = await getSalesCounterDetailData(id, session.userId, session.role, owner, approvalType);
   if (!data) notFound();
   if (!data.hasAccess || !data.poa || !data.scDrafts) redirect("/sc/dashboard");
 

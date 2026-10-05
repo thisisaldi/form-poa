@@ -36,6 +36,7 @@ export async function GET(
 
   const { id } = await params;
   const ownerIdParam = _req.nextUrl.searchParams.get("ownerId") || _req.nextUrl.searchParams.get("owner");
+  const approvalTypeParam = _req.nextUrl.searchParams.get("approvalType") || _req.nextUrl.searchParams.get("tipeApproval");
 
   let targetOwnerId = ownerIdParam || session.userId;
   let targetPeriod = id;
@@ -51,6 +52,14 @@ export async function GET(
     targetPeriod = formById.period;
   }
 
+  const isAsmApproval = approvalTypeParam?.toUpperCase() === "ASM";
+  const subordinateMrIds = isAsmApproval
+    ? await getScSubordinateIdsUnder(targetOwnerId, 1)
+    : [];
+  const targetOwnerIds = isAsmApproval
+    ? Array.from(new Set([targetOwnerId, ...subordinateMrIds]))
+    : [targetOwnerId];
+
   // Authorization check
   const isSelf = targetOwnerId === session.userId;
   const isSpecialRole = (["ADMIN", "GM", "SFE", "VIEWER", "SD"] as string[]).includes(session.role);
@@ -62,10 +71,12 @@ export async function GET(
     const depthByRole: Record<string, number> = { ASM: 1, SM: 2, NSM: 3 };
     const depth = depthByRole[session.role] ?? 1;
     const subIds = await getScSubordinateIdsUnder(session.userId, depth);
-    if (subIds.includes(targetOwnerId)) {
+    const isSubordinate = subIds.includes(targetOwnerId) || targetOwnerIds.some((uid) => subIds.includes(uid));
+
+    if (isSubordinate) {
       const submittedCount = await prisma.poaScForm.count({
         where: {
-          ownerId: targetOwnerId,
+          ownerId: { in: targetOwnerIds },
           period: targetPeriod,
           status: { not: PoaStatus.DRAFT },
         },
@@ -74,7 +85,7 @@ export async function GET(
     } else {
       const holderCount = await prisma.poaScForm.count({
         where: {
-          ownerId: targetOwnerId,
+          ownerId: { in: targetOwnerIds },
           period: targetPeriod,
           currentHolderId: session.userId,
           status: { not: PoaStatus.DRAFT },
@@ -88,7 +99,10 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const draftsWhere: any = { ownerId: targetOwnerId, period: targetPeriod };
+  const draftsWhere: any = {
+    ownerId: { in: targetOwnerIds },
+    period: targetPeriod,
+  };
   if (!isSelf && !isSpecialRole) {
     draftsWhere.status = { not: PoaStatus.DRAFT };
   }

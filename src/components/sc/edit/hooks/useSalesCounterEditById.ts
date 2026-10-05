@@ -14,7 +14,6 @@ import {
   getScProductWithInsentifAction,
   getScInsentifHistoryAction,
   getScCashbackPoaAction,
-  getScOutletB3SalesAction,
   postHistorySalesAction,
   getRekomendasiProdukAction,
   getSalesOnlineAction,
@@ -390,59 +389,9 @@ export function useSalesCounterEditById({
         if (bundle.b3SalesResponse) {
           setB3HistorySalesData(bundle.b3SalesResponse);
           const parsed = parseOutletHistorySales(bundle.b3SalesResponse, kodePI);
-          const filteredSalesMap = new Map<string, number>();
-          const filteredQtyMap = new Map<string, number>();
-          let scTotalAvgSales = 0;
-          if (parsed.productSalesMap && parsed.productSalesMap.size > 0) {
-            for (const [code, avgVal] of parsed.productSalesMap.entries()) {
-              const norm = code.replace(/^0+/, "").toUpperCase();
-              if (validCodes.has(code) || validCodes.has(norm)) {
-                filteredSalesMap.set(code, avgVal);
-                filteredSalesMap.set(norm, avgVal);
-                const avgQty = parsed.productQtyMap?.get(code) ?? parsed.productQtyMap?.get(norm) ?? 0;
-                filteredQtyMap.set(code, avgQty);
-                filteredQtyMap.set(norm, avgQty);
-                if (avgVal > 0) {
-                  scTotalAvgSales += avgVal;
-                }
-              }
-            }
-          }
-
-          if (scTotalAvgSales > 0 || filteredSalesMap.size > 0) {
-            setB3SalesMap(filteredSalesMap);
-            setB3QtyMap(filteredQtyMap);
-            setOutletTotalAvgB3Sales(scTotalAvgSales);
-          } else {
-            // Fallback if needed
-            const scProCodes = Array.from(new Set((bundle.canvasserProducts || []).map((cp: any) => cp.pro_code).filter(Boolean))) as string[];
-            if (scProCodes.length > 0) {
-              getScOutletB3SalesAction(b3Info.period, kodePI, scProCodes).then((fallbackRes) => {
-                if (!isMounted) return;
-                const map = new Map<string, number>();
-                const qMap = new Map<string, number>();
-                let totalVal = 0;
-                if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
-                  for (const item of fallbackRes.data) {
-                    if (item.pro_code) {
-                      const val = Number(item.average_sales) || 0;
-                      const qVal = Number(item.average_qty) || 0;
-                      map.set(item.pro_code, val);
-                      map.set(item.pro_code.replace(/^0+/, ""), val);
-                      qMap.set(item.pro_code, qVal);
-                      qMap.set(item.pro_code.replace(/^0+/, ""), qVal);
-                      totalVal += val;
-                    }
-                  }
-                }
-                if (map.size > 0) {
-                  setB3SalesMap(map);
-                  setB3QtyMap(qMap);
-                  setOutletTotalAvgB3Sales(totalVal);
-                }
-              });
-            }
-          }
+          setB3SalesMap(parsed.productSalesMap);
+          setB3QtyMap(parsed.productQtyMap);
+          setOutletTotalAvgB3Sales(parsed.averageSales);
         }
 
         // Others

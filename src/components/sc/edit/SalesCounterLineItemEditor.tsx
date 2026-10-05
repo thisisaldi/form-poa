@@ -12,7 +12,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { quarterToMonths, getPreviousQuarterInfo } from "@/lib/quarterUtils";
 import { expandPeriodeMonths } from "@/lib/poaUtils";
 import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
-import { getScOutletB3SalesAction, postHistorySalesAction, getHistoryEntertainAction } from "@/app/actions/canvasser";
+import { postHistorySalesAction, getHistoryEntertainAction } from "@/app/actions/canvasser";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
 import { BlastInTable } from "./BlastInTable";
 import { PosmTable } from "./PosmTable";
@@ -191,64 +191,10 @@ export function SalesCounterLineItemEditor({
 
     postHistorySalesAction([outletId], b3Info.targetPeriods, scProCodes, false).then((res) => {
       const parsed = parseOutletHistorySales(res, outletId);
-      const scCodesSet = new Set<string>();
-      for (const cp of canvasserProducts || []) {
-        if (cp.pro_code) {
-          scCodesSet.add(cp.pro_code);
-          scCodesSet.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
-        }
-        if (cp.kode_item) {
-          scCodesSet.add(cp.kode_item);
-          scCodesSet.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
-        }
-      }
-
-      const filteredMap = new Map<string, number>();
-      const filteredQtyMap = new Map<string, number>();
-      let scSumAvg = 0;
-      for (const [code, val] of parsed.productSalesMap.entries()) {
-        const norm = code.replace(/^0+/, "").toUpperCase();
-        if (scCodesSet.has(code) || scCodesSet.has(norm)) {
-          filteredMap.set(code, val);
-          filteredMap.set(norm, val);
-          const qVal = parsed.productQtyMap?.get(code) ?? parsed.productQtyMap?.get(norm) ?? 0;
-          filteredQtyMap.set(code, qVal);
-          filteredQtyMap.set(norm, qVal);
-          scSumAvg += val;
-        }
-      }
-
-      if (scSumAvg > 0 || filteredMap.size > 0) {
-        setB3SalesMap(filteredMap);
-        setB3QtyMap(filteredQtyMap);
-        setOutletTotalAvgB3Sales(scSumAvg);
-        setB3HistorySalesData(res);
-      } else {
-        // Fallback to getScOutletB3SalesAction for all SC products
-        getScOutletB3SalesAction(b3Info.period, outletId, scProCodes).then((fallbackRes) => {
-          const map = new Map<string, number>();
-          const qMap = new Map<string, number>();
-          let totalVal = 0;
-          if (fallbackRes?.data && Array.isArray(fallbackRes.data)) {
-            for (const item of fallbackRes.data) {
-              if (item.pro_code) {
-                const val = Number(item.average_sales) || 0;
-                const qVal = Number(item.average_qty) || 0;
-                map.set(item.pro_code, val);
-                map.set(item.pro_code.replace(/^0+/, ""), val);
-                qMap.set(item.pro_code, qVal);
-                qMap.set(item.pro_code.replace(/^0+/, ""), qVal);
-                totalVal += val;
-              }
-            }
-          }
-          if (map.size > 0) {
-            setB3SalesMap(map);
-            setB3QtyMap(qMap);
-            setOutletTotalAvgB3Sales(totalVal);
-          }
-        });
-      }
+      setB3SalesMap(parsed.productSalesMap);
+      setB3QtyMap(parsed.productQtyMap);
+      setOutletTotalAvgB3Sales(parsed.averageSales);
+      setB3HistorySalesData(res);
     });
   }, [outletId, poaPeriod, canvasserProducts]);
 
