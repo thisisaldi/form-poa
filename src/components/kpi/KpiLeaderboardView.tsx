@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import type { LeaderboardRow } from "@/app/actions/kpi";
 
 const MEDAL = ["var(--color-warning)", "var(--color-text-faint)", "#A0602B"];
+const group = (role: string) => (role === "MR" || role === "SPV" ? "MR/SPV" : role);
 const nf = (n: number) => n.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Leaderboard view (docs/kpi-monitoring/04-final-layout.md §2). Rank is computed on the full list, so filters never renumber it. */
@@ -15,9 +16,9 @@ export function KpiLeaderboardView({ scheme, rows, unscored }: { scheme: "hospit
   const [q, setQ] = useState("");
 
   const ranked = useMemo(() => rows.map((r, i) => ({ ...r, rank: i + 1 })), [rows]);
-  const roles = useMemo(() => ["ALL", ...[...new Set(rows.map((r) => r.role))].sort()], [rows]);
+  const roles = useMemo(() => ["ALL", ...[...new Set(rows.map((r) => group(r.role)))].sort()], [rows]);
   const areas = useMemo(() => [...new Set(rows.map((r) => r.area).filter((a): a is string => !!a))].sort(), [rows]);
-  const list = ranked.filter((r) => (role === "ALL" || r.role === role) && (!area || r.area === area) && (!q || `${r.name}${r.nip}${r.area ?? ""}`.toLowerCase().includes(q.toLowerCase())));
+  const list = ranked.filter((r) => (role === "ALL" || group(r.role) === role) && (!area || r.area === area) && (!q || `${r.name}${r.nip}${r.area ?? ""}`.toLowerCase().includes(q.toLowerCase())));
   const top = list.slice(0, 3);
 
   const totals = rows.map((r) => r.total);

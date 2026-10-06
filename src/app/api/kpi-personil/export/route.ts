@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
         "Akhir Kontrak": r.akhirKontrak ? fmtDate(r.akhirKontrak) : "", [`Point ${periodLabel(period)}`]: r2(r.point),
         "Status Data": r.complete ? "Lengkap" : "Belum lengkap", "Catatan Data": r.notes.join("; "),
         "Rekomendasi (bulan)": r.rec?.months ?? "", Rekomendasi: r.rec?.label ?? "",
-        "Keputusan (bulan)": r.decision?.months ?? "", Status: r.decision ? "Disetujui" : "Belum dievaluasi",
+        "Keputusan (bulan)": r.decision?.months ?? "", "Status Approval": r.status,
       })));
       filename = `Detail-KPI-${scheme}-${period}.xlsx`;
     } else {
@@ -51,9 +51,9 @@ export async function GET(req: NextRequest) {
         ["Nama", titleCase(d.name)], ["NIP", d.nip], ["Jabatan", d.jabatan ?? d.role], ["Area/Wilayah", d.area ?? ""], ["Atasan langsung", d.atasanName ?? ""],
         ["Tanggal masuk", fmtDate(d.tglMasuk)], ["Periode evaluasi", `${periodLabel(d.window.start)} – ${periodLabel(d.window.end)}`],
         ["Point rata-rata", r2(d.avg.total)], ["Rekomendasi (bulan)", d.rec?.months ?? ""], ["Rekomendasi", d.rec?.label ?? ""],
-        ["Status", d.decision ? "Disetujui" : "Belum dievaluasi"],
+        ["Status approval", d.status],
       ];
-      if (d.decision) prof.push(["Keputusan", DECISION_LABEL[d.decision.months]], ["Penjelasan keputusan", d.decision.reason ?? ""], ["Rencana pengembangan", d.decision.dev], ["Rasionalisasi ke direksi", d.decision.direction ?? ""], ["Disetujui pada", d.decision.at]);
+      if (d.decision) prof.push(["Keputusan diusulkan", DECISION_LABEL[d.decision.months]], ["Penjelasan keputusan", d.decision.reason ?? ""], ["Rencana pengembangan", d.decision.dev], ["Rasionalisasi ke direksi", d.decision.direction ?? ""], ["Dievaluasi pada", d.decision.at], ...Object.entries(d.decision.steps).map(([k, v]): [string, string] => [`Disetujui ${k}`, `${v.byName ?? ""} · ${v.at}`]));
       addSheet(wb, "Profil", prof.map(([Keterangan, Nilai]) => ({ Keterangan, Nilai })));
       addSheet(wb, "Rekap Bulanan", d.months.map((m): Record<string, string | number | null> => hosp && m.h ? {
         Bulan: periodLabel(m.period), "Target (Rp)": m.h.salesTarget, "Aktual (Rp)": m.h.salesActual, "Achievement (%)": r2(m.h.salesPct), "Band Sales": m.h.salesScore,

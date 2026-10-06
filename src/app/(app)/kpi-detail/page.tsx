@@ -18,12 +18,14 @@ const SCHEMES: { key: KpiScheme; label: string }[] = [
 
 /**
  * Detail KPI — daftar bawahan langsung penilai (docs/kpi-monitoring/04-final-layout.md §3).
- * ADMIN melihat semua; SM/NSM hanya bawahan langsung (User.nipAtasan).
+ * ADMIN dan SD melihat semua (SD hanya-baca); ASM/SM/NSM seluruh bawahan di subtree
+ * (User.nipAtasan). Rantai approval: docs/kpi-monitoring/04-final-layout.md §9.
  */
 export default async function KpiDetailListPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  if (!["ADMIN", "SM", "NSM"].includes(session.role)) redirect("/kpi-leaderboard");
+  if (!["ADMIN", "SD", "ASM", "SM", "NSM"].includes(session.role)) redirect("/kpi-leaderboard");
+  const readOnly = session.role === "SD";
 
   const params = await searchParams;
   const scheme: KpiScheme = params.scheme === "non-hospital" ? "non-hospital" : "hospital";
@@ -34,12 +36,14 @@ export default async function KpiDetailListPage({ searchParams }: { searchParams
 
   const rows = await getKpiSubordinates(scheme, period);
   const done = rows.filter((r) => r.decision).length;
+  const todo = rows.filter((r) => r.act).length;
+  const waiting = rows.filter((r) => r.decision && !r.fullyApproved).length;
   const pts = rows.map((r) => r.point).filter((p): p is number => p != null);
   const q = `scheme=${scheme}&period=${period}`;
   const stats: [string, string, string][] = [
-    ["Bawahan langsung", String(rows.length), session.role === "ADMIN" ? "ADMIN: semua personil" : ""],
+    [readOnly ? "Personil diperpanjang" : "Bawahan", String(rows.length), ["ADMIN", "SD"].includes(session.role) ? "semua personil" : "di subtree Anda"],
     ["Sudah dievaluasi", `${done}/${rows.length}`, ""],
-    ["Belum dievaluasi", String(rows.length - done), "menunggu keputusan"],
+    [readOnly ? "Menunggu approval" : "Menunggu tindakan Anda", String(readOnly ? waiting : todo), readOnly ? "evaluasi belum disetujui lengkap" : "evaluasi atau approval"],
     ["Rata-rata Point", pts.length ? nf(pts.reduce((s, x) => s + x, 0) / pts.length) : "–", periodLabel(period)],
   ];
 
@@ -66,7 +70,10 @@ export default async function KpiDetailListPage({ searchParams }: { searchParams
       </nav>
 
       <div className="rounded-md border px-4 py-2.5 text-sm" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)", borderColor: "var(--color-border)" }}>
-        🔒 Masuk sebagai <b>{session.name}</b> ({session.role}). Halaman ini hanya menampilkan <b>{rows.length} bawahan langsung</b>; personil lain tidak dapat dibuka.
+        🔒 Masuk sebagai <b>{session.name}</b> ({session.role}).{" "}
+        {readOnly
+          ? <>Akses <b>hanya-baca</b> ke seluruh {rows.length} personil; evaluasi dan approval dilakukan atasan masing-masing.</>
+          : <>Halaman ini menampilkan <b>{rows.length} personil di bawah Anda</b>; personil lain tidak dapat dibuka.</>}
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -93,7 +100,7 @@ export default async function KpiDetailListPage({ searchParams }: { searchParams
           <table className="w-full text-sm">
             <thead style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
               <tr className="text-left text-xs">
-                {["Personil", "Jabatan", hosp ? "Area" : "Wilayah", "Akhir kontrak", "Point", "Status data", "Rekomendasi", "Keputusan"].map((h) => <th key={h} className="whitespace-nowrap px-3 py-2">{h}</th>)}
+                {["Personil", "Jabatan", hosp ? "Area" : "Wilayah", "Akhir kontrak", "Point", "Status data", "Rekomendasi", "Status approval"].map((h) => <th key={h} className="whitespace-nowrap px-3 py-2">{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -114,7 +121,9 @@ export default async function KpiDetailListPage({ searchParams }: { searchParams
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">{r.rec ? <Pill>{r.rec.months} bln · {r.rec.label}</Pill> : "–"}</td>
                   <td className="whitespace-nowrap px-3 py-2">
-                    {r.decision ? <Pill tone="ok">✓ {DECISION_LABEL[r.decision.months]}</Pill> : <Pill>Belum dievaluasi</Pill>}
+                    {r.decision && r.fullyApproved ? <Pill tone="ok">✓ {DECISION_LABEL[r.decision.months]}</Pill>
+                      : r.decision ? <Pill tone="warn">{r.status}</Pill> : <Pill>{r.status}</Pill>}
+                    {r.act && !readOnly && <> <Pill tone="warn">Perlu tindakan Anda</Pill></>}
                   </td>
                 </tr>
               ))}

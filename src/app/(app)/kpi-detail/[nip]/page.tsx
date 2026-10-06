@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { KpiEvaluationForm } from "@/components/kpi/KpiEvaluationForm";
 import { KpiDetailKeys } from "@/components/kpi/KpiDetailKeys";
 import { periodLabel, roleLabel } from "@/components/kpi/kpiUi";
+import { STEP_LABEL } from "@/lib/kpiApproval";
 import { DECISION_LABEL, bandOf, fmtDate, fmtDateTime, initials, nf, pct, rp, titleCase } from "@/components/kpi/kpiFormat";
 
 export const metadata = { title: "Kartu KPI Personil · Form POA" };
@@ -17,7 +18,7 @@ export default async function KpiDetailCardPage({
 }: { params: Promise<{ nip: string }>; searchParams: Promise<Record<string, string>> }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  if (!["ADMIN", "SM", "NSM"].includes(session.role)) redirect("/kpi-leaderboard");
+  if (!["ADMIN", "SD", "ASM", "SM", "NSM"].includes(session.role)) redirect("/kpi-leaderboard");
 
   const { nip } = await params;
   const sp = await searchParams;
@@ -46,8 +47,8 @@ export default async function KpiDetailCardPage({
   const hosp = scheme === "hospital";
 
   const jumps: [string, string][] = hosp
-    ? [["profil", "Profil"], ["rekap", "Rekap Bulanan"], ["sales", "Sales"], ["call", "Call Activity"], ["customer", "Customer Aktif"], ["absensi", "Absensi"], ["evaluasi", "Evaluasi Atasan"]]
-    : [["profil", "Profil"], ["rekap", "Rekap Bulanan"], ["evaluasi", "Evaluasi Atasan"]];
+    ? [["profil", "Profil"], ["rekap", "Rekap Bulanan"], ["sales", "Sales"], ["call", "Call Activity"], ["customer", "Customer Aktif"], ["absensi", "Absensi"], ["evaluasi", "Evaluasi & Approval"]]
+    : [["profil", "Profil"], ["rekap", "Rekap Bulanan"], ["evaluasi", "Evaluasi & Approval"]];
 
   return (
     <div className="space-y-4 scroll-smooth">
@@ -57,6 +58,7 @@ export default async function KpiDetailCardPage({
         <Link href={back} className="rounded-md border px-3 py-1.5 text-sm font-semibold" style={{ borderColor: "var(--color-border)" }}>← Daftar bawahan</Link>
         <span className="flex-1" />
         <a href={`/api/kpi-personil/export?${q}&nip=${detail.nip}`} className="rounded-md border px-3 py-1.5 text-sm font-semibold" style={{ borderColor: "var(--color-border)" }}>Export Excel · kartu ini</a>
+        <a href={`/api/kpi-personil/approval-pdf?scheme=${scheme}&nip=${detail.nip}`} className="rounded-md px-3 py-1.5 text-sm font-semibold text-white" style={{ background: "var(--color-blue)", color: "#fff" }}>Unduh Form Approval (PDF)</a>
         {i >= 0 && <span className="text-xs tabular-nums" style={{ color: "var(--color-text-muted)" }}>{i + 1} / {order.length}</span>}
         <NavBtn href={prev}>‹ Sebelumnya</NavBtn>
         <NavBtn href={next}>Berikutnya ›</NavBtn>
@@ -70,10 +72,11 @@ export default async function KpiDetailCardPage({
 
       {hosp ? <HospitalSections d={detail} b={breakdown} absMonth={absMonth} q={q} /> : <NonHospitalSections d={detail} />}
 
-      <Section id="evaluasi" title="Evaluasi Atasan"
-        desc="Keputusan perpanjangan, rencana pengembangan, dan rasionalisasi ke direksi diisi penilai berdasarkan data di atas."
-        legend="Rekomendasi dari rata-rata Point: >85 = 12 bulan · 71–85 = 9 · 55–70 = 6 · <55 = tidak diperpanjang. Keputusan akhir tetap di tangan atasan.">
-        <KpiEvaluationForm scheme={scheme} nip={detail.nip} evaluatorName={`${session.name} · ${session.role}`} rec={detail.rec} total={detail.avg.total} decision={detail.decision} />
+      <Section id="evaluasi" title="Evaluasi & Approval"
+        desc="Keputusan perpanjangan, rencana pengembangan, dan rasionalisasi ke direksi diisi penilai berdasarkan data di atas, lalu disetujui sesuai rantai approval."
+        legend="Rekomendasi dari Point final: >85 = 12 bulan · 71–85 = 9 · 55–70 = 6 · <55 = tidak diperpanjang. Keputusan akhir tetap di tangan atasan.">
+        <KpiEvaluationForm scheme={scheme} nip={detail.nip} evaluator={detail.evaluator} evaluatorName={`${session.name} · ${session.role}`} rec={detail.rec} total={detail.avg.total}
+          decision={detail.decision} chain={detail.chain} status={detail.status} fullyApproved={detail.fullyApproved} act={detail.act} />
       </Section>
     </div>
   );
@@ -86,13 +89,23 @@ function NavBtn({ href, children }: { href: string | null; children: React.React
     : <span className={`${cls} opacity-50`} style={{ borderColor: "var(--color-border)" }} aria-disabled="true">{children}</span>;
 }
 
-function Section({ id, title, desc, src, legend, children }: { id: string; title: string; desc?: string; src?: string; legend?: string; children: React.ReactNode }) {
+function Section({ id, title, desc, src, legend, point, children }: { id: string; title: string; desc?: string; src?: string; legend?: string; point?: [number | null, number]; children: React.ReactNode }) {
   return (
     <section id={`sec-${id}`} className="scroll-mt-20">
       <Card>
-        <h2 className="text-base font-semibold">{title}</h2>
-        {desc && <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>{desc}</p>}
-        {src && <p className="mt-1 text-[11px]" style={{ color: "var(--color-text-faint)" }}>{src}</p>}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">{title}</h2>
+            {desc && <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>{desc}</p>}
+            {src && <p className="mt-1 text-[11px]" style={{ color: "var(--color-text-faint)" }}>{src}</p>}
+          </div>
+          {point && (
+            <div className="text-right">
+              <div className="text-3xl font-bold leading-tight tabular-nums">{nf(point[0])}<small className="text-sm font-normal" style={{ color: "var(--color-text-faint)" }}> / {point[1]}</small></div>
+              <div className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Point final</div>
+            </div>
+          )}
+        </div>
         <div className="mt-4">{children}</div>
         {legend && <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-faint)" }}>{legend}</p>}
       </Card>
@@ -134,14 +147,12 @@ const Src = ({ s }: { s: string | null }) => (
 
 function Profile({ d, hosp, b }: { d: PersonDetail; hosp: boolean; b: Breakdown | null }) {
   const info: [string, string][] = [
+    ["Penilai (atasan)", d.chain.find((c) => c.step === d.evaluator)?.name ?? "–"],
     ["Atasan langsung", d.atasanName ?? "–"],
-    ["Tanggal masuk", fmtDate(d.tglMasuk)],
+    ["Rantai approval", d.chain.map((c) => STEP_LABEL[c.step]).join(" → ")],
+    ["Join date", fmtDate(d.tglMasuk)],
     ["Periode evaluasi", `${periodLabel(d.window.start)} – ${periodLabel(d.window.end)} (${d.months.length} bulan terakhir)`],
     ...(hosp ? [["Standar kunjungan", `${d.months.find((m) => m.h)?.h?.callStandar ?? "–"} / bulan`] as [string, string], [b?.salesKind === "mr" ? "MR/SPV di bawahnya" : "Outlet dikelola", b ? String(b.salesUnits.length) : "–"] as [string, string]] : [["Wilayah (GT)", d.area ?? "–"] as [string, string], ["Akhir kontrak", fmtDate(d.akhirKontrak)] as [string, string]]),
-  ];
-  const pillars: [string, number | null, number, (m: DetailMonth) => number | null | undefined][] = [
-    ["Sales Achievement", d.avg.sales, 50, (m) => m.h?.salesScore], ["Call Activity", d.avg.activity, 25, (m) => m.h?.callScore],
-    ["Customer Aktif", d.avg.customer, 15, (m) => m.h?.customerScore], ["Absensi", d.avg.absensi, 10, (m) => m.h?.absensiScore],
   ];
   return (
     <section id="sec-profil" className="scroll-mt-20">
@@ -155,13 +166,13 @@ function Profile({ d, hosp, b }: { d: PersonDetail; hosp: boolean; b: Breakdown 
               <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] font-semibold">
                 <span className="rounded-full px-2 py-0.5" style={{ background: d.avg.complete === d.months.length ? "var(--color-green-light)" : "var(--color-warning-bg)" }}>Data lengkap {d.avg.complete}/{d.months.length} bulan</span>
                 <span className="rounded-full px-2 py-0.5" style={{ background: "var(--color-bg-subtle)" }}>Rekomendasi {d.rec ? DECISION_LABEL[d.rec.months] : "belum tersedia"}</span>
-                {d.decision && <span className="rounded-full px-2 py-0.5" style={{ background: "var(--color-green-light)", color: "#006B32" }}>✓ Disetujui {DECISION_LABEL[d.decision.months]}</span>}
+                {d.decision && <span className="rounded-full px-2 py-0.5" style={d.fullyApproved ? { background: "var(--color-green-light)", color: "#006B32" } : { background: "var(--color-warning-bg)", color: "#7A5A12" }}>{d.fullyApproved ? `✓ Disetujui lengkap ${DECISION_LABEL[d.decision.months]}` : d.status}</span>}
               </div>
             </div>
           </div>
           <div className="text-right">
             <div className="text-5xl font-bold leading-none tabular-nums">{nf(d.avg.total)}<small className="text-base font-normal" style={{ color: "var(--color-text-faint)" }}> / 100</small></div>
-            <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Point rata-rata · {periodLabel(d.window.start)} – {periodLabel(d.window.end)}</p>
+            <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Point final · {periodLabel(d.window.start)} – {periodLabel(d.window.end)}</p>
           </div>
         </div>
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -169,35 +180,6 @@ function Profile({ d, hosp, b }: { d: PersonDetail; hosp: boolean; b: Breakdown 
             <div key={k}><dt className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-faint)" }}>{k}</dt><dd className="font-medium">{v}</dd></div>
           ))}
         </dl>
-        {hosp && (
-          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {pillars.map(([l, v, w, f]) => (
-              <div key={l} className="rounded-md border p-3.5" style={{ background: "var(--color-bg-subtle)", borderColor: "var(--color-border)" }}>
-                <div className="text-xs" style={{ color: "var(--color-text-muted)" }}>{l} · {w}%</div>
-                <div className="text-3xl font-bold tabular-nums">{nf(v)}<small className="text-sm font-normal" style={{ color: "var(--color-text-faint)" }}> / {w}</small></div>
-                <div className="mt-2 flex h-7 items-end gap-0.5" aria-hidden="true">
-                  {d.months.map((m, k) => {
-                    const sc = f(m);
-                    return <i key={m.period} title={`${periodLabel(m.period)}: ${nf(sc == null ? null : (sc * w) / 100)}`} className="flex-1 rounded-t-sm" style={{ height: `${Math.max(sc ?? 0, 2)}%`, background: "var(--color-blue)", opacity: k === d.months.length - 1 ? 1 : 0.6 }} />;
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {hosp && (
-          <>
-            <h3 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>Point total per bulan</h3>
-            <div className="overflow-auto rounded-md border" style={{ borderColor: "var(--color-border)" }}>
-              <table className="w-full text-sm">
-                <thead style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>
-                  <tr className="text-xs">{d.months.map((m) => <th key={m.period} className="px-3 py-2 text-right">{periodLabel(m.period).split(" ")[0]}</th>)}<th className="border-l px-3 py-2 text-right" style={{ borderColor: "var(--color-border)" }}>Rata-rata</th></tr>
-                </thead>
-                <tbody><tr>{d.months.map((m) => <td key={m.period} className="px-3 py-2 text-right tabular-nums">{nf(m.total)}</td>)}<td className="border-l px-3 py-2 text-right font-bold tabular-nums" style={{ borderColor: "var(--color-border)" }}>{nf(d.avg.total)}</td></tr></tbody>
-              </table>
-            </div>
-          </>
-        )}
         {!hosp && <p className="mt-4 rounded-md px-3 py-2 text-xs" style={{ background: "var(--color-warning-bg)", color: "#7A5A12" }}>Band nilai SC Menang dan Absensi Non-Hospital belum dikonfirmasi (OQ-2/OQ-3), jadi Point total belum bisa dihitung. Data mentah per bulan tetap ditampilkan; keputusan wajib disertai penjelasan.</p>}
       </Card>
     </section>
@@ -230,7 +212,7 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
 
   return (
     <>
-      <Section id="rekap" title="Rekap bulanan" desc="Satu baris per bulan dalam window evaluasi. Evaluasi memakai rata-rata dari baris-baris ini."
+      <Section id="rekap" title="Rekap bulanan" desc="Satu baris per bulan dalam window evaluasi. Point final dihitung dari baris-baris ini."
         legend="Band: SR = 40 · R = 55 · S = 70 · T = 85 · ST = 100. Point = nilai band × bobot.">
         <div className="overflow-auto rounded-md border" style={{ borderColor: "var(--color-border)" }}>
           <table className="w-full text-sm">
@@ -274,7 +256,7 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
             </tbody>
             <tfoot style={{ background: "var(--color-bg-subtle)" }} className="font-bold">
               <tr>
-                <td className="px-3 py-2">Rata-rata</td><td /><td />
+                <td className="px-3 py-2">Point final</td><td /><td />
                 <td className="px-3 py-2 text-right tabular-nums">{pct(aver((m) => m.h?.salesPct))}</td><td />
                 <td className="px-3 py-2 text-right tabular-nums">{nf(d.avg.sales)}</td><td />
                 <td className="px-3 py-2 text-right tabular-nums">{pct(aver((m) => m.h?.callPct), 0)}</td><td />
@@ -290,7 +272,7 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
         </div>
       </Section>
 
-      <Section id="sales" title="Sales Achievement · 50%"
+      <Section id="sales" point={[d.avg.sales, 50]} title="Sales Achievement · 50%"
         desc={b?.salesKind === "mr" ? "Total penjualan seluruh MR/SPV di bawahnya dibanding total target mereka." : "Penjualan aktual seluruh outlet yang dikelola dibanding target GT."}
         src="Sumber: TargetHospitalValue (target) · OutletSalesValueMonthly (aktual, sync DIR10001B)"
         legend="Achievement = total aktual ÷ target × 100. Band: <80 SR · 80–89 R · 90–99 S · 100–109 T · ≥110 ST. “–” = outlet tidak ditugaskan pada bulan itu.">
@@ -321,13 +303,13 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
               ] as [string, (m: M) => string, string][]).map(([l, f, t]) => (
                 <tr key={l}><td className="px-3 py-2">{l}</td>{d.months.map((m) => <td key={m.period} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{m.h ? f(m as M) : "–"}</td>)}<td className="whitespace-nowrap border-l px-3 py-2 text-right tabular-nums" style={{ borderColor: "var(--color-border)" }}>{t}</td></tr>
               ))}
-              <tr><td className="px-3 py-2">Band · Point</td>{d.months.map((m) => <td key={m.period} className="whitespace-nowrap px-3 py-2 text-right">{bandOf(m.h?.salesScore ?? null) ?? "–"} · {nf(pts(m, "salesScore", 0.5))}</td>)}<td className="border-l px-3 py-2 text-right" style={{ borderColor: "var(--color-border)" }}>rata-rata {nf(d.avg.sales)}</td></tr>
+              <tr><td className="px-3 py-2">Band · Point</td>{d.months.map((m) => <td key={m.period} className="whitespace-nowrap px-3 py-2 text-right">{bandOf(m.h?.salesScore ?? null) ?? "–"} · {nf(pts(m, "salesScore", 0.5))}</td>)}<td className="border-l px-3 py-2 text-right" style={{ borderColor: "var(--color-border)" }}>final {nf(d.avg.sales)}</td></tr>
             </tfoot>
           </table>
         </div>
       </Section>
 
-      <Section id="call" title="Call Activity · 25%" desc="Realisasi kunjungan dibanding standar kunjungan."
+      <Section id="call" point={[d.avg.activity, 25]} title="Call Activity · 25%" desc="Realisasi kunjungan dibanding standar kunjungan."
         src="Sumber: Exodus Activity “Get Count Visit By NIP” (sync) · input manual ADMIN menimpa hasil sync"
         legend={`Achievement = realisasi ÷ standar × 100. Band: <70 SR · 70–79 R · 80–89 S · 90–99 T · ≥100 ST. Standar ${ms[0]?.h.callStandar ?? "–"} kunjungan adalah asumsi kerja dari memo.`}>
         <Table rows={ms} cols={[
@@ -335,10 +317,10 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
           { head: "Achievement", num: true, cell: (m) => pct(m.h.callPct, 0) }, { head: "Band", cell: (m) => <Chip score={m.h.callScore} /> },
           { head: "Point", num: true, cell: (m) => <b>{nf(pts(m, "callScore", 0.25))}</b> }, { head: "Sumber", cell: (m) => <Src s={m.h.callSource} /> },
           { head: "Diinput oleh", cell: (m) => m.h.callInputBy ?? (m.h.callSource ? "Sistem" : "–") }, { head: "Waktu", cell: (m) => (m.h.callInputAt ? fmtDateTime(m.h.callInputAt) : "–") },
-        ]} foot={<tr><td className="px-3 py-2">Rata-rata</td><td className="px-3 py-2 text-right">{ms[0]?.h.callStandar ?? "–"}</td><td className="px-3 py-2 text-right tabular-nums">{nf(aver((m) => m.h?.callReal), 1)}</td><td className="px-3 py-2 text-right tabular-nums">{pct(aver((m) => m.h?.callPct), 0)}</td><td /><td className="px-3 py-2 text-right tabular-nums">{nf(d.avg.activity)}</td><td colSpan={3} /></tr>} />
+        ]} foot={<tr><td className="px-3 py-2">Final</td><td className="px-3 py-2 text-right">{ms[0]?.h.callStandar ?? "–"}</td><td className="px-3 py-2 text-right tabular-nums">{nf(aver((m) => m.h?.callReal), 1)}</td><td className="px-3 py-2 text-right tabular-nums">{pct(aver((m) => m.h?.callPct), 0)}</td><td /><td className="px-3 py-2 text-right tabular-nums">{nf(d.avg.activity)}</td><td colSpan={3} /></tr>} />
       </Section>
 
-      <Section id="customer" title="Customer Aktif (PS/SP) · 15%"
+      <Section id="customer" point={[d.avg.customer, 15]} title="Customer Aktif (PS/SP) · 15%"
         desc={b?.custUnits ? "Rata-rata jumlah customer aktif seluruh MR/SPV di bawahnya, bukan hitungan langsung milik sendiri." : "Kontrak PSSP aktif pada outlet yang dikelola. Kontrak dihitung aktif selama bulan itu berada di antara bulan mulai dan berakhir."}
         src="Sumber: PsspKontrak · seluruh kontrak aktif dihitung tanpa filter jenis PS/SP"
         legend="Band: <6 SR · 6–8 R · 9–11 S · 12–14 T · ≥15 ST. Baris “Dipakai penilaian” adalah angka yang masuk skor; bisa berbeda dari hitungan matriks karena skor memakai kontrak yang aktif saat ini.">
@@ -366,7 +348,7 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
               </tbody>
               <tfoot style={{ background: "var(--color-bg-subtle)" }} className="font-bold">
                 <tr><td colSpan={5} className="px-3 py-2">Aktif menurut matriks</td>{d.months.map((m, i) => <td key={m.period} className="border-l px-3 py-2 text-center" style={{ borderColor: "var(--color-border)" }}>{b.pssp!.filter((c) => c.active[i]).length}</td>)}<td /></tr>
-                <tr><td colSpan={5} className="px-3 py-2">Dipakai penilaian · Band · Point</td>{d.months.map((m) => <td key={m.period} className="whitespace-nowrap border-l px-3 py-2 text-center" style={{ borderColor: "var(--color-border)" }}>{m.h?.customer ?? "–"} · {bandOf(m.h?.customerScore ?? null) ?? "–"} · {nf(pts(m, "customerScore", 0.15))}</td>)}<td className="px-3 py-2">rata-rata {nf(d.avg.customer)}</td></tr>
+                <tr><td colSpan={5} className="px-3 py-2">Dipakai penilaian · Band · Point</td>{d.months.map((m) => <td key={m.period} className="whitespace-nowrap border-l px-3 py-2 text-center" style={{ borderColor: "var(--color-border)" }}>{m.h?.customer ?? "–"} · {bandOf(m.h?.customerScore ?? null) ?? "–"} · {nf(pts(m, "customerScore", 0.15))}</td>)}<td className="px-3 py-2">final {nf(d.avg.customer)}</td></tr>
               </tfoot>
             </table>
           </div>
@@ -395,7 +377,7 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
         {!b?.pssp && !b?.custUnits && <Table rows={ms} cols={[{ head: "Bulan", cell: lbl }, { head: "Customer aktif", num: true, cell: (m) => m.h.customer }, { head: "Band", cell: (m) => <Chip score={m.h.customerScore} /> }]} />}
       </Section>
 
-      <Section id="absensi" title="Kepatuhan Absensi (Reporting) · 10%"
+      <Section id="absensi" point={[d.avg.absensi, 10]} title="Kepatuhan Absensi (Reporting) · 10%"
         desc="Rata-rata jam keterlambatan terhadap deadline 08:00 WIB, dihitung dari seluruh record kehadiran bulan itu."
         src="Sumber: SIPP Trade Marketing get=absensi (AbsDateIn, AbsTelatYN), dibaca langsung saat kartu dibuka"
         legend="Jam telat = max(0, jam check-in − 08:00) untuk record bertanda telat; record tepat waktu dihitung 0. Band: >2 SR · 1–2 R · 0,5–1 S · 0–0,5 T · 0 ST.">
@@ -407,7 +389,7 @@ function HospitalSections({ d, b, absMonth, q }: { d: PersonDetail; b: Breakdown
           { head: "Reporting (nilai skor)", num: true, cell: (m) => <b>{nf(m.h?.absensi)}</b> },
           { head: "Band", cell: (m) => <Chip score={m.h?.absensiScore ?? null} /> }, { head: "Point", num: true, cell: (m) => <b>{nf(pts(m, "absensiScore", 0.1))}</b> },
           { head: "Sumber", cell: (m) => <Src s={m.h?.absensiSource ?? null} /> },
-        ]} foot={<tr><td className="px-3 py-2">Rata-rata</td><td colSpan={3} /><td className="px-3 py-2 text-right tabular-nums">{nf(aver((m) => m.h?.absensi))}</td><td /><td className="px-3 py-2 text-right tabular-nums">{nf(d.avg.absensi)}</td><td /></tr>} />
+        ]} foot={<tr><td className="px-3 py-2">Final</td><td colSpan={3} /><td className="px-3 py-2 text-right tabular-nums">{nf(aver((m) => m.h?.absensi))}</td><td /><td className="px-3 py-2 text-right tabular-nums">{nf(d.avg.absensi)}</td><td /></tr>} />
 
         <h3 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-faint)" }}>Record kehadiran harian</h3>
         <div className="mb-3 flex flex-wrap overflow-hidden rounded-md border" style={{ borderColor: "var(--color-border)", width: "fit-content", maxWidth: "100%" }}>

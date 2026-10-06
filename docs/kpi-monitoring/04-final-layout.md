@@ -106,3 +106,25 @@ Aturan (sudah konsisten dengan spec existing):
 - Penyimpanan approval via `claude.use('db')` — diganti server action + Prisma.
 - Animasi transisi stage (opsional, hormati `prefers-reduced-motion` bila dibuat).
 - Dark mode token mockup — pakai token tema app yang sudah ada (`var(--color-*)`).
+
+## 9. Rantai approval, Summary, PDF — mockup `KPI Personil (Copy) (1).html` (final 2026-10-06)
+
+Mockup versi terbaru menggantikan evaluasi satu langkah (§5) dengan **rantai approval berjenjang**. Rantai dinyatakan final oleh pengguna (2026-10-06). Role "Sales Director" = `Role.SD` yang sudah ada.
+
+**Rantai** (menurut role yang dinilai; berlaku Hospital dan Non-Hospital karena hierarki sama, `User.nipAtasan`):
+
+| Dinilai | Rantai approval | Pengisi evaluasi |
+|---|---|---|
+| MR / SPV | ASM → SM → NSM | SM |
+| ASM | SM → NSM | SM |
+| SM | NSM | NSM |
+
+- Menyimpan evaluasi = approval pertama bila pengisinya ada di rantai (SM untuk MR/SPV/ASM, NSM untuk SM). Lalu atasan lain di rantai menekan "Setujui sebagai {role}". **Urutan antar langkah tidak dipaksa** (mockup: tiap atasan boleh menyetujui kapan pun, hanya sekali) — asumsi dari kode mockup, bukan keputusan eksplisit.
+- Status: "Belum dievaluasi" · "Disetujui SM, menunggu ASM & NSM" · "Disetujui lengkap". Keputusan baru **final** ("disetujui") hanya bila **semua** langkah rantai sudah menyetujui.
+- Daftar Detail KPI: badge "Perlu tindakan Anda" dan baris itu diurutkan paling atas.
+- **Akses Detail KPI**: ASM/SM/NSM = seluruh bawahan di subtree (bukan hanya langsung; mockup `subsOf`), ADMIN dan SD = semua personil (SD **hanya-baca**, tanpa tombol evaluasi/approval). ADMIN dapat bertindak sebagai pengisi evaluasi dan sebagai langkah pending pertama (override, tercatat dengan NIP-nya).
+- **PIC** di mockup tidak ada sebagai role di sistem → dipetakan ke **ADMIN** (asumsi; belum dikonfirmasi).
+- **Data**: tabel baru `KpiEvaluationApproval(evaluationId, step, approvedByNip, approvedAt, unique(evaluationId, step))`; `KpiContractEvaluation` tetap satu baris per personil per window.
+- **Summary** (NSM, SD, ADMIN; Hospital): hanya personil yang sudah disetujui lengkap; rata-rata Point final per jabatan, daftar yang diperpanjang, tabel per jabatan dengan peringkat leaderboard.
+- **PDF**: Form Approval per personil dan PDF Summary.
+- Istilah "Rata-rata" → "Point final" di seluruh kartu; kolom "Join date" menggantikan "Kontrak sebelumnya"/"Periode evaluasi"/"Standar kunjungan"/"PTID".

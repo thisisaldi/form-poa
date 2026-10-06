@@ -179,6 +179,7 @@ model User {
   kpiMonthlyEntries      KpiMonthlyEntry[]
   kpiContractEvaluations KpiContractEvaluation[] @relation("KpiEvaluatee")
   kpiEvaluationsGiven    KpiContractEvaluation[] @relation("KpiEvaluator")
+  kpiApprovalsGiven      KpiEvaluationApproval[] @relation("KpiApprover")
   nhContracts            NonHospitalContract[]
   nhMonthlyEntries       NonHospitalMonthlyEntry[]
   nhEvaluations          KpiNonHospitalEvaluation[] @relation("NhEvaluatee")
@@ -1307,9 +1308,28 @@ model KpiContractEvaluation {
   evaluatedBy    User     @relation("KpiEvaluator", fields: [evaluatedByNip], references: [nip])
   evaluatedAt    DateTime @default(now())
 
+  approvals KpiEvaluationApproval[]
+
   @@unique([nip, periodeAkhir])
   @@index([nip])
   @@index([evaluatedByNip])
+}
+
+// Rantai approval KPI Personil (docs/kpi-monitoring/04-final-layout.md §9):
+// satu baris per langkah (ASM | SM | NSM) yang sudah menyetujui evaluasi. Evaluasi
+// dianggap final bila semua langkah rantai role personil itu (src/lib/kpiApproval.ts)
+// sudah ada barisnya. Menyimpan evaluasi menambah langkah milik pengisinya.
+model KpiEvaluationApproval {
+  id            String                @id @default(uuid())
+  evaluationId  String
+  evaluation    KpiContractEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  step          String // ASM | SM | NSM
+  approvedByNip String
+  approvedBy    User                  @relation("KpiApprover", fields: [approvedByNip], references: [nip])
+  approvedAt    DateTime              @default(now())
+
+  @@unique([evaluationId, step])
+  @@index([approvedByNip])
 }
 
 // ─── Evaluasi Kontrak Non-Hospital ─────────────────────────────────────────────

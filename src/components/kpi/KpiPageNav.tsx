@@ -1,10 +1,11 @@
 import Link from "next/link";
 
-export type KpiPage = "leaderboard" | "detail" | "monitoring";
+export type KpiPage = "leaderboard" | "detail" | "summary" | "monitoring";
 
 const PAGES: { key: KpiPage; label: string; hint: string; href: string; roles?: string[] }[] = [
   { key: "leaderboard", label: "Leaderboard", hint: "Semua orang · point saja", href: "/kpi-leaderboard" },
-  { key: "detail", label: "Detail KPI", hint: "Khusus atasan · bawahan langsung", href: "/kpi-detail", roles: ["ADMIN", "SM", "NSM"] },
+  { key: "detail", label: "Detail KPI", hint: "Khusus atasan · evaluasi & approval", href: "/kpi-detail", roles: ["ADMIN", "SD", "ASM", "SM", "NSM"] },
+  { key: "summary", label: "Summary", hint: "NSM, Sales Director & PIC · semua personil", href: "/kpi-summary", roles: ["ADMIN", "SD", "NSM"] },
   { key: "monitoring", label: "Monitoring Bulanan", hint: "Skor per bulan · sync & input", href: "/kpi-perpanjangan", roles: ["ADMIN", "MR", "ASM", "SM", "NSM"] },
 ];
 
