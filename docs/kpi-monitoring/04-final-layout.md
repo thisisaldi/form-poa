@@ -128,3 +128,18 @@ Mockup versi terbaru menggantikan evaluasi satu langkah (§5) dengan **rantai ap
 - **Summary** (NSM, SD, ADMIN; Hospital): hanya personil yang sudah disetujui lengkap; rata-rata Point final per jabatan, daftar yang diperpanjang, tabel per jabatan dengan peringkat leaderboard.
 - **PDF**: Form Approval per personil dan PDF Summary.
 - Istilah "Rata-rata" → "Point final" di seluruh kartu; kolom "Join date" menggantikan "Kontrak sebelumnya"/"Periode evaluasi"/"Standar kunjungan"/"PTID".
+
+## 10. Deploy & migrasi database (diverifikasi dari kode pipeline 2026-10-06)
+
+**Migrasi Prisma berjalan otomatis di pipeline deploy**, jadi migration baru di `prisma/migrations/` tidak perlu dijalankan manual di staging/production:
+
+1. `Jenkinsfile` — build (`build:staging` + `build:production`), image Docker, lalu paket Helm chart `k8s/` diunggah ke chartmuseum; setelah sukses memicu job GKE (`GKE_JOB_NAME`, di luar repo) yang menjalankan `helm install/upgrade`.
+2. `k8s/templates/job/migrate-job.yaml` — Job Kubernetes **`migrate`** dengan hook Helm `pre-install,pre-upgrade` (`k8s/values.yaml` → `job.migrate`): jalan **sebelum** pod aplikasi baru naik, `backoffLimit: 1`, dibersihkan 120 detik setelah sukses.
+3. `scripts/migrate.sh` — isi Job: memuat env namespace dari Vault (`/vault/secrets/.env.<namespace>`, termasuk `DATABASE_URL` environment tsb), lalu `npx prisma generate` + `npm run db:migrate` (`prisma migrate deploy`).
+
+Konsekuensi untuk fitur ini:
+- Migrasi `20261005100000_kpi_evaluation_direction_rationale` dan `20261006100000_kpi_evaluation_approval_chain` ikut terpasang otomatis saat `master` ter-deploy (terkonfirmasi: production sudah "up to date" untuk migrasi pertama setelah push, dan `docs/TODO.md` mencatat pola yang sama untuk migrasi sebelumnya).
+- Migrasi dijalankan **sebelum** kode baru, jadi selama rolling update pod lama masih berjalan di atas skema baru → migrasi harus **additive/kompatibel mundur** (kedua migrasi di atas: kolom nullable/baru + tabel baru; satu-satunya yang melonggarkan adalah `DROP NOT NULL` pada kolom skor).
+- Bila Job `migrate` gagal (mis. unique index bentrok dengan data lama), `helm upgrade` ikut gagal dan **deploy tertahan** — periksa log Job `migrate` di namespace terkait.
+- `prisma migrate deploy` hanya menerapkan migrasi yang belum tercatat; tidak mendeteksi drift. DB lokal (`.env` / `.env.local`) mengarah ke **staging**, bukan DB terpisah — jangan menjalankan `prisma migrate dev` / `reset` ke sana.
+- Data (bukan skema) tidak ikut pipeline: sync Call Activity, Absensi, Sales OMEGA, dan SC Menang harus berjalan terpisah (scheduler, tombol ADMIN, atau skrip) — lihat `01-business-rules.md` dan `src/instrumentation.ts`.
