@@ -21,16 +21,16 @@ const STATUS_CONFIG: Record<
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_ASM: {
-    label: "Approved by ASM",
-    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)]",
+    label: "Fully Approved",
+    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   SUBMITTED_TO_SM: {
     label: "Butuh Approval SM",
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_SM: {
-    label: "Approved by SM",
-    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)]",
+    label: "Fully Approved",
+    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   SUBMITTED_TO_NSM: {
     label: "Butuh Approval NSM",
@@ -48,8 +48,8 @@ const STATUS_CONFIG: Record<
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_ASD: {
-    label: "Approved by ASD",
-    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)]",
+    label: "Fully Approved",
+    colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   SUBMITTED_TO_SD: {
     label: "Butuh Approval SD",

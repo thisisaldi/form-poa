@@ -282,7 +282,7 @@ export default async function PoaDetailPage({
   // progress (2026-09-11 decision) — deliberately not tied to userCanEdit/
   // Lock Edit Logic, same reasoning as deletePoaAction in actions/poa.ts.
   const canDeleteDoctor = isOwner || session.role === "ADMIN";
-  const isFullyApproved = poa.status === "APPROVED_BY_NSM";
+  const isFullyApproved = poa.status.startsWith("APPROVED_BY_");
   const isDraft = poa.status === "DRAFT";
   const isRevisi = poa.status === "REVISI";
 
@@ -577,7 +577,7 @@ export default async function PoaDetailPage({
       {isFullyApproved && (
         <div className="rounded-md px-4 py-3 text-sm font-medium"
           style={{ background: "var(--color-green-light)", color: "var(--color-green)" }}>
-          POA ini telah sepenuhnya disetujui oleh NSM.
+          POA ini telah sepenuhnya disetujui.
         </div>
       )}
 

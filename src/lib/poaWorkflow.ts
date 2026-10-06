@@ -342,7 +342,10 @@ export async function resolvePoaRollup(poaId: string): Promise<void> {
   for (const { kodePI, namaCust } of doctorKeys) {
     const approval = approvalByDoctor.get(`${kodePI ?? ""}|${namaCust}`);
     const status = approval?.status ?? PoaStatus.DRAFT;
-    const rank = ROLLUP_RANK[status];
+    // Terminal (APPROVED_BY_*, incl. ASM/SM/ASD when Exodus's ceiling ends there)
+    // always outranks any pending doctor — otherwise a doctor done at SM (4)
+    // would mask another still pending NSM (5) behind a "fully approved" rollup.
+    const rank = ROLLUP_RANK[status] + (status.startsWith("APPROVED_BY_") ? 100 : 0);
     const isRevisi = status === PoaStatus.REVISI;
     if (!best || rank < best.rank || (rank === best.rank && isRevisi && !best.isRevisi)) {
       best = { rank, status, currentHolderId: approval?.currentHolderId ?? null, isRevisi };
