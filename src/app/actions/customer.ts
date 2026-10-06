@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusCustomerDatabaseByNip, getExodusDplContracts, getExodusDiskonHistory, getExodusSpecialists } from "@/lib/exodusApi";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusCustomerDatabaseByNip, getExodusDplContracts, getExodusDiskonHistory, getExodusSpecialists, getExodusPsspByCustomerId, type ExodusPsspHeader } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -330,6 +330,29 @@ export interface ActivePsspRow extends PsspKontrakSummary {
   nmCust: string | null;
   kdOutlet: string | null;
   nmOutlet: string | null;
+}
+
+export interface ExodusPsspExtra extends ExodusPsspHeader {}
+
+/**
+ * Exodus PSSP contracts for a doctor that are NOT already in PsspKontrak
+ * (matched by contract number) — supplementary display only, never fed into
+ * the pelunasan/estimasi formulas (no per-product or real totalLunas from
+ * Exodus yet). See docs/pssp-live/. Empty on any Exodus failure.
+ */
+export async function getExodusPsspExtras(kodeCustomer: string): Promise<ExodusPsspExtra[]> {
+  if (!kodeCustomer) return [];
+  const cust = await prisma.customer.findUnique({ where: { kodeCustomer }, select: { customerCodeExodus: true } });
+  const id = parseInt(cust?.customerCodeExodus?.replace(/\D/g, "") ?? "", 10);
+  if (!id) return [];
+  const [exodus, known] = await Promise.all([
+    getExodusPsspByCustomerId(id),
+    prisma.psspKontrak.findMany({ where: { kdCust: kodeCustomer }, select: { cUrut: true }, distinct: ["cUrut"] }),
+  ]);
+  const knownSet = new Set(known.map((k: { cUrut: string }) => k.cUrut));
+  // PsspKontrak.cUrut drops the leading "P" Exodus puts on contract numbers (CJ37904 vs PCJ37904, verified 2026-10-06).
+  // Only "P…" numbers are PSSP; "L…"/"F…" are listing fee and other programs sharing the same endpoint.
+  return (exodus ?? []).filter((h) => h.refId.startsWith("P") && !knownSet.has(h.refId.slice(1)));
 }
 
 /**

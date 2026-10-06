@@ -1354,3 +1354,59 @@ export async function getExodusSpecialists(): Promise<string[] | null> {
     return null;
   }
 }
+
+export interface ExodusPsspHeader {
+  refId: string;        // == PsspKontrak.cUrut / settlements pssp_number (verified 2026-10-06)
+  startPeriod: string;  // YYYYMM
+  endPeriod: string;    // YYYYMM
+  givenValue: number;
+  estimationValue: number;
+  outletCodes: string[];
+}
+
+const psspByCustomerCache = new Map<number, { list: ExodusPsspHeader[]; expiresAt: number }>();
+
+/**
+ * Approved, non-draft PSSP contracts of one Exodus customer
+ * (/promotion/v1/pssp?customer_id=). One contract number can span several
+ * header rows (same ref_id_header) — summed here into one entry per number.
+ * Supplementary to PsspKontrak, see docs/pssp-live/. Null on any failure.
+ */
+export async function getExodusPsspByCustomerId(customerId: number): Promise<ExodusPsspHeader[] | null> {
+  if (!isConfigured || !customerId) return null;
+  const cached = psspByCustomerCache.get(customerId);
+  if (cached && cached.expiresAt > Date.now()) return cached.list;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/pssp`);
+    url.searchParams.set("customer_id", String(customerId));
+    url.searchParams.set("page", "1");
+    url.searchParams.set("limit", "200");
+    const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 6000);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: Record<string, any>[]; error?: { status: boolean } };
+    if (body.error?.status || !Array.isArray(body.data)) return null;
+
+    const ym = (iso: unknown) => (typeof iso === "string" ? iso.slice(0, 7).replace("-", "") : "");
+    const byRef = new Map<string, ExodusPsspHeader>();
+    for (const h of body.data) {
+      if (h.request_status !== "approved" || h.is_draft || !h.ref_id_header) continue;
+      const cur: ExodusPsspHeader = byRef.get(h.ref_id_header) ?? {
+        refId: h.ref_id_header, startPeriod: ym(h.start_period), endPeriod: ym(h.end_period),
+        givenValue: 0, estimationValue: 0, outletCodes: [],
+      };
+      cur.givenValue += Number(h.total_given_value) || 0;
+      cur.estimationValue += Number(h.total_estimation_value) || 0;
+      for (const o of h.outlets ?? []) if (o.outlet_code && !cur.outletCodes.includes(o.outlet_code)) cur.outletCodes.push(o.outlet_code);
+      byRef.set(h.ref_id_header, cur);
+    }
+    const list = [...byRef.values()].sort((a, b) => b.endPeriod.localeCompare(a.endPeriod));
+    psspByCustomerCache.set(customerId, { list, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
+    return list;
+  } catch {
+    return null;
+  }
+}

@@ -8,7 +8,7 @@ import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/hargaST";
 import { hargaST } from "@/lib/hargaST";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, getSpesialisasiOptionsAction, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
+import { getCustomersByOutlet, getSpesialisasiOptionsAction, createCustomerAction, getPsspHistory, getExodusPsspExtras, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ExodusPsspExtra, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
 import { getStandarisasiCustomerKodesByOutletAction, getStandarisasiProdukForDokterAction, getStandarisasiProsesKodeByOutletAction, type StandarisasiProdukForDokter } from "@/app/actions/poaStandarisasi";
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
@@ -1623,6 +1623,26 @@ function elapsedMonthsCount(prdAwal: string, prdAkhir: string): { elapsed: numbe
   return { elapsed, total };
 }
 
+function ExodusPsspExtrasCard({ rows }: { rows: ExodusPsspExtra[] }) {
+  if (rows.length === 0) return null;
+  const fmt = (p: string) => (p.length === 6 ? `${p.slice(4)}/${p.slice(0, 4)}` : "—");
+  return (
+    <div className="rounded-lg border px-3 py-2 space-y-1.5" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
+      <span className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>PSSP dari Exodus ({rows.length})</span>
+      <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+        Tambahan, belum masuk histori di atas. Tidak ikut hitungan pelunasan/estimasi per produk.
+      </p>
+      {rows.map((r) => (
+        <div key={r.refId} className="grid grid-cols-3 gap-1 text-xs">
+          <div className="min-w-0 break-all"><div style={{ color: "var(--color-text-faint)" }}>{r.refId}</div><div style={{ color: "var(--color-text-muted)" }}>{fmt(r.startPeriod)} – {fmt(r.endPeriod)}</div></div>
+          <div><div style={{ color: "var(--color-text-faint)" }}>Nilai PSSP</div><div style={{ color: "var(--color-text-muted)" }}>{formatRp(r.givenValue)}</div></div>
+          <div><div style={{ color: "var(--color-text-faint)" }}>Estimasi</div><div style={{ color: "var(--color-text-muted)" }}>{formatRp(r.estimationValue)}</div></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PsspHospinetSnapshotCard({ snapshot }: { snapshot: PsspHospinetSnapshotSummary }) {
   const pct = Math.round((snapshot.rr ?? 0) * 100);
   const pctColor = pct >= 80 ? "var(--color-success, #16a34a)" : pct >= 40 ? "var(--color-warning, #f59e0b)" : "var(--color-red)";
@@ -1674,15 +1694,18 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
 }) {
   const [allHistory, setAllHistory] = useState<PsspKontrakSummary[] | null>(null);
   const [hospinetSnapshot, setHospinetSnapshot] = useState<PsspHospinetSnapshotSummary | null>(null);
+  const [exodusExtras, setExodusExtras] = useState<ExodusPsspExtra[]>([]);
   const [loading, startLoad] = useTransition();
 
   useEffect(() => {
     startLoad(async () => {
-      const [rows, snapshot] = await Promise.all([
+      const [rows, snapshot, extras] = await Promise.all([
         getPsspHistory(kodeCustomer),
         doctorName && kodePI ? getPsspHospinetSnapshot(doctorName, kodePI) : Promise.resolve(null),
+        getExodusPsspExtras(kodeCustomer).catch(() => []),
       ]);
       setAllHistory(rows);
+      setExodusExtras(extras);
       setHospinetSnapshot(snapshot);
       onLabel?.(computeLabelCustomer(rows));
       onHistory?.(rows);
@@ -1698,7 +1721,12 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
   }
 
   if (allHistory.length === 0) {
-    if (hospinetSnapshot) return <PsspHospinetSnapshotCard snapshot={hospinetSnapshot} />;
+    if (hospinetSnapshot || exodusExtras.length > 0) return (
+      <div className="space-y-2">
+        {hospinetSnapshot && <PsspHospinetSnapshotCard snapshot={hospinetSnapshot} />}
+        <ExodusPsspExtrasCard rows={exodusExtras} />
+      </div>
+    );
     return (
       <div className="text-xs px-3 py-2 rounded-lg" style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
         Tidak ada histori PSSP untuk dokter ini.{" "}
@@ -1873,6 +1901,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
         </p>
       )}
       {hospinetSnapshot && <PsspHospinetSnapshotCard snapshot={hospinetSnapshot} />}
+      <ExodusPsspExtrasCard rows={exodusExtras} />
       {activeContracts.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-blue)" }}>
