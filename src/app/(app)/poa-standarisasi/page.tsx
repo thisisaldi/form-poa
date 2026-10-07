@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { prisma } from "@/lib/prisma";
+import { canViewPusat } from "@/lib/hka";
 import { listVisiblePoaStandarisasiAction } from "@/app/actions/poaStandarisasi";
 import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
@@ -54,6 +56,8 @@ export default async function PoaStandarisasiListPage() {
   // Dibuka ke role sales chain 2026-09-29 (user: "ikuti POA PSSP"), visibilitas dibatasi di listVisiblePoaStandarisasiAction.
   if (!POA_STANDARISASI_VIEW_ROLES.includes(session.role)) redirect("/dashboard");
   const canCreate = session.role === "ADMIN" || session.role === "MR";
+  const hkaActor = await prisma.user.findUnique({ where: { nip: session.userId }, select: { isHka: true, role: true } });
+  const showPusat = !!hkaActor && canViewPusat(hkaActor);
 
   const pengajuanList = await listVisiblePoaStandarisasiAction();
   const today = startOfDay(new Date());
@@ -70,6 +74,11 @@ export default async function PoaStandarisasiListPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {showPusat && (
+            <Link href="/poa-standarisasi/pusat">
+              <Button size="sm" variant="secondary">Standarisasi Pusat (HKA)</Button>
+            </Link>
+          )}
           {canCreate && (
             <>
               <a href="/api/poa-standarisasi/export">

@@ -7,6 +7,7 @@ import type { Product } from "@/lib/masterData";
 import type { CustomerOption } from "@/app/actions/customer";
 import { createCustomerAction } from "@/app/actions/customer";
 import {
+  checkHkaGatewayAction,
   createPoaStandarisasiAction,
   getDokterOptionsAction,
   type PlanningProdukInput,
@@ -134,6 +135,9 @@ export function NewPoaStandarisasiForm({
     setError(null);
     startTransition(async () => {
       try {
+        // Gateway HKA (docs/poa-standarisasi-pusat/) — pesannya lewat { error }, error server action dimasking di production.
+        const gate = await checkHkaGatewayAction(kodePI, produkFilled.map((p) => p.kodeProduk));
+        if (gate.error) { setError(gate.error); return; }
         await createPoaStandarisasiAction({
           kodePI,
           kpdmList: kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan || null, entertainEstimasi: k.entertainEstimasi || null })),

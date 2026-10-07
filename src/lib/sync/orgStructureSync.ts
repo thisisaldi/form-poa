@@ -83,7 +83,7 @@ export async function runOrgSync(): Promise<SyncResult> {
   // meaningless. A real roster shrink of this size in one sync cycle is not
   // plausible.
   const existingActiveInScope = await prisma.user.count({
-    where: { isActive: true, isDummy: false, role: { in: ["MR", "ASM", "SM", "NSM"] }, project: null },
+    where: { isActive: true, isDummy: false, isHka: false, role: { in: ["MR", "ASM", "SM", "NSM"] }, project: null },
   });
   if (records.length === 0 || (existingActiveInScope > 20 && records.length < existingActiveInScope * 0.5)) {
     throw new Error(
@@ -156,6 +156,8 @@ export async function runOrgSync(): Promise<SyncResult> {
       nip: { notIn: activeNips },
       isActive: true,
       isDummy: false,
+      // Tim HKA (docs/poa-standarisasi-pusat/) tidak ada di struktur sales Nexus tapi tetap harus bisa login.
+      isHka: false,
       role: { in: ["MR", "ASM", "SM", "NSM"] },
       project: null,
     },

@@ -138,6 +138,8 @@ model User {
   email     String?
   isActive  Boolean   @default(true)
   isDummy   Boolean   @default(false) // workshop/demo account — bypasses outlet-assignment restrictions
+  // Kapabilitas Hospital Key Account (docs/poa-standarisasi-pusat/) — terpisah dari `role` (Widodo/Masril tetap NSM).
+  isHka     Boolean   @default(false)
   syncedAt  DateTime?
   // Discovered (not synced from anywhere — no source tells us this) AbsPTID
   // for the SIPP attendance API — one NIP can only ever be at one PT. Cached
@@ -190,6 +192,7 @@ model User {
 
   // POA Standarisasi (see docs/poa-standarisasi/) — pembuat pengajuan
   poaStandarisasiOwned PoaStandarisasi[]
+  poaStandarisasiPusatOwned PoaStandarisasiPusat[]
   poaStandarisasiFileAccessLogs PoaStandarisasiFileAccessLog[]
   poaStandarisasiDokterReassignLogs PoaStandarisasiDokterReassignLog[]
   poaStandarisasiDiscountRequests PoaStandarisasiDiscountRequest[]
@@ -340,6 +343,7 @@ model Customer {
   poaStandarisasiDokterApprovals PoaStandarisasiDokterApproval[]
   poaStandarisasiDokterUsers     PoaStandarisasiDokterUser[]
   poaStandarisasiAsKpdm          PoaStandarisasiKpdm[]
+  poaStandarisasiPusatDokters    PoaStandarisasiPusatDokter[]
 
   @@index([spesialisasi])
   @@index([namaCustomer])
@@ -593,6 +597,8 @@ model Outlet {
   statusOutlet String? // 'A' = active, 'M' = merged/inactive
   namaChannel  String?
   groupRS      String? // e.g. "HERMINA GRUP", "NON CHAIN"
+  // Grup Hospital Key Account (255 outlet kurasi HKA, diimport lewat scripts/importHkaGroups.ts) — null = di luar gateway standarisasi pusat. docs/poa-standarisasi-pusat/
+  hkaGroup     String?
   sector       String?
   subSektor    String?
   kota         String?
@@ -641,6 +647,7 @@ model Outlet {
   // tab) — first real WHERE-clause query on groupRS (previously only
   // sorted in-memory); Outlet has 35k+ rows and groupRS was unindexed.
   @@index([groupRS])
+  @@index([hkaGroup])
 }
 
 // ─── Product Master Data ──────────────────────────────────────────────────────
@@ -694,6 +701,7 @@ model Product {
   updatedAt               DateTime @updatedAt
 
   poaStandarisasiProduk PoaStandarisasiProduk[]
+  poaStandarisasiPusatProduk PoaStandarisasiPusatProduk[]
 
   @@index([namaGroupBrand])
 }
@@ -1993,6 +2001,98 @@ model PoaStandarisasiDokterReassignLog {
   actor    User   @relation(fields: [actorNip], references: [nip])
   createdAt DateTime @default(now())
 
+  @@index([produkId])
+}
+
+// ─── POA Standarisasi Pusat (Hospital Key Account) ──────────────────────────
+// docs/poa-standarisasi-pusat/. Produk x Grup HKA (Outlet.hkaGroup); gateway
+// untuk standarisasi cabang. Model terpisah dari PoaStandarisasi karena
+// kodePI di sana non-null dan seluruh wizard cabang bergantung padanya.
+
+enum PoaStandarisasiPusatPhase {
+  APPROVAL_ATASAN
+  APPROVAL_USER_DOKTER
+  FINALISASI
+}
+
+model PoaStandarisasiPusat {
+  id String @id @default(uuid())
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [nip])
+
+  hkaGroup String
+
+  tipeStandarisasi TipeStandarisasi
+  periodeBulan     Int?
+
+  currentPhase PoaStandarisasiPusatPhase @default(APPROVAL_ATASAN)
+  submittedAt  DateTime?
+
+  produk PoaStandarisasiPusatProduk[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hkaGroup, submittedAt])
+  @@index([ownerId])
+  @@index([currentPhase])
+}
+
+model PoaStandarisasiPusatProduk {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasiPusat @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  kodeProduk String
+  product    Product @relation(fields: [kodeProduk], references: [kodeProduk])
+
+  skemaPembayaran              SkemaPembayaranStandarisasi @default(DISKON)
+  estimasiDiskonPct            Decimal?                    @db.Decimal(10, 4)
+  estimasiDiskonDistributorPct Decimal?                    @db.Decimal(10, 4)
+  estimasiValueDpRp            Decimal?                    @db.Decimal(18, 2)
+  catatan                      String?
+
+  approvals PoaStandarisasiPusatProdukApproval[]
+  dokter    PoaStandarisasiPusatDokter[]
+
+  @@unique([pengajuanId, kodeProduk])
+  @@index([pengajuanId])
+}
+
+model PoaStandarisasiPusatProdukApproval {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiPusatProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  level        ApprovalLevelStandarisasi
+  status       StatusApprovalAtasan      @default(MENUNGGU)
+  autoApproved Boolean                   @default(false)
+  decidedByNip String?
+  decidedAt    DateTime?
+
+  @@unique([produkId, level])
+  @@index([produkId])
+}
+
+// Dokter boleh dari outlet mana pun di grup (divalidasi server lewat CustomerOutlet -> Outlet.hkaGroup).
+model PoaStandarisasiPusatDokter {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiPusatProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  wajib    Boolean @default(true)
+  sudahTtd Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([produkId, customerId])
   @@index([produkId])
 }
 

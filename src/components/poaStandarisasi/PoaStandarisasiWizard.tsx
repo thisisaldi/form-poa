@@ -16,6 +16,7 @@ import { buildProductOptions } from "@/components/poa/LineItemEditor";
 import { discountApprovalLevel } from "@/lib/discountApprovalLevel";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import {
+  checkHkaGatewayAction,
   savePlanningAction,
   advanceToApprovalAtasanAction,
   approvePoaStandarisasiAtasanAction,
@@ -593,12 +594,23 @@ export function PoaStandarisasiWizard({
     };
   }
 
+  /** Gateway HKA (docs/poa-standarisasi-pusat/): cek produk yang belum tersimpan sebelum save, supaya pesannya sampai ke user (error server action dimasking di production). */
+  async function checkGateway() {
+    const saved = new Set(pengajuan.produk.map((p) => p.kodeProduk));
+    const res = await checkHkaGatewayAction(pengajuan.kodePI, buildPlanningPayload().produk.map((p) => p.kodeProduk).filter((k) => !saved.has(k)));
+    if (res.error) throw new Error(res.error);
+  }
+
   function handleSavePlanning() {
-    run(async () => savePlanningAction(pengajuan.id, buildPlanningPayload()));
+    run(async () => {
+      await checkGateway();
+      await savePlanningAction(pengajuan.id, buildPlanningPayload());
+    });
   }
 
   function handleAdvanceToApprovalAtasan() {
     run(async () => {
+      await checkGateway();
       await savePlanningAction(pengajuan.id, buildPlanningPayload());
       await advanceToApprovalAtasanAction(pengajuan.id);
     });

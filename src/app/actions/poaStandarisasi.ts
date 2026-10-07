@@ -28,6 +28,7 @@ import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoog
 import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
 import { DPL_DPF_SUBMIT_DISABLED, DPL_DPF_SUBMIT_DISABLED_MESSAGE } from "@/lib/poaStandarisasiDplDpfFlag";
 import { SALES_TEAM_ROLES } from "@/lib/role";
+import { assertHkaGateway } from "@/lib/hkaGateway";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -62,6 +63,15 @@ async function runAction(fn: () => Promise<unknown>): Promise<ActionResult> {
     if (typeof digest === "string" && digest.startsWith("NEXT_")) throw e;
     return { error: e instanceof Error ? e.message : "Terjadi kesalahan." };
   }
+}
+
+/**
+ * Pre-check gateway HKA untuk UI (docs/poa-standarisasi-pusat/): server action
+ * yang throw dimasking di production, jadi pesan blokir sampai ke user lewat
+ * `{ error }` dari sini. Penegakan sesungguhnya tetap di create/savePlanning.
+ */
+export async function checkHkaGatewayAction(kodePI: string, kodeProdukList: string[]): Promise<ActionResult> {
+  return runAction(() => assertHkaGateway(kodePI, kodeProdukList));
 }
 
 function toNum(v: unknown): number | null {
@@ -115,6 +125,7 @@ export async function createPoaStandarisasiAction(input: PlanningInput & { kodeP
   // 1), so a fresh pengajuan created here goes straight to Phase 2 instead of
   // landing back on Phase 1 requiring a second, separate "Lanjut" click.
   validateReadyForApprovalAtasan(input);
+  await assertHkaGateway(kodePI, input.produk.map((p) => p.kodeProduk));
 
   const dplKode = new Set((await getActiveDplByOutletAction(kodePI)).map((d) => d.kodeProduk));
   const pengajuanId = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -1045,6 +1056,10 @@ export async function savePlanningAction(id: string, input: PlanningInput): Prom
   if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
 
   validatePlanningInput(input);
+
+  // Gateway HKA hanya untuk produk yang belum tersimpan di pengajuan ini (baru/diganti) — yang sudah ada tidak dicek ulang.
+  const savedKode = new Set((await prisma.poaStandarisasiProduk.findMany({ where: { pengajuanId: id }, select: { kodeProduk: true } })).map((p: { kodeProduk: string }) => p.kodeProduk));
+  await assertHkaGateway(pengajuan.kodePI, input.produk.map((p) => p.kodeProduk).filter((k) => !savedKode.has(k)));
 
   const dplKode = new Set((await getActiveDplByOutletAction(pengajuan.kodePI)).map((d) => d.kodeProduk));
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
