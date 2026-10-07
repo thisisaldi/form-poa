@@ -33,7 +33,7 @@ enum Role {
   // Akses dibatasi ke fitur POA Standarisasi Memo SP Non Sales saja — lihat
   // docs/sp-non-sales-memo/. Bukan bagian struktur sales (nipAtasan selalu
   // null), tidak disinkron dari Struktur_Marketing_PI.
-  SALES_SUPPORT
+  SALES_SUPPORT @map("SALES SUPPORT")
 }
 
 enum PoaStatus {
