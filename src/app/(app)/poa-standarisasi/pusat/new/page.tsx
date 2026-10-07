@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getProducts } from "@/lib/masterData";
+import { hkaCreatorLevel } from "@/lib/hka";
 import { getHkaGroupsAction } from "@/app/actions/poaStandarisasiPusat";
 import { PusatCreateForm } from "@/components/poaStandarisasi/PusatCreateForm";
 
@@ -12,5 +13,5 @@ export default async function PusatNewPage() {
   if (!actor || !(actor.isHka || actor.role === "ADMIN")) notFound();
 
   const [groups, products] = await Promise.all([getHkaGroupsAction(), getProducts()]);
-  return <PusatCreateForm groups={groups} productOptions={products.map((p) => ({ kodeProduk: p.kodeProduk, namaProduk: p.namaProduk }))} />;
+  return <PusatCreateForm groups={groups} productOptions={products} creatorLevel={hkaCreatorLevel(actor.role)} />;
 }

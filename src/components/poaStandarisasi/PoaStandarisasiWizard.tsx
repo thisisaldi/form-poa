@@ -92,7 +92,7 @@ function AccountingRp({ n }: { n: number | null | undefined }) {
  * separator formatting ("2.500.000") and never gets the browser's up/down
  * spinner arrows, which only belong on the diskon (%) fields.
  */
-function RpInput({
+export function RpInput({
   label,
   value,
   onChange,
@@ -139,7 +139,7 @@ function RpInput({
 }
 
 /** Standarisasi Periodic only offers these fixed periods (TODO #8) — Sisipan stays free-entry (TODO #9). */
-const PERIODE_PERIODIC_OPTIONS = [6, 12, 18, 24, 30, 36];
+export const PERIODE_PERIODIC_OPTIONS = [6, 12, 18, 24, 30, 36];
 
 /** Fixed set, matches the DistributorPilihan enum — not master data. */
 const DISTRIBUTOR_OPTIONS = ["AMS", "PPG", "MPI"] as const;
@@ -151,7 +151,7 @@ const DISTRIBUTOR_OPTIONS = ["AMS", "PPG", "MPI"] as const;
  * type="number" inputs it replaces. `dense` shrinks padding/font for use
  * inside table cells (e.g. the dokter tables).
  */
-function UnitCountInput({
+export function UnitCountInput({
   label,
   unit,
   value,
@@ -1584,7 +1584,7 @@ function ApprovalRow({ label, status, canAct, onApprove }: { label: string; stat
   );
 }
 
-function StatusPill({ status }: { status: string }) {
+export function StatusPill({ status }: { status: string }) {
   const map: Record<string, { bg: string; fg: string; text: string }> = {
     MENUNGGU: { bg: "var(--color-bg-subtle)", fg: "var(--color-text-faint)", text: "Menunggu" },
     DISETUJUI: { bg: "var(--color-status-approved-bg, #E6F5EC)", fg: "var(--color-status-approved, #008f42)", text: "Disetujui" },

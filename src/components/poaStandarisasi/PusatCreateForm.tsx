@@ -4,9 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
+import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Combobox } from "@/components/ui/Combobox";
+import type { Product } from "@/lib/masterData";
 import { createPusatAction, type PusatProdukInput } from "@/app/actions/poaStandarisasiPusat";
+import { discountApprovalLevel, levelsUpTo, type ApprovalLevel } from "@/lib/discountApprovalLevel";
+import { isAutoApprovedLevel } from "@/lib/hka";
+import { PERIODE_PERIODIC_OPTIONS, RpInput, Stepper, UnitCountInput } from "@/components/poaStandarisasi/PoaStandarisasiWizard";
 
 interface ProdukForm {
   kodeProduk: string;
@@ -19,15 +23,18 @@ interface ProdukForm {
 
 const emptyProduk = (): ProdukForm => ({ kodeProduk: "", skemaPembayaran: "DISKON", estimasiDiskonPct: "", estimasiDiskonDistributorPct: "", estimasiValueDpRp: "", catatan: "" });
 
-const selectCls = "w-full rounded border border-[var(--color-border)] bg-white px-3 py-2 text-sm";
+const rp = (n: number) => "Rp " + Math.round(n).toLocaleString("id-ID");
 
-/** Form buat pengajuan standarisasi pusat (Produk x Grup HKA) — docs/poa-standarisasi-pusat/. */
+/** Planning Standarisasi Pusat (Produk × Grup HKA) — pola sama dengan PlanningPhase cabang: Stepper, Combobox, kartu produk. */
 export function PusatCreateForm({
   groups,
   productOptions,
+  creatorLevel,
 }: {
   groups: { hkaGroup: string; jumlahOutlet: number }[];
-  productOptions: { kodeProduk: string; namaProduk: string }[];
+  productOptions: Product[];
+  /** Level tertinggi yang otomatis disetujui untuk pembuat ini (null = tidak ada). */
+  creatorLevel: ApprovalLevel | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -37,13 +44,17 @@ export function PusatCreateForm({
   const [periodeBulan, setPeriodeBulan] = useState("");
   const [produkList, setProdukList] = useState<ProdukForm[]>([emptyProduk()]);
 
+  const productByKode = new Map(productOptions.map((p) => [p.kodeProduk, p]));
+  const baseProductOptions = productOptions.map((p) => ({ value: p.kodeProduk, label: p.namaProduk, sublabel: p.kodeProduk }));
+
   function update(idx: number, patch: Partial<ProdukForm>) {
     setProdukList((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));
   }
 
   function handleSubmit() {
     const filled = produkList.filter((p) => p.kodeProduk);
-    if (!hkaGroup) return setError("Grup wajib dipilih.");
+    if (!hkaGroup) return setError("Grup RS wajib dipilih.");
+    if ((tipe === "PERIODIC" || tipe === "SISIPAN") && !periodeBulan) return setError("Periode wajib diisi.");
     if (filled.length === 0) return setError("Tambahkan minimal 1 produk.");
     setError(null);
     startTransition(async () => {
@@ -66,80 +77,165 @@ export function PusatCreateForm({
   }
 
   return (
-    <div className="max-w-4xl space-y-4">
-      <div>
-        <h1>Standarisasi Pusat Baru</h1>
+    <div className="max-w-5xl">
+      <div className="mb-4">
+        <Link href="/poa-standarisasi/pusat" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+          ← Daftar Standarisasi Pusat
+        </Link>
+        <h1 className="mt-1">Standarisasi Pusat Baru</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Produk × Grup Hospital Key Account. Level approval ditentukan dari diskon PI per produk; level sampai level Anda otomatis disetujui.
+          POA Standarisasi Pusat (Produk × Grup RS) — Hospital Key Account
         </p>
       </div>
 
+      <Stepper currentIdx={0} />
+
       {error && (
-        <div className="rounded px-3 py-2 text-sm" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>{error}</div>
+        <div className="mb-4 rounded px-3 py-2 text-sm" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
+          {error}
+        </div>
       )}
 
-      <Card>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="flex flex-col gap-1 text-sm font-medium">
-            Grup RS
-            <select className={selectCls} value={hkaGroup} onChange={(e) => setHkaGroup(e.target.value)}>
-              <option value="">— pilih grup —</option>
-              {groups.map((g) => <option key={g.hkaGroup} value={g.hkaGroup}>{g.hkaGroup} ({g.jumlahOutlet} outlet)</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm font-medium">
-            Tipe
-            <select className={selectCls} value={tipe} onChange={(e) => setTipe(e.target.value as typeof tipe)}>
-              <option value="PERIODIC">Periodic</option>
-              <option value="SISIPAN">Sisipan</option>
-              <option value="PERMANEN">Permanen</option>
-            </select>
-          </label>
-          {tipe !== "PERMANEN" && (
-            <Input label="Periode (bulan)" type="number" min={1} value={periodeBulan} onChange={(e) => setPeriodeBulan(e.target.value)} />
+      <Card className="mb-4">
+        <CardHeader><CardTitle>Planning Standarisasi</CardTitle></CardHeader>
+        <div className="max-w-lg mb-4">
+          <span className="text-sm font-medium block mb-1">Grup RS <span style={{ color: "var(--color-error)" }}>*</span></span>
+          <Combobox
+            name="hkaGroup"
+            options={groups.map((g) => ({ value: g.hkaGroup, label: g.hkaGroup, tag: `${g.jumlahOutlet} outlet`, tagColor: "indigo" as const }))}
+            value={hkaGroup}
+            onChange={setHkaGroup}
+            placeholder="Cari grup RS…"
+            required
+            emptyMessage="Belum ada grup HKA."
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <span className="text-sm font-medium block mb-1">Tipe Standarisasi <span style={{ color: "var(--color-error)" }}>*</span></span>
+            <Combobox
+              name="tipeStandarisasi"
+              options={[
+                { value: "PERIODIC", label: "Standarisasi Periodic" },
+                { value: "SISIPAN", label: "Standarisasi Sisipan" },
+                { value: "PERMANEN", label: "Standarisasi Non Periodic" },
+              ]}
+              value={tipe}
+              onChange={(v) => { setTipe(v as typeof tipe); setPeriodeBulan(""); }}
+            />
+          </div>
+          {tipe === "PERIODIC" && (
+            <div>
+              <span className="text-sm font-medium block mb-1">Periode <span style={{ color: "var(--color-error)" }}>*</span></span>
+              <Combobox
+                name="periodeBulan"
+                options={PERIODE_PERIODIC_OPTIONS.map((n) => ({ value: String(n), label: `${n} Bulan` }))}
+                value={periodeBulan}
+                onChange={setPeriodeBulan}
+                placeholder="Pilih periode…"
+              />
+            </div>
           )}
+          {tipe === "SISIPAN" && <UnitCountInput label="Periode" unit="Bulan" value={periodeBulan} onChange={setPeriodeBulan} />}
         </div>
       </Card>
 
-      {produkList.map((p, idx) => (
-        <Card key={idx}>
-          <div className="grid gap-3 sm:grid-cols-4">
-            <label className="flex flex-col gap-1 text-sm font-medium sm:col-span-2">
-              Produk
-              <select className={selectCls} value={p.kodeProduk} onChange={(e) => update(idx, { kodeProduk: e.target.value })}>
-                <option value="">— pilih produk —</option>
-                {productOptions.map((o) => <option key={o.kodeProduk} value={o.kodeProduk}>{o.namaProduk}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm font-medium">
-              Skema
-              <select className={selectCls} value={p.skemaPembayaran} onChange={(e) => update(idx, { skemaPembayaran: e.target.value as "DISKON" | "DP" })}>
-                <option value="DISKON">Diskon</option>
-                <option value="DP">DP</option>
-              </select>
-            </label>
-            <div className="flex items-end justify-end">
-              {produkList.length > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => setProdukList((prev) => prev.filter((_, i) => i !== idx))}>Hapus</Button>}
-            </div>
-            {p.skemaPembayaran === "DISKON" ? (
-              <>
-                <Input label="Estimasi Diskon PI (%)" type="number" min={0} max={100} step="0.01" value={p.estimasiDiskonPct} onChange={(e) => update(idx, { estimasiDiskonPct: e.target.value })} />
-                <Input label="Estimasi Diskon Distributor (%)" type="number" min={0} max={100} step="0.01" value={p.estimasiDiskonDistributorPct} onChange={(e) => update(idx, { estimasiDiskonDistributorPct: e.target.value })} />
-              </>
-            ) : (
-              <Input label="Value DP (Rp)" type="number" min={0} value={p.estimasiValueDpRp} onChange={(e) => update(idx, { estimasiValueDpRp: e.target.value })} />
-            )}
-            <div className="sm:col-span-2">
-              <Input label="Catatan" value={p.catatan} onChange={(e) => update(idx, { catatan: e.target.value })} />
-            </div>
-          </div>
-        </Card>
-      ))}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold">Produk diajukan ({produkList.length})</span>
+      </div>
 
-      <div className="flex gap-3">
+      {produkList.map((p, idx) => {
+        const product = productByKode.get(p.kodeProduk);
+        const dipakaiLain = new Set(produkList.filter((_, i) => i !== idx && produkList[i].kodeProduk).map((pp) => pp.kodeProduk));
+        const pct = p.skemaPembayaran === "DISKON" ? parseFloat(p.estimasiDiskonPct) || 0 : 0;
+        const top = discountApprovalLevel(pct);
+        const butuh = levelsUpTo(top).filter((l) => !isAutoApprovedLevel(l, creatorLevel));
+        return (
+          <Card key={idx} className="mb-4" style={{ background: "var(--color-bg-subtle)" }}>
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-sm font-semibold" style={{ color: "var(--color-blue)" }}>{idx + 1}. {product?.namaProduk ?? "Produk belum dipilih"}</span>
+              {produkList.length > 1 && (
+                <button type="button" className="text-xs" style={{ color: "var(--color-error)" }} onClick={() => setProdukList((prev) => prev.filter((_, i) => i !== idx))}>Hapus</button>
+              )}
+            </div>
+
+            <div className="flex gap-3 items-start flex-wrap">
+              <div className="flex-1 min-w-[220px]">
+                <span className="text-xs font-medium block mb-1">Nama Produk *</span>
+                <Combobox
+                  name={`produk-${idx}`}
+                  options={baseProductOptions.filter((o) => !dipakaiLain.has(o.value))}
+                  value={p.kodeProduk}
+                  onChange={(v) => update(idx, { kodeProduk: v })}
+                  placeholder="Cari produk…"
+                />
+              </div>
+              <div className="w-40 shrink-0">
+                <span className="text-xs font-medium block mb-1">Skema</span>
+                <Combobox
+                  name={`skema-${idx}`}
+                  options={[{ value: "DISKON", label: "Diskon" }, { value: "DP", label: "DP" }]}
+                  value={p.skemaPembayaran}
+                  onChange={(v) => update(idx, { skemaPembayaran: v as "DISKON" | "DP" })}
+                />
+              </div>
+              {p.skemaPembayaran === "DP" ? (
+                <div className="w-44 shrink-0">
+                  <span className="text-xs font-medium block mb-1">Value DP</span>
+                  <RpInput value={p.estimasiValueDpRp} onChange={(v) => update(idx, { estimasiValueDpRp: v })} />
+                </div>
+              ) : (
+                <>
+                  <div className="w-32 shrink-0">
+                    <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (PI)</span>
+                    <UnitCountInput unit="%" value={p.estimasiDiskonPct} onChange={(v) => update(idx, { estimasiDiskonPct: v })} />
+                  </div>
+                  <div className="w-32 shrink-0">
+                    <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (Dist.)</span>
+                    <UnitCountInput unit="%" value={p.estimasiDiskonDistributorPct} onChange={(v) => update(idx, { estimasiDiskonDistributorPct: v })} />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {product && (
+              <div className="text-xs mt-2" style={{ color: "var(--color-text-muted)" }}>
+                HNA SJ: <strong>{rp(parseFloat(product.hna))}</strong> ({product.satuan})
+              </div>
+            )}
+
+            <div className="mt-3">
+              <span className="text-xs font-medium block mb-1">Catatan</span>
+              <input
+                type="text"
+                className="input-field text-sm w-full"
+                value={p.catatan}
+                onChange={(e) => update(idx, { catatan: e.target.value })}
+                placeholder="Opsional"
+              />
+            </div>
+
+            {p.kodeProduk && (
+              <div className="mt-3 text-xs rounded px-3 py-2" style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
+                Level approval sampai <strong>{top}</strong>
+                {butuh.length === 0
+                  ? " — semua level otomatis disetujui (setara level Anda)."
+                  : ` — menunggu persetujuan: ${butuh.join(", ")}.`}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+
+      <div className="mb-4">
         <Button type="button" variant="secondary" onClick={() => setProdukList((prev) => [...prev, emptyProduk()])}>+ Tambah Produk</Button>
-        <Button type="button" disabled={pending} onClick={handleSubmit}>{pending ? "Membuat…" : "Buat & Lanjut ke Approval"}</Button>
-        <Link href="/poa-standarisasi/pusat"><Button type="button" variant="ghost">Batal</Button></Link>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Link href="/poa-standarisasi/pusat"><Button type="button" variant="secondary">Batal</Button></Link>
+        <Button type="button" disabled={pending || !hkaGroup} onClick={handleSubmit}>
+          {pending ? "Membuat…" : "Buat & Lanjut ke Approval Atasan"}
+        </Button>
       </div>
     </div>
   );
