@@ -32,6 +32,7 @@
  *                                 spesialisasi label (#15)   [ASM/SM/NSM only]
  */
 
+import { dedupeLineItems, sumTargetOncePerOwnerPeriod } from "@/lib/dedupeLineItems";
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
@@ -1490,9 +1491,13 @@ export async function GET(req: NextRequest) {
   // filtering in memory is equivalent, not an approximation.
   const ringkasanPoas = poas.filter((p) => p.period === RINGKASAN_QUARTER);
   const ringkasanPoaIds = ringkasanPoas.map((p) => p.id);
-  const ringkasanTargetTotal = ringkasanPoas.reduce((s, p) => s + toNum(p.target), 0);
+  const ringkasanTargetTotal = sumTargetOncePerOwnerPeriod(ringkasanPoas, (p) => toNum(p.target));
 
-  const ringkasanLineItems = ringkasanPoaIds.flatMap((id) => itemsByPoa.get(id) ?? []);
+  // Identical re-entries across an owner's POAs in the quarter count once (lib/dedupeLineItems.ts).
+  const ringkasanLineItems = dedupeLineItems(
+    ringkasanPoaIds.flatMap((id) => itemsByPoa.get(id) ?? []),
+    new Map(ringkasanPoas.map((p) => [p.id, p.ownerId])),
+  );
 
   let ringkasanEstimasi = 0, ringkasanPssp = 0, ringkasanDisc = 0, ringkasanEnt = 0;
   for (const li of ringkasanLineItems) {

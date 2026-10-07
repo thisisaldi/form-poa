@@ -1078,10 +1078,11 @@ function ProdukEntryRow({
   }, [kodeCustomer, kodePI]);
 
   const productOptions = useMemo(() => {
-    const opts = buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory, surveyRows);
-    if (!usedKodeProduk || usedKodeProduk.size === 0) return opts;
-    return opts.filter((o) => o.value === entry.kodeProduk || !usedKodeProduk.has(o.value));
-  }, [products, spesialisasi, kriteriaMap, usedKodeProduk, entry.kodeProduk, psspHistory, surveyRows]);
+    // Not filtered by usedKodeProduk anymore: the same product may be entered twice
+    // (2026-10-07), flagged by the WARNING under the picker instead.
+    return buildProductOptions(products, spesialisasi, kriteriaMap, psspHistory, surveyRows);
+  }, [products, spesialisasi, kriteriaMap, psspHistory, surveyRows]);
+  const isDuplicateProduk = !!entry.kodeProduk && !!usedKodeProduk?.has(entry.kodeProduk);
 
   const product = useMemo(() => products.find((p) => p.kodeProduk === entry.kodeProduk) ?? null, [products, entry.kodeProduk]);
 
@@ -1200,6 +1201,11 @@ function ProdukEntryRow({
             />
           </div>
           {produkErr && <span className="text-xs mt-0.5" style={{ color: "var(--color-red)" }}>Pilih produk</span>}
+          {isDuplicateProduk && (
+            <p className="text-xs mt-1 px-2 py-1 rounded font-medium" style={{ color: "var(--color-warning, #b45309)", background: "var(--color-warning-light, #fef3c7)" }}>
+              ⚠ WARNING: produk ini sudah diinput di baris lain untuk dokter yang sama. Tetap bisa disimpan, pastikan memang disengaja.
+            </p>
+          )}
           {product && (
             <div className="flex gap-3 text-xs mt-1 flex-wrap" style={{ color: "var(--color-text-faint)" }}>
               <span>HNA SJ: <strong style={{ color: "var(--color-text-muted)" }}>{formatRpFull(product.hna)}</strong> ({satuanLabel(product)})</span>

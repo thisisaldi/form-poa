@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+
+import { dedupeLineItems } from "@/lib/dedupeLineItems";
 import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -79,7 +81,7 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
   const mrNips = await getSubordinateMRNips(actor);
 
   // Fetch all approved line items from those MRs
-  const lineItems = await prisma.poaLineItem.findMany({
+  const lineItemsAll = await prisma.poaLineItem.findMany({
     where: {
       poa: {
         ownerId: { in: mrNips.length > 0 ? mrNips : [actor.nip] },
@@ -87,6 +89,13 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
       },
     },
     select: {
+      poaId: true,
+      kodePI: true,
+      namaCust: true,
+      periodeAwal: true,
+      lamaPeriode: true,
+      persenPsspDokter: true,
+      pengaliNilaiR: true,
       namaProduk: true,
       kodeProduk: true,
       kategoriProdukFokus: true,
@@ -96,6 +105,10 @@ async function PmDashboardContent({ actor }: { actor: NonNullable<Awaited<Return
       poa: { select: { owner: { select: { nip: true, name: true, nipAtasan: true } } } },
     },
   });
+
+  // Identical re-entries across an owner's POAs in the same quarter count once.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma rows are untyped (any) in this repo
+  const lineItems: typeof lineItemsAll = dedupeLineItems<any>(lineItemsAll, new Map(lineItemsAll.map((li: any) => [li.poaId, li.poa.owner.nip])));
 
   // For each MR, traverse up to find their NSM
   // Since we're already filtering to subordinates, use actor as the NSM

@@ -768,6 +768,10 @@ export async function hasPendingEditRequestForDoctor(doctorApprovalId: string): 
 export async function canEditDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval | null): Promise<boolean> {
   if (user.role === Role.ADMIN) return true;
 
+  // Sudah Deal (dealAt) = final, terkunci untuk semua role non-ADMIN (2026-10-07,
+  // keputusan user) — tidak bisa diedit dan tidak bisa Ajukan Edit.
+  if (doctor?.dealAt) return false;
+
   const userLevel = ROLE_LEVEL[user.role] ?? -1;
   if (userLevel >= 0 && doctor) {
     const lockLevel = await getEditLockLevelForDoctor(doctor.id, poa.ownerId, doctor.status);
@@ -824,6 +828,7 @@ export async function canCancelApprovedDoctor(user: User, poa: PoaForm, doctor: 
 export async function canRequestEditDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval | null): Promise<boolean> {
   if (poa.ownerId !== user.nip) return false;
   if (!doctor) return false;
+  if (doctor.dealAt) return false;
   if (await canEditDoctor(user, poa, doctor)) return false;
   return hasApprovalThisCycleForDoctor(doctor.id, doctor.status);
 }

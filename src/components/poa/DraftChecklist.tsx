@@ -1294,12 +1294,21 @@ function DoctorRow({
             </thead>
             <tbody>
               {doctorItems.map((it) => {
+                const isDuplicateProduk = doctorItems.some((o) => o.id !== it.id && o.kodeProduk === it.kodeProduk);
                 const itemPengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
                 const itemBase = toNum(it.rencanaTotalBiaya);
                 const itemNilaiPssp = itemBase * toNum(it.persenPsspDokter) * itemPengali;
                 return (
                   <tr key={it.id} style={{ borderTop: "1px solid var(--color-border)" }}>
-                    <td className="px-2.5 py-2" style={{ color: "var(--color-text)" }}>{it.namaProduk}</td>
+                    <td className="px-2.5 py-2" style={{ color: "var(--color-text)" }}>
+                      {it.namaProduk}
+                      {isDuplicateProduk && (
+                        <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded font-semibold whitespace-nowrap" title="Produk yang sama diinput lebih dari sekali untuk dokter & outlet ini"
+                          style={{ color: "var(--color-warning, #b45309)", background: "var(--color-warning-light, #fef3c7)" }}>
+                          ⚠ WARNING: input ganda
+                        </span>
+                      )}
+                    </td>
                     <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.jumlahResepHari ?? "-"}</td>
                     <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text-muted)" }}>{it.qtyProdukResep ?? "-"}</td>
                     <td className="px-2.5 py-2 text-right" style={{ color: "var(--color-text)" }}>

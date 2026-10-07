@@ -225,7 +225,11 @@ async function MonitoringContent({
   const poaIds = poas.map((p) => p.id);
 
   const targetByOwner = new Map<string, number>();
+  const targetCounted = new Set<string>(); // one target per owner+period even with several POAs in the quarter
   for (const poa of poas) {
+    const k = `${poa.ownerId}|${poa.period}`;
+    if (targetCounted.has(k) && toNum(poa.target) === 0) continue;
+    targetCounted.add(k);
     targetByOwner.set(poa.ownerId, (targetByOwner.get(poa.ownerId) ?? 0) + toNum(poa.target));
   }
 

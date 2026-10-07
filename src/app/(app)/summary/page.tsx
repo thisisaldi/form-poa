@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { dedupeLineItems, sumTargetOncePerOwnerPeriod } from "@/lib/dedupeLineItems";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
 import { spesLabel } from "@/lib/spesialisasi";
@@ -602,7 +603,7 @@ async function SummaryContent({
   );
   const resolvedTarget = (p: { ownerId: string; period: string; target: { toString(): string } | null }) =>
     p.target != null ? toNum(p.target) : (targetFallbackMap.get(`${p.ownerId}|${p.period}`) ?? 0);
-  const targetTotal = poas.reduce((s, p) => s + resolvedTarget(p), 0);
+  const targetTotal = sumTargetOncePerOwnerPeriod(poas, resolvedTarget);
 
   // Progress approval per status (2026-08-10, "chart untuk tau progress
   // approval nya... bar draft, bar submitted ke ASM, bar submitted ke SM,
@@ -633,7 +634,8 @@ async function SummaryContent({
   // compares against the previous quarter's plan, so both queries are gone
   // rather than left computing an unread result on every page load.
 
-  const lineItems = poaIds.length > 0
+  const ownerByPoaId = new Map(poas.map((p) => [p.id, p.ownerId]));
+  const lineItemsAll = poaIds.length > 0
     ? (await prisma.poaLineItem.findMany({
         where: { poaId: { in: poaIds } },
         select: {
@@ -687,6 +689,8 @@ async function SummaryContent({
         labelCustomer: string | null;
       }[]
     : [];
+  // Identical re-entries across a owner's POAs in the same quarter count once.
+  const lineItems = dedupeLineItems(lineItemsAll, ownerByPoaId);
 
   // Outlet names for the "outlet" tab
   const outletCodes = [...new Set(lineItems.map((li) => li.kodePI).filter(Boolean) as string[])];
@@ -942,8 +946,10 @@ async function SummaryContent({
   const targetSebelumnyaFallbackMap = await resolveTargetHospitalValueFallback(
     targetSebelumnyaPoas.map((p) => ({ owner: { nip: p.ownerId, role: "MR" as const }, quarter: ringkasanQSebelumnya ?? "" }))
   );
-  const targetSebelumnyaTotal = targetSebelumnyaPoas.reduce((s, p) =>
-    s + (p.target != null ? toNum(p.target) : (targetSebelumnyaFallbackMap.get(`${p.ownerId}|${ringkasanQSebelumnya}`) ?? 0)), 0);
+  const targetSebelumnyaTotal = sumTargetOncePerOwnerPeriod(
+    targetSebelumnyaPoas.map((p) => ({ ...p, period: ringkasanQSebelumnya ?? "" })),
+    (p) => (p.target != null ? toNum(p.target) : (targetSebelumnyaFallbackMap.get(`${p.ownerId}|${ringkasanQSebelumnya}`) ?? 0)),
+  );
 
   // §3 also needs PSSP Rencana (not just Aktif) for Q-Sebelumnya, genuinely
   // TERCACAH to Q-Sebelumnya's own months (2026-08-06: "semua estimasi...
@@ -954,11 +960,15 @@ async function SummaryContent({
   // Needs the actual line items (periodeAwal/lamaPeriode), not just an
   // aggregate, to run through the same `computeMonthlyBreakdown` apportionment
   // as Q-Berjalan's `ringkasanMonthlyBreakdown` above.
-  const lineItemsSebelumnya = targetSebelumnyaPoas.length > 0
+  const lineItemsSebelumnyaAll = targetSebelumnyaPoas.length > 0
     ? (await prisma.poaLineItem.findMany({
         where: { poaId: { in: targetSebelumnyaPoas.map((p) => p.id) } },
-        select: { rencanaTotalBiaya: true, persenPsspDokter: true, pengaliNilaiR: true, periodeAwal: true, lamaPeriode: true },
+        select: { poaId: true, kodePI: true, namaCust: true, kodeProduk: true, rencanaTotalBiaya: true, persenPsspDokter: true, pengaliNilaiR: true, periodeAwal: true, lamaPeriode: true },
       })) as {
+        poaId: string;
+        kodePI: string | null;
+        namaCust: string;
+        kodeProduk: string;
         rencanaTotalBiaya: { toString(): string } | number;
         persenPsspDokter: { toString(): string } | number | null;
         pengaliNilaiR: { toString(): string } | number | null;
@@ -966,6 +976,7 @@ async function SummaryContent({
         lamaPeriode: number | null;
       }[]
     : [];
+  const lineItemsSebelumnya = dedupeLineItems(lineItemsSebelumnyaAll, new Map(targetSebelumnyaPoas.map((p) => [p.id, p.ownerId])));
   const sebelumnyaMonthlyBreakdown = computeMonthlyBreakdown(lineItemsSebelumnya);
   const rencanaSebelumnyaTotal = ringkasanQSebelumnyaMonths.reduce((s, m) => s + (sebelumnyaMonthlyBreakdown.get(m)?.estimasi ?? 0), 0);
 
@@ -1581,7 +1592,13 @@ async function SummaryContent({
   // Target per MR — same manual-or-fallback resolution `targetTotal` uses
   // (docs/summary-ringkasan §4), split by owner instead of summed.
   const targetByOwner = new Map<string, number>();
-  for (const p of poas) targetByOwner.set(p.ownerId, (targetByOwner.get(p.ownerId) ?? 0) + resolvedTarget(p));
+  const targetCounted = new Set<string>(); // one target per owner+period even with several POAs in the quarter
+  for (const p of poas) {
+    const k = `${p.ownerId}|${p.period}`;
+    if (targetCounted.has(k)) continue;
+    targetCounted.add(k);
+    targetByOwner.set(p.ownerId, (targetByOwner.get(p.ownerId) ?? 0) + resolvedTarget(p));
+  }
 
   const isCustomerTab = tab === "customer";
   const isBiayaOutletScope = tab === "mr" || tab === "outlet";

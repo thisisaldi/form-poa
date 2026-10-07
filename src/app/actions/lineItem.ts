@@ -134,14 +134,13 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
 
   await assertCanEditDoctor(poa, actor, kodePI, namaCust);
 
-  // Same doctor (outlet + name) can't have the same product added twice.
-  const existingForDoctor: { kodeProduk: string; isManualCustomer: boolean }[] = await prisma.poaLineItem.findMany({
+  // Same doctor + outlet + product CAN be added twice (2026-10-07 request) —
+  // no longer blocked, only flagged with a WARNING label in the UI (LineItemEditor
+  // row + DraftChecklist product table).
+  const existingForDoctor: { isManualCustomer: boolean }[] = await prisma.poaLineItem.findMany({
     where: { poaId, kodePI, namaCust },
-    select: { kodeProduk: true, isManualCustomer: true },
+    select: { isManualCustomer: true },
   });
-  if (existingForDoctor.some((i) => i.kodeProduk === kodeProduk)) {
-    redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent(`${product!.namaProduk} sudah ada untuk dokter ini.`));
-  }
 
   // Manual (unsynced) doctor — Customer.syncedAt is only ever null for doctors
   // registered via "Daftar User Baru", never for ones synced from the CDB.
@@ -257,15 +256,6 @@ export async function updateLineItemAction(
   ]);
   if (!current) redirect(`/poa/${poaId}`);
   await assertCanEditDoctor(poa, actor, current.kodePI, current.namaCust);
-
-  if (product && current) {
-    const duplicate = await prisma.poaLineItem.findFirst({
-      where: { poaId, kodePI: current.kodePI, namaCust: current.namaCust, kodeProduk, id: { not: lineItemId } },
-    });
-    if (duplicate) {
-      redirect(`/poa/${poaId}/edit?error=` + encodeURIComponent(`${product.namaProduk} sudah ada untuk dokter ini.`));
-    }
-  }
 
   // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
   await flagRevisionOnEditDoctor(poaId, current?.kodePI ?? "", current?.namaCust ?? "", actor.nip, {
