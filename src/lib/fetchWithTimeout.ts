@@ -1,11 +1,11 @@
-﻿/**
+/**
  * Helper to perform HTTP fetch with a strict timeout guard.
- * Defaults to 4000ms (4 seconds).
+ * Defaults to 30000ms (30 seconds).
  */
 export async function fetchWithTimeout(
   url: string | URL,
   init?: RequestInit,
-  timeoutMs = 4000
+  timeoutMs = 30000
 ): Promise<Response> {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const signal = init?.signal

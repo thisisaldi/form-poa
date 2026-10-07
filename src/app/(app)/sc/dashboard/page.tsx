@@ -170,6 +170,9 @@ export default async function SalesCounterDashboardPage({
       lamaPeriode: lama,
     });
 
+    const distinctProductMonths = new Set(f.products.map((p: any) => p.periodeMonth).filter(Boolean));
+    const isMultiMonth = distinctProductMonths.size > 1;
+
     let fEstSales = 0;
     let fBudgetSc = 0;
 
@@ -178,26 +181,23 @@ export default async function SalesCounterDashboardPage({
       const mp = masterProductMap.get(p.kodeProduk);
       const cp = canvasserProductMap.get(`${f.kodePI}_${p.kodeProduk}`);
       const hnaSJ = mp ? Number(mp.hna.toString()) : 0;
-      const konv = mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1;
-      const hnaST = hnaSJ / konv;
 
       const qty = p.qtyPerBulan || 0;
 
-      const estSalesPerMonth = qty * hnaST;
-      const estSalesFull = estSalesPerMonth * lama;
+      const estSalesPerMonth = qty * hnaSJ;
+      const estSalesFull = isMultiMonth ? estSalesPerMonth : estSalesPerMonth * lama;
 
-      const qtySjBln = konv > 0 ? qty / konv : 0;
       const scVal = cp?.sales_counter_value;
       const scMin = cp?.sales_counter_minimum || 0;
 
       let nilaiScPerMonth = 0;
       if (scVal != null && scVal > 0) {
-        nilaiScPerMonth = qtySjBln >= scMin ? qtySjBln * scVal : 0;
+        nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
       } else {
         const pctMatriks = Number(p.persenMatriksSc?.toString() || 0);
         nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
       }
-      const nilaiScFull = nilaiScPerMonth * lama;
+      const nilaiScFull = isMultiMonth ? nilaiScPerMonth : nilaiScPerMonth * lama;
 
       const diskonFull = estSalesFull * (Number(p.persenDiskon?.toString() || 0) / 100);
       const cashbackFull = cashbackData

@@ -79,7 +79,7 @@ export async function getSalesCounterProduct(
           },
           next: { revalidate: 60 },
         },
-        4000
+        30000
       );
 
       if (res.ok) {
@@ -108,7 +108,7 @@ export async function getSalesCounterProduct(
         },
         next: { revalidate: 60 },
       },
-      4000
+      30000
     );
 
     if (!res.ok) {
