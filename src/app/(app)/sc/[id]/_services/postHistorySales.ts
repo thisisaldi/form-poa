@@ -62,7 +62,7 @@ export async function postHistorySales(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
-    }, 30000);
+    }, 60000);
 
     if (!res.ok) {
       if (res.status === 404) return null;
