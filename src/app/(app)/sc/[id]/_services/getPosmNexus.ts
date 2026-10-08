@@ -87,7 +87,7 @@ export async function getPosmNexus(
         }
       );
 
-      req.setTimeout(30000, () => {
+      req.setTimeout(60000, () => {
         console.error(`Timeout fetching POSM data for ${outletId}`);
         req.destroy();
         resolve(null);
