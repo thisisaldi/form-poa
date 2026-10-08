@@ -12,7 +12,7 @@ export async function getScCashbackPoa(piCode?: string): Promise<any | null> {
       },
       redirect: "follow",
       cache: "no-store",
-    }, 30000);
+    }, 60000);
 
     if (!res.ok) {
       try {
