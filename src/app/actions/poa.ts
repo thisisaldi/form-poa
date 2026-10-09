@@ -35,12 +35,12 @@ export async function createPoaAction(formData: FormData): Promise<void> {
   // team is vacant can create one too (see canCreatePoa's doc comment).
   if (!(await canCreatePoa(session.userId))) redirect("/dashboard?error=no_outlets");
 
-  // Prevent duplicate drafts for the same quarter period — EXCEPT once every existing
-  // POA of that quarter already has a Deal doctor (locked, 2026-10-07): the owner may
-  // then open a second POA in the same quarter for a new pengajuan. Aggregates dedupe
-  // identical rows / count target once per owner+period (see lib/dedupeLineItems.ts).
+  // Prevent EMPTY duplicate drafts for the same quarter period. A second POA in the same
+  // quarter is allowed once the existing ones already have line items (2026-10-07: e.g.
+  // same customer, different PSSP type, or a customer that is already Deal-locked).
+  // Aggregates dedupe identical rows / count target once per owner+period (lib/dedupeLineItems.ts).
   const existing = await prisma.poaForm.findFirst({
-    where: { ownerId: session.userId, period, doctorApprovals: { none: { dealAt: { not: null } } } },
+    where: { ownerId: session.userId, period, items: { none: {} } },
   });
   if (existing) {
     redirect(`/poa/${existing.id}/edit?notice=` + encodeURIComponent(`Draft ${period} sudah ada. Lanjutkan di sini.`));
@@ -326,7 +326,7 @@ export async function updatePoaPeriodAction(poaId: string, newPeriod: string): P
   if (period === poa.period) return {};
 
   const duplicate = await prisma.poaForm.findFirst({
-    where: { ownerId: poa.ownerId, period, id: { not: poaId }, doctorApprovals: { none: { dealAt: { not: null } } } },
+    where: { ownerId: poa.ownerId, period, id: { not: poaId }, items: { none: {} } },
   });
   if (duplicate) return { error: `Draft ${period} untuk pemilik ini sudah ada.` };
 

@@ -663,6 +663,9 @@ async function SummaryContent({
           // shared select rather than a second query since it's a free
           // column read on a row set already being fetched for every tab.
           pihakPssp: true,
+          jenisPssp: true,
+          jenisPsSp: true,
+          bentukPssp: true,
           labelCustomer: true,
         },
       })) as {
@@ -963,7 +966,7 @@ async function SummaryContent({
   const lineItemsSebelumnyaAll = targetSebelumnyaPoas.length > 0
     ? (await prisma.poaLineItem.findMany({
         where: { poaId: { in: targetSebelumnyaPoas.map((p) => p.id) } },
-        select: { poaId: true, kodePI: true, namaCust: true, kodeProduk: true, rencanaTotalBiaya: true, persenPsspDokter: true, pengaliNilaiR: true, periodeAwal: true, lamaPeriode: true },
+        select: { poaId: true, kodePI: true, namaCust: true, kodeProduk: true, jenisPssp: true, jenisPsSp: true, bentukPssp: true, pihakPssp: true, rencanaTotalBiaya: true, persenPsspDokter: true, pengaliNilaiR: true, periodeAwal: true, lamaPeriode: true },
       })) as {
         poaId: string;
         kodePI: string | null;

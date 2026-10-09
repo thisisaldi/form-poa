@@ -292,6 +292,7 @@ export async function GET(req: NextRequest) {
             labelCustomer: true,
             produkKompetitor: true,
             bentukPssp: true,
+            jenisPssp: true, jenisPsSp: true, pihakPssp: true,
             kriteriaProduk: true,
           },
         }) as {

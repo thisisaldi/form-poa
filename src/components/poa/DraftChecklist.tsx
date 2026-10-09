@@ -1294,7 +1294,9 @@ function DoctorRow({
             </thead>
             <tbody>
               {doctorItems.map((it) => {
-                const isDuplicateProduk = doctorItems.some((o) => o.id !== it.id && o.kodeProduk === it.kodeProduk);
+                // Same product with a different jenis/bentuk/pihak PSSP is a legit separate row — only identical types warn.
+                const isDuplicateProduk = doctorItems.some((o) => o.id !== it.id && o.kodeProduk === it.kodeProduk
+                  && o.jenisPssp === it.jenisPssp && o.jenisPsSp === it.jenisPsSp && o.bentukPssp === it.bentukPssp && o.pihakPssp === it.pihakPssp);
                 const itemPengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
                 const itemBase = toNum(it.rencanaTotalBiaya);
                 const itemNilaiPssp = itemBase * toNum(it.persenPsspDokter) * itemPengali;

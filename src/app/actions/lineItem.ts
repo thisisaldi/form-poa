@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canEditDoctor } from "@/lib/authz";
+import { canEditDoctor, canView } from "@/lib/authz";
 import { flagRevisionOnEditDoctor } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
 import { isWriteBlocked } from "@/lib/maintenance";
@@ -24,6 +24,46 @@ async function requireSessionAndPoa(poaId: string) {
   if (!poa) redirect("/dashboard");
 
   return { poa, actor };
+}
+
+export interface DoctorInOtherPoa {
+  poaId: string;
+  seq: number;
+  produk: string[];
+  deal: boolean;
+}
+
+/**
+ * Other POAs of the SAME owner in the SAME quarter that already hold this doctor
+ * at this outlet — drives the WARNING shown when picking a dokter in the add form
+ * (2026-10-07). Read-only; empty on any miss. Scoped by canView on the POA being edited.
+ */
+export async function getDoctorInOtherPoas(poaId: string, kodePI: string, namaCust: string): Promise<DoctorInOtherPoa[]> {
+  const session = await getCurrentUser();
+  if (!session || !kodePI || !namaCust) return [];
+  const [poa, actor] = await Promise.all([
+    prisma.poaForm.findUnique({ where: { id: poaId } }),
+    prisma.user.findUnique({ where: { nip: session.userId } }),
+  ]);
+  if (!poa || !actor || !(await canView(actor, poa))) return [];
+
+  const rows = await prisma.poaLineItem.findMany({
+    where: { kodePI, namaCust, poa: { ownerId: poa.ownerId, period: poa.period, id: { not: poaId } } },
+    select: { poaId: true, namaProduk: true, poa: { select: { seq: true } } },
+  }) as { poaId: string; namaProduk: string; poa: { seq: number } }[];
+  if (rows.length === 0) return [];
+
+  const poaIds = [...new Set(rows.map((r) => r.poaId))];
+  const deals = await prisma.poaDoctorApproval.findMany({
+    where: { poaId: { in: poaIds }, kodePI, namaCust, dealAt: { not: null } },
+    select: { poaId: true },
+  }) as { poaId: string }[];
+  const dealSet = new Set(deals.map((d) => d.poaId));
+
+  return poaIds.map((id) => {
+    const mine = rows.filter((r) => r.poaId === id);
+    return { poaId: id, seq: mine[0].poa.seq, produk: [...new Set(mine.map((r) => r.namaProduk))], deal: dealSet.has(id) };
+  });
 }
 
 /**
