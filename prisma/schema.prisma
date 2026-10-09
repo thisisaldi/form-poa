@@ -344,6 +344,7 @@ model Customer {
   poaStandarisasiDokterUsers     PoaStandarisasiDokterUser[]
   poaStandarisasiAsKpdm          PoaStandarisasiKpdm[]
   poaStandarisasiPusatDokters    PoaStandarisasiPusatDokter[]
+  poaStandarisasiPusatAsKpdm     PoaStandarisasiPusatKpdm[]
 
   @@index([spesialisasi])
   @@index([namaCustomer])
@@ -2026,10 +2027,14 @@ model PoaStandarisasiPusat {
   tipeStandarisasi TipeStandarisasi
   periodeBulan     Int?
 
+  // docs/poa-standarisasi-pusat/04-layout-parity.md (2026-10-09) — sama seperti cabang; Jumlah Bed RS sengaja tidak ada di pusat.
+  estimasiTimelineSelesai DateTime?
+
   currentPhase PoaStandarisasiPusatPhase @default(APPROVAL_ATASAN)
   submittedAt  DateTime?
 
   produk PoaStandarisasiPusatProduk[]
+  kpdmList PoaStandarisasiPusatKpdm[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2052,6 +2057,8 @@ model PoaStandarisasiPusatProduk {
   estimasiDiskonPct            Decimal?                    @db.Decimal(10, 4)
   estimasiDiskonDistributorPct Decimal?                    @db.Decimal(10, 4)
   estimasiValueDpRp            Decimal?                    @db.Decimal(18, 2)
+  estimasiBiayaListingRp       Decimal?                    @db.Decimal(18, 2)
+  statusPengajuan              StatusPengajuanStandarisasi @default(BARU)
   catatan                      String?
 
   approvals PoaStandarisasiPusatProdukApproval[]
@@ -2090,10 +2097,41 @@ model PoaStandarisasiPusatDokter {
   wajib    Boolean @default(true)
   sudahTtd Boolean @default(false)
 
+  // Estimasi per dokter — rumus sama dengan cabang (PoaStandarisasiDokterApproval).
+  jumlahPasien              Int?
+  jumlahHariPraktekPerBulan Int?
+  resepPerPasienSt          Decimal? @db.Decimal(10, 2)
+  estimasiQtyPerBulan       Decimal? @db.Decimal(18, 2)
+  estimasiQtyUbPerBulan     Int?
+  estimasiNilaiRpPerBulan   Decimal? @db.Decimal(18, 2)
+  entertainRp               Decimal? @db.Decimal(18, 2)
+
   createdAt DateTime @default(now())
 
   @@unique([produkId, customerId])
   @@index([produkId])
+}
+
+// KPDM pengajuan pusat — boleh dari outlet mana pun di grup, lebih dari satu (sama seperti PoaStandarisasiKpdm cabang).
+model PoaStandarisasiPusatKpdm {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasiPusat @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  namaSnapshot    String
+  jabatanSnapshot String?
+
+  entertainEstimasi Decimal? @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pengajuanId, customerId])
+  @@index([pengajuanId])
 }
 
 // ─── Sales Counter (Apotek/Retail) Models ───────────────────────────────────

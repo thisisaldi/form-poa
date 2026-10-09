@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getPusatDetail, getPusatGroupOutletsAction } from "@/app/actions/poaStandarisasiPusat";
+import { getProducts } from "@/lib/masterData";
 import { PusatDetailView } from "@/components/poaStandarisasi/PusatDetail";
 
 export default async function PusatDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -10,7 +11,7 @@ export default async function PusatDetailPage({ params }: { params: Promise<{ id
 
   const detail = await getPusatDetail(id);
   if (!detail) notFound();
-  const groupOutlets = await getPusatGroupOutletsAction(detail.hkaGroup);
+  const [groupOutlets, products] = await Promise.all([getPusatGroupOutletsAction(detail.hkaGroup), getProducts()]);
 
-  return <PusatDetailView detail={detail} groupOutlets={groupOutlets} />;
+  return <PusatDetailView detail={detail} groupOutlets={groupOutlets} productOptions={products} />;
 }

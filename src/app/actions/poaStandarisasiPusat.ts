@@ -12,7 +12,10 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getCustomersByOutlet } from "@/app/actions/customer";
+import { getCustomersByOutlet, getDiskonByOutlet } from "@/app/actions/customer";
+import { getDiscountsForOutlet, type ExodusDiscountPct } from "@/lib/exodusApi";
+import { hargaST, type Product as ProductLite } from "@/lib/masterData";
+import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
 import { actionableRows, discountApprovalLevel, levelsUpTo, type ApprovalLevel, type ProdukApprovalRow } from "@/lib/discountApprovalLevel";
 import { canApprovePusatLevel, canViewPusat, hkaCreatorLevel, isAutoApprovedLevel } from "@/lib/hka";
 import type { Prisma, User } from "@prisma/client";
@@ -50,24 +53,149 @@ function canEditPusat(user: User, p: { ownerId: string; submittedAt: Date | null
 
 // ─── Create (Planning + snapshot approval) ───────────────────────────────────
 
+export interface PusatDokterInput {
+  customerId: string;
+  jumlahPasien: string | null;
+  jumlahHariPraktekPerBulan: string | null;
+  resepPerPasienSt: string | null;
+  entertainRp: string | null;
+}
+
+export interface PusatKpdmInput {
+  customerId: string;
+  nama: string;
+  jabatan: string | null;
+  entertainEstimasi: string | null;
+}
+
 export interface PusatProdukInput {
   kodeProduk: string;
   skemaPembayaran: "DISKON" | "DP";
   estimasiDiskonPct: string | null;
   estimasiDiskonDistributorPct: string | null;
   estimasiValueDpRp: string | null;
+  estimasiBiayaListingRp: string | null;
   catatan: string | null;
+  dokter: PusatDokterInput[];
 }
 
 export interface PusatCreateInput {
   hkaGroup: string;
   tipeStandarisasi: "PERIODIC" | "SISIPAN" | "PERMANEN";
   periodeBulan: string | null;
+  /** yyyy-mm-dd dari MonthYearPicker (Target Finalisasi Standarisasi), sama seperti cabang. */
+  estimasiTimelineSelesai: string | null;
+  kpdmList: PusatKpdmInput[];
   produk: PusatProdukInput[];
 }
 
 function validPct(v: number | null): boolean {
   return v === null || (v >= 0 && v <= 100);
+}
+
+// ─── Konteks per produk untuk satu grup (preview Planning + status saat create) ─────────
+
+export interface PusatProdukPreview {
+  statusPengajuan: "BARU" | "PERPANJANGAN";
+  /** DPL aktif paling lama berakhir di salah satu outlet grup (YYYYMM), untuk label "DPL habis". */
+  dplAkhir: string | null;
+  /** Diskon live Exodus dari outlet grup dengan sales 12 bln produk terbesar yang punya request. */
+  diskon: ExodusDiscountPct | null;
+  /** Dasar peringatan margin (sama seperti cabang), diambil dari outlet yang sama dengan `diskon`. */
+  baseline: { sales12Bln: number; diskonLamaPct: number } | null;
+}
+
+function currentYm(): string {
+  const now = new Date();
+  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Status Pengajuan / DPL / diskon untuk produk di GRUP (docs/poa-standarisasi-pusat/04-layout-parity.md Q6/Q7):
+ * PERPANJANGAN kalau di SALAH SATU outlet grup produk punya sales 3 bulan penuh terakhir DAN DPL aktif
+ * (aturan cabang, di-OR lintas outlet); diskon & baseline margin dari outlet dengan sales 12 bln terbesar
+ * yang punya request diskon live. Panggilan Exodus dibatasi concurrency 4 (grup bisa ~25 outlet).
+ */
+async function computePusatProdukContext(hkaGroup: string, kodeProdukList: string[]): Promise<Map<string, PusatProdukPreview>> {
+  const result = new Map<string, PusatProdukPreview>(kodeProdukList.map((k) => [k, { statusPengajuan: "BARU", dplAkhir: null, diskon: null, baseline: null }]));
+  if (!hkaGroup || kodeProdukList.length === 0) return result;
+  const outlets: { kodePI: string }[] = await prisma.outlet.findMany({ where: { hkaGroup }, select: { kodePI: true } });
+  const kodePIs = outlets.map((o) => o.kodePI);
+  if (kodePIs.length === 0) return result;
+
+  const now = new Date();
+  const last3Months = [1, 2, 3].map((i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const ym = currentYm();
+
+  const [salesRows, history, dplPerOutlet] = await Promise.all([
+    prisma.outletSalesMonthly.findMany({
+      where: { kodePI: { in: kodePIs }, itemKode: { in: kodeProdukList }, periode: { in: last3Months }, qty: { gt: 0 } },
+      select: { kodePI: true, itemKode: true },
+    }) as Promise<{ kodePI: string; itemKode: string }[]>,
+    prisma.outletSalesHistory.findMany({
+      where: { kodePI: { in: kodePIs }, itemKode: { in: kodeProdukList } },
+      select: { kodePI: true, itemKode: true, totalSales12Bln: true },
+    }) as Promise<{ kodePI: string; itemKode: string; totalSales12Bln: { toString(): string } }[]>,
+    mapWithConcurrency(kodePIs, 4, async (kodePI) => ({ kodePI, dpl: await getDiskonByOutlet(kodePI).catch(() => []) })),
+  ]);
+
+  const hasSales = new Set(salesRows.map((r) => `${r.kodePI}|${r.itemKode}`));
+  const sales12 = new Map(history.map((r) => [`${r.kodePI}|${r.itemKode}`, parseFloat(r.totalSales12Bln.toString()) || 0]));
+  for (const { kodePI, dpl } of dplPerOutlet) {
+    for (const c of dpl) {
+      const ctx = result.get(c.kodeProduk);
+      if (!ctx || !(c.prdAwal <= ym && ym <= c.prdAkhir)) continue;
+      if ((ctx.dplAkhir ?? "") < c.prdAkhir) ctx.dplAkhir = c.prdAkhir;
+      if (hasSales.has(`${kodePI}|${c.kodeProduk}`)) ctx.statusPengajuan = "PERPANJANGAN";
+    }
+  }
+
+  // Diskon live: outlet dengan sales 12 bln terbesar per produk, dicoba berurutan sampai ada yang punya request (maks 3).
+  const rankedByProduk = new Map<string, string[]>(
+    kodeProdukList.map((k) => [k, kodePIs.filter((pi) => (sales12.get(`${pi}|${k}`) ?? 0) > 0).sort((a, b) => (sales12.get(`${b}|${k}`) ?? 0) - (sales12.get(`${a}|${k}`) ?? 0)).slice(0, 3)])
+  );
+  const candidatePIs = [...new Set([...rankedByProduk.values()].flat())];
+  const discountsByPI = new Map<string, Map<string, ExodusDiscountPct> | null>(
+    await mapWithConcurrency(candidatePIs, 4, async (pi) => [pi, await getDiscountsForOutlet(pi).catch(() => null)] as const)
+  );
+  for (const k of kodeProdukList) {
+    for (const pi of rankedByProduk.get(k) ?? []) {
+      const d = discountsByPI.get(pi)?.get(k);
+      if (!d) continue;
+      const ctx = result.get(k)!;
+      ctx.diskon = d;
+      ctx.baseline = { sales12Bln: sales12.get(`${pi}|${k}`) ?? 0, diskonLamaPct: d.principalPct + d.distributorPct };
+      break;
+    }
+  }
+  return result;
+}
+
+export async function getPusatProdukPreviewAction(hkaGroup: string, kodeProdukList: string[]): Promise<Record<string, PusatProdukPreview>> {
+  const actor = await requireActor().catch(() => null);
+  if (!actor || !canViewPusat(actor)) return {};
+  return Object.fromEntries(await computePusatProdukContext(hkaGroup, [...new Set(kodeProdukList.filter(Boolean))]));
+}
+
+/** Dokter/KPDM di satu outlet grup untuk form BUAT (belum ada pengajuan). Outlet wajib bagian dari grup. */
+export async function getPusatGroupDokterAction(hkaGroup: string, kodePI: string) {
+  const actor = await requireActor().catch(() => null);
+  if (!actor || !canViewPusat(actor) || !hkaGroup || !kodePI) return [];
+  const outlet = await prisma.outlet.findUnique({ where: { kodePI }, select: { hkaGroup: true } });
+  if (outlet?.hkaGroup !== hkaGroup) return [];
+  return getCustomersByOutlet(kodePI);
+}
+
+/** Rumus sama dengan cabang (computeEstimasiPerBulan di poaStandarisasi.ts): pasien/hari × hari praktek/bln × resep/pasien. */
+function computeEstimasiDokter(product: { hna: { toString(): string }; konversiPembagi: { toString(): string } | null }, jumlahPasien: number | null, hari: number | null, resep: number | null) {
+  if (!jumlahPasien || !hari || !resep) return { estimasiQtyPerBulan: null, estimasiQtyUbPerBulan: null, estimasiNilaiRpPerBulan: null };
+  const qty = jumlahPasien * hari * resep;
+  const konversi = Number(product.konversiPembagi ?? 1) || 1;
+  const hst = hargaST({ hna: product.hna.toString(), konversiPembagi: product.konversiPembagi?.toString() ?? null } as ProductLite);
+  return { estimasiQtyPerBulan: qty, estimasiQtyUbPerBulan: Math.ceil(qty / konversi), estimasiNilaiRpPerBulan: Math.round(qty * hst) };
 }
 
 export async function createPusatAction(input: PusatCreateInput): Promise<PusatResult> {
@@ -80,14 +208,26 @@ export async function createPusatAction(input: PusatCreateInput): Promise<PusatR
     if ((input.tipeStandarisasi === "PERIODIC" || input.tipeStandarisasi === "SISIPAN") && !toNum(input.periodeBulan)) {
       throw new Error("Periode wajib diisi untuk tipe Periodic/Sisipan.");
     }
+    if (input.kpdmList.length === 0) throw new Error("KPDM wajib dipilih minimal 1.");
     if (input.produk.length === 0) throw new Error("Tambahkan minimal 1 produk.");
     const kodes = input.produk.map((p) => p.kodeProduk);
     if (new Set(kodes).size !== kodes.length) throw new Error("Produk tidak boleh duplikat.");
-    const found = await prisma.product.count({ where: { kodeProduk: { in: kodes } } });
-    if (found !== kodes.length) throw new Error("Ada produk yang tidak ditemukan.");
+    const products = await prisma.product.findMany({ where: { kodeProduk: { in: kodes } }, select: { kodeProduk: true, hna: true, konversiPembagi: true } });
+    if (products.length !== kodes.length) throw new Error("Ada produk yang tidak ditemukan.");
+    const productByKode = new Map<string, { hna: { toString(): string }; konversiPembagi: { toString(): string } | null }>(products.map((p: (typeof products)[number]) => [p.kodeProduk, p]));
     for (const p of input.produk) {
       if (!validPct(toNum(p.estimasiDiskonPct)) || !validPct(toNum(p.estimasiDiskonDistributorPct))) throw new Error("Persentase diskon harus 0–100.");
+      if (p.dokter.length === 0) throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
+      if (new Set(p.dokter.map((d) => d.customerId)).size !== p.dokter.length) throw new Error("Dokter tidak boleh duplikat dalam satu produk.");
     }
+
+    // KPDM dan dokter boleh dari outlet mana pun, asal terdaftar di salah satu outlet grup ini.
+    const customerIds = [...new Set([...input.kpdmList.map((k) => k.customerId), ...input.produk.flatMap((p) => p.dokter.map((d) => d.customerId))])];
+    const inGroup: { customerId: string }[] = await prisma.customerOutlet.findMany({ where: { customerId: { in: customerIds }, outlet: { hkaGroup } }, select: { customerId: true }, distinct: ["customerId"] });
+    if (inGroup.length !== customerIds.length) throw new Error(`Ada KPDM/dokter yang tidak terdaftar di outlet grup ${hkaGroup}.`);
+
+    // Status Pengajuan dihitung server (bukan dipercaya dari klien), sama seperti cabang.
+    const context = await computePusatProdukContext(hkaGroup, kodes);
 
     const creatorLevel = hkaCreatorLevel(actor.role);
     const now = new Date();
@@ -98,7 +238,17 @@ export async function createPusatAction(input: PusatCreateInput): Promise<PusatR
           hkaGroup,
           tipeStandarisasi: input.tipeStandarisasi,
           periodeBulan: input.tipeStandarisasi === "PERMANEN" ? null : toNum(input.periodeBulan),
+          estimasiTimelineSelesai: input.estimasiTimelineSelesai ? new Date(input.estimasiTimelineSelesai) : null,
         },
+      });
+      await tx.poaStandarisasiPusatKpdm.createMany({
+        data: input.kpdmList.map((k) => ({
+          pengajuanId: pengajuan.id,
+          customerId: k.customerId,
+          namaSnapshot: k.nama,
+          jabatanSnapshot: k.jabatan,
+          entertainEstimasi: toNum(k.entertainEstimasi),
+        })),
       });
       let waiting = 0;
       for (const p of input.produk) {
@@ -110,8 +260,28 @@ export async function createPusatAction(input: PusatCreateInput): Promise<PusatR
             estimasiDiskonPct: toNum(p.estimasiDiskonPct),
             estimasiDiskonDistributorPct: toNum(p.estimasiDiskonDistributorPct),
             estimasiValueDpRp: toNum(p.estimasiValueDpRp),
+            estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
+            statusPengajuan: context.get(p.kodeProduk)?.statusPengajuan ?? "BARU",
             catatan: p.catatan?.trim() || null,
           },
+        });
+        const product = productByKode.get(p.kodeProduk)!;
+        await tx.poaStandarisasiPusatDokter.createMany({
+          data: p.dokter.map((d) => {
+            const jumlahPasien = toNum(d.jumlahPasien);
+            const hari = toNum(d.jumlahHariPraktekPerBulan);
+            const resep = toNum(d.resepPerPasienSt);
+            return {
+              produkId: row.id,
+              customerId: d.customerId,
+              wajib: true,
+              jumlahPasien: jumlahPasien === null ? null : Math.round(jumlahPasien),
+              jumlahHariPraktekPerBulan: hari === null ? null : Math.round(hari),
+              resepPerPasienSt: resep,
+              entertainRp: toNum(d.entertainRp),
+              ...computeEstimasiDokter(product, jumlahPasien, hari, resep),
+            };
+          }),
         });
         // Level dari diskon PI (skema DP / kosong = 0% = ASM), sama dengan cabang.
         const pct = p.skemaPembayaran === "DISKON" ? toNum(p.estimasiDiskonPct) ?? 0 : 0;
@@ -173,6 +343,8 @@ export interface PusatDetail {
   hkaGroup: string;
   tipeStandarisasi: string;
   periodeBulan: number | null;
+  estimasiTimelineSelesai: string | null;
+  kpdmList: { customerId: string; nama: string; jabatan: string | null; entertainEstimasi: number | null }[];
   currentPhase: "APPROVAL_ATASAN" | "APPROVAL_USER_DOKTER" | "FINALISASI";
   submittedAt: string | null;
   ownerName: string;
@@ -186,9 +358,15 @@ export interface PusatDetail {
     estimasiDiskonPct: number | null;
     estimasiDiskonDistributorPct: number | null;
     estimasiValueDpRp: number | null;
+    estimasiBiayaListingRp: number | null;
+    statusPengajuan: "BARU" | "PERPANJANGAN";
     catatan: string | null;
     approvals: { level: ApprovalLevel; status: string; autoApproved: boolean }[];
-    dokter: { customerId: string; nama: string; spesialisasi: string; outlet: string; wajib: boolean; sudahTtd: boolean }[];
+    dokter: {
+      customerId: string; nama: string; spesialisasi: string; outlet: string; wajib: boolean; sudahTtd: boolean;
+      jumlahPasien: number | null; jumlahHariPraktekPerBulan: number | null; resepPerPasienSt: number | null;
+      estimasiQtyPerBulan: number | null; estimasiQtyUbPerBulan: number | null; estimasiNilaiRpPerBulan: number | null; entertainRp: number | null;
+    }[];
   }[];
 }
 
@@ -199,6 +377,7 @@ export async function getPusatDetail(id: string): Promise<PusatDetail | null> {
     where: { id },
     include: {
       owner: { select: { nip: true, name: true } },
+      kpdmList: { orderBy: { createdAt: "asc" } },
       produk: {
         include: {
           product: { select: { namaProduk: true } },
@@ -216,6 +395,8 @@ export async function getPusatDetail(id: string): Promise<PusatDetail | null> {
     hkaGroup: p.hkaGroup,
     tipeStandarisasi: p.tipeStandarisasi,
     periodeBulan: p.periodeBulan,
+    estimasiTimelineSelesai: p.estimasiTimelineSelesai?.toISOString() ?? null,
+    kpdmList: p.kpdmList.map((k: (typeof p.kpdmList)[number]) => ({ customerId: k.customerId, nama: k.namaSnapshot, jabatan: k.jabatanSnapshot, entertainEstimasi: toNum(k.entertainEstimasi) })),
     currentPhase: p.currentPhase,
     submittedAt: p.submittedAt?.toISOString() ?? null,
     ownerName: p.owner.name,
@@ -229,6 +410,8 @@ export async function getPusatDetail(id: string): Promise<PusatDetail | null> {
       estimasiDiskonPct: toNum(x.estimasiDiskonPct),
       estimasiDiskonDistributorPct: toNum(x.estimasiDiskonDistributorPct),
       estimasiValueDpRp: toNum(x.estimasiValueDpRp),
+      estimasiBiayaListingRp: toNum(x.estimasiBiayaListingRp),
+      statusPengajuan: x.statusPengajuan,
       catatan: x.catatan,
       approvals: x.approvals.map((a: (typeof x.approvals)[number]) => ({ level: a.level as ApprovalLevel, status: a.status, autoApproved: a.autoApproved })),
       dokter: x.dokter.map((d: (typeof x.dokter)[number]) => ({
@@ -238,6 +421,13 @@ export async function getPusatDetail(id: string): Promise<PusatDetail | null> {
         outlet: d.customer.outlets.map((o: (typeof d.customer.outlets)[number]) => o.outlet).find((o: { hkaGroup: string | null }) => o.hkaGroup === p.hkaGroup)?.namaOutlet ?? "-",
         wajib: d.wajib,
         sudahTtd: d.sudahTtd,
+        jumlahPasien: d.jumlahPasien,
+        jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan,
+        resepPerPasienSt: toNum(d.resepPerPasienSt),
+        estimasiQtyPerBulan: toNum(d.estimasiQtyPerBulan),
+        estimasiQtyUbPerBulan: d.estimasiQtyUbPerBulan,
+        estimasiNilaiRpPerBulan: toNum(d.estimasiNilaiRpPerBulan),
+        entertainRp: toNum(d.entertainRp),
       })),
     })),
   };

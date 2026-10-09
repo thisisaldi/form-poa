@@ -68,7 +68,7 @@ function driveViewUrl(driveFileId: string): string {
   return `/api/poa-standarisasi/dokumen/${driveFileId}`;
 }
 
-function formatRp(n: number | null | undefined): string {
+export function formatRp(n: number | null | undefined): string {
   if (n == null) return "-";
   return "Rp " + Math.round(n).toLocaleString("id-ID");
 }
@@ -77,7 +77,7 @@ function formatRp(n: number | null | undefined): string {
  * right-aligned "Rp 1.234" block sliding together (Dokter User table redline
  * 2026-09-08 item #6). Read-only computed cells only — editable RpInput
  * fields elsewhere keep their own layout, not touched here. */
-function AccountingRp({ n }: { n: number | null | undefined }) {
+export function AccountingRp({ n }: { n: number | null | undefined }) {
   if (n == null) return <span>-</span>;
   return (
     <div className="flex justify-between gap-2">
@@ -219,13 +219,13 @@ export function UnitCountInput({
 // Replaces a flat "diskon% > 20%" cap that had no historical basis (2026-08-28
 // user correction). Warning-only (matches POA Estimasi's "OVER BUDGET"
 // pattern, LineItemEditor.tsx:1419) — doesn't block submit.
-const MARGIN_CAP_PCT = 20;
+export const MARGIN_CAP_PCT = 20;
 
 // Fallback default for "Estimasi Diskon Distributor" when this outlet+produk
 // has no live Exodus discount request on file at all (2026-09-09 user
 // request) — still just a DEFAULT, field stays editable and never overwrites
 // a value the MR already typed/saved.
-const DEFAULT_DISKON_DISTRIBUTOR_PCT = "5";
+export const DEFAULT_DISKON_DISTRIBUTOR_PCT = "5";
 
 const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
@@ -233,7 +233,7 @@ const BULAN_ID = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli"
  * combined dropdown) that together store the 1st of the selected month as
  * "yyyy-mm-01", not an exact date. Year range covers the longest Periodic
  * option (see PERIODE_PERIODIC_OPTIONS) plus buffer. */
-function MonthYearPicker({ label, value, onChange, disabled }: { label?: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
+export function MonthYearPicker({ label, value, onChange, disabled }: { label?: string; value: string; onChange: (v: string) => void; disabled?: boolean }) {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1; // 1-12
@@ -305,7 +305,7 @@ function MonthYearPicker({ label, value, onChange, disabled }: { label?: string;
   );
 }
 
-function hargaSTFromProduct(p: Product): number {
+export function hargaSTFromProduct(p: Product): number {
   const hna = parseFloat(p.hna) || 0;
   const konversi = parseFloat(p.konversiPembagi ?? "1") || 1;
   return hna / konversi;

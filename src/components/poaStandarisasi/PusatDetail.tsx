@@ -20,6 +20,8 @@ import {
 } from "@/app/actions/poaStandarisasiPusat";
 import { APPROVAL_LEVELS, type ApprovalLevel } from "@/lib/discountApprovalLevel";
 import { StatusPill, Stepper } from "@/components/poaStandarisasi/PoaStandarisasiWizard";
+import type { Product } from "@/lib/masterData";
+import { PusatDokterTable, PusatKpdmSection, PusatProdukCard, PusatTotalSemuaProduk, type PusatDokterForm } from "@/components/poaStandarisasi/PusatPlanningParts";
 
 type Produk = PusatDetail["produk"][number];
 
@@ -39,7 +41,7 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 }
 
 /** Detail pengajuan Standarisasi Pusat — wizard 4 langkah dengan Stepper, pola sama dengan PoaStandarisasiWizard cabang. */
-export function PusatDetailView({ detail, groupOutlets }: { detail: PusatDetail; groupOutlets: { kodePI: string; namaOutlet: string }[] }) {
+export function PusatDetailView({ detail, groupOutlets, productOptions }: { detail: PusatDetail; groupOutlets: { kodePI: string; namaOutlet: string }[]; productOptions: Product[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -62,14 +64,19 @@ export function PusatDetailView({ detail, groupOutlets }: { detail: PusatDetail;
 
   return (
     <div className="max-w-5xl">
-      <div className="mb-4">
-        <Link href="/poa-standarisasi/pusat" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
-          ← Daftar Standarisasi Pusat
-        </Link>
-        <h1 className="mt-1">Standarisasi Pusat — {detail.hkaGroup}</h1>
-        <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          POA Standarisasi Pusat (Produk × Grup RS) · dibuat oleh {detail.ownerName}
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <Link href="/poa-standarisasi/pusat" className="text-xs font-medium" style={{ color: "var(--color-blue)" }}>
+            ← Daftar Standarisasi Pusat
+          </Link>
+          <h1 className="mt-1">Standarisasi Pusat — {detail.hkaGroup}</h1>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            POA Standarisasi Pusat (Produk × Grup RS) · dibuat oleh {detail.ownerName}
+          </p>
+        </div>
+        <a href={`/api/poa-standarisasi/pusat/${detail.id}/export`}>
+          <Button size="sm" variant="ghost">↓ Export Excel</Button>
+        </a>
       </div>
 
       <Stepper
@@ -83,7 +90,7 @@ export function PusatDetailView({ detail, groupOutlets }: { detail: PusatDetail;
         <div className="mb-4 rounded px-3 py-2 text-sm" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>{error}</div>
       )}
 
-      {viewedIdx === 0 && <PlanningView detail={detail} />}
+      {viewedIdx === 0 && <PlanningView detail={detail} productByKode={new Map(productOptions.map((p) => [p.kodeProduk, p]))} />}
       {viewedIdx === 1 && <ApprovalView detail={detail} canAct={isCurrent && !submitted} act={act} pending={pending} />}
       {viewedIdx === 2 && <DokterView detail={detail} groupOutlets={groupOutlets} canEdit={canEditNow && detail.currentPhase === "APPROVAL_USER_DOKTER"} act={act} pending={pending} setError={setError} />}
       {viewedIdx === 3 && <FinalisasiView detail={detail} />}
@@ -107,22 +114,35 @@ export function PusatDetailView({ detail, groupOutlets }: { detail: PusatDetail;
 
 // ─── Fase 1: Planning (read-only setelah dibuat) ────────────────────────────
 
-function PlanningView({ detail }: { detail: PusatDetail }) {
+function PlanningView({ detail, productByKode }: { detail: PusatDetail; productByKode: Map<string, Product> }) {
+  const str = (n: number | null) => (n == null ? "" : String(n));
+  const kpdm = detail.kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan ?? "", entertainEstimasi: str(k.entertainEstimasi) }));
+  const timeline = detail.estimasiTimelineSelesai
+    ? new Date(detail.estimasiTimelineSelesai).toLocaleDateString("id-ID", { month: "long", year: "numeric" })
+    : "-";
+  const dokterForm = (p: Produk): PusatDokterForm[] => p.dokter.map((d) => ({
+    customerId: d.customerId, nama: d.nama, spesialisasi: d.spesialisasi,
+    jumlahPasien: str(d.jumlahPasien), jumlahHariPraktekPerBulan: str(d.jumlahHariPraktekPerBulan),
+    resepPerPasienSt: str(d.resepPerPasienSt), entertainRp: str(d.entertainRp),
+  }));
   return (
     <>
       <Card className="mb-4">
         <CardHeader><CardTitle>Planning Standarisasi</CardTitle></CardHeader>
+        <div className="max-w-lg mb-4"><ReadOnlyField label="Grup RS" value={detail.hkaGroup} /></div>
+        <PusatKpdmSection kpdm={kpdm} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <ReadOnlyField label="Grup RS" value={detail.hkaGroup} />
           <ReadOnlyField label="Tipe Standarisasi" value={TIPE_LABEL[detail.tipeStandarisasi] ?? detail.tipeStandarisasi} />
           <ReadOnlyField label="Periode" value={detail.periodeBulan ? `${detail.periodeBulan} Bulan` : "-"} />
+          <ReadOnlyField label="Target Finalisasi Standarisasi" value={timeline} />
         </div>
       </Card>
       <div className="mb-2"><span className="text-sm font-semibold">Produk diajukan ({detail.produk.length})</span></div>
       {detail.produk.map((p, i) => (
-        <Card key={p.id} className="mb-4" style={{ background: "var(--color-bg-subtle)" }}>
+        <PusatProdukCard key={p.id}>
           <span className="text-sm font-semibold block mb-3" style={{ color: "var(--color-blue)" }}>{i + 1}. {p.namaProduk}</span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+            <ReadOnlyField label="Status Pengajuan" value={p.statusPengajuan === "PERPANJANGAN" ? "Perpanjangan" : "Baru"} />
             <ReadOnlyField label="Skema" value={p.skemaPembayaran === "DP" ? "DP" : "Diskon"} />
             {p.skemaPembayaran === "DP" ? (
               <ReadOnlyField label="Value DP" value={rp(p.estimasiValueDpRp)} />
@@ -132,10 +152,18 @@ function PlanningView({ detail }: { detail: PusatDetail }) {
                 <ReadOnlyField label="Diskon (Dist.)" value={`${p.estimasiDiskonDistributorPct ?? 0} %`} />
               </>
             )}
+            <ReadOnlyField label="Estimasi Biaya Listing" value={rp(p.estimasiBiayaListingRp)} />
           </div>
+          <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
+          <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Dokter User</span>
+          <PusatDokterTable dokter={dokterForm(p)} product={productByKode.get(p.kodeProduk)} />
           {p.catatan && <p className="text-xs mt-3" style={{ color: "var(--color-text-muted)" }}>Catatan: {p.catatan}</p>}
-        </Card>
+        </PusatProdukCard>
       ))}
+      <PusatTotalSemuaProduk
+        kpdm={kpdm}
+        produk={detail.produk.map((p) => ({ product: productByKode.get(p.kodeProduk), dokter: dokterForm(p), skema: p.skemaPembayaran, diskonPct: p.estimasiDiskonPct, listingRp: p.estimasiBiayaListingRp }))}
+      />
     </>
   );
 }

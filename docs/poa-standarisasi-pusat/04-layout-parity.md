@@ -2,7 +2,7 @@
 
 **Sumber requirement:** permintaan atasan via pengguna, 2026-10-09: "HKA layoutnya dibuat sama seperti hospital untuk standarisasi (konfirmasi dari Pak Brian)". Keputusan pengguna 2026-10-09: samakan **semua** bagian di bawah.
 
-**Status:** ⚠️ Spesifikasi draft, belum ada kode. Bagian ini **membalik** keputusan v1 `01-business-rules.md` §6 ("tanpa KPDM/estimasi per dokter") — lihat Q1 di bawah.
+**Status:** 🟢 Fase A–D diimplementasikan 2026-10-09 (migrasi `20261009100000_pusat_layout_parity`, belum dijalankan di DB bersama; diuji end-to-end di DB lokal: buat pengajuan, tampilan detail, export Excel, panel samping). Bagian ini **membalik** keputusan v1 `01-business-rules.md` §6 ("tanpa KPDM/estimasi per dokter"). Keputusan pengguna 2026-10-09: **Jumlah Bed RS dihilangkan** di pusat; **Langkah 5 (SP Non Sales & DPL/DPF) di-skip dulu**; asumsi Q6/Q7 disetujui. Belum ada: badge Golongan per dokter, panel samping versi gabungan (saat ini pemilih outlet), edit Planning setelah dibuat.
 
 ## 1. Perbandingan layar (screenshot 2026-10-09, `/poa-standarisasi/[id]` vs `/poa-standarisasi/pusat/[id]`)
 | Bagian | Hospital (cabang) | Pusat (HKA) sekarang | Gap |
@@ -29,9 +29,9 @@ Pemakaian ulang: `PoaStandarisasiWizard.tsx` (2.800 baris) mengasumsikan `kodePI
 | # | Pertanyaan | Status |
 |---|---|---|
 | Q1 | KPDM di pusat? | ✅ **Tetap ada** (membalik v1 §6). Dipilih dari customer outlet mana pun di grup. |
-| Q2 | Jumlah Bed RS di pusat? | ✅ **Tetap ada.** ⚠️ Asumsi bentuk: satu angka per pengajuan, default = jumlah `Outlet.jumlahBed` semua outlet grup, bisa diedit (analog "snapshot tapi editable" di cabang). |
-| Q3 | Panel samping untuk grup? | ✅ **Tampilkan semua outlet dalam grup yang dipilih** (bukan satu outlet). |
-| Q4 | Langkah 5 "SP Non Sales & DPL/DPF": per grup atau per outlet? | ⚠️ Belum dijawab. Asumsi: satu angka per produk untuk grup; DPL/DPF per produk. |
+| Q2 | Jumlah Bed RS di pusat? | ✅ **Dihilangkan dulu** (keputusan pengguna 2026-10-09, membalik jawaban awal). |
+| Q3 | Panel samping untuk grup? | ✅ Semua outlet dalam grup tersedia. Implementasi v1: pemilih outlet di atas form, panel kanan = `RekomendasiSidebar` cabang untuk outlet terpilih (belum gabungan lintas outlet). |
+| Q4 | Langkah 5 "SP Non Sales & DPL/DPF" | ✅ **Di-skip dulu** (keputusan pengguna 2026-10-09). |
 | Q5 | Rumus estimasi per dokter dan Total Budget % | ✅ **Sama** dengan cabang; modul rumus cabang dipakai ulang. |
 
 ## 4. Kendala teknis yang ditemukan (2026-10-09)
