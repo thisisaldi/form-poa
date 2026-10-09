@@ -344,7 +344,7 @@ export interface PusatDetail {
   tipeStandarisasi: string;
   periodeBulan: number | null;
   estimasiTimelineSelesai: string | null;
-  kpdmList: { customerId: string; nama: string; jabatan: string | null; entertainEstimasi: number | null }[];
+  kpdmList: { customerId: string; nama: string; jabatan: string | null; entertainEstimasi: number | null; entertainFinal: number | null }[];
   currentPhase: "APPROVAL_ATASAN" | "APPROVAL_USER_DOKTER" | "FINALISASI";
   submittedAt: string | null;
   ownerName: string;
@@ -360,6 +360,15 @@ export interface PusatDetail {
     estimasiValueDpRp: number | null;
     estimasiBiayaListingRp: number | null;
     statusPengajuan: "BARU" | "PERPANJANGAN";
+    finalDiscountPct: number | null;
+    diskonDistributorPct: number | null;
+    finalBiayaListingRp: number | null;
+    finalValueDpRp: number | null;
+    dokterUser: {
+      customerId: string; nama: string; spesialisasi: string;
+      jumlahPasien: number | null; jumlahHariPraktekPerBulan: number | null; resepPerPasienSt: number | null;
+      estimasiQtyPerBulan: number | null; estimasiQtyUbPerBulan: number | null; estimasiSalesRpPerBulan: number | null; entertainRp: number | null;
+    }[];
     catatan: string | null;
     approvals: { level: ApprovalLevel; status: string; autoApproved: boolean }[];
     dokter: {
@@ -382,6 +391,7 @@ export async function getPusatDetail(id: string): Promise<PusatDetail | null> {
         include: {
           product: { select: { namaProduk: true } },
           approvals: true,
+          dokterUser: { include: { customer: { select: { id: true, namaCustomer: true, spesialisasi: true } } } },
           dokter: { include: { customer: { select: { id: true, namaCustomer: true, spesialisasi: true, outlets: { select: { outlet: { select: { kodePI: true, namaOutlet: true, hkaGroup: true } } } } } } } },
         },
         orderBy: { id: "asc" },
@@ -396,7 +406,7 @@ export async function getPusatDetail(id: string): Promise<PusatDetail | null> {
     tipeStandarisasi: p.tipeStandarisasi,
     periodeBulan: p.periodeBulan,
     estimasiTimelineSelesai: p.estimasiTimelineSelesai?.toISOString() ?? null,
-    kpdmList: p.kpdmList.map((k: (typeof p.kpdmList)[number]) => ({ customerId: k.customerId, nama: k.namaSnapshot, jabatan: k.jabatanSnapshot, entertainEstimasi: toNum(k.entertainEstimasi) })),
+    kpdmList: p.kpdmList.map((k: (typeof p.kpdmList)[number]) => ({ customerId: k.customerId, nama: k.namaSnapshot, jabatan: k.jabatanSnapshot, entertainEstimasi: toNum(k.entertainEstimasi), entertainFinal: toNum(k.entertainFinal) })),
     currentPhase: p.currentPhase,
     submittedAt: p.submittedAt?.toISOString() ?? null,
     ownerName: p.owner.name,
@@ -412,6 +422,22 @@ export async function getPusatDetail(id: string): Promise<PusatDetail | null> {
       estimasiValueDpRp: toNum(x.estimasiValueDpRp),
       estimasiBiayaListingRp: toNum(x.estimasiBiayaListingRp),
       statusPengajuan: x.statusPengajuan,
+      finalDiscountPct: toNum(x.finalDiscountPct),
+      diskonDistributorPct: toNum(x.diskonDistributorPct),
+      finalBiayaListingRp: toNum(x.finalBiayaListingRp),
+      finalValueDpRp: toNum(x.finalValueDpRp),
+      dokterUser: x.dokterUser.map((d: (typeof x.dokterUser)[number]) => ({
+        customerId: d.customerId,
+        nama: d.customer.namaCustomer,
+        spesialisasi: d.customer.spesialisasi,
+        jumlahPasien: d.jumlahPasien,
+        jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan,
+        resepPerPasienSt: toNum(d.resepPerPasienSt),
+        estimasiQtyPerBulan: toNum(d.estimasiQtyPerBulan),
+        estimasiQtyUbPerBulan: d.estimasiQtyUbPerBulan,
+        estimasiSalesRpPerBulan: toNum(d.estimasiSalesRpPerBulan),
+        entertainRp: toNum(d.entertainRp),
+      })),
       catatan: x.catatan,
       approvals: x.approvals.map((a: (typeof x.approvals)[number]) => ({ level: a.level as ApprovalLevel, status: a.status, autoApproved: a.autoApproved })),
       dokter: x.dokter.map((d: (typeof x.dokter)[number]) => ({
@@ -542,12 +568,119 @@ export async function advancePusatToFinalisasiAction(id: string): Promise<PusatR
       if (x.dokter.length === 0) throw new Error(`${x.product.namaProduk}: wajib punya minimal 1 dokter.`);
       if (x.dokter.some((d: (typeof x.dokter)[number]) => d.wajib && !d.sudahTtd)) throw new Error(`${x.product.namaProduk}: masih ada dokter wajib yang belum TTD.`);
     }
-    await prisma.poaStandarisasiPusat.update({ where: { id }, data: { currentPhase: "FINALISASI" } });
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Seed "Dokter yang akan menjadi user" dari dokter yang sudah TTD, membawa angka Planning, dan biaya final
+      // dari nilai Planning — sama seperti advanceToFinalisasiAction cabang. skipDuplicates: aman bila fase dikunjungi ulang.
+      for (const x of p.produk) {
+        await tx.poaStandarisasiPusatDokterUser.createMany({
+          data: x.dokter.filter((d: (typeof x.dokter)[number]) => d.sudahTtd).map((d: (typeof x.dokter)[number]) => ({
+            produkId: x.id,
+            customerId: d.customerId,
+            jumlahPasien: d.jumlahPasien,
+            jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan,
+            resepPerPasienSt: d.resepPerPasienSt,
+            estimasiQtyPerBulan: d.estimasiQtyPerBulan,
+            estimasiQtyUbPerBulan: d.estimasiQtyUbPerBulan,
+            estimasiSalesRpPerBulan: d.estimasiNilaiRpPerBulan,
+            entertainRp: d.entertainRp,
+          })),
+          skipDuplicates: true,
+        });
+        await tx.poaStandarisasiPusatProduk.update({
+          where: { id: x.id },
+          data: {
+            finalDiscountPct: x.finalDiscountPct ?? x.estimasiDiskonPct,
+            diskonDistributorPct: x.diskonDistributorPct ?? x.estimasiDiskonDistributorPct,
+            finalBiayaListingRp: x.finalBiayaListingRp ?? x.estimasiBiayaListingRp,
+            finalValueDpRp: x.finalValueDpRp ?? x.estimasiValueDpRp,
+          },
+        });
+      }
+      await tx.poaStandarisasiPusat.update({ where: { id }, data: { currentPhase: "FINALISASI" } });
+    });
     revalidatePath(`/poa-standarisasi/pusat/${id}`);
   });
 }
 
 // ─── Fase 3: Finalisasi ──────────────────────────────────────────────────────
+
+export interface PusatFinalisasiInput {
+  kpdm: { customerId: string; entertainFinal: string | null }[];
+  produk: {
+    produkId: string;
+    skemaPembayaran: "DISKON" | "DP";
+    finalDiscountPct: string | null;
+    diskonDistributorPct: string | null;
+    finalBiayaListingRp: string | null;
+    finalValueDpRp: string | null;
+    /** "Dokter yang akan menjadi user" + estimasi per dokter (rumus sama dengan Planning/cabang). */
+    dokterUser: PusatDokterInput[];
+  }[];
+}
+
+/** Simpan Finalisasi: biaya final, entertain KPDM final, dan daftar dokter user (replace-by-diff) dengan estimasi dihitung ulang server. */
+export async function savePusatFinalisasiAction(id: string, input: PusatFinalisasiInput): Promise<PusatResult> {
+  return run(async () => {
+    const actor = await requireActor();
+    const p = await prisma.poaStandarisasiPusat.findUnique({ where: { id }, include: { produk: { include: { product: { select: { hna: true, konversiPembagi: true, namaProduk: true } } } } } });
+    if (!p) throw new Error("Pengajuan tidak ditemukan.");
+    if (!canEditPusat(actor, p)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+    if (p.currentPhase !== "FINALISASI") throw new Error("Pengajuan belum di fase Finalisasi.");
+
+    const produkById = new Map<string, (typeof p.produk)[number]>(p.produk.map((x: (typeof p.produk)[number]) => [x.id, x]));
+    for (const ip of input.produk) {
+      if (!produkById.has(ip.produkId)) throw new Error("Produk tidak ditemukan pada pengajuan ini.");
+      if (!validPct(toNum(ip.finalDiscountPct)) || !validPct(toNum(ip.diskonDistributorPct))) throw new Error("Persentase diskon harus 0–100.");
+      if (ip.dokterUser.length === 0) throw new Error(`${produkById.get(ip.produkId)!.product.namaProduk}: wajib punya minimal 1 dokter user.`);
+      if (new Set(ip.dokterUser.map((d) => d.customerId)).size !== ip.dokterUser.length) throw new Error("Dokter tidak boleh duplikat dalam satu produk.");
+    }
+    const customerIds = [...new Set(input.produk.flatMap((x) => x.dokterUser.map((d) => d.customerId)))];
+    const inGroup: { customerId: string }[] = await prisma.customerOutlet.findMany({ where: { customerId: { in: customerIds }, outlet: { hkaGroup: p.hkaGroup } }, select: { customerId: true }, distinct: ["customerId"] });
+    if (inGroup.length !== customerIds.length) throw new Error(`Ada dokter yang tidak terdaftar di outlet grup ${p.hkaGroup}.`);
+
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      for (const k of input.kpdm) {
+        await tx.poaStandarisasiPusatKpdm.updateMany({ where: { pengajuanId: id, customerId: k.customerId }, data: { entertainFinal: toNum(k.entertainFinal) } });
+      }
+      for (const ip of input.produk) {
+        const prod = produkById.get(ip.produkId)!;
+        await tx.poaStandarisasiPusatProduk.update({
+          where: { id: ip.produkId },
+          data: {
+            skemaPembayaran: ip.skemaPembayaran,
+            finalDiscountPct: toNum(ip.finalDiscountPct),
+            diskonDistributorPct: toNum(ip.diskonDistributorPct),
+            finalBiayaListingRp: toNum(ip.finalBiayaListingRp),
+            finalValueDpRp: toNum(ip.finalValueDpRp),
+          },
+        });
+        const want = new Set(ip.dokterUser.map((d) => d.customerId));
+        await tx.poaStandarisasiPusatDokterUser.deleteMany({ where: { produkId: ip.produkId, customerId: { notIn: [...want] } } });
+        for (const d of ip.dokterUser) {
+          const pasien = toNum(d.jumlahPasien);
+          const hari = toNum(d.jumlahHariPraktekPerBulan);
+          const resep = toNum(d.resepPerPasienSt);
+          const est = computeEstimasiDokter(prod.product, pasien, hari, resep);
+          const data = {
+            jumlahPasien: pasien === null ? null : Math.round(pasien),
+            jumlahHariPraktekPerBulan: hari === null ? null : Math.round(hari),
+            resepPerPasienSt: resep,
+            estimasiQtyPerBulan: est.estimasiQtyPerBulan,
+            estimasiQtyUbPerBulan: est.estimasiQtyUbPerBulan,
+            estimasiSalesRpPerBulan: est.estimasiNilaiRpPerBulan,
+            entertainRp: toNum(d.entertainRp),
+          };
+          await tx.poaStandarisasiPusatDokterUser.upsert({
+            where: { produkId_customerId: { produkId: ip.produkId, customerId: d.customerId } },
+            update: data,
+            create: { produkId: ip.produkId, customerId: d.customerId, ...data },
+          });
+        }
+      }
+    });
+    revalidatePath(`/poa-standarisasi/pusat/${id}`);
+  });
+}
 
 /** Submit akhir — menetapkan pengajuan pusat final; gateway cabang membaca `submittedAt` ini. */
 export async function submitPusatAction(id: string): Promise<PusatResult> {
@@ -557,6 +690,8 @@ export async function submitPusatAction(id: string): Promise<PusatResult> {
     if (!p) throw new Error("Pengajuan tidak ditemukan.");
     if (!canEditPusat(actor, p)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
     if (p.currentPhase !== "FINALISASI") throw new Error("Pengajuan belum di fase Finalisasi.");
+    const kosong = await prisma.poaStandarisasiPusatProduk.findFirst({ where: { pengajuanId: id, dokterUser: { none: {} } }, select: { id: true, product: { select: { namaProduk: true } } } });
+    if (kosong) throw new Error(`${kosong.product.namaProduk}: wajib punya minimal 1 dokter user sebelum submit.`);
     await prisma.poaStandarisasiPusat.update({ where: { id }, data: { submittedAt: new Date() } });
     revalidatePath(`/poa-standarisasi/pusat/${id}`);
   });

@@ -345,6 +345,7 @@ model Customer {
   poaStandarisasiAsKpdm          PoaStandarisasiKpdm[]
   poaStandarisasiPusatDokters    PoaStandarisasiPusatDokter[]
   poaStandarisasiPusatAsKpdm     PoaStandarisasiPusatKpdm[]
+  poaStandarisasiPusatDokterUsers PoaStandarisasiPusatDokterUser[]
 
   @@index([spesialisasi])
   @@index([namaCustomer])
@@ -2061,8 +2062,15 @@ model PoaStandarisasiPusatProduk {
   statusPengajuan              StatusPengajuanStandarisasi @default(BARU)
   catatan                      String?
 
-  approvals PoaStandarisasiPusatProdukApproval[]
-  dokter    PoaStandarisasiPusatDokter[]
+  // Finalisasi (sama seperti PoaStandarisasiProduk cabang) — di-seed dari nilai Planning saat masuk Finalisasi, editable di sana.
+  finalDiscountPct     Decimal? @db.Decimal(10, 4)
+  diskonDistributorPct Decimal? @db.Decimal(10, 4)
+  finalBiayaListingRp  Decimal? @db.Decimal(18, 2)
+  finalValueDpRp       Decimal? @db.Decimal(18, 2)
+
+  approvals  PoaStandarisasiPusatProdukApproval[]
+  dokter     PoaStandarisasiPusatDokter[]
+  dokterUser PoaStandarisasiPusatDokterUser[]
 
   @@unique([pengajuanId, kodeProduk])
   @@index([pengajuanId])
@@ -2126,12 +2134,38 @@ model PoaStandarisasiPusatKpdm {
   jabatanSnapshot String?
 
   entertainEstimasi Decimal? @db.Decimal(18, 2)
+  entertainFinal    Decimal? @db.Decimal(18, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([pengajuanId, customerId])
   @@index([pengajuanId])
+}
+
+// Dokter yang akan menjadi user pada Finalisasi pusat (sama seperti PoaStandarisasiDokterUser cabang): di-seed dari dokter yang sudah TTD, angka bisa diedit, dokter bisa ditambah/dihapus.
+model PoaStandarisasiPusatDokterUser {
+  id String @id @default(uuid())
+
+  produkId String
+  produk   PoaStandarisasiPusatProduk @relation(fields: [produkId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  jumlahPasien              Int?
+  jumlahHariPraktekPerBulan Int?
+  resepPerPasienSt          Decimal? @db.Decimal(10, 2)
+  estimasiQtyPerBulan       Decimal? @db.Decimal(18, 2)
+  estimasiQtyUbPerBulan     Int?
+  estimasiSalesRpPerBulan   Decimal? @db.Decimal(18, 2)
+  entertainRp               Decimal? @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([produkId, customerId])
+  @@index([produkId])
 }
 
 // ─── Sales Counter (Apotek/Retail) Models ───────────────────────────────────

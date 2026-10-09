@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Combobox } from "@/components/ui/Combobox";
@@ -13,15 +13,17 @@ import {
   approvePusatAction,
   getPusatDokterOptionsAction,
   removePusatDokterAction,
+  savePusatFinalisasiAction,
   setPusatDokterTtdAction,
   submitPusatAction,
   type PusatDetail,
+  type PusatFinalisasiInput,
   type PusatResult,
 } from "@/app/actions/poaStandarisasiPusat";
 import { APPROVAL_LEVELS, type ApprovalLevel } from "@/lib/discountApprovalLevel";
-import { StatusPill, Stepper } from "@/components/poaStandarisasi/PoaStandarisasiWizard";
+import { RpInput, StatusPill, Stepper, UnitCountInput } from "@/components/poaStandarisasi/PoaStandarisasiWizard";
 import type { Product } from "@/lib/masterData";
-import { PusatDokterTable, PusatKpdmSection, PusatProdukCard, PusatTotalSemuaProduk, type PusatDokterForm } from "@/components/poaStandarisasi/PusatPlanningParts";
+import { GroupDokterPicker, PusatDokterTable, PusatKpdmSection, PusatProdukCard, PusatTotalSemuaProduk, type PusatDokterForm } from "@/components/poaStandarisasi/PusatPlanningParts";
 
 type Produk = PusatDetail["produk"][number];
 
@@ -49,6 +51,8 @@ export function PusatDetailView({ detail, groupOutlets, productOptions }: { deta
   const currentIdx = submitted ? 3 : PHASE_IDX[detail.currentPhase];
   // null = ikuti fase aktif (otomatis maju setelah aksi); angka = user sedang melihat fase sebelumnya.
   const [picked, setPicked] = useState<number | null>(null);
+  // Keadaan terkini form Finalisasi (diisi FinalisasiView) supaya Submit menyimpan dulu.
+  const buildFinalRef = useRef<(() => PusatFinalisasiInput) | null>(null);
   const viewedIdx = picked ?? currentIdx;
   const isCurrent = viewedIdx === currentIdx;
   const canEditNow = detail.canEdit && isCurrent;
@@ -93,14 +97,32 @@ export function PusatDetailView({ detail, groupOutlets, productOptions }: { deta
       {viewedIdx === 0 && <PlanningView detail={detail} productByKode={new Map(productOptions.map((p) => [p.kodeProduk, p]))} />}
       {viewedIdx === 1 && <ApprovalView detail={detail} canAct={isCurrent && !submitted} act={act} pending={pending} />}
       {viewedIdx === 2 && <DokterView detail={detail} groupOutlets={groupOutlets} canEdit={canEditNow && detail.currentPhase === "APPROVAL_USER_DOKTER"} act={act} pending={pending} setError={setError} />}
-      {viewedIdx === 3 && <FinalisasiView detail={detail} />}
+      {viewedIdx === 3 && (
+        <FinalisasiView
+          detail={detail}
+          productByKode={new Map(productOptions.map((p) => [p.kodeProduk, p]))}
+          groupOutlets={groupOutlets}
+          canEdit={canEditNow && detail.currentPhase === "FINALISASI"}
+          act={act}
+          pending={pending}
+          setError={setError}
+          registerBuild={(b) => { buildFinalRef.current = b; }}
+        />
+      )}
 
       <div className="flex justify-end gap-2 mt-4">
         {isCurrent && detail.canEdit && detail.currentPhase === "APPROVAL_USER_DOKTER" && !submitted && (
           <Button disabled={pending} onClick={() => act(() => advancePusatToFinalisasiAction(detail.id))}>Lanjut ke Finalisasi</Button>
         )}
         {isCurrent && detail.canEdit && detail.currentPhase === "FINALISASI" && !submitted && (
-          <Button disabled={pending} onClick={() => act(() => submitPusatAction(detail.id))}>Submit Standarisasi Pusat</Button>
+          <Button disabled={pending} onClick={() => act(async () => {
+            const input = buildFinalRef.current?.();
+            if (input) {
+              const saved = await savePusatFinalisasiAction(detail.id, input);
+              if (saved.error) return saved;
+            }
+            return submitPusatAction(detail.id);
+          })}>Submit Standarisasi Pusat</Button>
         )}
         {submitted && (
           <span className="text-sm self-center" style={{ color: "var(--color-status-approved, #008f42)" }}>
@@ -351,39 +373,174 @@ function ProdukDokter({
 
 // ─── Fase 4: Finalisasi ──────────────────────────────────────────────────────
 
-function FinalisasiView({ detail }: { detail: PusatDetail }) {
-  const totalDokter = detail.produk.reduce((n, p) => n + p.dokter.length, 0);
-  const totalTtd = detail.produk.reduce((n, p) => n + p.dokter.filter((d) => d.sudahTtd).length, 0);
+// ─── Fase 4: Finalisasi (dokter yang akan menjadi user + biaya final, sama seperti cabang) ───
+
+interface FinalProdukState {
+  produkId: string;
+  skemaPembayaran: "DISKON" | "DP";
+  finalDiscountPct: string;
+  diskonDistributorPct: string;
+  finalBiayaListingRp: string;
+  finalValueDpRp: string;
+  dokterUser: PusatDokterForm[];
+}
+
+const s2 = (n: number | null | undefined) => (n == null ? "" : String(n));
+
+function initFinalState(p: Produk): FinalProdukState {
+  // Pengajuan yang sudah di Finalisasi sebelum fitur ini belum punya baris dokterUser — mulai dari dokter yang sudah TTD (sama seperti seed server).
+  const source = p.dokterUser.length > 0
+    ? p.dokterUser
+    : p.dokter.filter((d) => d.sudahTtd).map((d) => ({
+        customerId: d.customerId, nama: d.nama, spesialisasi: d.spesialisasi,
+        jumlahPasien: d.jumlahPasien, jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan, resepPerPasienSt: d.resepPerPasienSt,
+        estimasiQtyPerBulan: d.estimasiQtyPerBulan, estimasiQtyUbPerBulan: d.estimasiQtyUbPerBulan, estimasiSalesRpPerBulan: d.estimasiNilaiRpPerBulan, entertainRp: d.entertainRp,
+      }));
+  return {
+    produkId: p.id,
+    skemaPembayaran: p.skemaPembayaran,
+    finalDiscountPct: s2(p.finalDiscountPct ?? p.estimasiDiskonPct),
+    diskonDistributorPct: s2(p.diskonDistributorPct ?? p.estimasiDiskonDistributorPct),
+    finalBiayaListingRp: s2(p.finalBiayaListingRp ?? p.estimasiBiayaListingRp),
+    finalValueDpRp: s2(p.finalValueDpRp ?? p.estimasiValueDpRp),
+    dokterUser: source.map((d) => ({
+      customerId: d.customerId, nama: d.nama, spesialisasi: d.spesialisasi,
+      jumlahPasien: s2(d.jumlahPasien), jumlahHariPraktekPerBulan: s2(d.jumlahHariPraktekPerBulan),
+      resepPerPasienSt: s2(d.resepPerPasienSt), entertainRp: s2(d.entertainRp),
+    })),
+  };
+}
+
+function FinalisasiView({
+  detail, productByKode, groupOutlets, canEdit, act, pending, setError, registerBuild,
+}: {
+  detail: PusatDetail;
+  productByKode: Map<string, Product>;
+  groupOutlets: { kodePI: string; namaOutlet: string }[];
+  canEdit: boolean;
+  act: (fn: () => Promise<PusatResult>) => void;
+  pending: boolean;
+  setError: (m: string | null) => void;
+  /** Parent memakai ini untuk menyimpan keadaan terkini sebelum Submit. */
+  registerBuild: (build: () => PusatFinalisasiInput) => void;
+}) {
+  const [state, setState] = useState<FinalProdukState[]>(() => detail.produk.map(initFinalState));
+  const [kpdmFinal, setKpdmFinal] = useState<Record<string, string>>(() => Object.fromEntries(detail.kpdmList.map((k) => [k.customerId, s2(k.entertainFinal ?? k.entertainEstimasi)])));
+
+  const build = (): PusatFinalisasiInput => ({
+    kpdm: detail.kpdmList.map((k) => ({ customerId: k.customerId, entertainFinal: kpdmFinal[k.customerId] || null })),
+    produk: state.map((st) => ({
+      produkId: st.produkId,
+      skemaPembayaran: st.skemaPembayaran,
+      finalDiscountPct: st.finalDiscountPct || null,
+      diskonDistributorPct: st.diskonDistributorPct || null,
+      finalBiayaListingRp: st.finalBiayaListingRp || null,
+      finalValueDpRp: st.finalValueDpRp || null,
+      dokterUser: st.dokterUser.map((d) => ({
+        customerId: d.customerId,
+        jumlahPasien: d.jumlahPasien || null,
+        jumlahHariPraktekPerBulan: d.jumlahHariPraktekPerBulan || null,
+        resepPerPasienSt: d.resepPerPasienSt || null,
+        entertainRp: d.entertainRp || null,
+      })),
+    })),
+  });
+  registerBuild(build);
+
+  const patchProduk = (idx: number, patch: Partial<FinalProdukState>) => setState((prev) => prev.map((x, i) => (i === idx ? { ...x, ...patch } : x)));
+  const submitted = !!detail.submittedAt;
+  const editable = canEdit && !submitted;
+  const kpdmForm = detail.kpdmList.map((k) => ({ customerId: k.customerId, nama: k.nama, jabatan: k.jabatan ?? "", entertainEstimasi: kpdmFinal[k.customerId] ?? "" }));
+
   return (
-    <Card className="mb-4">
-      <CardHeader><CardTitle>Finalisasi</CardTitle></CardHeader>
-      <p className="text-sm mb-4" style={{ color: "var(--color-blue)" }}>
-        {detail.submittedAt
-          ? `Standarisasi pusat grup ${detail.hkaGroup} sudah final. Outlet cabang di grup ini kini dapat mengajukan standarisasi untuk produk di bawah.`
-          : "Periksa ringkasan di bawah, lalu submit. Setelah disubmit, standarisasi pusat membuka gateway untuk standarisasi cabang di grup ini."}
-      </p>
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        {[
-          { label: "Produk", value: String(detail.produk.length) },
-          { label: "Dokter user", value: String(totalDokter) },
-          { label: "Sudah TTD", value: `${totalTtd}/${totalDokter}` },
-        ].map((s) => (
-          <div key={s.label} className="rounded p-3 text-center" style={{ background: "var(--color-bg-subtle)" }}>
-            <div className="text-lg font-semibold">{s.value}</div>
-            <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>{s.label}</div>
+    <>
+      <Card className="mb-4">
+        <CardHeader><CardTitle>Finalisasi</CardTitle></CardHeader>
+        <p className="text-sm mb-4" style={{ color: "var(--color-blue)" }}>
+          {submitted
+            ? `Standarisasi pusat grup ${detail.hkaGroup} sudah final. Outlet cabang di grup ini kini dapat mengajukan standarisasi untuk produk di bawah.`
+            : "Tentukan dokter yang akan menjadi user beserta estimasinya dan biaya final, lalu submit. Setelah disubmit, standarisasi pusat membuka gateway untuk standarisasi cabang di grup ini."}
+        </p>
+        {detail.kpdmList.length > 0 && (
+          <div className="mb-2">
+            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>KPDM — Entertain Final</span>
+            <div className="space-y-2">
+              {detail.kpdmList.map((k) => (
+                <div key={k.customerId} className="rounded-lg p-3 flex items-center gap-3 flex-wrap" style={{ border: "1px solid var(--color-border)" }}>
+                  <div className="flex-1 min-w-[140px]">
+                    <div className="text-sm font-medium">{k.nama}</div>
+                    <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>{k.jabatan || "-"} · estimasi {rp(k.entertainEstimasi)}</div>
+                  </div>
+                  <div className="w-44">
+                    <RpInput label="Entertain Final" value={kpdmFinal[k.customerId] ?? ""} onChange={(v) => setKpdmFinal((prev) => ({ ...prev, [k.customerId]: v }))} disabled={!editable} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        ))}
-      </div>
-      <ul className="text-sm space-y-1">
-        {detail.produk.map((p) => (
-          <li key={p.id} className="flex items-center justify-between rounded px-3 py-2" style={{ border: "1px solid var(--color-border)" }}>
-            <span>{p.namaProduk}</span>
-            <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              {p.skemaPembayaran === "DP" ? `DP ${rp(p.estimasiValueDpRp)}` : `Diskon PI ${p.estimasiDiskonPct ?? 0}% · Dist. ${p.estimasiDiskonDistributorPct ?? 0}%`}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </Card>
+        )}
+      </Card>
+
+      {detail.produk.map((p, idx) => {
+        const st = state[idx];
+        const product = productByKode.get(p.kodeProduk);
+        return (
+          <PusatProdukCard key={p.id}>
+            <span className="text-sm font-semibold block mb-3" style={{ color: "var(--color-blue)" }}>{idx + 1}. {p.namaProduk}</span>
+            <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Finalisasi Biaya</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div>
+                <span className="text-xs font-medium block mb-1">Skema</span>
+                <Combobox
+                  name={`final-skema-${idx}`}
+                  options={[{ value: "DISKON", label: "Diskon" }, { value: "DP", label: "DP" }]}
+                  value={st.skemaPembayaran}
+                  onChange={(v) => patchProduk(idx, { skemaPembayaran: v as "DISKON" | "DP" })}
+                  disabled={!editable}
+                />
+              </div>
+              {st.skemaPembayaran === "DP" ? (
+                <RpInput label="Value DP Final" value={st.finalValueDpRp} onChange={(v) => patchProduk(idx, { finalValueDpRp: v })} disabled={!editable} />
+              ) : (
+                <>
+                  <UnitCountInput label="Discount Final PI" unit="%" value={st.finalDiscountPct} onChange={(v) => patchProduk(idx, { finalDiscountPct: v })} disabled={!editable} />
+                  <UnitCountInput label="Discount Final Distributor" unit="%" value={st.diskonDistributorPct} onChange={(v) => patchProduk(idx, { diskonDistributorPct: v })} disabled={!editable} />
+                </>
+              )}
+              <RpInput label="Biaya Listing Final" value={st.finalBiayaListingRp} onChange={(v) => patchProduk(idx, { finalBiayaListingRp: v })} disabled={!editable} />
+            </div>
+
+            <span className="text-xs font-medium block mb-2">Dokter yang Akan Menjadi User</span>
+            <PusatDokterTable
+              dokter={st.dokterUser}
+              product={product}
+              onChange={editable ? (cid, patch) => patchProduk(idx, { dokterUser: st.dokterUser.map((d) => (d.customerId === cid ? { ...d, ...patch } : d)) }) : undefined}
+              onRemove={editable ? (cid) => patchProduk(idx, { dokterUser: st.dokterUser.filter((d) => d.customerId !== cid) }) : undefined}
+            />
+            {editable && (
+              <GroupDokterPicker
+                outlets={groupOutlets}
+                loadDokter={(kodePI) => getPusatDokterOptionsAction(detail.id, kodePI)}
+                excludeIds={new Set(st.dokterUser.map((d) => d.customerId))}
+                onPick={(c) => patchProduk(idx, { dokterUser: [...st.dokterUser, { customerId: c.customerId, nama: c.nama, spesialisasi: c.spesialisasi, jumlahPasien: "", jumlahHariPraktekPerBulan: "", resepPerPasienSt: "", entertainRp: "" }] })}
+                onError={setError}
+                placeholder="+ Tambah dokter user…"
+              />
+            )}
+          </PusatProdukCard>
+        );
+      })}
+
+      <PusatTotalSemuaProduk
+        kpdm={kpdmForm}
+        produk={detail.produk.map((p, idx) => ({ product: productByKode.get(p.kodeProduk), dokter: state[idx].dokterUser, skema: state[idx].skemaPembayaran, diskonPct: state[idx].finalDiscountPct, listingRp: state[idx].finalBiayaListingRp }))}
+      />
+
+      {editable && (
+        <div className="flex justify-end mt-4">
+          <Button variant="secondary" disabled={pending} onClick={() => act(() => savePusatFinalisasiAction(detail.id, build()))}>Simpan Finalisasi</Button>
+        </div>
+      )}
+    </>
   );
 }

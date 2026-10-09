@@ -41,6 +41,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           include: {
             product: { select: { kodeProduk: true, namaProduk: true } },
             dokter: { include: { customer: { select: { namaCustomer: true } } } },
+            dokterUser: { include: { customer: { select: { namaCustomer: true } } } },
           },
           orderBy: { id: "asc" },
         },
@@ -70,6 +71,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     { header: "Value DP", key: "valueDp", width: 16 },
     { header: "Biaya Listing", key: "biayaListing", width: 16 },
     { header: "Nama Dokter", key: "namaDokter", width: 26 },
+    { header: "Sumber Data Dokter", key: "sumberData", width: 18 },
     { header: "Jumlah Hari Praktek / Bulan", key: "hariPraktek", width: 14 },
     { header: "Jumlah Pasien / Hari", key: "jumlahPasien", width: 14 },
     { header: "Resep / Pasien", key: "resepPerPasien", width: 12 },
@@ -94,31 +96,46 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   for (const prod of pengajuan.produk) {
     const skema = prod.skemaPembayaran;
+    // Nilai final (Finalisasi) menang bila sudah ada; kalau belum, nilai Planning.
     const prodCols = {
       ...base,
       produk: `${prod.product.kodeProduk} - ${prod.product.namaProduk}`,
       statusProduk: STATUS_LABELS[prod.statusPengajuan] ?? prod.statusPengajuan,
       skema: SKEMA_LABELS[skema] ?? skema,
-      diskonPi: skema === "DISKON" ? pct(prod.estimasiDiskonPct) : null,
-      diskonDist: skema === "DISKON" ? pct(prod.estimasiDiskonDistributorPct) : null,
-      valueDp: skema === "DP" ? num(prod.estimasiValueDpRp) : null,
-      biayaListing: num(prod.estimasiBiayaListingRp),
+      diskonPi: skema === "DISKON" ? pct(prod.finalDiscountPct) ?? pct(prod.estimasiDiskonPct) : null,
+      diskonDist: skema === "DISKON" ? pct(prod.diskonDistributorPct) ?? pct(prod.estimasiDiskonDistributorPct) : null,
+      valueDp: skema === "DP" ? num(prod.finalValueDpRp) ?? num(prod.estimasiValueDpRp) : null,
+      biayaListing: num(prod.finalBiayaListingRp) ?? num(prod.estimasiBiayaListingRp),
     };
-    if (prod.dokter.length === 0) {
-      sheet.addRow({ ...prodCols, namaDokter: "-" });
+    // Daftar dokter final (Finalisasi) menang begitu punya baris; kalau belum, daftar Planning.
+    const useFinal = prod.dokterUser.length > 0;
+    const ttdByCustomer = new Map<string, boolean>(prod.dokter.map((d: (typeof prod.dokter)[number]) => [d.customerId, d.sudahTtd]));
+    const dokterRows = useFinal
+      ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
+          customerId: d.customerId, nama: d.customer.namaCustomer, hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
+          resep: num(d.resepPerPasienSt), qty: d.estimasiQtyUbPerBulan, sales: num(d.estimasiSalesRpPerBulan), entertain: num(d.entertainRp),
+        }))
+      : prod.dokter.map((d: (typeof prod.dokter)[number]) => ({
+          customerId: d.customerId, nama: d.customer.namaCustomer, hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
+          resep: num(d.resepPerPasienSt), qty: d.estimasiQtyUbPerBulan, sales: num(d.estimasiNilaiRpPerBulan), entertain: num(d.entertainRp),
+        }));
+    const sumberData = useFinal ? "Final (Finalisasi)" : "Estimasi (Planning)";
+    if (dokterRows.length === 0) {
+      sheet.addRow({ ...prodCols, namaDokter: "-", sumberData: "-" });
       continue;
     }
-    for (const d of prod.dokter) {
+    for (const d of dokterRows) {
       const row = sheet.addRow({
         ...prodCols,
-        namaDokter: d.customer.namaCustomer,
-        hariPraktek: d.jumlahHariPraktekPerBulan,
-        jumlahPasien: d.jumlahPasien,
-        resepPerPasien: num(d.resepPerPasienSt),
-        estimasiQty: d.estimasiQtyUbPerBulan,
-        estimasiSales: num(d.estimasiNilaiRpPerBulan),
-        entertainRp: num(d.entertainRp),
-        sudahTtd: d.sudahTtd ? "Ya" : "Belum",
+        namaDokter: d.nama,
+        sumberData,
+        hariPraktek: d.hari,
+        jumlahPasien: d.pasien,
+        resepPerPasien: d.resep,
+        estimasiQty: d.qty,
+        estimasiSales: d.sales,
+        entertainRp: d.entertain,
+        sudahTtd: ttdByCustomer.get(d.customerId) ? "Ya" : "Belum",
       });
       row.getCell("diskonPi").numFmt = PCT_FMT;
       row.getCell("diskonDist").numFmt = PCT_FMT;
