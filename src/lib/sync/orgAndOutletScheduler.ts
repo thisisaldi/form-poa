@@ -30,6 +30,7 @@ import { runOutletSync } from "./outletSync";
 import { runOutletCoverageSync } from "./outletCoverageSync";
 import { runVacantTerritoryCoverageSync } from "./vacantTerritoryCoverageSync";
 import { runPendingApprovalHolderSync } from "./pendingApprovalHolderSync";
+import { runOwnerHandoverSync } from "./ownerHandoverSync";
 import { acquireSyncLock } from "./syncLock";
 import { msUntilNextWibMidnight } from "./salesHistoryMonthlyScheduler";
 
@@ -108,6 +109,19 @@ async function runOnce() {
     );
   } catch (err) {
     console.error("[scheduler] pending-approval-holder sync failed:", err);
+  }
+
+  // POA milik user yang resign pindah ke MR aktif pemegang outlet-nya (docs/poa-gt-handover/).
+  // Setelah outlet sync supaya assignment periode terbaru sudah segar.
+  try {
+    const handover = await runOwnerHandoverSync();
+    console.log(
+      `[scheduler] owner-handover done — moved poa ${handover.moved.poa}, standarisasi ${handover.moved.standarisasi}, sc ${handover.moved.sc}; ` +
+      `skipped ${handover.skippedNoCandidate} (no holder yet), ${handover.skippedAmbiguous} (ambiguous)` +
+      (handover.errors.length > 0 ? `, errors: ${handover.errors.join("; ")}` : "")
+    );
+  } catch (err) {
+    console.error("[scheduler] owner-handover failed:", err);
   }
 }
 
