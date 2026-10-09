@@ -15,6 +15,9 @@ import type { ScDraftFormItem, SalesFigures } from "./types";
 
 import { submitSalesCounterFormAction } from "@/app/actions/scApprovalActions";
 import { useScToast } from "./ui/ScToast";
+import { SC_EXPORT_DISABLED, SC_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
+
+const PAGE_SIZE = 5;
 
 export function SalesCounterDraftChecklist({
   scDrafts = [],
@@ -51,6 +54,7 @@ export function SalesCounterDraftChecklist({
   const searchParams = useSearchParams();
   const [isSubmittingState, setIsSubmittingState] = useState(false);
   const [activeKompetitorDraftId, setActiveKompetitorDraftId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const safeScDrafts = Array.isArray(scDrafts) ? scDrafts : [];
 
   const {
@@ -80,6 +84,12 @@ export function SalesCounterDraftChecklist({
   });
 
   const canEditNow = userCanEdit ?? false;
+
+  // Each mounted outlet card fires its own Canvasser API calls, so only the
+  // current page is rendered. Stats/selection still cover every outlet.
+  const totalPages = Math.max(1, Math.ceil(filteredScDrafts.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedScDrafts = filteredScDrafts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const salesFigures: SalesFigures = salesSummary ?? {
     historisTahunLalu: 0,
@@ -157,9 +167,15 @@ export function SalesCounterDraftChecklist({
   return (
     <div className="space-y-4">
       <div>
-        <a href={exportHref}>
-          <Button size="sm" variant="ghost">↓ Export Excel</Button>
-        </a>
+        {SC_EXPORT_DISABLED ? (
+          <Button size="sm" variant="ghost" disabled title={SC_EXPORT_DISABLED_MESSAGE}>
+            ↓ Export Excel (dinonaktifkan sementara)
+          </Button>
+        ) : (
+          <a href={exportHref}>
+            <Button size="sm" variant="ghost">↓ Export Excel</Button>
+          </a>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -211,13 +227,16 @@ export function SalesCounterDraftChecklist({
               allChecked={allSelected}
               onToggleAll={toggleAll}
               statusFilter={statusFilter}
-              onStatusFilterChange={setStatusFilter}
+              onStatusFilterChange={(f) => {
+                setPage(1);
+                setStatusFilter(f);
+              }}
               filterCounts={filterCounts}
             />
 
             <div className="space-y-2">
               {filteredScDrafts.length > 0 ? (
-                filteredScDrafts.map((draft) => (
+                pagedScDrafts.map((draft) => (
                   <SalesCounterOutletCard
                     key={draft.id}
                     draft={draft}
@@ -260,6 +279,34 @@ export function SalesCounterDraftChecklist({
                 </div>
               )}
             </div>
+
+            {totalPages > 1 && (
+              <div
+                className="mt-3 flex items-center justify-between border-t pt-3 text-xs"
+                style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
+              >
+                <span>
+                  Outlet {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredScDrafts.length)} dari{" "}
+                  {filteredScDrafts.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
+                    ← Sebelumnya
+                  </Button>
+                  <span>
+                    Hal {currentPage} / {totalPages}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage(currentPage + 1)}
+                  >
+                    Berikutnya →
+                  </Button>
+                </div>
+              </div>
+            )}
           </Card>
 
           {showSubmit && poaId && (

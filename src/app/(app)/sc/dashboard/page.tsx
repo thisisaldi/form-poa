@@ -10,21 +10,119 @@ import { PoaStatusProgressChart } from "@/components/poa/PoaStatusProgressChart"
 import { formatCurrency as formatRp } from "@/lib/format";
 import type { PoaStatus } from "@prisma/client";
 import { displayRole } from "@/lib/role";
-import { getVisiblePoaScFilter, getPendingActionScFilter } from "@/lib/authz";
-import { getScCashbackPoa } from "../[id]/_services/getScCashbackPoa";
-import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
-import { calculateCashbackDetails } from "@/components/sc/edit/hooks/useSalesCounterCashback";
+import { getVisiblePoaScFilter, getPendingActionScFilter, getMrIdsUnder } from "@/lib/authz";
 import { currentQuarter } from "@/lib/quarterUtils";
 import { ScDashboardExportButton } from "@/components/sc/ScDashboardExportButton";
 
 export const metadata = { title: "Dashboard POA Sales Counter · Form POA" };
 
-function buildPageHref(page: number, size: string, q?: string) {
+// One table row = one MR in one period (all of that MR's outlets), so the page
+// size counts MR+period groups, not individual outlet forms.
+const PAGE_SIZE = 5;
+
+function buildPageHref(page: number, q?: string) {
   const sp = new URLSearchParams();
   sp.set("page", String(page));
-  sp.set("size", size);
   if (q) sp.set("q", q);
   return `/sc/dashboard?${sp.toString()}`;
+}
+
+interface DashboardForm {
+  id: string;
+  period: string;
+  status: PoaStatus;
+  version: number;
+  ownerId: string;
+  lamaPeriode: number | null;
+  updatedAt: Date;
+  owner: { nip: string; name: string };
+  products: { kodeProduk: string; qtyPerBulan: number | null; periodeMonth: string | null }[];
+}
+
+interface MrGroupStat {
+  groupNip: string;
+  groupName: string;
+  groupRole: string;
+  mrNips: string[];
+  submittedNips: Set<string>;
+}
+
+// Progres submit MR + status counts for managers. Independent of the list
+// query below, so the page starts it first and awaits it alongside the list.
+async function loadMrProgress(
+  actorNip: string,
+  visibleFilter: Awaited<ReturnType<typeof getVisiblePoaScFilter>>
+) {
+  let mrProgressPeriod: string | null = null;
+  let mrGroups: MrGroupStat[] = [];
+  let statusCounts: Partial<Record<PoaStatus, number>> = {};
+
+  const directSubs = (await prisma.user.findMany({
+    where: { nipAtasan: actorNip, isActive: true },
+    select: { nip: true, name: true, role: true },
+    orderBy: { name: "asc" },
+  })) as { nip: string; name: string; role: string }[];
+
+  // getMrIdsUnder is a level-by-level BFS (≤ depth queries per manager,
+  // request-cached) instead of one query per node.
+  const groupsRaw = await Promise.all(
+    directSubs.map(async (sub) => {
+      if (sub.role === "MR") return { ...sub, mrNips: [sub.nip] };
+      const depth = sub.role === "ASM" ? 1 : sub.role === "SM" ? 2 : 1;
+      return { ...sub, mrNips: await getMrIdsUnder(sub.nip, depth) };
+    })
+  );
+
+  const allMrNips = [...new Set(groupsRaw.flatMap((g) => g.mrNips))];
+  if (allMrNips.length === 0) return { mrProgressPeriod, mrGroups, statusCounts };
+
+  const submittedByPeriod = (await prisma.poaScForm.groupBy({
+    by: ["period"],
+    where: { ownerId: { in: allMrNips }, status: { notIn: ["DRAFT", "REVISI"] as PoaStatus[] } },
+    _count: { _all: true },
+  })) as { period: string; _count: { _all: number } }[];
+
+  if (submittedByPeriod.length > 0) {
+    submittedByPeriod.sort((a, b) => b._count._all - a._count._all || (b.period < a.period ? -1 : 1));
+    mrProgressPeriod = submittedByPeriod[0].period;
+  } else {
+    const periodRow = await prisma.poaScForm.findFirst({
+      where: { ownerId: { in: allMrNips } },
+      orderBy: { period: "desc" },
+      select: { period: true },
+    });
+    mrProgressPeriod = periodRow?.period ?? null;
+  }
+
+  if (mrProgressPeriod) {
+    const [submittedRows, statusRows] = await Promise.all([
+      prisma.poaScForm.findMany({
+        where: {
+          ownerId: { in: allMrNips },
+          period: mrProgressPeriod,
+          status: { notIn: ["DRAFT", "REVISI"] as PoaStatus[] },
+        },
+        select: { ownerId: true },
+      }) as Promise<{ ownerId: string }[]>,
+      prisma.poaScForm.groupBy({
+        by: ["status"],
+        where: { AND: [visibleFilter, { period: mrProgressPeriod }] },
+        _count: { _all: true },
+      }) as Promise<{ status: PoaStatus; _count: { _all: number } }[]>,
+    ]);
+
+    const submittedNips = new Set(submittedRows.map((r) => r.ownerId));
+    mrGroups = groupsRaw.map((g) => ({
+      groupNip: g.nip,
+      groupName: g.name,
+      groupRole: g.role,
+      mrNips: g.mrNips,
+      submittedNips: new Set(g.mrNips.filter((n) => submittedNips.has(n))),
+    }));
+    statusCounts = Object.fromEntries(statusRows.map((r) => [r.status, r._count._all]));
+  }
+
+  return { mrProgressPeriod, mrGroups, statusCounts };
 }
 
 export default async function SalesCounterDashboardPage({
@@ -39,12 +137,13 @@ export default async function SalesCounterDashboardPage({
   const params = await searchParams;
   const isMR = actor.role === "MR";
   const isASM = actor.role === "ASM";
-  const isViewer = actor.role === "VIEWER";
-  const isSD = actor.role === "SD"
 
   const q = params.q?.trim();
   const visibleFilter = await getVisiblePoaScFilter(actor);
   const pendingFilter = getPendingActionScFilter(actor);
+
+  // Manager progress is independent of the list — start it now, await below.
+  const progressPromise = isMR ? null : loadMrProgress(actor.nip, visibleFilter);
 
   const where = q
     ? {
@@ -62,75 +161,61 @@ export default async function SalesCounterDashboardPage({
       }
     : visibleFilter;
 
-  const pageSizeParam = params.size ?? "25";
-  const pageSize = pageSizeParam === "all" ? null : Number(pageSizeParam) || 25;
   const requestedPage = Math.max(1, Number(params.page) || 1);
 
-  const totalPoaCount = await prisma.poaScForm.count({ where });
-  const totalPages = pageSize ? Math.max(1, Math.ceil(totalPoaCount / pageSize)) : 1;
-  const page = Math.min(requestedPage, totalPages);
-
-  const [scForms, pendingCount] = await Promise.all([
-    prisma.poaScForm.findMany({
+  // Page over MR+period groups (one table row each), newest activity first.
+  // Only the group keys are read here; forms are loaded for the page below.
+  const [allGroups, pendingCount] = await Promise.all([
+    prisma.poaScForm.groupBy({
+      by: ["ownerId", "period"],
       where,
-      include: {
-        owner: true,
-        products: true,
-        entertainItems: true,
-      },
-      orderBy: { updatedAt: "desc" },
-      ...(pageSize ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
-    }),
+      _max: { updatedAt: true },
+      orderBy: { _max: { updatedAt: "desc" } },
+    }) as Promise<{ ownerId: string; period: string }[]>,
     prisma.poaScForm.count({ where: pendingFilter }),
   ]);
+  const totalPoaCount = allGroups.length;
+  const totalPages = Math.max(1, Math.ceil(totalPoaCount / PAGE_SIZE));
+  const page = Math.min(requestedPage, totalPages);
+  const pageGroups = allGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // Collect all product codes across forms to fetch master product HNA
+  // Only the columns the table needs. ESTIMASI = qty × HNA × lama, so no
+  // Canvasser/cashback lookups are required here. All forms of the page's
+  // groups are loaded so outlet count and totals are complete.
+  const scForms: DashboardForm[] =
+    pageGroups.length === 0
+      ? []
+      : await prisma.poaScForm.findMany({
+          where: {
+            AND: [where, { OR: pageGroups.map((g) => ({ ownerId: g.ownerId, period: g.period })) }],
+          },
+          select: {
+            id: true,
+            period: true,
+            status: true,
+            version: true,
+            ownerId: true,
+            lamaPeriode: true,
+            updatedAt: true,
+            owner: { select: { nip: true, name: true } },
+            products: { select: { kodeProduk: true, qtyPerBulan: true, periodeMonth: true } },
+          },
+          orderBy: { updatedAt: "desc" },
+        });
+
   const allProductCodes = Array.from(
-    new Set(scForms.flatMap((f: any) => f.products.map((p: any) => p.kodeProduk)).filter(Boolean))
+    new Set(scForms.flatMap((f) => f.products.map((p) => p.kodeProduk)).filter(Boolean))
   );
 
-  const masterProducts =
+  const masterProducts: { kodeProduk: string; hna: { toString(): string } }[] =
     allProductCodes.length > 0
       ? await prisma.product.findMany({
           where: { kodeProduk: { in: allProductCodes } },
-          select: { kodeProduk: true, hna: true, konversiPembagi: true },
+          select: { kodeProduk: true, hna: true },
         })
       : [];
 
-  const masterProductMap = new Map<string, any>(
-    masterProducts.map((p: any) => [p.kodeProduk, p])
-  );
-
-  const outletCodes = Array.from(new Set(scForms.map((f: any) => f.kodePI).filter(Boolean))) as string[];
-  const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
-
-  const outletPeriodMap = new Map<string, string>();
-  for (const f of scForms) {
-    if (f.kodePI && f.period && !outletPeriodMap.has(f.kodePI)) {
-      outletPeriodMap.set(f.kodePI, f.period);
-    }
-  }
-
-  const [cashbackData] = await Promise.all([
-    getScCashbackPoa(),
-    Promise.all(
-      outletCodes.map(async (kodePI: string) => {
-        try {
-          const res = await getSalesCounterProduct(kodePI, outletPeriodMap.get(kodePI));
-          if (res?.data) {
-            for (const cp of res.data) {
-              canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
-                sales_counter_value: cp.sales_counter_value || 0,
-                sales_counter_minimum: cp.sales_counter_minimum || 0,
-              });
-            }
-          }
-        } catch (err) {
-          console.error(`Error fetching SC products for ${kodePI}:`, err);
-        }
-      })
-    ),
-  ]);
+  const masterProductMap = new Map(masterProducts.map((p) => [p.kodeProduk, p]));
 
   // Group forms by period & owner
   const periodsMap = new Map<
@@ -140,9 +225,8 @@ export default async function SalesCounterDashboardPage({
       period: string;
       status: PoaStatus;
       version: number;
-      owner: typeof actor;
+      owner: { nip: string; name: string };
       _totalEstSales: number;
-      _totalBudgetSc: number;
       _outletCount: number;
       updatedAt: Date;
     }
@@ -152,72 +236,21 @@ export default async function SalesCounterDashboardPage({
     const key = isMR ? f.period : `${f.period}_${f.ownerId}`;
     const lama = f.lamaPeriode || 3;
 
-    const cbDetails = calculateCashbackDetails({
-      cashbackData,
-      selectedProducts: f.products.map((p: any) => ({
-        kodeProduk: p.kodeProduk,
-        qtyPerBulan: String(p.qtyPerBulan || 0),
-        persenCashback: String(p.persenCashback || 0),
-      })),
-      masterProducts: f.products.map((p: any) => {
-        const mp = masterProductMap.get(p.kodeProduk);
-        return {
-          kodeProduk: p.kodeProduk,
-          hna: String(mp ? Number(mp.hna.toString()) : 0),
-          konversiPembagi: String(mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1),
-        };
-      }),
-      lamaPeriode: lama,
-    });
-
-    const distinctProductMonths = new Set(f.products.map((p: any) => p.periodeMonth).filter(Boolean));
+    const distinctProductMonths = new Set(f.products.map((p) => p.periodeMonth).filter(Boolean));
     const isMultiMonth = distinctProductMonths.size > 1;
 
     let fEstSales = 0;
-    let fBudgetSc = 0;
-
     for (const p of f.products) {
       if (!p.kodeProduk) continue;
       const mp = masterProductMap.get(p.kodeProduk);
-      const cp = canvasserProductMap.get(`${f.kodePI}_${p.kodeProduk}`);
       const hnaSJ = mp ? Number(mp.hna.toString()) : 0;
-
-      const qty = p.qtyPerBulan || 0;
-
-      const estSalesPerMonth = qty * hnaSJ;
-      const estSalesFull = isMultiMonth ? estSalesPerMonth : estSalesPerMonth * lama;
-
-      const scVal = cp?.sales_counter_value;
-      const scMin = cp?.sales_counter_minimum || 0;
-
-      let nilaiScPerMonth = 0;
-      if (scVal != null && scVal > 0) {
-        nilaiScPerMonth = qty >= scMin ? qty * scVal : 0;
-      } else {
-        const pctMatriks = Number(p.persenMatriksSc?.toString() || 0);
-        nilaiScPerMonth = estSalesPerMonth * (pctMatriks / 100);
-      }
-      const nilaiScFull = isMultiMonth ? nilaiScPerMonth : nilaiScPerMonth * lama;
-
-      const diskonFull = estSalesFull * (Number(p.persenDiskon?.toString() || 0) / 100);
-      const cashbackFull = cashbackData
-        ? (cbDetails.resultMap.get(p.kodeProduk) ?? 0)
-        : estSalesFull * (Number(p.persenCashback?.toString() || 0) / 100);
-
-      fEstSales += estSalesFull;
-      fBudgetSc += nilaiScFull + diskonFull + cashbackFull;
+      const estSalesPerMonth = (p.qtyPerBulan || 0) * hnaSJ;
+      fEstSales += isMultiMonth ? estSalesPerMonth : estSalesPerMonth * lama;
     }
-
-    const totalEnt = f.entertainItems.reduce(
-      (sum: number, e: any) => sum + Number(e.biayaEntertain?.toString() || 0),
-      0
-    );
-    fBudgetSc += totalEnt;
 
     const existing = periodsMap.get(key);
     if (existing) {
       existing._totalEstSales += fEstSales;
-      existing._totalBudgetSc += fBudgetSc;
       existing._outletCount += 1;
       if (f.updatedAt > existing.updatedAt) {
         existing.updatedAt = f.updatedAt;
@@ -233,7 +266,6 @@ export default async function SalesCounterDashboardPage({
         version: f.version,
         owner: f.owner,
         _totalEstSales: fEstSales,
-        _totalBudgetSc: fBudgetSc,
         _outletCount: 1,
         updatedAt: f.updatedAt,
       });
@@ -242,100 +274,13 @@ export default async function SalesCounterDashboardPage({
 
   const recentPeriods = [...periodsMap.values()].sort((a, b) => b.period.localeCompare(a.period));
 
-  // MR Progress stats (for managers)
-  interface MrGroupStat {
-    groupNip: string;
-    groupName: string;
-    groupRole: string;
-    mrNips: string[];
-    submittedNips: Set<string>;
-  }
-
-  let mrProgressPeriod: string | null = null;
-  let mrGroups: MrGroupStat[] = [];
-  let statusCounts: Partial<Record<PoaStatus, number>> = {};
-
-  if (!isMR) {
-    const directSubs = (await prisma.user.findMany({
-      where: { nipAtasan: actor.nip, isActive: true },
-      select: { nip: true, name: true, role: true },
-      orderBy: { name: "asc" },
-    })) as { nip: string; name: string; role: string }[];
-
-    const groupsRaw: { nip: string; name: string; role: string; mrNips: string[] }[] = [];
-    for (const sub of directSubs) {
-      if (sub.role === "MR") {
-        groupsRaw.push({ ...sub, mrNips: [sub.nip] });
-      } else {
-        const depth = sub.role === "ASM" ? 1 : sub.role === "SM" ? 2 : 1;
-        async function getMrsUnder(managerNip: string, d: number): Promise<string[]> {
-          if (d === 0) return [];
-          const reports = (await prisma.user.findMany({
-            where: { nipAtasan: managerNip, isActive: true },
-            select: { nip: true, role: true },
-          })) as { nip: string; role: string }[];
-          const nips: string[] = [];
-          for (const r of reports) {
-            if (r.role === "MR") nips.push(r.nip);
-            else nips.push(...(await getMrsUnder(r.nip, d - 1)));
-          }
-          return nips;
-        }
-        const mrNips = await getMrsUnder(sub.nip, depth);
-        groupsRaw.push({ ...sub, mrNips });
-      }
-    }
-
-    const allMrNips = [...new Set(groupsRaw.flatMap((g) => g.mrNips))];
-    if (allMrNips.length > 0) {
-      const submittedByPeriod = (await prisma.poaScForm.groupBy({
-        by: ["period"],
-        where: { ownerId: { in: allMrNips }, status: { notIn: ["DRAFT", "REVISI"] as PoaStatus[] } },
-        _count: { _all: true },
-      })) as { period: string; _count: { _all: number } }[];
-
-      if (submittedByPeriod.length > 0) {
-        submittedByPeriod.sort((a, b) => b._count._all - a._count._all || (b.period < a.period ? -1 : 1));
-        mrProgressPeriod = submittedByPeriod[0].period;
-      } else {
-        const periodRow = await prisma.poaScForm.findFirst({
-          where: { ownerId: { in: allMrNips } },
-          orderBy: { period: "desc" },
-          select: { period: true },
-        });
-        mrProgressPeriod = periodRow?.period ?? null;
-      }
-
-      if (mrProgressPeriod) {
-        const submittedRows = (await prisma.poaScForm.findMany({
-          where: {
-            ownerId: { in: allMrNips },
-            period: mrProgressPeriod,
-            status: { notIn: ["DRAFT", "REVISI"] as PoaStatus[] },
-          },
-          select: { ownerId: true },
-        })) as { ownerId: string }[];
-
-        const submittedNips = new Set(submittedRows.map((r) => r.ownerId));
-
-        mrGroups = groupsRaw.map((g) => ({
-          groupNip: g.nip,
-          groupName: g.name,
-          groupRole: g.role,
-          mrNips: g.mrNips,
-          submittedNips: new Set(g.mrNips.filter((n) => submittedNips.has(n))),
-        }));
-
-        const statusRows = (await prisma.poaScForm.groupBy({
-          by: ["status"],
-          where: { AND: [visibleFilter, { period: mrProgressPeriod }] },
-          _count: { _all: true },
-        })) as { status: PoaStatus; _count: { _all: number } }[];
-
-        statusCounts = Object.fromEntries(statusRows.map((r) => [r.status, r._count._all]));
-      }
-    }
-  }
+  const { mrProgressPeriod, mrGroups, statusCounts } = progressPromise
+    ? await progressPromise
+    : {
+        mrProgressPeriod: null as string | null,
+        mrGroups: [] as MrGroupStat[],
+        statusCounts: {} as Partial<Record<PoaStatus, number>>,
+      };
 
   const activeExportQuarter =
     mrProgressPeriod && /^\d{4}-Q[1-4]$/.test(mrProgressPeriod)
@@ -491,7 +436,6 @@ export default async function SalesCounterDashboardPage({
 
         {!isMR && (
           <form method="GET" className="mb-4 flex items-center gap-2">
-            <input type="hidden" name="size" value={pageSizeParam} />
             <input
               type="search"
               name="q"
@@ -508,7 +452,7 @@ export default async function SalesCounterDashboardPage({
               Cari
             </Button>
             {q && (
-              <Link href={buildPageHref(1, pageSizeParam)} className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+              <Link href={buildPageHref(1)} className="text-xs" style={{ color: "var(--color-text-muted)" }}>
                 Reset
               </Link>
             )}
@@ -712,30 +656,14 @@ export default async function SalesCounterDashboardPage({
         {recentPeriods.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
             <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-              Menampilkan {pageSize ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, totalPoaCount)}` : `1-${totalPoaCount}`} dari {totalPoaCount} POA
+              Menampilkan {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, totalPoaCount)} dari {totalPoaCount} POA
             </p>
             <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
-                <span>Tampilkan:</span>
-                {(["25", "50", "100", "all"] as const).map((s) => (
-                  <Link
-                    key={s}
-                    href={buildPageHref(1, s, q)}
-                    className="rounded px-1.5 py-0.5"
-                    style={{
-                      background: pageSizeParam === s ? "var(--color-blue-light)" : "transparent",
-                      color: pageSizeParam === s ? "var(--color-blue)" : "var(--color-text-faint)",
-                      fontWeight: pageSizeParam === s ? 600 : 400,
-                    }}
-                  >
-                    {s === "all" ? "Semua" : s}
-                  </Link>
-                ))}
-              </div>
-              {pageSize && totalPages > 1 && (
+              {totalPages > 1 && (
                 <div className="flex items-center gap-1 text-xs">
                   <Link
-                    href={buildPageHref(Math.max(1, page - 1), pageSizeParam, q)}
+                    href={buildPageHref(Math.max(1, page - 1), q)}
+                    scroll={false}
                     className="rounded px-2 py-1"
                     style={{
                       color: page <= 1 ? "var(--color-text-faint)" : "var(--color-text-muted)",
@@ -749,7 +677,8 @@ export default async function SalesCounterDashboardPage({
                     Hal {page} / {totalPages}
                   </span>
                   <Link
-                    href={buildPageHref(Math.min(totalPages, page + 1), pageSizeParam, q)}
+                    href={buildPageHref(Math.min(totalPages, page + 1), q)}
+                    scroll={false}
                     className="rounded px-2 py-1"
                     style={{
                       color: page >= totalPages ? "var(--color-text-faint)" : "var(--color-text-muted)",

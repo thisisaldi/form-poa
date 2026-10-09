@@ -13,6 +13,7 @@ import {
 import type { PoaDoctorApproval } from "@prisma/client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
+import { POA_EXPORT_DISABLED, POA_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
 import { Card } from "@/components/ui/Card";
 import { PoaDetailTabs, type DoctorActions, type DoctorEditRequestInfo, type DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
@@ -528,9 +529,15 @@ export default async function PoaDetailPage({
 
       {/* Export button */}
       <div>
-        <a href={`/api/poa/${id}/export`}>
-          <Button size="sm" variant="ghost">↓ Export Excel</Button>
-        </a>
+        {POA_EXPORT_DISABLED ? (
+          <Button size="sm" variant="ghost" disabled title={POA_EXPORT_DISABLED_MESSAGE}>
+            ↓ Export Excel (dinonaktifkan sementara)
+          </Button>
+        ) : (
+          <a href={`/api/poa/${id}/export`}>
+            <Button size="sm" variant="ghost">↓ Export Excel</Button>
+          </a>
+        )}
       </div>
 
       {/* Edit-lock / request-edit is per-doctor now (docs/poa-per-doctor-approval/,

@@ -43,6 +43,41 @@ export interface MrApprovalGroup {
   }[];
 }
 
+// Every mounted SalesCounterOutletCard fires its own Canvasser API calls, so only
+// the current page of cards is rendered. Selection/stats still cover all rows.
+const OUTLET_PAGE_SIZE = 5;
+const GROUP_PAGE_SIZE = 10;
+
+function Pager({ page, totalPages, total, pageSize, onChange }: {
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  onChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  const btn = "rounded px-2 py-1 border disabled:opacity-40 cursor-pointer disabled:cursor-default";
+  return (
+    <div
+      className="mt-3 flex items-center justify-between border-t pt-3 text-xs"
+      style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
+    >
+      <span>
+        {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} dari {total}
+      </span>
+      <div className="flex items-center gap-2">
+        <button type="button" className={btn} style={{ borderColor: "var(--color-border)" }} disabled={page <= 1} onClick={() => onChange(page - 1)}>
+          ← Sebelumnya
+        </button>
+        <span>Hal {page} / {totalPages}</span>
+        <button type="button" className={btn} style={{ borderColor: "var(--color-border)" }} disabled={page >= totalPages} onClick={() => onChange(page + 1)}>
+          Berikutnya →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function SalesCounterApprovalsChecklist({
   mrGroups,
   scDrafts = [],
@@ -67,6 +102,8 @@ export function SalesCounterApprovalsChecklist({
   const [selectedGroupKeys, setSelectedGroupKeys] = useState<Set<string>>(new Set());
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
   const [activeKompetitorDraftId, setActiveKompetitorDraftId] = useState<string | null>(null);
+  const [outletPage, setOutletPage] = useState(1);
+  const [groupPage, setGroupPage] = useState(1);
 
   const [isPending, startTransition] = useTransition();
 
@@ -83,6 +120,13 @@ export function SalesCounterApprovalsChecklist({
   };
 
   // Calculations for ASM (Per Outlet)
+  const outletTotalPages = Math.max(1, Math.ceil(scDrafts.length / OUTLET_PAGE_SIZE));
+  const outletPageClamped = Math.min(outletPage, outletTotalPages);
+  const pagedDrafts = scDrafts.slice((outletPageClamped - 1) * OUTLET_PAGE_SIZE, outletPageClamped * OUTLET_PAGE_SIZE);
+  const groupTotalPages = Math.max(1, Math.ceil(mrGroups.length / GROUP_PAGE_SIZE));
+  const groupPageClamped = Math.min(groupPage, groupTotalPages);
+  const pagedGroups = mrGroups.slice((groupPageClamped - 1) * GROUP_PAGE_SIZE, groupPageClamped * GROUP_PAGE_SIZE);
+
   const allOutletIds = scDrafts.map((d) => d.id);
   const allOutletsSelected = allOutletIds.length > 0 && allOutletIds.every((id) => selectedOutletIds.has(id));
   const selectedOutletCount = selectedOutletIds.size;
@@ -315,7 +359,7 @@ export function SalesCounterApprovalsChecklist({
           {isASM ? (
             /* ================= MODE ASM: APPROVAL PER OUTLET ================= */
             <div className="space-y-3">
-              {scDrafts.map((draft) => (
+              {pagedDrafts.map((draft) => (
                 <SalesCounterOutletCard
                   key={draft.id}
                   draft={draft}
@@ -336,11 +380,12 @@ export function SalesCounterApprovalsChecklist({
                   onCloseKompetitor={() => setActiveKompetitorDraftId(null)}
                 />
               ))}
+              <Pager page={outletPageClamped} totalPages={outletTotalPages} total={scDrafts.length} pageSize={OUTLET_PAGE_SIZE} onChange={setOutletPage} />
             </div>
           ) : (
             /* ================= MODE SM KE ATAS: APPROVAL PER ORANG ================= */
             <div className="space-y-3">
-              {mrGroups.map((g) => {
+              {pagedGroups.map((g) => {
                 const isSelected = selectedGroupKeys.has(g.groupKey);
                 const isExpanded = expandedGroupKeys.has(g.groupKey);
 
@@ -513,6 +558,7 @@ export function SalesCounterApprovalsChecklist({
                   </div>
                 );
               })}
+              <Pager page={groupPageClamped} totalPages={groupTotalPages} total={mrGroups.length} pageSize={GROUP_PAGE_SIZE} onChange={setGroupPage} />
             </div>
           )}
         </Card>

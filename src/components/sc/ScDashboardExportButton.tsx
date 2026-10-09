@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { SC_EXPORT_DISABLED, SC_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
 
 interface ScDashboardExportButtonProps {
   currentQuarter: string;
@@ -30,6 +31,24 @@ export function ScDashboardExportButton({ currentQuarter }: ScDashboardExportBut
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen]);
+
+  if (SC_EXPORT_DISABLED) {
+    return (
+      <button
+        type="button"
+        disabled
+        title={SC_EXPORT_DISABLED_MESSAGE}
+        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
+        style={{
+          backgroundColor: "var(--color-bg, #ffffff)",
+          border: "1px solid var(--color-border, #e2e8f0)",
+          color: "var(--color-text, #1e293b)",
+        }}
+      >
+        ↓ Export Excel (dinonaktifkan sementara)
+      </button>
+    );
+  }
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>

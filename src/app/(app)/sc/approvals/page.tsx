@@ -10,6 +10,7 @@ import { SalesCounterApprovalsChecklist, type MrApprovalGroup } from "@/componen
 import { ScToastProvider } from "@/components/sc/ui/ScToast";
 import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
+import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { Role, Prisma, type PoaStatus } from "@prisma/client";
@@ -153,8 +154,10 @@ export default async function SalesCounterApprovalsPage({
       : Promise.resolve([] as MasterProductItem[]),
     getBlastInOutletSet().catch(() => new Set<string>()),
     getSalesCounterOutletsDirect(actor.nip).catch(() => []),
-    Promise.all(
-      outletCodes.map(async (kodePI: string) => {
+    mapWithConcurrency(
+      outletCodes,
+      8,
+      async (kodePI: string) => {
         try {
           const res = await getSalesCounterProduct(kodePI, outletPeriodMap.get(kodePI));
           if (res?.data) {
@@ -168,7 +171,7 @@ export default async function SalesCounterApprovalsPage({
         } catch (err) {
           console.error(`Error fetching SC products for ${kodePI}:`, err);
         }
-      })
+      }
     ),
   ]);
 
