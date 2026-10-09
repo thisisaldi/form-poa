@@ -82,7 +82,15 @@ async function assertCanEditDoctor(poa: PoaForm, actor: User, kodePI: string | n
         where: { poaId_kodePI_namaCust: { poaId: poa.id, kodePI, namaCust } },
       })
     : null;
-  if (!(await canEditDoctor(actor, poa, doctorApproval))) redirect(`/poa/${poa.id}`);
+  if (!(await canEditDoctor(actor, poa, doctorApproval))) {
+    // Pesan eksplisit (2026-10-09): sebelumnya redirect diam-diam, MR mengira form "tidak bisa" tanpa tahu sebabnya.
+    redirect(`/poa/${poa.id}?error=` + encodeURIComponent(
+      (doctorApproval?.dealAt
+        ? `${namaCust} sudah Deal di POA ini sehingga terkunci. `
+        : `${namaCust} sudah diajukan di POA ini sehingga terkunci untuk diedit. `) +
+      "Untuk menambah baris bagi customer yang sama (mis. jenis PSSP berbeda), buat POA baru di periode yang sama lewat menu New POA Estimasi."
+    ));
+  }
 }
 
 export async function addLineItemAction(poaId: string, formData: FormData): Promise<void> {
