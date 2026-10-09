@@ -342,112 +342,105 @@ export async function approveSalesCounterFormAction(
         throw new Error("Tidak ada POA Sales Counter yang dapat Anda setujui.");
       }
 
-      for (const form of forms) {
-        let nextStatus: PoaStatus = PoaStatus.APPROVED_BY_NSM;
-        let nextHolderId: string | null = null;
+      // Next status/holder depends only on the actor, not on the form, so resolve it
+      // once (the manager-chain walk used to repeat per form).
+      let nextStatus: PoaStatus = PoaStatus.APPROVED_BY_NSM;
+      let nextHolderId: string | null = null;
 
-        if (actor.role === "ASM") {
-          let nextMgr: { nip: string; role: string } | null = null;
-          let cur: string | null = actor.nipAtasan;
-          while (cur) {
-            const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
-              await tx.user.findUnique({
-                where: { nip: cur },
-                select: { nip: true, role: true, nipAtasan: true, isActive: true },
-              });
-            if (!p) break;
-            if (p.isActive && (p.role === "SM" || p.role === "NSM" || p.role === "ADMIN")) {
-              nextMgr = p;
-              break;
-            }
-            cur = p.nipAtasan;
-          }
-          if (!nextMgr) {
-            nextMgr = await tx.user.findFirst({
-              where: { isActive: true, role: { in: ["SM", "NSM"] } },
-              select: { nip: true, role: true },
+      if (actor.role === "ASM") {
+        let nextMgr: { nip: string; role: string } | null = null;
+        let cur: string | null = actor.nipAtasan;
+        while (cur) {
+          const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
+            await tx.user.findUnique({
+              where: { nip: cur },
+              select: { nip: true, role: true, nipAtasan: true, isActive: true },
             });
+          if (!p) break;
+          if (p.isActive && (p.role === "SM" || p.role === "NSM" || p.role === "ADMIN")) {
+            nextMgr = p;
+            break;
           }
-          if (nextMgr?.role === "NSM" || nextMgr?.role === "ADMIN") {
-            nextStatus = PoaStatus.SUBMITTED_TO_NSM;
-            nextHolderId = nextMgr.nip;
-          } else if (nextMgr?.role === "SM") {
-            nextStatus = PoaStatus.SUBMITTED_TO_SM;
-            nextHolderId = nextMgr.nip;
-          } else {
-            nextStatus = PoaStatus.APPROVED_BY_ASM;
-            nextHolderId = null;
-          }
-        } else if (actor.role === "SM") {
-          let nextMgr: { nip: string; role: string } | null = null;
-          let cur: string | null = actor.nipAtasan;
-          while (cur) {
-            const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
-              await tx.user.findUnique({
-                where: { nip: cur },
-                select: { nip: true, role: true, nipAtasan: true, isActive: true },
-              });
-            if (!p) break;
-            if (p.isActive && (p.role === "NSM" || p.role === "ADMIN")) {
-              nextMgr = p;
-              break;
-            }
-            cur = p.nipAtasan;
-          }
-          if (!nextMgr) {
-            nextMgr = await tx.user.findFirst({
-              where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
-              select: { nip: true, role: true },
-            });
-          }
-          nextStatus = nextMgr ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.APPROVED_BY_SM;
-          nextHolderId = nextMgr?.nip || null;
-        } else {
-          nextStatus = PoaStatus.APPROVED_BY_NSM;
+          cur = p.nipAtasan;
+      }
+        if (!nextMgr) {
+          nextMgr = await tx.user.findFirst({
+            where: { isActive: true, role: { in: ["SM", "NSM"] } },
+            select: { nip: true, role: true },
+          });
+      }
+        if (nextMgr?.role === "NSM" || nextMgr?.role === "ADMIN") {
+          nextStatus = PoaStatus.SUBMITTED_TO_NSM;
+          nextHolderId = nextMgr.nip;
+        } else if (nextMgr?.role === "SM") {
+          nextStatus = PoaStatus.SUBMITTED_TO_SM;
+          nextHolderId = nextMgr.nip;
+      } else {
+          nextStatus = PoaStatus.APPROVED_BY_ASM;
           nextHolderId = null;
-        }
+      }
+      } else if (actor.role === "SM") {
+        let nextMgr: { nip: string; role: string } | null = null;
+        let cur: string | null = actor.nipAtasan;
+        while (cur) {
+          const p: { nip: string; role: string; nipAtasan: string | null; isActive: boolean } | null =
+            await tx.user.findUnique({
+              where: { nip: cur },
+              select: { nip: true, role: true, nipAtasan: true, isActive: true },
+            });
+          if (!p) break;
+          if (p.isActive && (p.role === "NSM" || p.role === "ADMIN")) {
+            nextMgr = p;
+            break;
+          }
+          cur = p.nipAtasan;
+      }
+        if (!nextMgr) {
+          nextMgr = await tx.user.findFirst({
+            where: { isActive: true, role: { in: ["NSM", "ADMIN"] } },
+            select: { nip: true, role: true },
+          });
+      }
+        nextStatus = nextMgr ? PoaStatus.SUBMITTED_TO_NSM : PoaStatus.APPROVED_BY_SM;
+        nextHolderId = nextMgr?.nip || null;
+      } else {
+        nextStatus = PoaStatus.APPROVED_BY_NSM;
+        nextHolderId = null;
+      }
 
-        // STRICT MONOTONIC CHECK:
-        // 1. Next status rank must be strictly higher than current status rank (no status downgrade)
-        if (POA_STATUS_RANK[nextStatus] <= POA_STATUS_RANK[form.status as PoaStatus]) {
-          continue;
-        }
+      const approvable = forms.filter((form: any) => {
+        // STRICT MONOTONIC CHECK: no status downgrade
+        if (POA_STATUS_RANK[nextStatus] <= POA_STATUS_RANK[form.status as PoaStatus]) return false;
+        // Invariant guard: never approve DRAFT, REVISI, or already APPROVED_BY_NSM
+        return (
+          form.status !== PoaStatus.DRAFT &&
+          form.status !== PoaStatus.REVISI &&
+          form.status !== PoaStatus.APPROVED_BY_NSM
+        );
+      });
 
-        // 2. Invariant guard: Never approve forms in DRAFT, REVISI, or already APPROVED_BY_NSM
-        if (
-          form.status === PoaStatus.DRAFT ||
-          form.status === PoaStatus.REVISI ||
-          form.status === PoaStatus.APPROVED_BY_NSM
-        ) {
-          continue;
-        }
-
-        await tx.poaScForm.update({
-          where: { id: form.id },
-          data: {
-            status: nextStatus,
-            currentHolderId: nextHolderId,
-          },
+      if (approvable.length > 0) {
+        await tx.poaScForm.updateMany({
+          where: { id: { in: approvable.map((f: any) => f.id) } },
+          data: { status: nextStatus, currentHolderId: nextHolderId },
         });
-
-        await tx.poaScAuditLog.create({
-          data: {
+        await tx.poaScAuditLog.createMany({
+          data: approvable.map((form: any) => ({
             poaScId: form.id,
             actorId: session.userId,
             action: AuditAction.APPROVE,
             fromStatus: form.status,
             toStatus: nextStatus,
             snapshot: { notes: notes || "" },
-          },
+          })),
         });
-
-        totalApproved++;
+        totalApproved = approvable.length;
       }
 
       if (totalApproved === 0) {
         throw new Error("Tidak ada outlet yang valid untuk disetujui pada tingkat wewenang Anda.");
       }
-    });
+    }, { timeout: 30000, maxWait: 10000 });
 
     revalidatePath("/sc/dashboard");
     revalidatePath("/sc/approvals");

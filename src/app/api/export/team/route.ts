@@ -32,6 +32,7 @@
  *                                 spesialisasi label (#15)   [ASM/SM/NSM only]
  */
 
+import { POA_EXPORT_DISABLED, POA_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
 import { dedupeLineItems, sumTargetOncePerOwnerPeriod } from "@/lib/dedupeLineItems";
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
@@ -89,6 +90,9 @@ function resolveDiskonPeriodLabel(
 }
 
 export async function GET(req: NextRequest) {
+  if (POA_EXPORT_DISABLED) {
+    return NextResponse.json({ error: POA_EXPORT_DISABLED_MESSAGE }, { status: 503 });
+  }
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   // SFE used to be blocked here too (2026-07-24: "hanya monitor summarynya

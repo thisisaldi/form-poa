@@ -11,6 +11,7 @@ import type { PoaLineItem } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canView } from "@/lib/authz";
+import { POA_EXPORT_DISABLED, POA_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
 import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown, computeJumlahPeriode } from "@/lib/poaUtils";
 import { displayRole } from "@/lib/role";
 import { getAllPakets } from "@/lib/paketProduk";
@@ -104,6 +105,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (POA_EXPORT_DISABLED) {
+    return NextResponse.json({ error: POA_EXPORT_DISABLED_MESSAGE }, { status: 503 });
+  }
   const session = await getCurrentUser();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

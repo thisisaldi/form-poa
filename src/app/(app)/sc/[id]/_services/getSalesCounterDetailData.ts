@@ -10,6 +10,7 @@ import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { parseOutletHistorySales } from "@/lib/historySalesUtils";
+import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
 
 interface MasterProductItem {
   kodeProduk: string;
@@ -209,8 +210,10 @@ export async function getSalesCounterDetailData(
       : null,
   ]);
 
-  await Promise.all(
-    outletCodes.map(async (kodePI: string) => {
+  await mapWithConcurrency(
+    outletCodes,
+    8,
+    async (kodePI: string) => {
       try {
         const scProductRes = await getSalesCounterProduct(kodePI, poa.period).catch(() => null);
         const scCodes = new Set<string>();
@@ -256,7 +259,7 @@ export async function getSalesCounterDetailData(
       } catch (err) {
         console.error(`Error fetching SC data for ${kodePI}:`, err);
       }
-    })
+    }
   );
 
   const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));

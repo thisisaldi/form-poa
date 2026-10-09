@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { POA_EXPORT_DISABLED, POA_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
 
 interface DashboardExportButtonProps {
   quarters: string[]; // newest first, e.g. ["2026-Q3", "2026-Q2", ...]
@@ -28,6 +29,24 @@ export function DashboardExportButton({ quarters }: DashboardExportButtonProps) 
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen]);
+
+  if (POA_EXPORT_DISABLED) {
+    return (
+      <button
+        type="button"
+        disabled
+        title={POA_EXPORT_DISABLED_MESSAGE}
+        className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
+        style={{
+          backgroundColor: "var(--color-bg, #ffffff)",
+          border: "1px solid var(--color-border, #e2e8f0)",
+          color: "var(--color-text, #1e293b)",
+        }}
+      >
+        ↓ Export Excel (dinonaktifkan sementara)
+      </button>
+    );
+  }
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>

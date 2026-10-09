@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
+import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
+import { SC_EXPORT_DISABLED, SC_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
 import { PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { getScSubordinateIdsUnder } from "@/lib/authz";
@@ -29,6 +31,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (SC_EXPORT_DISABLED) {
+    return NextResponse.json({ error: SC_EXPORT_DISABLED_MESSAGE }, { status: 503 });
+  }
   const session = await getCurrentUser();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -172,8 +177,10 @@ export async function GET(
   const outletScProductCodesMap = new Map<string, Set<string>>();
   const outletCashbackMap = new Map<string, any>();
 
-  await Promise.all(
-    outletCodes.map(async (kodePI: string) => {
+  await mapWithConcurrency(
+    outletCodes,
+    8,
+    async (kodePI: string) => {
       try {
         const [res, cbRes] = await Promise.all([
           getSalesCounterProduct(kodePI, targetPeriod).catch(() => null),
@@ -196,7 +203,7 @@ export async function GET(
       } catch (err) {
         console.error(`Error fetching SC products or cashback for ${kodePI}:`, err);
       }
-    })
+    }
   );
 
   // Build ExcelJS Workbook
