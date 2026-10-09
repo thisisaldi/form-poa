@@ -638,6 +638,7 @@ export async function rejectDoctor(
 ): Promise<PoaDoctorApproval> {
   const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
   if (!existing) throw new Error(`No pending approval found for doctor ${namaCust} on POA ${poaId}`);
+  if (existing.dealAt) throw new Error(`Dokter ${namaCust} sudah Deal dan tidak bisa diubah.`);
 
   const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
   if (!(await canApproveDoctor(actingUser, existing))) {
@@ -663,6 +664,7 @@ export async function cancelApprovedByNsmDoctor(
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId } });
   const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
   if (!existing) throw new Error(`No approval found for doctor ${namaCust} on POA ${poaId}`);
+  if (existing.dealAt) throw new Error(`Dokter ${namaCust} sudah Deal dan tidak bisa diubah.`);
 
   const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
   if (!(await canCancelApprovedDoctor(actingUser, poa, existing))) {

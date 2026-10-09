@@ -86,9 +86,9 @@ async function assertCanEditDoctor(poa: PoaForm, actor: User, kodePI: string | n
     // Pesan eksplisit (2026-10-09): sebelumnya redirect diam-diam, MR mengira form "tidak bisa" tanpa tahu sebabnya.
     redirect(`/poa/${poa.id}?error=` + encodeURIComponent(
       (doctorApproval?.dealAt
-        ? `${namaCust} sudah Deal di POA ini sehingga terkunci. `
+        ? `${namaCust} sudah Deal di POA ini dan tidak bisa diubah sama sekali. `
         : `${namaCust} sudah diajukan di POA ini sehingga terkunci untuk diedit. `) +
-      "Untuk menambah baris bagi customer yang sama (mis. jenis PSSP berbeda), buat POA baru di periode yang sama lewat menu New POA Estimasi."
+      "Baris baru untuk customer yang sama belum bisa ditambahkan ke dokter yang terkunci di POA ini."
     ));
   }
 }

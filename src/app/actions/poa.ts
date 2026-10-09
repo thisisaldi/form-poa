@@ -35,12 +35,13 @@ export async function createPoaAction(formData: FormData): Promise<void> {
   // team is vacant can create one too (see canCreatePoa's doc comment).
   if (!(await canCreatePoa(session.userId))) redirect("/dashboard?error=no_outlets");
 
-  // Prevent EMPTY duplicate drafts for the same quarter period. A second POA in the same
-  // quarter is allowed once the existing ones already have line items (2026-10-07: e.g.
-  // same customer, different PSSP type, or a customer that is already Deal-locked).
-  // Aggregates dedupe identical rows / count target once per owner+period (lib/dedupeLineItems.ts).
+  // Satu quarter = lanjutkan draft yang SUDAH bisa diedit (status rollup DRAFT/REVISI = masih ada dokter
+  // yang belum diajukan/sedang direvisi). POA kedua di quarter yang sama hanya dibuat bila semua POA lama
+  // sudah tidak bisa diedit (diajukan/disetujui) — 2026-10-09: sebelumnya (2026-10-07) POA baru selalu
+  // dibuat selama POA lama berisi, sehingga MR yang masih punya draft aktif dilempar ke draft kedua.
+  // Agregat tetap aman: baris identik dihitung sekali, target sekali per owner+periode (lib/dedupeLineItems.ts).
   const existing = await prisma.poaForm.findFirst({
-    where: { ownerId: session.userId, period, items: { none: {} } },
+    where: { ownerId: session.userId, period, status: { in: ["DRAFT", "REVISI"] } },
   });
   if (existing) {
     redirect(`/poa/${existing.id}/edit?notice=` + encodeURIComponent(`Draft ${period} sudah ada. Lanjutkan di sini.`));
@@ -237,6 +238,11 @@ export async function deletePoaAction(poaId: string): Promise<{ error?: string }
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   if (poa.ownerId !== actor.nip && actor.role !== "ADMIN") return { error: "Tidak punya akses." };
 
+  // Dokter yang sudah Deal tidak boleh diubah sama sekali, termasuk lewat hapus POA.
+  if (await prisma.poaDoctorApproval.count({ where: { poaId, dealAt: { not: null } } }) > 0) {
+    return { error: "POA ini berisi dokter yang sudah Deal sehingga tidak bisa dihapus." };
+  }
+
   await prisma.$transaction([
     prisma.poaAuditLog.deleteMany({ where: { poaId } }),
     prisma.poaForm.delete({ where: { id: poaId } }),
@@ -267,6 +273,7 @@ export async function deleteDoctorAction(poaId: string, kodePI: string, namaCust
   const approval = await prisma.poaDoctorApproval.findUnique({
     where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } },
   });
+  if (approval?.dealAt) return { error: `${namaCust} sudah Deal sehingga tidak bisa dihapus.` };
 
   await prisma.$transaction([
     ...(approval
@@ -326,7 +333,7 @@ export async function updatePoaPeriodAction(poaId: string, newPeriod: string): P
   if (period === poa.period) return {};
 
   const duplicate = await prisma.poaForm.findFirst({
-    where: { ownerId: poa.ownerId, period, id: { not: poaId }, items: { none: {} } },
+    where: { ownerId: poa.ownerId, period, id: { not: poaId }, status: { in: ["DRAFT", "REVISI"] } },
   });
   if (duplicate) return { error: `Draft ${period} untuk pemilik ini sudah ada.` };
 

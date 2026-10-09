@@ -766,11 +766,11 @@ export async function hasPendingEditRequestForDoctor(doctorApprovalId: string): 
  * locks Doctor B.
  */
 export async function canEditDoctor(user: User, poa: PoaForm, doctor: PoaDoctorApproval | null): Promise<boolean> {
-  if (user.role === Role.ADMIN) return true;
-
-  // Sudah Deal (dealAt) = final, terkunci untuk semua role non-ADMIN (2026-10-07,
-  // keputusan user) — tidak bisa diedit dan tidak bisa Ajukan Edit.
+  // Sudah Deal (dealAt) = final, tidak boleh diubah sama sekali — termasuk ADMIN (2026-10-09, keputusan
+  // user: "kalau sudah deal tidak boleh diubah sama sekali"). Tidak bisa diedit dan tidak bisa Ajukan Edit.
   if (doctor?.dealAt) return false;
+
+  if (user.role === Role.ADMIN) return true;
 
   const userLevel = ROLE_LEVEL[user.role] ?? -1;
   if (userLevel >= 0 && doctor) {
