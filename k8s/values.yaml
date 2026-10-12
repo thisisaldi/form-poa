@@ -169,8 +169,8 @@ tolerations:
     staging:
       env: staging-century
     production:
-      env: vertex
+      env: prod-canvasser
   cronjob:
-    env: vertex
+    env: prod-canvasser
 
 terminationGracePeriodSeconds: 30
