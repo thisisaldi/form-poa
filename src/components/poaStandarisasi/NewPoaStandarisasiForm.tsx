@@ -15,6 +15,8 @@ import {
 import {
   Stepper,
   PlanningPhase,
+  planningErrors,
+  scrollToFirstFieldErr,
   emptyProduk,
   type ProdukFormState,
   type KpdmFormState,
@@ -37,6 +39,7 @@ export function NewPoaStandarisasiForm({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [attempted, setAttempted] = useState(false);
 
   const [kodePI, setKodePI] = useState("");
   const [dokterList, setDokterList] = useState<CustomerOption[]>([]);
@@ -127,13 +130,14 @@ export function NewPoaStandarisasiForm({
   }
 
   function handleSubmit() {
-    if (!kodePI) { setError("Outlet wajib dipilih."); return; }
-    if (kpdmList.length === 0) { setError("KPDM wajib dipilih minimal 1."); return; }
-    // Server throw-nya dimasking di production ("error occurred in the Server Components render"), jadi cek di sini.
-    if (tipeStandarisasi !== "PERMANEN" && !Number(periodeBulan)) { setError("Periode wajib diisi untuk tipe Periodic/Sisipan."); return; }
+    // Field wajib kosong → highlight + scroll (error server action dimasking di production, jadi jangan andalkan throw server).
+    const e = planningErrors({ kodePI, kpdmList, tipeStandarisasi, periodeBulan, produkList });
+    if (e.outlet || e.kpdm || e.periode || e.produk || e.dokter) {
+      setAttempted(true);
+      scrollToFirstFieldErr();
+      return;
+    }
     const produkFilled = produkList.filter((p) => p.kodeProduk);
-    if (produkFilled.length === 0) { setError("Tambahkan minimal 1 produk sebelum lanjut."); return; }
-    if (produkFilled.some((p) => p.dokterKlinis.length === 0)) { setError("Setiap produk wajib punya minimal 1 dokter user."); return; }
     setError(null);
     startTransition(async () => {
       try {
@@ -193,6 +197,7 @@ export function NewPoaStandarisasiForm({
       )}
 
       <PlanningPhase
+        attempted={attempted}
         canEdit={true}
         kodePI={kodePI}
         namaOutlet=""
@@ -223,7 +228,7 @@ export function NewPoaStandarisasiForm({
       />
 
       <div className="flex gap-3 pt-1">
-        <Button type="button" disabled={pending || !kodePI || kpdmList.length === 0} onClick={handleSubmit}>
+        <Button type="button" disabled={pending} onClick={handleSubmit}>
           {pending ? "Membuat…" : "Buat & Lanjut ke Approval Atasan"}
         </Button>
         <Link href="/poa-standarisasi">

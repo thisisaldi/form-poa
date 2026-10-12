@@ -595,14 +595,25 @@ export function PoaStandarisasiWizard({
 
   /** Gateway HKA (docs/poa-standarisasi-pusat/): cek produk yang belum tersimpan sebelum save, supaya pesannya sampai ke user (error server action dimasking di production). */
   async function checkGateway() {
-    // Server throw-nya dimasking di production, jadi validasi Periode dicek di client juga.
-    if (tipeStandarisasi !== "PERMANEN" && !Number(periodeBulan)) throw new Error("Periode wajib diisi untuk tipe Periodic/Sisipan.");
     const saved = new Set(pengajuan.produk.map((p) => p.kodeProduk));
     const res = await checkHkaGatewayAction(pengajuan.kodePI, buildPlanningPayload().produk.map((p) => p.kodeProduk).filter((k) => !saved.has(k)));
     if (res.error) throw new Error(res.error);
   }
 
+  const [attempted, setAttempted] = useState(false);
+  /** Field wajib Planning kosong → highlight + scroll, bukan lempar error (pesan server action dimasking di production). strict = juga cek produk & dokter (lanjut ke Approval Atasan). */
+  function planningValid(strict: boolean) {
+    const e = planningErrors({ kodePI: pengajuan.kodePI, kpdmList, tipeStandarisasi, periodeBulan, produkList });
+    if (e.kpdm || e.periode || (strict && (e.produk || e.dokter))) {
+      setAttempted(true);
+      scrollToFirstFieldErr();
+      return false;
+    }
+    return true;
+  }
+
   function handleSavePlanning() {
+    if (!planningValid(false)) return;
     run(async () => {
       await checkGateway();
       await savePlanningAction(pengajuan.id, buildPlanningPayload());
@@ -610,6 +621,7 @@ export function PoaStandarisasiWizard({
   }
 
   function handleAdvanceToApprovalAtasan() {
+    if (!planningValid(true)) return;
     run(async () => {
       await checkGateway();
       await savePlanningAction(pengajuan.id, buildPlanningPayload());
@@ -770,6 +782,7 @@ export function PoaStandarisasiWizard({
           addKpdm={addKpdm}
           removeKpdm={removeKpdm}
           updateKpdmEntertainEstimasi={updateKpdmEntertainEstimasi}
+          attempted={attempted}
           tipeStandarisasi={tipeStandarisasi}
           setTipeStandarisasi={setTipeStandarisasi}
           periodeBulan={periodeBulan}
@@ -986,7 +999,26 @@ export function Stepper({
 
 // ─── Phase 1: Planning Standarisasi ─────────────────────────────────────────
 
+const ERR_RING = { outline: "2px solid var(--color-red)", outlineOffset: 2, borderRadius: 6 } as const;
+
+/** Field wajib Planning yang belum terisi — dipakai PlanningPhase (highlight) dan guard save/lanjut. */
+export function planningErrors(f: { kodePI: string; kpdmList: KpdmFormState[]; tipeStandarisasi: string; periodeBulan: string; produkList: ProdukFormState[] }) {
+  return {
+    outlet: !f.kodePI,
+    kpdm: f.kpdmList.length === 0,
+    periode: f.tipeStandarisasi !== "PERMANEN" && !Number(f.periodeBulan),
+    produk: !f.produkList.some((p) => p.kodeProduk),
+    dokter: f.produkList.some((p) => p.kodeProduk && p.dokterKlinis.length === 0),
+  };
+}
+
+export function scrollToFirstFieldErr() {
+  setTimeout(() => document.querySelector("[data-field-err]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+}
+
 export function PlanningPhase(props: {
+  /** true setelah user klik save/lanjut dengan field wajib kosong — field yang kosong ditandai merah. */
+  attempted?: boolean;
   canEdit: boolean;
   kodePI: string;
   namaOutlet: string;
@@ -1020,7 +1052,7 @@ export function PlanningPhase(props: {
   updateDokterKlinis: (idx: number, customerId: string, patch: Partial<{ jumlahPasien: string; jumlahHariPraktekPerBulan: string; resepPerPasienSt: string; entertainRp: string }>) => void;
 }) {
   const {
-    canEdit, kodePI, namaOutlet, pengajuanId, outletPicker,
+    attempted = false, canEdit, kodePI, namaOutlet, pengajuanId, outletPicker,
     kpdmList, addKpdm, removeKpdm, updateKpdmEntertainEstimasi,
     tipeStandarisasi, setTipeStandarisasi,
     periodeBulan, setPeriodeBulan, jumlahBedRs, setJumlahBedRs, estimasiTimelineSelesai, setEstimasiTimelineSelesai,
@@ -1029,6 +1061,11 @@ export function PlanningPhase(props: {
   } = props;
 
   const disabled = !canEdit;
+  const planErr = planningErrors({ kodePI, kpdmList, tipeStandarisasi, periodeBulan, produkList });
+  const outletErr = attempted && !!outletPicker && planErr.outlet;
+  const kpdmErr = attempted && planErr.kpdm;
+  const periodeErr = attempted && planErr.periode;
+  const produkEmptyErr = attempted && planErr.produk;
 
   // Same labeling + kontes/kategori grouping as POA Estimasi's product picker
   // (LineItemEditor's buildProductOptions) — no single dokter is picked yet at
@@ -1124,9 +1161,10 @@ export function PlanningPhase(props: {
       <RekomendasiSidebar kodePI={kodePI} pengajuanId={pengajuanId} productByKode={productByKode} />
       <Card className="mb-4">
         <CardHeader><CardTitle>Planning Standarisasi</CardTitle></CardHeader>
-        <div className="max-w-lg mb-4">
+        <div className="max-w-lg mb-4" {...(outletErr ? { "data-field-err": "true" } : {})}>
           <span className="text-sm font-medium block mb-1">Nama Outlet {outletPicker && <span style={{ color: "var(--color-error)" }}>*</span>}</span>
           {outletPicker ? (
+            <div style={outletErr ? ERR_RING : undefined}>
             <Combobox
               name="kodePI"
               options={outletPicker.options}
@@ -1136,15 +1174,16 @@ export function PlanningPhase(props: {
               required
               emptyMessage="Tidak ada outlet di coverage Anda."
             />
+            </div>
           ) : (
             <div className="rounded px-3 py-2 text-sm" style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)" }}>{namaOutlet}</div>
           )}
         </div>
-        <div className="mb-4">
+        <div className="mb-4" style={kpdmErr ? ERR_RING : undefined} {...(kpdmErr ? { "data-field-err": "true" } : {})}>
           <span className="text-sm font-medium block mb-1">KPDM Standarisasi <span style={{ color: "var(--color-error)" }}>*</span></span>
           <p className="text-xs mb-2" style={{ color: "var(--color-text-faint)" }}>Bisa lebih dari satu KPDM untuk outlet ini.</p>
           {kpdmList.length === 0 ? (
-            <p className="text-xs italic mb-2" style={{ color: "var(--color-text-faint)" }}>Belum ada KPDM dipilih.</p>
+            <p className="text-xs italic mb-2" style={{ color: kpdmErr ? "var(--color-red)" : "var(--color-text-faint)" }}>{kpdmErr ? "Wajib pilih minimal 1 KPDM." : "Belum ada KPDM dipilih."}</p>
           ) : (
             <div className="space-y-2 mb-2">
               {kpdmList.map((k) => (
@@ -1194,8 +1233,9 @@ export function PlanningPhase(props: {
             />
           </div>
           {tipeStandarisasi === "PERIODIC" && (
-            <div>
+            <div {...(periodeErr ? { "data-field-err": "true" } : {})}>
               <span className="text-sm font-medium block mb-1">Periode <span style={{ color: "var(--color-error)" }}>*</span></span>
+              <div style={periodeErr ? ERR_RING : undefined}>
               <Combobox
                 name="periodeBulan"
                 options={PERIODE_PERIODIC_OPTIONS.map((n) => ({ value: String(n), label: `${n} Bulan` }))}
@@ -1204,10 +1244,13 @@ export function PlanningPhase(props: {
                 disabled={disabled}
                 placeholder="Pilih periode…"
               />
+              </div>
             </div>
           )}
           {tipeStandarisasi === "SISIPAN" && (
-            <UnitCountInput label="Periode" unit="Bulan" value={periodeBulan} onChange={setPeriodeBulan} disabled={disabled} />
+            <div style={periodeErr ? ERR_RING : undefined} {...(periodeErr ? { "data-field-err": "true" } : {})}>
+              <UnitCountInput label="Periode" unit="Bulan" value={periodeBulan} onChange={setPeriodeBulan} disabled={disabled} />
+            </div>
           )}
         </div>
 
@@ -1250,8 +1293,9 @@ export function PlanningPhase(props: {
             </div>
 
             <div className="flex gap-3 items-start">
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0" {...(produkEmptyErr && !p.kodeProduk ? { "data-field-err": "true" } : {})}>
                 <span className="text-xs font-medium block mb-1">Nama Produk *</span>
+                <div style={produkEmptyErr && !p.kodeProduk ? ERR_RING : undefined}>
                 <Combobox
                   name={`produk-${idx}`}
                   options={rowProductOptions}
@@ -1265,6 +1309,7 @@ export function PlanningPhase(props: {
                   disabled={disabled}
                   placeholder="Cari produk…"
                 />
+                </div>
               </div>
               <div className="w-40 shrink-0">
                 <span className="text-xs font-medium block mb-1">Status Pengajuan</span>
@@ -1390,7 +1435,11 @@ export function PlanningPhase(props: {
             <hr className="my-3" style={{ borderColor: "var(--color-border)" }} />
             <span className="text-xs font-bold uppercase tracking-wide block mb-2" style={{ color: "var(--color-text-faint)" }}>Dokter User</span>
             {p.dokterKlinis.length === 0 ? (
-              <p className="text-xs italic mb-2" style={{ color: "var(--color-text-faint)" }}>Belum ada dokter user untuk produk ini.</p>
+              attempted && !!p.kodeProduk ? (
+                <p className="text-xs mb-2 rounded px-2 py-1" data-field-err="true" style={{ color: "var(--color-red)", ...ERR_RING }}>Wajib pilih minimal 1 dokter user.</p>
+              ) : (
+                <p className="text-xs italic mb-2" style={{ color: "var(--color-text-faint)" }}>Belum ada dokter user untuk produk ini.</p>
+              )
             ) : (
               <div className="overflow-x-auto mb-2">
                 <table className="w-full text-xs">
