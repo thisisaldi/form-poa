@@ -36,16 +36,16 @@ export async function createPoaAction(formData: FormData): Promise<void> {
   // team is vacant can create one too (see canCreatePoa's doc comment).
   if (!(await canCreatePoa(session.userId))) redirect("/dashboard?error=no_outlets");
 
-  // Satu quarter = lanjutkan draft yang SUDAH bisa diedit (status rollup DRAFT/REVISI = masih ada dokter
-  // yang belum diajukan/sedang direvisi). POA kedua di quarter yang sama hanya dibuat bila semua POA lama
-  // sudah tidak bisa diedit (diajukan/disetujui) — 2026-10-09: sebelumnya (2026-10-07) POA baru selalu
-  // dibuat selama POA lama berisi, sehingga MR yang masih punya draft aktif dilempar ke draft kedua.
-  // Agregat tetap aman: baris identik dihitung sekali, target sekali per owner+periode (lib/dedupeLineItems.ts).
+  // Satu MR = satu POA per kuartal, APA PUN statusnya (2026-10-12). Dokter yang sudah Deal tidak perlu draft
+  // baru: baris tambahan untuk dokter itu otomatis menjadi gelombang baru di POA yang sama
+  // (docs/poa-deal-addendum/), dan dokter lain bisa ditambah seperti biasa. Bila ada lebih dari satu POA lama
+  // di kuartal itu (sisa dari aturan 2026-10-07), lanjutkan yang paling awal dibuat.
   const existing = await prisma.poaForm.findFirst({
-    where: { ownerId: session.userId, period, status: { in: ["DRAFT", "REVISI"] } },
+    where: { ownerId: session.userId, period },
+    orderBy: { createdAt: "asc" },
   });
   if (existing) {
-    redirect(`/poa/${existing.id}/edit?notice=` + encodeURIComponent(`Draft ${period} sudah ada. Lanjutkan di sini.`));
+    redirect(`/poa/${existing.id}/edit?notice=` + encodeURIComponent(`POA ${period} sudah ada. Lanjutkan di sini.`));
   }
 
   const poa = await createPoaDraft(session.userId, period);
@@ -333,7 +333,7 @@ export async function updatePoaPeriodAction(poaId: string, newPeriod: string): P
   if (period === poa.period) return {};
 
   const duplicate = await prisma.poaForm.findFirst({
-    where: { ownerId: poa.ownerId, period, id: { not: poaId }, status: { in: ["DRAFT", "REVISI"] } },
+    where: { ownerId: poa.ownerId, period, id: { not: poaId } },
   });
   if (duplicate) return { error: `Draft ${period} untuk pemilik ini sudah ada.` };
 

@@ -286,8 +286,9 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     },
   });
 
-  // Gelombang baru belum punya approval = DRAFT: POA tidak boleh tetap tampil "fully approved" (rollup = yang paling belum maju).
-  if (opensNewBatch) await resolvePoaRollup(poaId);
+  // Baris baru (gelombang baru, atau dokter baru di POA yang sebagian dokternya sudah disetujui) belum punya approval =
+  // DRAFT: POA tidak boleh tetap tampil "fully approved" (rollup = yang paling belum maju). No-op bila belum ada approval sama sekali.
+  await resolvePoaRollup(poaId);
 
   revalidatePath(`/poa/${poaId}/edit`);
 }
