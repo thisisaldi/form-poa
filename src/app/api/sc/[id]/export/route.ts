@@ -9,7 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
-import { SC_EXPORT_DISABLED, SC_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
+import { getAppSetting } from "@/lib/appSettings";
+import { settingMessage } from "@/lib/appSettingsRegistry";
 import { PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 import { getScSubordinateIdsUnder } from "@/lib/authz";
@@ -31,8 +32,8 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (SC_EXPORT_DISABLED) {
-    return NextResponse.json({ error: SC_EXPORT_DISABLED_MESSAGE }, { status: 503 });
+  if (await getAppSetting("export.sc.disabled")) {
+    return NextResponse.json({ error: settingMessage("export.sc.disabled") }, { status: 503 });
   }
   const session = await getCurrentUser();
   if (!session) {

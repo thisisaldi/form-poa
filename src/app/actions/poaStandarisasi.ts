@@ -25,8 +25,8 @@ import { getDiscountsForOutlet, getLiveProductPricing, getExodusOutletIdByCode, 
 import { EXODUS_DISTRIBUTORS, type ExodusDistributorKode } from "@/lib/exodusDistributors";
 import { getSurveyRekomendasiInfo, getCustomersByOutlet, getDiskonByOutlet, getDiskonByOutlets } from "@/app/actions/customer";
 import { uploadFileToPoaStandarisasiDrive, isGoogleDriveConfigured, describeGoogleDriveConfig } from "@/lib/googleDrive";
-import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
-import { DPL_DPF_SUBMIT_DISABLED, DPL_DPF_SUBMIT_DISABLED_MESSAGE } from "@/lib/poaStandarisasiDplDpfFlag";
+import { getAppSetting } from "@/lib/appSettings";
+import { settingMessage } from "@/lib/appSettingsRegistry";
 import { SALES_TEAM_ROLES } from "@/lib/role";
 import { assertHkaGateway } from "@/lib/hkaGateway";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
@@ -1531,7 +1531,7 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
 }
 
 async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
-  if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
+  if (await getAppSetting("standarisasi.upload.disabled")) throw new Error(settingMessage("standarisasi.upload.disabled"));
   const { session, actor } = await requireActor();
   if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
 
@@ -1660,7 +1660,7 @@ export async function generateSpNonSalesMemoAction(id: string, input: { kepada: 
 }
 
 async function generateSpNonSalesMemoActionImpl(id: string, input: { kepada: string; alasan: string }): Promise<void> {
-  if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
+  if (await getAppSetting("standarisasi.upload.disabled")) throw new Error(settingMessage("standarisasi.upload.disabled"));
   const { actor } = await requireActor();
   const pengajuan = await prisma.poaStandarisasi.findUnique({
     where: { id },
@@ -1872,7 +1872,7 @@ export async function submitDiscountRequestAction(formData: FormData): Promise<A
 }
 
 async function submitDiscountRequestActionImpl(formData: FormData): Promise<void> {
-  if (DPL_DPF_SUBMIT_DISABLED) throw new Error(DPL_DPF_SUBMIT_DISABLED_MESSAGE);
+  if (await getAppSetting("standarisasi.dplDpfSubmit.disabled")) throw new Error(settingMessage("standarisasi.dplDpfSubmit.disabled"));
   const { actor } = await requireActor();
   const str = (k: string) => ((formData.get(k) as string | null) ?? "").trim();
   const pengajuanId = str("pengajuanId");
@@ -2001,7 +2001,7 @@ export async function uploadSpNonSalesDocumentAction(formData: FormData): Promis
 }
 
 async function uploadSpNonSalesDocumentActionImpl(formData: FormData): Promise<{ driveFileId: string; fileName: string }> {
-  if (POA_STANDARISASI_UPLOAD_DISABLED) throw new Error(POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE);
+  if (await getAppSetting("standarisasi.upload.disabled")) throw new Error(settingMessage("standarisasi.upload.disabled"));
   const { session, actor } = await requireActor();
   if (!isGoogleDriveConfigured) throw new Error("Fitur upload belum dikonfigurasi.");
 

@@ -5,6 +5,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { MaintenanceScreen } from "@/components/layout/MaintenanceScreen";
 import { getMaintenanceState, maintenanceMessage } from "@/lib/maintenance";
 import { ScToastProvider } from "@/components/sc/ui/ScToast";
+import { getAppSettings } from "@/lib/appSettings";
+import { FeatureFlagsProvider } from "@/components/providers/FeatureFlags";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -41,7 +43,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
   }
 
+  // Pengaturan fitur dari DB (AppSetting) untuk komponen client — lihat FeatureFlagsProvider.
+  const featureFlags = await getAppSettings();
+
   return (
+    <FeatureFlagsProvider values={featureFlags}>
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--color-bg)" }}>
       <Sidebar
         userRole={session.role}
@@ -66,5 +72,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </main>
     </div>
+    </FeatureFlagsProvider>
   );
 }

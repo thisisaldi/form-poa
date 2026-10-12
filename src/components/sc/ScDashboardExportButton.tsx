@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { SC_EXPORT_DISABLED, SC_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
+import { featureFlagMessage, useFeatureFlag } from "@/components/providers/FeatureFlags";
 
 interface ScDashboardExportButtonProps {
   currentQuarter: string;
 }
 
 export function ScDashboardExportButton({ currentQuarter }: ScDashboardExportButtonProps) {
+  const exportDisabled = useFeatureFlag("export.sc.disabled");
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -32,12 +33,12 @@ export function ScDashboardExportButton({ currentQuarter }: ScDashboardExportBut
     };
   }, [isOpen]);
 
-  if (SC_EXPORT_DISABLED) {
+  if (exportDisabled) {
     return (
       <button
         type="button"
         disabled
-        title={SC_EXPORT_DISABLED_MESSAGE}
+        title={featureFlagMessage("export.sc.disabled")}
         className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
         style={{
           backgroundColor: "var(--color-bg, #ffffff)",

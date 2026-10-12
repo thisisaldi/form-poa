@@ -45,8 +45,7 @@ import {
   generateSpNonSalesMemoAction,
   getSpNonSalesMemoKepadaDefaultAction,
 } from "@/app/actions/poaStandarisasi";
-import { POA_STANDARISASI_UPLOAD_DISABLED, POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE } from "@/lib/poaStandarisasiUploadFlag";
-import { DPL_DPF_SUBMIT_DISABLED, DPL_DPF_SUBMIT_DISABLED_MESSAGE } from "@/lib/poaStandarisasiDplDpfFlag";
+import { featureFlagMessage, useFeatureFlag } from "@/components/providers/FeatureFlags";
 import { isEndingThisQuarter } from "@/lib/quarterUtils";
 import { APPROVAL_LEVELS, type ApprovalLevel } from "@/lib/discountApprovalLevel";
 import {
@@ -1616,6 +1615,8 @@ function ApprovalUserDokterPhase({
   setJadwalMeetingKft: (v: string) => void;
 }) {
   const [selectedProdukId, setSelectedProdukId] = useState<string>(pengajuan.produk[0]?.id ?? "");
+  const uploadDisabled = useFeatureFlag("standarisasi.upload.disabled");
+  const uploadDisabledMessage = featureFlagMessage("standarisasi.upload.disabled");
   const [savingJadwal, setSavingJadwal] = useState(false);
   const [jadwalSaved, setJadwalSaved] = useState(false);
 
@@ -1714,9 +1715,9 @@ function ApprovalUserDokterPhase({
     <div className="flex gap-4 items-start mb-4 flex-col lg:flex-row">
       <Card className="flex-1 min-w-0">
         <CardHeader><CardTitle>Approval User / Dokter</CardTitle></CardHeader>
-        {POA_STANDARISASI_UPLOAD_DISABLED && (
+        {uploadDisabled && (
           <p className="text-xs rounded px-3 py-2 mb-3" style={{ background: "var(--color-warning-bg, #FEF9C3)", color: "var(--color-warning, #92400E)" }}>
-            {POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE}
+            {uploadDisabledMessage}
           </p>
         )}
         {localError && (
@@ -1899,6 +1900,8 @@ function FinalisasiPhase({
   removeDokterUser: (idx: number, customerId: string) => void;
 }) {
   const disabled = !canEdit || !!pengajuan.submittedAt;
+  const uploadDisabled = useFeatureFlag("standarisasi.upload.disabled");
+  const uploadDisabledMessage = featureFlagMessage("standarisasi.upload.disabled");
   // Form Approval Standarisasi upload — per produk (2026-08-26, dipindah dari Menunggu Meeting KFT).
   const formApprovalInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [uploadingFormApproval, setUploadingFormApproval] = useState<string | null>(null);
@@ -1925,9 +1928,9 @@ function FinalisasiPhase({
   return (
     <Card className="mb-4">
       <CardHeader><CardTitle>Finalisasi</CardTitle></CardHeader>
-      {POA_STANDARISASI_UPLOAD_DISABLED && (
+      {uploadDisabled && (
         <p className="text-xs rounded px-3 py-2 mb-4" style={{ background: "var(--color-warning-bg, #FEF9C3)", color: "var(--color-warning, #92400E)" }}>
-          {POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE}
+          {uploadDisabledMessage}
         </p>
       )}
       {localError && (
@@ -2131,8 +2134,8 @@ function FinalisasiPhase({
                           type="button"
                           size="sm"
                           variant="secondary"
-                          disabled={uploadingFormApproval === p.id || POA_STANDARISASI_UPLOAD_DISABLED}
-                          title={POA_STANDARISASI_UPLOAD_DISABLED ? POA_STANDARISASI_UPLOAD_DISABLED_MESSAGE : undefined}
+                          disabled={uploadingFormApproval === p.id || uploadDisabled}
+                          title={uploadDisabled ? uploadDisabledMessage : undefined}
                           onClick={() => formApprovalInputRefs.current[p.id!]?.click()}
                         >
                           {rawProduk.formApprovalDriveFileId ? "Ganti" : "Upload"}
@@ -2498,6 +2501,8 @@ function DplDpfForm({
   productByKode: Map<string, Product>;
 }) {
   const [tipe, setTipe] = useState<"DPL" | "DPF">("DPL");
+  const dplDpfDisabled = useFeatureFlag("standarisasi.dplDpfSubmit.disabled");
+  const dplDpfDisabledMessage = featureFlagMessage("standarisasi.dplDpfSubmit.disabled");
   const [periodeAwal, setPeriodeAwal] = useState("");
   const [periodeAkhir, setPeriodeAkhir] = useState("");
   const [tanggalPo, setTanggalPo] = useState("");
@@ -2547,7 +2552,7 @@ function DplDpfForm({
   }
 
   const canSubmit =
-    !DPL_DPF_SUBMIT_DISABLED && canEdit && !busy && !!distributor && selected.size > 0 &&
+    !dplDpfDisabled && canEdit && !busy && !!distributor && selected.size > 0 &&
     (tipe === "DPL" ? !!periodeAwal && !!periodeAkhir : !!tanggalPo && !!nomorPo.trim() && !!poFile) &&
     (tipe === "DPL" || produk.filter((p) => selected.has(p.id)).every((p) => parseInt(qtyByProdukId[p.id] ?? "", 10) >= 1));
 
@@ -2685,8 +2690,8 @@ function DplDpfForm({
           </table>
         </div>
 
-      {DPL_DPF_SUBMIT_DISABLED && (
-        <p className="text-xs rounded px-3 py-2" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>{DPL_DPF_SUBMIT_DISABLED_MESSAGE}</p>
+      {dplDpfDisabled && (
+        <p className="text-xs rounded px-3 py-2" style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)" }}>{dplDpfDisabledMessage}</p>
       )}
       {error && (
         <p className="text-xs rounded px-3 py-2" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>{error}</p>
@@ -2695,7 +2700,7 @@ function DplDpfForm({
         <p className="text-xs rounded px-3 py-2" style={{ background: "var(--color-status-approved-bg, #E6F5EC)", color: "var(--color-status-approved, #008f42)" }}>✓ Terkirim ke Exodus.</p>
       )}
       <div className="flex justify-end border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
-        <Button type="button" size="sm" disabled={!canSubmit} onClick={handleSubmit} title={DPL_DPF_SUBMIT_DISABLED ? DPL_DPF_SUBMIT_DISABLED_MESSAGE : undefined}>
+        <Button type="button" size="sm" disabled={!canSubmit} onClick={handleSubmit} title={dplDpfDisabled ? dplDpfDisabledMessage : undefined}>
           {busy ? "Mengirim…" : "Ajukan"}
         </Button>
       </div>

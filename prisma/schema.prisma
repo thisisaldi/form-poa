@@ -1438,6 +1438,16 @@ model MaintenanceMode {
   updatedAt    DateTime @updatedAt
 }
 
+// Pengaturan fitur on/off yang bisa diubah ADMIN dari halaman Admin tanpa deploy (2026-10-12).
+// Daftar key, label, dan default hidup di src/lib/appSettingsRegistry.ts — baris di sini hanya override;
+// key yang belum punya baris memakai default registry, jadi menambah pengaturan baru tidak butuh migrasi data.
+model AppSetting {
+  key          String   @id
+  value        String // "true" | "false"
+  updatedByNip String?
+  updatedAt    DateTime @updatedAt
+}
+
 // Singleton credential for /api/poa-doctors's HTTP Basic Auth path (2026-08-19)
 // — lets an external app call that endpoint without a session cookie. DB-backed
 // instead of an env var so an ADMIN can rotate it from the Admin page without a

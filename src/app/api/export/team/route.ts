@@ -32,7 +32,8 @@
  *                                 spesialisasi label (#15)   [ASM/SM/NSM only]
  */
 
-import { POA_EXPORT_DISABLED, POA_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
+import { getAppSetting } from "@/lib/appSettings";
+import { settingMessage } from "@/lib/appSettingsRegistry";
 import { dedupeLineItems, sumTargetOncePerOwnerPeriod } from "@/lib/dedupeLineItems";
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
@@ -90,8 +91,8 @@ function resolveDiskonPeriodLabel(
 }
 
 export async function GET(req: NextRequest) {
-  if (POA_EXPORT_DISABLED) {
-    return NextResponse.json({ error: POA_EXPORT_DISABLED_MESSAGE }, { status: 503 });
+  if (await getAppSetting("export.poa.disabled")) {
+    return NextResponse.json({ error: settingMessage("export.poa.disabled") }, { status: 503 });
   }
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -137,6 +138,9 @@ export async function GET(req: NextRequest) {
   // describes, not widening the on-demand query further.
   const fullReportScope = (["ASM", "SM", "NSM"] as string[]).includes(session.role);
   const periodParam = req.nextUrl.searchParams.get("period");
+  if (periodParam === "all" && (await getAppSetting("export.team.periodAllDisabled"))) {
+    return NextResponse.json({ error: settingMessage("export.team.periodAllDisabled") }, { status: 400 });
+  }
   const period = periodParam === "all" ? null : (periodParam ?? currentQuarter());
 
   // ── Query data ──────────────────────────────────────────────────────────────

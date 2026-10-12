@@ -15,7 +15,7 @@ import type { ScDraftFormItem, SalesFigures } from "./types";
 
 import { submitSalesCounterFormAction } from "@/app/actions/scApprovalActions";
 import { useScToast } from "./ui/ScToast";
-import { SC_EXPORT_DISABLED, SC_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
+import { featureFlagMessage, useFeatureFlag } from "@/components/providers/FeatureFlags";
 
 const PAGE_SIZE = 5;
 
@@ -99,6 +99,7 @@ export function SalesCounterDraftChecklist({
   };
 
   const { showToast } = useScToast();
+  const scExportDisabled = useFeatureFlag("export.sc.disabled");
 
   async function handleSubmitAction() {
     // Submit only the submittable (DRAFT/REVISI) ones from the selection
@@ -167,8 +168,8 @@ export function SalesCounterDraftChecklist({
   return (
     <div className="space-y-4">
       <div>
-        {SC_EXPORT_DISABLED ? (
-          <Button size="sm" variant="ghost" disabled title={SC_EXPORT_DISABLED_MESSAGE}>
+        {scExportDisabled ? (
+          <Button size="sm" variant="ghost" disabled title={featureFlagMessage("export.sc.disabled")}>
             ↓ Export Excel (dinonaktifkan sementara)
           </Button>
         ) : (

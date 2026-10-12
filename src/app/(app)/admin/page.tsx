@@ -5,6 +5,7 @@ import { getCustomers } from "@/lib/masterData";
 import { prisma } from "@/lib/prisma";
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { MaintenanceModeToggle } from "@/components/admin/MaintenanceModeToggle";
+import { AppSettingsPanel } from "@/components/admin/AppSettingsPanel";
 import { LoginAccessPanel } from "@/components/admin/LoginAccessPanel";
 import { PoaDoctorsApiCredentialPanel } from "@/components/admin/PoaDoctorsApiCredentialPanel";
 import { GoogleDriveConfigPanel } from "@/components/admin/GoogleDriveConfigPanel";
@@ -26,7 +27,7 @@ function formatPeriode(periode: string): string {
 
 const SECTIONS = [
   { key: "data", label: "Data Master", desc: "User, outlet, dokter, produk, penugasan outlet, dan semua POA" },
-  { key: "sistem", label: "Pengaturan Sistem", desc: "Maintenance, blokir login, kredensial API, dan Google Drive" },
+  { key: "sistem", label: "Pengaturan Sistem", desc: "Maintenance, pengaturan fitur (export Excel, upload, DPL/DPF), blokir login, kredensial API, dan Google Drive" },
 ] as const;
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
@@ -82,6 +83,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       ) : (
         <div className="space-y-5">
           <MaintenanceModeToggle />
+          <AppSettingsPanel />
           <LoginAccessPanel />
           <PoaDoctorsApiCredentialPanel />
           <GoogleDriveConfigPanel />

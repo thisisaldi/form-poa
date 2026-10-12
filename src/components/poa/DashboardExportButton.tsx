@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { POA_EXPORT_DISABLED, POA_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
+import { featureFlagMessage, useFeatureFlag } from "@/components/providers/FeatureFlags";
 
 interface DashboardExportButtonProps {
   quarters: string[]; // newest first, e.g. ["2026-Q3", "2026-Q2", ...]
 }
 
 export function DashboardExportButton({ quarters }: DashboardExportButtonProps) {
+  const exportDisabled = useFeatureFlag("export.poa.disabled");
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -30,12 +31,12 @@ export function DashboardExportButton({ quarters }: DashboardExportButtonProps) 
     };
   }, [isOpen]);
 
-  if (POA_EXPORT_DISABLED) {
+  if (exportDisabled) {
     return (
       <button
         type="button"
         disabled
-        title={POA_EXPORT_DISABLED_MESSAGE}
+        title={featureFlagMessage("export.poa.disabled")}
         className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
         style={{
           backgroundColor: "var(--color-bg, #ffffff)",

@@ -14,7 +14,8 @@ import {
 import type { PoaDoctorApproval } from "@prisma/client";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
-import { POA_EXPORT_DISABLED, POA_EXPORT_DISABLED_MESSAGE } from "@/lib/exportFlags";
+import { getAppSetting } from "@/lib/appSettings";
+import { settingMessage } from "@/lib/appSettingsRegistry";
 import { Card } from "@/components/ui/Card";
 import { PoaDetailTabs, type DoctorActions, type DoctorEditRequestInfo, type DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
@@ -95,6 +96,7 @@ export default async function PoaDetailPage({
   // edit lock canEdit enforces (2026-08-20 fix) — see canAddNewDoctor's own
   // doc comment.
   const canAddDoctor = await canAddNewDoctor(actor, poa);
+  const exportDisabled = await getAppSetting("export.poa.disabled");
 
   // Per-doctor approval (docs/poa-per-doctor-approval/, 2026-08-13) — build
   // one row per doctor in this draft (from its line items), joined with its
@@ -530,8 +532,8 @@ export default async function PoaDetailPage({
 
       {/* Export button */}
       <div>
-        {POA_EXPORT_DISABLED ? (
-          <Button size="sm" variant="ghost" disabled title={POA_EXPORT_DISABLED_MESSAGE}>
+        {exportDisabled ? (
+          <Button size="sm" variant="ghost" disabled title={settingMessage("export.poa.disabled")}>
             ↓ Export Excel (dinonaktifkan sementara)
           </Button>
         ) : (
