@@ -8,6 +8,8 @@ export const SC_EXPORT_DISABLED_MESSAGE =
   "Export Excel POA Sales Counter dinonaktifkan sementara. Silakan coba lagi nanti.";
 
 // POA Hospital (Form POA): /api/poa/[id]/export, /api/export/team
-export const POA_EXPORT_DISABLED = true;
+// Re-enabled 2026-10-12 together with the pod memory bump (k8s/values.yaml 1Gi -> 2Gi,
+// scripts/start.sh heap 896 -> 1792). Sales Counter (non-Hospital) stays disabled above.
+export const POA_EXPORT_DISABLED = false;
 export const POA_EXPORT_DISABLED_MESSAGE =
   "Export Excel POA dinonaktifkan sementara. Silakan coba lagi nanti.";

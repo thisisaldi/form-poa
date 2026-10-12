@@ -75,8 +75,12 @@ resources:
     # ~3s and not the bottleneck, see route.ts comments). Memory raised in
     # tandem with scripts/start.sh's --max-old-space-size, which must stay
     # below this limit with headroom for non-heap overhead.
+    # Bumped 2026-10-12: memory 1Gi -> 2Gi. Measured locally against real data:
+    # /api/export/team?period=all peaks ~975MB (ADMIN scope, Sheets 3-4 only) —
+    # ExcelJS keeps every cell as an object, ~300x the .xlsx size — which sits
+    # right at the old 896MB heap cap, and ASM/SM/NSM also build Sheets 5-10.
     cpu: 2000m
-    memory: 1Gi
+    memory: 2Gi
   requests:
     cpu: 500m
     memory: 256Mi
