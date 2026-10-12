@@ -595,6 +595,8 @@ export function PoaStandarisasiWizard({
 
   /** Gateway HKA (docs/poa-standarisasi-pusat/): cek produk yang belum tersimpan sebelum save, supaya pesannya sampai ke user (error server action dimasking di production). */
   async function checkGateway() {
+    // Server throw-nya dimasking di production, jadi validasi Periode dicek di client juga.
+    if (tipeStandarisasi !== "PERMANEN" && !Number(periodeBulan)) throw new Error("Periode wajib diisi untuk tipe Periodic/Sisipan.");
     const saved = new Set(pengajuan.produk.map((p) => p.kodeProduk));
     const res = await checkHkaGatewayAction(pengajuan.kodePI, buildPlanningPayload().produk.map((p) => p.kodeProduk).filter((k) => !saved.has(k)));
     if (res.error) throw new Error(res.error);

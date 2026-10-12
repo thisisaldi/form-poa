@@ -129,6 +129,8 @@ export function NewPoaStandarisasiForm({
   function handleSubmit() {
     if (!kodePI) { setError("Outlet wajib dipilih."); return; }
     if (kpdmList.length === 0) { setError("KPDM wajib dipilih minimal 1."); return; }
+    // Server throw-nya dimasking di production ("error occurred in the Server Components render"), jadi cek di sini.
+    if (tipeStandarisasi !== "PERMANEN" && !Number(periodeBulan)) { setError("Periode wajib diisi untuk tipe Periodic/Sisipan."); return; }
     const produkFilled = produkList.filter((p) => p.kodeProduk);
     if (produkFilled.length === 0) { setError("Tambahkan minimal 1 produk sebelum lanjut."); return; }
     if (produkFilled.some((p) => p.dokterKlinis.length === 0)) { setError("Setiap produk wajib punya minimal 1 dokter user."); return; }
