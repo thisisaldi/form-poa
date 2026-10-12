@@ -11,7 +11,7 @@ export default async function PusatDetailPage({ params }: { params: Promise<{ id
 
   const detail = await getPusatDetail(id);
   if (!detail) notFound();
-  const [groupOutlets, products] = await Promise.all([getPusatGroupOutletsAction(detail.hkaGroup), getProducts()]);
+  const [groupOutlets, products] = await Promise.all([getPusatGroupOutletsAction(detail.hkaGroup), getProducts({ requireNilaiR: false })]);
 
   return <PusatDetailView detail={detail} groupOutlets={groupOutlets} productOptions={products} />;
 }

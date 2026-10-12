@@ -16,7 +16,7 @@ export default async function NewPoaStandarisasiPage() {
 
   const [outlets, productOptions] = await Promise.all([
     getOutletsByUser(session.userId),
-    getProducts(),
+    getProducts({ requireNilaiR: false }),
   ]);
 
   // ADMIN sees every outlet company-wide here (getOutletsByUser → getCustomers()

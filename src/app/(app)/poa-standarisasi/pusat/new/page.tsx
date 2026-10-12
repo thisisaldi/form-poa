@@ -12,6 +12,6 @@ export default async function PusatNewPage() {
   const actor = await prisma.user.findUnique({ where: { nip: session.userId }, select: { isHka: true, role: true } });
   if (!actor || !(actor.isHka || actor.role === "ADMIN")) notFound();
 
-  const [groups, products] = await Promise.all([getHkaGroupsAction(), getProducts()]);
+  const [groups, products] = await Promise.all([getHkaGroupsAction(), getProducts({ requireNilaiR: false })]);
   return <PusatCreateForm groups={groups} productOptions={products} creatorLevel={hkaCreatorLevel(actor.role)} />;
 }

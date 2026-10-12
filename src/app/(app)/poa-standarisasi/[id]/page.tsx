@@ -22,7 +22,7 @@ export default async function PoaStandarisasiDetailPage({ params }: { params: Pr
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
 
   const [productOptions, dokterOptions, canApproveAsm, canApproveSm, canApproveNsm, levelFlags] = await Promise.all([
-    getProducts(),
+    getProducts({ requireNilaiR: false }),
     getDokterOptionsAction(pengajuan.kodePI),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "ASM"),
     canApprovePoaStandarisasiAtasan(actor, pengajuan, "SM"),

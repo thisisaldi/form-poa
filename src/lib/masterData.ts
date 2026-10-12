@@ -271,11 +271,12 @@ async function materializeMissingProducts(live: Map<string, LivePricing>): Promi
   }));
 }
 
-export async function getProducts(): Promise<Product[]> {
+/** `requireNilaiR: false` → produk tanpa Nilai R ikut (dipakai POA Standarisasi; POA Estimasi tetap default true). */
+export async function getProducts({ requireNilaiR = true }: { requireNilaiR?: boolean } = {}): Promise<Product[]> {
   const { prisma } = await import("@/lib/prisma");
   const live = await getLiveProductPricing();
   if (live) await materializeMissingProducts(live);
-  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, nilaiRPersen: { not: null } }, orderBy: { namaProduk: "asc" } });
+  const rows = await prisma.product.findMany({ where: { hna: { gt: 0 }, namaGroupBrand: { not: "—" }, ...(requireNilaiR && { nilaiRPersen: { not: null } }) }, orderBy: { namaProduk: "asc" } });
   return applyLivePricing(rows.map((p: any) => ({
     ...p,
     hna: p.hna.toString(),
