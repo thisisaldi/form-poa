@@ -27,6 +27,35 @@ async function requireSessionAndPoa(poaId: string) {
   return { poa, actor };
 }
 
+export interface DoctorUsageInThisPoa {
+  produk: string[];
+  /** Gelombang aktif dokter ini di POA ini. */
+  batch: number;
+  /** Gelombang aktif sudah Deal: baris baru akan membuka gelombang `batch + 1`. */
+  deal: boolean;
+}
+
+/**
+ * Baris dokter ini yang SUDAH ada di POA yang sedang diedit — dasar WARNING di form tambah. Sengaja dari server,
+ * bukan dari props: halaman /poa/[id]/edit (formOnly) tidak membawa daftar baris ke komponen form, sehingga
+ * peringatan "dokter sudah ada" sebelumnya tidak pernah muncul di sana (2026-10-12). Null bila belum ada baris.
+ */
+export async function getDoctorUsageInThisPoa(poaId: string, kodePI: string, namaCust: string): Promise<DoctorUsageInThisPoa | null> {
+  const session = await getCurrentUser();
+  if (!session || !kodePI || !namaCust) return null;
+  const [poa, actor] = await Promise.all([
+    prisma.poaForm.findUnique({ where: { id: poaId } }),
+    prisma.user.findUnique({ where: { nip: session.userId } }),
+  ]);
+  if (!poa || !actor || !(await canView(actor, poa))) return null;
+
+  const rows = await prisma.poaLineItem.findMany({ where: { poaId, kodePI, namaCust }, select: { namaProduk: true, batch: true } }) as { namaProduk: string; batch: number }[];
+  if (rows.length === 0) return null;
+  const batch = Math.max(...rows.map((r) => r.batch));
+  const approval = await findApprovalByBatch(poaId, kodePI, namaCust, batch);
+  return { produk: [...new Set(rows.map((r) => r.namaProduk))], batch, deal: !!approval?.dealAt };
+}
+
 export interface DoctorInOtherPoa {
   poaId: string;
   seq: number;

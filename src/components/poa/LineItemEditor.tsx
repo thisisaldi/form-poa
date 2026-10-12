@@ -7,7 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/hargaST";
 import { hargaST } from "@/lib/hargaST";
-import { addLineItemAction, updateLineItemAction, deleteLineItemAction, getDoctorInOtherPoas, type DoctorInOtherPoa } from "@/app/actions/lineItem";
+import { addLineItemAction, updateLineItemAction, deleteLineItemAction, getDoctorInOtherPoas, getDoctorUsageInThisPoa, type DoctorInOtherPoa, type DoctorUsageInThisPoa } from "@/app/actions/lineItem";
 import { getCustomersByOutlet, getSpesialisasiOptionsAction, createCustomerAction, getPsspHistory, getExodusPsspExtras, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ExodusPsspExtra, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
 import { getStandarisasiCustomerKodesByOutletAction, getStandarisasiProdukForDokterAction, getStandarisasiProsesKodeByOutletAction, type StandarisasiProdukForDokter } from "@/app/actions/poaStandarisasi";
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
@@ -2745,22 +2745,23 @@ function AddPanel({
   // WARNING saat dokter yang dipilih sudah ada di POA (2026-10-07): di draft ini
   // (existingItems, tanpa query) atau di POA lain milik MR yang sama di kuartal yang sama.
   // Hanya peringatan — tetap bisa ditambahkan (mis. jenis PSSP berbeda).
-  const doctorProdukInThisPoa = useMemo(() => {
-    if (!kodePI || !selectedCustomer || !existingItems) return [];
-    return [...new Set(existingItems
-      .filter((i) => i.kodePI === kodePI && i.namaCust === selectedCustomer.namaCustomer)
-      .map((i) => i.namaProduk))];
-  }, [kodePI, selectedCustomer, existingItems]);
+  // Sumber utama = server (getDoctorUsageInThisPoa): halaman /poa/[id]/edit tidak membawa existingItems.
+  const [usageThisPoa, setUsageThisPoa] = useState<DoctorUsageInThisPoa | null>(null);
   const [doctorInOtherPoas, setDoctorInOtherPoas] = useState<DoctorInOtherPoa[]>([]);
   useEffect(() => {
     let cancelled = false;
     setDoctorInOtherPoas([]);
+    setUsageThisPoa(null);
     if (!kodePI || !selectedCustomer) return;
     getDoctorInOtherPoas(poaId, kodePI, selectedCustomer.namaCustomer)
       .then((r) => { if (!cancelled) setDoctorInOtherPoas(r); })
       .catch(() => {});
+    getDoctorUsageInThisPoa(poaId, kodePI, selectedCustomer.namaCustomer)
+      .then((r) => { if (!cancelled) setUsageThisPoa(r); })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [poaId, kodePI, selectedCustomer]);
+  const doctorProdukInThisPoa = usageThisPoa?.produk ?? [];
 
   const totalEstimasi = useMemo(() => produkList.reduce((sum, e) => {
     const p = products.find((pr) => pr.kodeProduk === e.kodeProduk) ?? null;
@@ -3238,7 +3239,11 @@ function AddPanel({
           </div>
           {selectedCustomer && (doctorProdukInThisPoa.length > 0 || doctorInOtherPoas.length > 0) && (
             <div className="mt-2 rounded-lg px-3 py-2 text-xs space-y-1" style={{ color: "var(--color-warning, #b45309)", background: "var(--color-warning-light, #fef3c7)" }}>
-              <p className="font-semibold">⚠ WARNING: dokter ini sudah ada di POA. Tetap bisa ditambahkan (mis. jenis PSSP berbeda), pastikan memang disengaja.</p>
+              <p className="font-semibold">
+                {usageThisPoa?.deal
+                  ? `⚠ WARNING: dokter ini sudah Deal di POA ini. Baris baru akan dibuat sebagai Gelombang ${usageThisPoa.batch + 1} dengan approval sendiri; baris yang sudah Deal tidak berubah.`
+                  : "⚠ WARNING: dokter ini sudah ada di POA. Tetap bisa ditambahkan (mis. jenis PSSP berbeda), pastikan memang disengaja."}
+              </p>
               {doctorProdukInThisPoa.length > 0 && <p>Di draft ini: {doctorProdukInThisPoa.join(", ")}</p>}
               {doctorInOtherPoas.map((d) => (
                 <p key={d.poaId}>Di <a href={`/poa/${d.poaId}`} className="underline" target="_blank" rel="noreferrer">POA{String(d.seq).padStart(4, "0")}</a>{d.deal ? " (sudah Deal)" : ""}: {d.produk.join(", ")}</p>
