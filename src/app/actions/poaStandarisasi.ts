@@ -351,15 +351,28 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
 /**
  * Daftar pengajuan sesuai visibilitas POA PSSP: MR sendiri; ASM/SM/NSM sendiri
  * + bawahan; GM/SD/SFE/VIEWER/ADMIN company-wide (tanpa akun dummy/nonaktif,
- * plus milik sendiri). SATU query (owner in [...]) + batas 300 terbaru — jangan
- * ganti jadi resolve approver per baris (docs/PERFORMANCE.md §2 poin 3-4).
+ * plus milik sendiri). Satu findMany (owner in [...]) per halaman (skip/take;
+ * pageSize null = semua) — jangan ganti jadi resolve approver per baris
+ * (docs/PERFORMANCE.md §2 poin 3-4). Scope yang sama dipakai
+ * /api/poa-standarisasi/export, jadi export = isi dashboard.
  */
-export async function listVisiblePoaStandarisasiAction() {
+export async function listVisiblePoaStandarisasiAction({ page = 1, pageSize = 25 }: { page?: number; pageSize?: number | null } = {}) {
   const { actor } = await requireActor();
   if (!POA_STANDARISASI_VIEW_ROLES.includes(actor.role)) throw new Error("Anda tidak berhak mengakses ini.");
   const ownerNips = [...new Set([actor.nip, ...(await getSubordinateOwnerNips(actor))])];
+  const where = { ownerId: { in: ownerNips } };
+  // Hitung ringkasan di DB (bukan dari halaman yang tampil) supaya angkanya tetap total walau dipaginasi.
+  const now = new Date();
+  const besok = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const [total, aktif, telat] = await Promise.all([
+    prisma.poaStandarisasi.count({ where }),
+    prisma.poaStandarisasi.count({ where: { ...where, submittedAt: null } }),
+    prisma.poaStandarisasi.count({ where: { ...where, submittedAt: null, estimasiTimelineSelesai: { lt: besok } } }),
+  ]);
+  const totalPages = pageSize ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+  const currentPage = Math.min(Math.max(1, page), totalPages);
   const rows = await prisma.poaStandarisasi.findMany({
-    where: { ownerId: { in: ownerNips } },
+    where,
     include: {
       owner: { select: { name: true } },
       outlet: { select: { namaOutlet: true } },
@@ -372,9 +385,9 @@ export async function listVisiblePoaStandarisasiAction() {
       },
     },
     orderBy: { createdAt: "desc" },
-    take: 300,
+    ...(pageSize ? { skip: (currentPage - 1) * pageSize, take: pageSize } : {}),
   });
-  return rows.map((p: (typeof rows)[number]) => {
+  const list = rows.map((p: (typeof rows)[number]) => {
     // Dokter: dokterUser (Finalisasi) kalau ada, fallback dokterApproval (Planning). Unik per nama.
     const finalNames = p.produk.flatMap((x: (typeof p.produk)[number]) => x.dokterUser.map((d: (typeof x.dokterUser)[number]) => d.customer.namaCustomer));
     const planNames = p.produk.flatMap((x: (typeof p.produk)[number]) => x.dokterApproval.map((d: (typeof x.dokterApproval)[number]) => d.customer.namaCustomer));
@@ -386,6 +399,7 @@ export async function listVisiblePoaStandarisasiAction() {
     produk: p.produk.map((prod: (typeof p.produk)[number]) => ({ id: prod.id, namaProduk: prod.product.namaProduk, standarisasiGagal: prod.standarisasiGagal })),
     };
   });
+  return { rows: list, total, aktif, telat, page: currentPage, totalPages };
 }
 
 export async function listMyPoaStandarisasiAction() {

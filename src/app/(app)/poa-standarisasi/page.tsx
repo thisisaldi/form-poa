@@ -50,7 +50,12 @@ function phaseLabel(phase: string): string {
   return PHASES.find((p) => p.id === phase)?.label ?? phase;
 }
 
-export default async function PoaStandarisasiListPage() {
+function buildPageHref(page: number, size: string) {
+  return `/poa-standarisasi?page=${page}&size=${size}`;
+}
+
+export default async function PoaStandarisasiListPage({ searchParams }: { searchParams: Promise<{ page?: string; size?: string }> }) {
+  const params = await searchParams;
   const session = await getCurrentUser();
   if (!session) redirect("/login");
   // Dibuka ke role sales chain 2026-09-29 (user: "ikuti POA PSSP"), visibilitas dibatasi di listVisiblePoaStandarisasiAction.
@@ -59,10 +64,10 @@ export default async function PoaStandarisasiListPage() {
   const hkaActor = await prisma.user.findUnique({ where: { nip: session.userId }, select: { isHka: true, role: true } });
   const showPusat = !!hkaActor && canViewPusat(hkaActor);
 
-  const pengajuanList = await listVisiblePoaStandarisasiAction();
+  const pageSizeParam = params.size ?? "25";
+  const pageSize = pageSizeParam === "all" ? null : (Number(pageSizeParam) || 25);
+  const { rows: pengajuanList, total, aktif, telat, page, totalPages } = await listVisiblePoaStandarisasiAction({ page: Number(params.page) || 1, pageSize });
   const today = startOfDay(new Date());
-  const aktif = pengajuanList.filter((p: (typeof pengajuanList)[number]) => !p.submittedAt);
-  const telat = aktif.filter((p: (typeof pengajuanList)[number]) => sisaTarget(p.estimasiTimelineSelesai, null, today)?.late).length;
 
   return (
     <div className="space-y-6">
@@ -79,15 +84,13 @@ export default async function PoaStandarisasiListPage() {
               <Button size="sm" variant="secondary">Standarisasi Pusat (HKA)</Button>
             </Link>
           )}
+          <a href="/api/poa-standarisasi/export">
+            <Button size="sm" variant="ghost">↓ Export Excel</Button>
+          </a>
           {canCreate && (
-            <>
-              <a href="/api/poa-standarisasi/export">
-                <Button size="sm" variant="ghost">↓ Export Excel</Button>
-              </a>
-              <Link href="/poa-standarisasi/new">
-                <Button>+ Buat Standarisasi Baru</Button>
-              </Link>
-            </>
+            <Link href="/poa-standarisasi/new">
+              <Button>+ Buat Standarisasi Baru</Button>
+            </Link>
           )}
         </div>
       </div>
@@ -97,8 +100,8 @@ export default async function PoaStandarisasiListPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle>{canCreate ? "Pengajuan Saya" : "Pengajuan"}</CardTitle>
             <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full px-2.5 py-0.5" style={{ background: TONE.grey.bg, color: TONE.grey.fg }}><b>{pengajuanList.length}</b> pengajuan</span>
-              <span className="rounded-full px-2.5 py-0.5" style={{ background: TONE.grey.bg, color: TONE.grey.fg }}><b>{aktif.length}</b> sedang berjalan</span>
+              <span className="rounded-full px-2.5 py-0.5" style={{ background: TONE.grey.bg, color: TONE.grey.fg }}><b>{total}</b> pengajuan</span>
+              <span className="rounded-full px-2.5 py-0.5" style={{ background: TONE.grey.bg, color: TONE.grey.fg }}><b>{aktif}</b> sedang berjalan</span>
               {telat > 0 && <span className="rounded-full px-2.5 py-0.5" style={{ background: TONE.red.bg, color: TONE.red.fg }}><b>{telat}</b> melewati target</span>}
             </div>
           </div>
@@ -254,6 +257,52 @@ export default async function PoaStandarisasiListPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {pengajuanList.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 mt-3" style={{ borderTop: "1px solid var(--color-border)" }}>
+            <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+              Menampilkan {pageSize ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, total)}` : `1-${total}`} dari {total} pengajuan
+            </p>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-1 text-xs" style={{ color: "var(--color-text-faint)" }}>
+                <span>Tampilkan:</span>
+                {(["25", "50", "100", "all"] as const).map((s) => (
+                  <Link
+                    key={s}
+                    href={buildPageHref(1, s)}
+                    className="rounded px-1.5 py-0.5"
+                    style={{
+                      background: pageSizeParam === s ? "var(--color-blue-light)" : "transparent",
+                      color: pageSizeParam === s ? "var(--color-blue)" : "var(--color-text-faint)",
+                      fontWeight: pageSizeParam === s ? 600 : 400,
+                    }}
+                  >
+                    {s === "all" ? "Semua" : s}
+                  </Link>
+                ))}
+              </div>
+              {pageSize && totalPages > 1 && (
+                <div className="flex items-center gap-1 text-xs">
+                  <Link
+                    href={buildPageHref(Math.max(1, page - 1), pageSizeParam)}
+                    className="rounded px-2 py-1"
+                    style={{ color: page <= 1 ? "var(--color-text-faint)" : "var(--color-text-muted)", pointerEvents: page <= 1 ? "none" : "auto", border: "1px solid var(--color-border)" }}
+                  >
+                    ← Prev
+                  </Link>
+                  <span style={{ color: "var(--color-text-muted)" }}>Hal {page} / {totalPages}</span>
+                  <Link
+                    href={buildPageHref(Math.min(totalPages, page + 1), pageSizeParam)}
+                    className="rounded px-2 py-1"
+                    style={{ color: page >= totalPages ? "var(--color-text-faint)" : "var(--color-text-muted)", pointerEvents: page >= totalPages ? "none" : "auto", border: "1px solid var(--color-border)" }}
+                  >
+                    Next →
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Card>

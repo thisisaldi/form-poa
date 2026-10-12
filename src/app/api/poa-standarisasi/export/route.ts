@@ -1,9 +1,11 @@
 /**
  * GET /api/poa-standarisasi/export
  *
- * Exports the "Pengajuan Saya" list page as one sheet, "Detail Produk &
- * Dokter" — one row per Produk × Dokter combination across every pengajuan
- * owned by the user (2026-09-09 redline "Export Excel — Sheet Baru 'Detail
+ * Exports the POA Standarisasi list page (same visibility as
+ * listVisiblePoaStandarisasiAction: own + subordinates, company-wide for
+ * ADMIN/GM/SD/SFE/VIEWER) as one sheet, "Detail Produk & Dokter" — one row
+ * per Produk × Dokter combination across every pengajuan shown there
+ * (2026-09-09 redline "Export Excel — Sheet Baru 'Detail
  * Produk & Dokter'"; the separate "Ringkasan" sheet this started with was
  * dropped same day per user request — this sheet alone is enough).
  *
@@ -20,9 +22,9 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getPoaStandarisasiApprovers } from "@/lib/authz";
+import { getSubordinateOwnerNips } from "@/lib/authz";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
-import { SALES_TEAM_ROLES } from "@/lib/role";
+import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
 
 function phaseLabel(phase: string): string {
   return PHASES.find((p) => p.id === phase)?.label ?? phase;
@@ -44,12 +46,15 @@ export async function GET(_req: NextRequest) {
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const actor = await prisma.user.findUnique({ where: { nip: session.userId } });
+  if (!actor || !POA_STANDARISASI_VIEW_ROLES.includes(actor.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Scope identik dengan listVisiblePoaStandarisasiAction — export = isi dashboard.
+  const ownerNips = [...new Set([actor.nip, ...(await getSubordinateOwnerNips(actor))])];
+
   const rows = await prisma.poaStandarisasi.findMany({
-    // owner.role filter (2026-09-30 user request): pengajuan yang dibuat
-    // ADMIN (testing di production, bukan tim sales) tidak boleh ikut
-    // ter-export — sama aturan dengan getStandarisasiDashboardAction.
-    where: { ownerId: session.userId, owner: { role: { in: [...SALES_TEAM_ROLES] } } },
+    where: { ownerId: { in: ownerNips } },
     include: {
+      owner: { select: { name: true } },
       outlet: { select: { namaOutlet: true } },
       produk: {
         include: {
@@ -62,11 +67,41 @@ export async function GET(_req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  const owner = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId }, select: { name: true } });
-  // Approver chain can differ per pengajuan (different outlet territory / vacant-team fallback), so resolve per pengajuan — bounded by this MR's own pengajuan count, not company-wide.
-  const approversByPengajuanId = new Map<string, Awaited<ReturnType<typeof getPoaStandarisasiApprovers>>>(
-    await Promise.all(rows.map(async (p: (typeof rows)[number]) => [p.id, await getPoaStandarisasiApprovers(p.ownerId, p.kodePI)] as const))
-  );
+  // Approver (ASM/SM/NSM) di-resolve BATCH — scope bisa company-wide, jadi jangan getPoaStandarisasiApprovers per baris
+  // (sampai 5 query/baris, docs/PERFORMANCE.md). Logikanya sama dengan getPoaStandarisasiApprovers di lib/authz.ts:
+  // rantai nipAtasan (hanya dipercaya kalau rolenya benar), fallback Outlet.coveredByNip/coveredByRole.
+  type Row = (typeof rows)[number];
+  const chainOwners = await prisma.user.findMany({ where: { nip: { in: [...new Set(rows.map((p: Row) => p.ownerId))] } }, select: { nip: true, nipAtasan: true } });
+  const asmNipsAll = [...new Set(chainOwners.map((u: (typeof chainOwners)[number]) => u.nipAtasan).filter((n: string | null): n is string => !!n))];
+  const asmUsers = await prisma.user.findMany({ where: { nip: { in: asmNipsAll } }, select: { nip: true, role: true, nipAtasan: true } });
+  const smNipsAll = [...new Set(asmUsers.map((u: (typeof asmUsers)[number]) => u.nipAtasan).filter((n: string | null): n is string => !!n))];
+  const smUsers = await prisma.user.findMany({ where: { nip: { in: smNipsAll } }, select: { nip: true, role: true, nipAtasan: true } });
+  const outlets = await prisma.outlet.findMany({ where: { kodePI: { in: [...new Set(rows.map((p: Row) => p.kodePI))] } }, select: { kodePI: true, coveredByNip: true, coveredByRole: true } });
+  const atasanByNip = new Map<string, string | null>(chainOwners.map((u: (typeof chainOwners)[number]) => [u.nip, u.nipAtasan]));
+  const asmByNip = new Map<string, (typeof asmUsers)[number]>(asmUsers.map((u: (typeof asmUsers)[number]) => [u.nip, u]));
+  const smByNip = new Map<string, (typeof smUsers)[number]>(smUsers.map((u: (typeof smUsers)[number]) => [u.nip, u]));
+  const outletByKode = new Map<string, (typeof outlets)[number]>(outlets.map((o: (typeof outlets)[number]) => [o.kodePI, o]));
+  const approversByPengajuanId = new Map<string, { asmNip: string | null; smNip: string | null; nsmNip: string | null }>();
+  for (const p of rows) {
+    let asmNip = atasanByNip.get(p.ownerId) ?? null;
+    let smNip: string | null = null;
+    let nsmNip: string | null = null;
+    if (asmNip) {
+      const asm = asmByNip.get(asmNip);
+      if (asm?.role !== "ASM") asmNip = null;
+      smNip = asm?.nipAtasan ?? null;
+    }
+    if (smNip) {
+      const sm = smByNip.get(smNip);
+      if (sm?.role !== "SM") smNip = null;
+      nsmNip = sm?.nipAtasan ?? null;
+    }
+    const outlet = outletByKode.get(p.kodePI);
+    if (!asmNip && outlet?.coveredByRole === "ASM") asmNip = outlet.coveredByNip;
+    if (!smNip && outlet?.coveredByRole === "SM") smNip = outlet.coveredByNip;
+    if (!nsmNip && outlet?.coveredByRole === "NSM") nsmNip = outlet.coveredByNip;
+    approversByPengajuanId.set(p.id, { asmNip, smNip, nsmNip });
+  }
   const approverNips = [...new Set([...approversByPengajuanId.values()].flatMap((a) => [a.asmNip, a.smNip, a.nsmNip]).filter((n): n is string => !!n))];
   const approverUsers = await prisma.user.findMany({ where: { nip: { in: approverNips } }, select: { nip: true, name: true } });
   const approverNameByNip = new Map(approverUsers.map((u: (typeof approverUsers)[number]) => [u.nip, u.name]));
@@ -105,7 +140,7 @@ export async function GET(_req: NextRequest) {
   for (const p of rows) {
     const approvers = approversByPengajuanId.get(p.id)!;
     const shared = {
-      namaMr: owner.name,
+      namaMr: p.owner.name,
       namaAsm: approvers.asmNip ? approverNameByNip.get(approvers.asmNip) ?? "-" : "-",
       namaSm: approvers.smNip ? approverNameByNip.get(approvers.smNip) ?? "-" : "-",
       namaNsm: approvers.nsmNip ? approverNameByNip.get(approvers.nsmNip) ?? "-" : "-",
@@ -176,7 +211,7 @@ export async function GET(_req: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="POA_Standarisasi_Pengajuan_Saya_${session.userId}.xlsx"`,
+      "Content-Disposition": `attachment; filename="POA_Standarisasi_${session.userId}.xlsx"`,
     },
   });
 }
