@@ -131,7 +131,19 @@ export async function approveDoctorAction(poaId: string, kodePI: string, namaCus
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   if (!(await canApproveDoctor(actor, doctor))) redirect(`/poa/${poaId}`);
 
-  await approveDoctor(poaId, kodePI, namaCust, session.userId);
+  // Error workflow (mis. atasan ASD/SD tidak ditemukan di hierarki) ditampilkan sebagai pesan di halaman POA,
+  // bukan dibiarkan lolos jadi halaman error Next.js. redirect() dipanggil di luar try karena ia melempar.
+  let failure: string | null = null;
+  try {
+    await approveDoctor(poaId, kodePI, namaCust, session.userId);
+  } catch (e) {
+    console.error("[approveDoctorAction]", e);
+    const m = e instanceof Error ? e.message : "";
+    failure = m.startsWith("Cannot resolve next holder")
+      ? `Approve ${namaCust} gagal: atasan level berikutnya (${m.match(/\(([^)]+)\)/)?.[1] ?? "ASD/SD"}) tidak ditemukan di hierarki organisasi. Hubungi admin untuk memperbaiki data atasan.`
+      : `Approve ${namaCust} gagal. Coba lagi atau hubungi admin.`;
+  }
+  if (failure) redirect(`/poa/${poaId}?error=` + encodeURIComponent(failure));
   revalidatePath(`/poa/${poaId}`);
 }
 

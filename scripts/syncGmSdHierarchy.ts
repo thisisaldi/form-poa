@@ -80,6 +80,42 @@ async function main() {
     nsmLinked++;
   }
 
-  console.log({ gmCreated, gmUpdated: gmUpdate.count, nsmLinked, nsmSkippedNoGmUser, errors });
+  // 4. NSM VACANT di MSSQL (NSM_NIP mis. "VNN0001" — tidak ada User NSM-nya), struktur POA memakai NSM pengganti
+  //    (mis. ADMINNSM) sebagai atasan SM. Tanpa langkah ini rantai owner mentok di NSM pengganti dan approve ASD/SD
+  //    error (2026-10-12: 15 kasus di prod, 3 SM → NSM_NIP VNN0001 → GM 995338). Turunkan GM dari SM: NSM pengganti
+  //    hanya di-link kalau SEMUA SM di bawahnya sepakat pada satu GM; kalau beda GM, dibiarkan (ambigu).
+  const pool2 = await sql.connect(process.env.MSSQL_CONNECTION_STRING!);
+  const { recordset: smRows } = await pool2.request().query<{ sm_nip: string; gm_nip: string }>(`
+    SELECT DISTINCT SM_NIP sm_nip, GM_NIP gm_nip FROM Struktur_Marketing_PI
+    WHERE Periode = (SELECT MAX(Periode) FROM Struktur_Marketing_PI)
+      AND SM_NIP IS NOT NULL AND GM_NIP IS NOT NULL AND GM_Nama NOT LIKE '(VACANT)%'
+  `);
+  await pool2.close();
+  const gmBySm = new Map<string, Set<string>>();
+  for (const r of smRows) gmBySm.set(r.sm_nip, (gmBySm.get(r.sm_nip) ?? new Set()).add(r.gm_nip));
+  const smUsers = await prisma.user.findMany({
+    where: { role: "SM", isActive: true, nipAtasan: { not: null } },
+    select: { nip: true, reportsTo: { select: { nip: true, role: true, isActive: true, nipAtasan: true } } },
+  });
+  const gmsByNsm = new Map<string, Set<string>>();
+  for (const sm of smUsers) {
+    const nsm = sm.reportsTo;
+    if (!nsm || nsm.role !== "NSM" || !nsm.isActive || nsm.nipAtasan) continue; // sudah ter-link / bukan NSM
+    const gms = gmBySm.get(sm.nip);
+    if (!gms) continue;
+    const set = gmsByNsm.get(nsm.nip) ?? new Set<string>();
+    gms.forEach((g) => set.add(g));
+    gmsByNsm.set(nsm.nip, set);
+  }
+  let vacantNsmLinked = 0;
+  for (const [nsmNip, gms] of gmsByNsm) {
+    if (gms.size !== 1) { errors.push(`NSM ${nsmNip}: SM-nya mengarah ke ${gms.size} GM (${[...gms].join(",")}), dilewati`); continue; }
+    const gmNip = [...gms][0];
+    if (!(await prisma.user.findUnique({ where: { nip: gmNip }, select: { nip: true } }))) { errors.push(`NSM ${nsmNip}: GM ${gmNip} tidak ada sebagai User`); continue; }
+    await prisma.user.update({ where: { nip: nsmNip }, data: { nipAtasan: gmNip } });
+    vacantNsmLinked++;
+  }
+
+  console.log({ gmCreated, gmUpdated: gmUpdate.count, nsmLinked, vacantNsmLinked, nsmSkippedNoGmUser, errors });
 }
 main().finally(() => prisma.$disconnect());
