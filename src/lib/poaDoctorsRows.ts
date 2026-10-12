@@ -51,11 +51,12 @@ export const poaDoctorRowsSelect = {
       hargaSatuanTerkecil: true,
       periodeAwal: true,
       lamaPeriode: true,
+      batch: true,
     },
     orderBy: { createdAt: "asc" as const },
   },
   doctorApprovals: {
-    select: { kodePI: true, namaCust: true, status: true, usedInExodus: true, exodusApprovedBy: true, dealAt: true },
+    select: { kodePI: true, namaCust: true, batch: true, status: true, usedInExodus: true, exodusApprovedBy: true, dealAt: true },
   },
 } satisfies Prisma.PoaFormSelect;
 
@@ -63,8 +64,10 @@ export type PoaWithDoctorRows = Prisma.PoaFormGetPayload<{ select: typeof poaDoc
 type Item = PoaWithDoctorRows["items"][number];
 type DoctorApproval = PoaWithDoctorRows["doctorApprovals"][number];
 
-function doctorKey(item: { kodePI: string | null; namaCust: string }): string {
-  return `${item.kodePI ?? ""}|${item.namaCust}`;
+// Satu baris Exodus per (dokter, gelombang) — kontrak /api/poa-doctors tidak berubah: gelombang baru tampil sebagai baris biasa
+// dengan anchor item (uidCustomer) miliknya sendiri (docs/poa-deal-addendum/, Q1).
+function doctorKey(item: { kodePI: string | null; namaCust: string; batch: number }): string {
+  return `${item.kodePI ?? ""}|${item.namaCust}|${item.batch}`;
 }
 
 // "POA0001" — global, never-reset sequence (PoaForm.seq). padStart(4) is a

@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { findApprovalByBatch, getActiveBatch } from "@/lib/poaDoctorApproval";
 import { canEditDoctor, canView } from "@/lib/authz";
-import { flagRevisionOnEditDoctor } from "@/lib/poaWorkflow";
+import { flagRevisionOnEditDoctor, resolvePoaRollup } from "@/lib/poaWorkflow";
 import { getProductByKode } from "@/lib/masterData";
 import { isWriteBlocked } from "@/lib/maintenance";
 import { StatusStandarisasi, JenisPssp, PihakPssp, PsSp, BentukPssp, Prisma, type PoaForm, type User } from "@prisma/client";
@@ -76,11 +77,10 @@ export async function getDoctorInOtherPoas(poaId: string, kodePI: string, namaCu
  * approval could still get edited because the draft-level rollup said yes.
  * canEditDoctor reads this doctor's own PoaDoctorApproval row instead.
  */
-async function assertCanEditDoctor(poa: PoaForm, actor: User, kodePI: string | null, namaCust: string) {
+async function assertCanEditDoctor(poa: PoaForm, actor: User, kodePI: string | null, namaCust: string, batch: number) {
+  // Kunci dibaca pada gelombang BARIS yang disentuh (docs/poa-deal-addendum/): baris gelombang Deal tidak bisa diubah.
   const doctorApproval = kodePI
-    ? await prisma.poaDoctorApproval.findUnique({
-        where: { poaId_kodePI_namaCust: { poaId: poa.id, kodePI, namaCust } },
-      })
+    ? await findApprovalByBatch(poa.id, kodePI, namaCust, batch)
     : null;
   if (!(await canEditDoctor(actor, poa, doctorApproval))) {
     // Pesan eksplisit (2026-10-09): sebelumnya redirect diam-diam, MR mengira form "tidak bisa" tanpa tahu sebabnya.
@@ -88,7 +88,7 @@ async function assertCanEditDoctor(poa: PoaForm, actor: User, kodePI: string | n
       (doctorApproval?.dealAt
         ? `${namaCust} sudah Deal di POA ini dan tidak bisa diubah sama sekali. `
         : `${namaCust} sudah diajukan di POA ini sehingga terkunci untuk diedit. `) +
-      "Baris baru untuk customer yang sama belum bisa ditambahkan ke dokter yang terkunci di POA ini."
+      "Baris yang sudah Deal tidak bisa diubah. Menambah baris untuk customer yang sama otomatis masuk gelombang baru."
     ));
   }
 }
@@ -180,7 +180,13 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
   const kodeCust = isDirect ? directKodeCust : customerResult!.kodeCustomer;
   const spesialisasi = isDirect ? directSpesialisasi : customerResult!.spesialisasi;
 
-  await assertCanEditDoctor(poa, actor, kodePI, namaCust);
+  // Gelombang aktif dokter ini. Bila sudah Deal, baris baru membuka gelombang BARU di POA yang sama
+  // (approval sendiri, dari DRAFT) dan baris gelombang Deal tidak disentuh sama sekali (docs/poa-deal-addendum/).
+  const activeBatch = await getActiveBatch(poaId, kodePI, namaCust);
+  const activeApproval = await findApprovalByBatch(poaId, kodePI, namaCust, activeBatch);
+  const opensNewBatch = !!activeApproval?.dealAt;
+  const batch = opensNewBatch ? activeBatch + 1 : activeBatch;
+  if (!opensNewBatch) await assertCanEditDoctor(poa, actor, kodePI, namaCust, activeBatch);
 
   // Same doctor + outlet + product CAN be added twice (2026-10-07 request) —
   // no longer blocked, only flagged with a WARNING label in the UI (LineItemEditor
@@ -220,11 +226,19 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
       : null;
 
   // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
-  await flagRevisionOnEditDoctor(poaId, kodePI, namaCust, actor.nip, { customer: namaCust, product: product!.namaProduk, op: "add" });
+  // Gelombang baru (dokter Deal) tidak punya approval dulu, dan gelombang Deal TIDAK boleh bergeser ke REVISI: cukup catat di audit log.
+  if (opensNewBatch) {
+    await prisma.poaAuditLog.create({
+      data: { poaId, actorId: actor.nip, action: "UPDATE", fromStatus: activeApproval!.status, toStatus: activeApproval!.status, snapshot: { namaCust, kodePI, customer: namaCust, product: product!.namaProduk, op: "add", newBatch: batch } },
+    });
+  } else {
+    await flagRevisionOnEditDoctor(poaId, kodePI, namaCust, actor.nip, { customer: namaCust, product: product!.namaProduk, op: "add" });
+  }
 
   await prisma.poaLineItem.create({
     data: {
       poaId,
+      batch,
       kodeRequest: null,
       kodeCust,
       namaCust,
@@ -272,6 +286,9 @@ export async function addLineItemAction(poaId: string, formData: FormData): Prom
     },
   });
 
+  // Gelombang baru belum punya approval = DRAFT: POA tidak boleh tetap tampil "fully approved" (rollup = yang paling belum maju).
+  if (opensNewBatch) await resolvePoaRollup(poaId);
+
   revalidatePath(`/poa/${poaId}/edit`);
 }
 
@@ -303,7 +320,7 @@ export async function updateLineItemAction(
     prisma.poaLineItem.findUnique({ where: { id: lineItemId } }),
   ]);
   if (!current) redirect(`/poa/${poaId}`);
-  await assertCanEditDoctor(poa, actor, current.kodePI, current.namaCust);
+  await assertCanEditDoctor(poa, actor, current.kodePI, current.namaCust, current.batch);
 
   // Editing a doctor that already left DRAFT bounces THAT doctor back to REVISI — must be resubmitted.
   await flagRevisionOnEditDoctor(poaId, current?.kodePI ?? "", current?.namaCust ?? "", actor.nip, {
@@ -404,7 +421,7 @@ export async function deleteLineItemAction(poaId: string, lineItemId: string): P
 
   const item = await prisma.poaLineItem.findUnique({ where: { id: lineItemId } });
   if (!item) redirect(`/poa/${poaId}`);
-  await assertCanEditDoctor(poa, actor, item.kodePI, item.namaCust);
+  await assertCanEditDoctor(poa, actor, item.kodePI, item.namaCust, item.batch);
 
   // Deleting a doctor's LAST remaining line item, while that doctor already
   // has a PoaDoctorApproval row (any status — even REVISI), would orphan that
@@ -417,9 +434,9 @@ export async function deleteLineItemAction(poaId: string, lineItemId: string): P
   // instead: a doctor with approval history must always keep at least one
   // line item so it stays visible/actionable.
   const [siblingCount, doctorApproval] = await Promise.all([
-    prisma.poaLineItem.count({ where: { poaId, kodePI: item.kodePI, namaCust: item.namaCust } }),
+    prisma.poaLineItem.count({ where: { poaId, kodePI: item.kodePI, namaCust: item.namaCust, batch: item.batch } }),
     item.kodePI
-      ? prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI: item.kodePI, namaCust: item.namaCust } } })
+      ? findApprovalByBatch(poaId, item.kodePI, item.namaCust, item.batch)
       : null,
   ]);
   if (siblingCount <= 1 && doctorApproval) {

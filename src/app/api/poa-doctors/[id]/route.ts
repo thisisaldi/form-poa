@@ -90,9 +90,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const usedChanged = row.usedInExodus !== targetUsed;
   if (usedChanged || hasApprovedBy) {
+    // Gelombang baris ini = gelombang anchor item-nya (row.uidCustomer), bukan gelombang aktif dokter.
+    const anchor = await prisma.poaLineItem.findUnique({ where: { id: row.uidCustomer }, select: { batch: true } });
     await prisma.poaDoctorApproval.update({
       where: {
-        poaId_kodePI_namaCust: { poaId: row.uidPoa, kodePI: row.dokter.kodePI ?? "", namaCust: row.dokter.namaCust },
+        poaId_kodePI_namaCust_batch: { poaId: row.uidPoa, kodePI: row.dokter.kodePI ?? "", namaCust: row.dokter.namaCust, batch: anchor?.batch ?? 1 },
       },
       data: {
         ...(usedChanged ? { usedInExodus: targetUsed, usedInExodusAt: targetUsed ? new Date() : null } : {}),

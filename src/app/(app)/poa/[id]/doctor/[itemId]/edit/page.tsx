@@ -31,12 +31,12 @@ export default async function EditDoctorPage({
   // Same-doctor group: all line items sharing this outlet + customer name (mirrors DraftChecklist's doctorKey).
   const [items, doctorApproval] = await Promise.all([
     prisma.poaLineItem.findMany({
-      where: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust },
+      where: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust, batch: anchorItem.batch },
       orderBy: { createdAt: "asc" },
     }),
     anchorItem.kodePI
       ? prisma.poaDoctorApproval.findUnique({
-          where: { poaId_kodePI_namaCust: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust } },
+          where: { poaId_kodePI_namaCust_batch: { poaId: id, kodePI: anchorItem.kodePI, namaCust: anchorItem.namaCust, batch: anchorItem.batch } },
         })
       : Promise.resolve(null),
   ]);

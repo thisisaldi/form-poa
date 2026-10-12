@@ -1,3 +1,4 @@
+import { doctorKeyOf } from "@/lib/doctorKey";
 import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
@@ -101,7 +102,7 @@ export default async function PoaDetailPage({
   // REVISI within an otherwise in-flight draft has no row yet — see
   // PoaDoctorApproval's doc comment in schema.prisma).
   const doctorApprovalByKey = new Map<string, PoaDoctorApproval>(
-    poa.doctorApprovals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}`, a])
+    poa.doctorApprovals.map((a: PoaDoctorApproval) => [doctorKeyOf(a.kodePI, a.namaCust, a.batch), a])
   );
   // Plain, serializable twin of doctorApprovalByKey (just the status) for the
   // "use client" DraftChecklist tree below — feeds the per-doctor "Ajukan"
@@ -132,10 +133,10 @@ export default async function PoaDetailPage({
         canDeal: !a.dealAt && (poa.ownerId === actor.nip || actor.role === "ADMIN"),
       }])
   );
-  const doctorKeysInDraft = new Map<string, { kodePI: string; namaCust: string }>();
+  const doctorKeysInDraft = new Map<string, { kodePI: string; namaCust: string; batch: number }>();
   for (const it of poa.items as PoaLineItem[]) {
     if (!it.kodePI) continue;
-    doctorKeysInDraft.set(`${it.kodePI}|${it.namaCust}`, { kodePI: it.kodePI, namaCust: it.namaCust });
+    doctorKeysInDraft.set(doctorKeyOf(it.kodePI, it.namaCust, it.batch), { kodePI: it.kodePI, namaCust: it.namaCust, batch: it.batch });
   }
   const isOwnerEarly = poa.ownerId === session.userId;
   // Audit logs grouped by doctorApprovalId (already fetched, ascending by
@@ -150,8 +151,8 @@ export default async function PoaDetailPage({
   }
 
   const doctorRows = await Promise.all(
-    [...doctorKeysInDraft.values()].map(async ({ kodePI, namaCust }) => {
-      const approval = doctorApprovalByKey.get(`${kodePI}|${namaCust}`) ?? null;
+    [...doctorKeysInDraft.values()].map(async ({ kodePI, namaCust, batch }) => {
+      const approval = doctorApprovalByKey.get(doctorKeyOf(kodePI, namaCust, batch)) ?? null;
       const canApproveThis = approval ? await canApproveDoctor(actor, approval) : false;
       const canCancelThis = approval ? await canCancelApprovedDoctor(actor, poa, approval) : false;
 
@@ -188,7 +189,7 @@ export default async function PoaDetailPage({
         : null;
 
       return {
-        kodePI, namaCust, approval, canApproveThis, canCancelThis,
+        kodePI, namaCust, batch, approval, canApproveThis, canCancelThis,
         editLockRoleLabelThis, canRequestEditThis, pendingEditRequestThis, lastApproverThis, canRespondEditRequestThis,
         userCanEditThis,
         pendingEditRequestNote: pendingEditRequestThis && lastLogForDoctor?.snapshot && typeof lastLogForDoctor.snapshot === "object" && "notes" in lastLogForDoctor.snapshot
@@ -217,7 +218,7 @@ export default async function PoaDetailPage({
   const doctorActions: Record<string, DoctorActions> = Object.fromEntries(
     doctorRows
       .filter((d) => d.canApproveThis || d.canCancelThis)
-      .map((d) => [`${d.kodePI}|${d.namaCust}`, {
+      .map((d) => [doctorKeyOf(d.kodePI, d.namaCust, d.batch), {
         canApprove: d.canApproveThis,
         canCancel: d.canCancelThis,
         approveAction: approveDoctorAction.bind(null, id, d.kodePI, d.namaCust),
@@ -230,7 +231,7 @@ export default async function PoaDetailPage({
   // filtered like doctorActions above), since the owner needs to see their
   // own lock/request state even when they have zero atasan rights.
   const doctorEditRequests: Record<string, DoctorEditRequestInfo> = Object.fromEntries(
-    doctorRows.map((d) => [`${d.kodePI}|${d.namaCust}`, {
+    doctorRows.map((d) => [doctorKeyOf(d.kodePI, d.namaCust, d.batch), {
       editLockRoleLabel: d.editLockRoleLabelThis,
       pendingEditRequest: d.pendingEditRequestThis,
       pendingEditRequestNote: d.pendingEditRequestNote,
@@ -257,7 +258,7 @@ export default async function PoaDetailPage({
   // Hapus/Ajukan affordances too. This is the actual per-doctor value that
   // must gate those per-row controls.
   const doctorCanEdit: Record<string, boolean> = Object.fromEntries(
-    doctorRows.map((d) => [`${d.kodePI}|${d.namaCust}`, d.userCanEditThis])
+    doctorRows.map((d) => [doctorKeyOf(d.kodePI, d.namaCust, d.batch), d.userCanEditThis])
   );
 
   const doctorRejectInfo: Record<string, DoctorRejectInfo> = Object.fromEntries(
@@ -266,7 +267,7 @@ export default async function PoaDetailPage({
       .map((d) => {
         const log = d.rejectLogThis!;
         const snapshot = log.snapshot as { notes?: string } | null;
-        return [`${d.kodePI}|${d.namaCust}`, {
+        return [doctorKeyOf(d.kodePI, d.namaCust, d.batch), {
           action: log.action as "REJECT" | "CANCEL",
           category: log.rejectCategory ? (REJECT_CATEGORY_LABELS[log.rejectCategory] ?? log.rejectCategory) : null,
           reason: snapshot?.notes ?? null,
@@ -389,7 +390,7 @@ export default async function PoaDetailPage({
     const doctorKeysForPsspInfo = new Map<string, { kodePI: string; kodeCust: string | null }>();
     for (const it of allItems as PoaLineItem[]) {
       if (!it.kodePI) continue;
-      doctorKeysForPsspInfo.set(`${it.kodePI}|${it.namaCust}`, { kodePI: it.kodePI, kodeCust: it.kodeCust });
+      doctorKeysForPsspInfo.set(doctorKeyOf(it.kodePI, it.namaCust, it.batch), { kodePI: it.kodePI, kodeCust: it.kodeCust });
     }
     for (const [key, { kodePI, kodeCust }] of doctorKeysForPsspInfo) {
       if (!kodeCust) continue;

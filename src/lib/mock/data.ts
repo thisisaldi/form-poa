@@ -302,6 +302,7 @@ export const MOCK_LINE_ITEMS: PoaLineItem[] = [
   // poa-001: Siti Rahayu — 2 customers, 3 line items total
   {
     id: "li-001",
+    batch: 1,
     poaId: "poa-001",
     kodeRequest: "C-001",
     kodeCust: "K001",
@@ -362,6 +363,7 @@ export const MOCK_LINE_ITEMS: PoaLineItem[] = [
   },
   {
     id: "li-002",
+    batch: 1,
     poaId: "poa-001",
     kodeRequest: "C-001",
     kodeCust: "K001",
@@ -422,6 +424,7 @@ export const MOCK_LINE_ITEMS: PoaLineItem[] = [
   },
   {
     id: "li-003",
+    batch: 1,
     poaId: "poa-001",
     kodeRequest: "C-002",
     kodeCust: "K002",

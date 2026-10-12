@@ -9,6 +9,7 @@ import {
   resolvePoaRollup,
 } from "@/lib/poaWorkflow";
 import { prisma } from "@/lib/prisma";
+import { findActiveApproval, getActiveBatch } from "@/lib/poaDoctorApproval";
 import {
   canEdit, canCreatePoa,
   canApproveDoctor, canCancelApprovedDoctor, canRequestEditDoctor, canRespondEditRequestDoctor,
@@ -85,12 +86,12 @@ export async function dealDoctorAction(poaId: string, kodePI: string, namaCust: 
   const session = await requireSession();
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
 
-  const approval = await prisma.poaDoctorApproval.findUnique({
-    where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } },
-    include: { poa: { select: { ownerId: true } } },
-  });
-  if (!approval) throw new Error("Dokter tidak ditemukan.");
-  if (approval.poa.ownerId !== actor.nip && actor.role !== "ADMIN") throw new Error("Hanya pemilik POA yang bisa klik Deal.");
+  const [approval, poa] = await Promise.all([
+    findActiveApproval(poaId, kodePI, namaCust), // gelombang aktif (terbesar) — hanya itu yang bisa belum Deal
+    prisma.poaForm.findUnique({ where: { id: poaId }, select: { ownerId: true } }),
+  ]);
+  if (!approval || !poa) throw new Error("Dokter tidak ditemukan.");
+  if (poa.ownerId !== actor.nip && actor.role !== "ADMIN") throw new Error("Hanya pemilik POA yang bisa klik Deal.");
   if (!approval.status.startsWith("APPROVED_BY_")) throw new Error("Dokter ini belum fully approved.");
   if (approval.dealAt) throw new Error("Dokter ini sudah Deal.");
 
@@ -115,7 +116,7 @@ export async function approveDoctorAction(poaId: string, kodePI: string, namaCus
 
   const [poa, doctor] = await Promise.all([
     prisma.poaForm.findUnique({ where: { id: poaId } }),
-    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+    findActiveApproval(poaId, kodePI, namaCust),
   ]);
   if (!poa || !doctor) redirect(`/poa/${poaId}`);
 
@@ -134,7 +135,7 @@ export async function rejectDoctorAction(poaId: string, kodePI: string, namaCust
 
   const [poa, doctor] = await Promise.all([
     prisma.poaForm.findUnique({ where: { id: poaId } }),
-    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+    findActiveApproval(poaId, kodePI, namaCust),
   ]);
   if (!poa || !doctor) redirect(`/poa/${poaId}`);
 
@@ -161,7 +162,7 @@ export async function cancelApprovedByNsmDoctorAction(poaId: string, kodePI: str
 
   const [poa, doctor] = await Promise.all([
     prisma.poaForm.findUnique({ where: { id: poaId } }),
-    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+    findActiveApproval(poaId, kodePI, namaCust),
   ]);
   if (!poa || !doctor) redirect(`/poa/${poaId}`);
 
@@ -180,7 +181,7 @@ export async function requestEditDoctorAction(poaId: string, kodePI: string, nam
 
   const [poa, doctor] = await Promise.all([
     prisma.poaForm.findUnique({ where: { id: poaId } }),
-    prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } }),
+    findActiveApproval(poaId, kodePI, namaCust),
   ]);
   if (!poa) redirect("/dashboard");
 
@@ -195,7 +196,7 @@ export async function requestEditDoctorAction(poaId: string, kodePI: string, nam
 export async function grantEditRequestDoctorAction(poaId: string, kodePI: string, namaCust: string): Promise<void> {
   const session = await requireSession();
 
-  const doctor = await prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } });
+  const doctor = await findActiveApproval(poaId, kodePI, namaCust);
   if (!doctor) redirect(`/poa/${poaId}`);
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
@@ -208,7 +209,7 @@ export async function grantEditRequestDoctorAction(poaId: string, kodePI: string
 export async function declineEditRequestDoctorAction(poaId: string, kodePI: string, namaCust: string, formData: FormData): Promise<void> {
   const session = await requireSession();
 
-  const doctor = await prisma.poaDoctorApproval.findUnique({ where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } } });
+  const doctor = await findActiveApproval(poaId, kodePI, namaCust);
   if (!doctor) redirect(`/poa/${poaId}`);
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
@@ -270,19 +271,18 @@ export async function deleteDoctorAction(poaId: string, kodePI: string, namaCust
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   if (poa.ownerId !== actor.nip && actor.role !== "ADMIN") return { error: "Tidak punya akses." };
 
-  const approval = await prisma.poaDoctorApproval.findUnique({
-    where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } },
-  });
-  if (approval?.dealAt) return { error: `${namaCust} sudah Deal sehingga tidak bisa dihapus.` };
+  // Hanya gelombang AKTIF (terbesar) yang dihapus: gelombang sebelumnya sudah Deal dan tidak boleh diubah sama sekali
+  // (docs/poa-deal-addendum/). Dokter yang hanya punya satu gelombang berperilaku seperti sebelumnya.
+  const activeBatch = await getActiveBatch(poaId, kodePI, namaCust);
+  const approvals: { id: string; dealAt: Date | null }[] = await prisma.poaDoctorApproval.findMany({ where: { poaId, kodePI, namaCust, batch: activeBatch }, select: { id: true, dealAt: true } });
+  if (approvals.some((a) => a.dealAt)) return { error: `${namaCust} sudah Deal sehingga tidak bisa dihapus.` };
 
   await prisma.$transaction([
-    ...(approval
-      ? [
-          prisma.poaAuditLog.deleteMany({ where: { doctorApprovalId: approval.id } }),
-          prisma.poaDoctorApproval.delete({ where: { id: approval.id } }),
-        ]
-      : []),
-    prisma.poaLineItem.deleteMany({ where: { poaId, kodePI, namaCust } }),
+    ...approvals.flatMap((approval) => [
+      prisma.poaAuditLog.deleteMany({ where: { doctorApprovalId: approval.id } }),
+      prisma.poaDoctorApproval.delete({ where: { id: approval.id } }),
+    ]),
+    prisma.poaLineItem.deleteMany({ where: { poaId, kodePI, namaCust, batch: activeBatch } }),
   ]);
 
   const remaining = await prisma.poaLineItem.count({ where: { poaId } });

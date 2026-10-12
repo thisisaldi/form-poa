@@ -7,6 +7,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { findActiveApproval, getActiveBatch } from "@/lib/poaDoctorApproval";
 import { canEdit,
   canApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor, hasPendingEditRequestForDoctor } from "@/lib/authz";
 import { sendEditRequestEmail, sendDoctorStatusEmail } from "@/lib/notifications";
@@ -330,17 +331,18 @@ export async function resolvePoaRollup(poaId: string): Promise<void> {
     prisma.poaDoctorApproval.findMany({ where: { poaId } }),
     prisma.poaLineItem.findMany({
       where: { poaId },
-      distinct: ["kodePI", "namaCust"],
-      select: { kodePI: true, namaCust: true },
+      distinct: ["kodePI", "namaCust", "batch"],
+      select: { kodePI: true, namaCust: true, batch: true },
     }),
   ]);
+  // Satu entri per (dokter, gelombang): gelombang baru yang belum di-submit dihitung DRAFT, gelombang Deal selesai (docs/poa-deal-addendum/).
   const approvalByDoctor = new Map<string, PoaDoctorApproval>(
-    approvals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}`, a])
+    approvals.map((a: PoaDoctorApproval) => [`${a.kodePI}|${a.namaCust}|${a.batch}`, a])
   );
 
   let best: { rank: number; status: PoaStatus; currentHolderId: string | null; isRevisi: boolean } | null = null;
-  for (const { kodePI, namaCust } of doctorKeys) {
-    const approval = approvalByDoctor.get(`${kodePI ?? ""}|${namaCust}`);
+  for (const { kodePI, namaCust, batch } of doctorKeys) {
+    const approval = approvalByDoctor.get(`${kodePI ?? ""}|${namaCust}|${batch}`);
     const status = approval?.status ?? PoaStatus.DRAFT;
     // Terminal (APPROVED_BY_*, incl. ASM/SM/ASD when Exodus's ceiling ends there)
     // always outranks any pending doctor — otherwise a doctor done at SM (4)
@@ -360,9 +362,7 @@ export async function resolvePoaRollup(poaId: string): Promise<void> {
 }
 
 async function loadDoctorApproval(poaId: string, kodePI: string, namaCust: string): Promise<PoaDoctorApproval | null> {
-  return prisma.poaDoctorApproval.findUnique({
-    where: { poaId_kodePI_namaCust: { poaId, kodePI, namaCust } },
-  });
+  return findActiveApproval(poaId, kodePI, namaCust);
 }
 
 // "YYYYMM" -> "YYYY-MM-DD" — Exodus's approval-level rejects "YYYYMM" (500,
@@ -465,6 +465,7 @@ async function applyDoctorTransition(
   exodusRequiredRole?: string | null
 ): Promise<PoaDoctorApproval> {
   const poa = await loadPoaWithHierarchy(poaId);
+  const activeBatch = existing ? existing.batch : await getActiveBatch(poaId, kodePI, namaCust);
 
   let nextHolderId: string | null = null;
   if (transition.nextHolderRole) {
@@ -488,7 +489,8 @@ async function applyDoctorTransition(
           },
         })
       : prisma.poaDoctorApproval.create({
-          data: { poaId, kodePI, namaCust, status: transition.toStatus, currentHolderId: nextHolderId, exodusRequiredRole },
+          // batch = gelombang aktif dokter ini (docs/poa-deal-addendum/); gelombang sebelumnya sudah Deal dan tidak disentuh.
+          data: { poaId, kodePI, namaCust, batch: activeBatch, status: transition.toStatus, currentHolderId: nextHolderId, exodusRequiredRole },
         }),
   ]);
 

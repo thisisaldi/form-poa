@@ -317,7 +317,10 @@ model PoaDoctorApproval {
 
   auditLogs PoaAuditLog[]
 
-  @@unique([poaId, kodePI, namaCust])
+  // docs/poa-deal-addendum/ — satu dokter bisa punya beberapa gelombang; hanya gelombang terbesar yang boleh belum Deal.
+  batch Int @default(1)
+
+  @@unique([poaId, kodePI, namaCust, batch])
   @@index([poaId])
   @@index([currentHolderId])
   @@index([status])
@@ -552,11 +555,16 @@ model PoaLineItem {
   rasioRencanaBiayaEstimasi    Decimal? @db.Decimal(18, 4)
   totalPersenBudget            Decimal? @db.Decimal(18, 4)
 
+  // docs/poa-deal-addendum/ (2026-10-09) — gelombang approval dokter ini di POA ini. Semua data lama = 1.
+  // Baris untuk dokter yang gelombang aktifnya sudah Deal masuk gelombang baru (nomor +1) dengan approval sendiri.
+  batch Int @default(1)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([poaId])
   @@index([kodeRequest])
+  @@index([poaId, kodePI, namaCust, batch])
 }
 
 model PoaAuditLog {

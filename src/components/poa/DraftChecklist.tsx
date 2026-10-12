@@ -1,5 +1,6 @@
 "use client";
 
+import { doctorKeyOf } from "@/lib/doctorKey";
 import { useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
@@ -49,7 +50,7 @@ const STATUS_STANDARISASI_LABELS: Record<string, string> = {
 };
 
 export function doctorKey(item: PoaLineItem): string {
-  return `${item.kodePI ?? ""}|${item.namaCust}`;
+  return doctorKeyOf(item.kodePI, item.namaCust, item.batch);
 }
 
 /**
@@ -904,6 +905,12 @@ function DoctorRow({
             <span className="text-sm font-semibold" style={{ color: "var(--color-text)" }}>
               {censorName(first.namaCust)}
             </span>
+            {first.batch > 1 && (
+              <span className="text-xs px-1.5 py-0.5 rounded font-semibold shrink-0" title="Baris baru untuk dokter yang gelombang sebelumnya sudah Deal; approval-nya terpisah."
+                style={{ background: "var(--color-blue-light)", color: "var(--color-blue)" }}>
+                Gelombang {first.batch}
+              </span>
+            )}
             {isDokterBaru && (
               <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
                 style={{ background: "#fff7ed", color: "#92400e", border: "1px solid #fcd34d" }}>
@@ -1132,7 +1139,13 @@ function DoctorRow({
           poa/[id]/page.tsx, now scoped to this one doctor). Always visible
           when relevant, not behind the "Approval" toggle below, since it
           concerns the OWNER (locked out) as much as the atasan (responding). */}
-      {doctorEditRequest?.editLockRoleLabel && (
+      {doctorDeal?.dealAt && (
+        <div className="mt-2.5 rounded-lg px-3 py-2.5 text-xs font-medium"
+          style={{ background: "var(--color-bg-subtle)", color: "var(--color-text-muted)", border: "1px solid var(--color-border)" }}>
+          Sudah Deal — tidak bisa diubah sama sekali. Untuk customer yang sama, tambahkan baris baru lewat "+ Tambah User" (otomatis menjadi gelombang baru dengan approval sendiri).
+        </div>
+      )}
+      {!doctorDeal?.dealAt && doctorEditRequest?.editLockRoleLabel && (
         <div className="mt-2.5 rounded-lg px-3 py-2.5 text-xs font-medium space-y-2"
           style={{ background: "var(--color-warning-bg, #fef3c7)", color: "var(--color-warning, #f59e0b)" }}>
           <p>
