@@ -11,7 +11,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { findActiveApproval, getActiveBatch } from "@/lib/poaDoctorApproval";
 import {
-  canEdit, canCreatePoa,
+  canEdit, canEditDoctor, canCreatePoa,
   canApproveDoctor, canCancelApprovedDoctor, canRequestEditDoctor, canRespondEditRequestDoctor,
 } from "@/lib/authz";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
@@ -68,7 +68,15 @@ export async function submitDoctorAction(
   if (!poa) redirect("/dashboard");
 
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
-  if (!(await canEdit(actor, poa))) redirect(`/poa/${poaId}`);
+  // Per DOKTER, bukan per seluruh POA (2026-10-12): lock whole-POA dari audit log membuat MR tidak bisa mengajukan
+  // dokter lain begitu atasan meng-approve satu dokter, dan redirect diam-diam di sini terlihat sebagai tombol
+  // Ajukan yang "tidak bereaksi". Pesan eksplisit bila memang terkunci.
+  const doctorApproval = await findActiveApproval(poaId, kodePI, namaCust);
+  if (!(await canEditDoctor(actor, poa, doctorApproval))) {
+    redirect(`/poa/${poaId}?error=` + encodeURIComponent(
+      `${namaCust} tidak bisa diajukan saat ini: ${doctorApproval?.dealAt ? "sudah Deal" : "sedang diproses atau terkunci oleh atasan"}.`
+    ));
+  }
 
   await submitDoctor(poaId, kodePI, namaCust, session.userId, notes?.trim() || undefined);
   revalidatePath(`/poa/${poaId}`);

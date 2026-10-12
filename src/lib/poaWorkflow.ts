@@ -8,7 +8,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { findActiveApproval, getActiveBatch } from "@/lib/poaDoctorApproval";
-import { canEdit,
+import { canEditDoctor,
   canApproveDoctor, canCancelApprovedDoctor, getLastApproverForDoctor, hasApprovalThisCycleForDoctor, hasPendingEditRequestForDoctor } from "@/lib/authz";
 import { sendEditRequestEmail, sendDoctorStatusEmail } from "@/lib/notifications";
 import { getExodusApprovalLevel } from "@/lib/exodusApi";
@@ -530,12 +530,19 @@ export async function submitDoctor(
 ): Promise<PoaDoctorApproval> {
   const poa = await prisma.poaForm.findUniqueOrThrow({ where: { id: poaId }, include: { owner: true } });
   const actingUser = await prisma.user.findUniqueOrThrow({ where: { nip: actingUserId } });
-  if (!(await canEdit(actingUser, poa))) {
-    throw new Error(`User ${actingUserId} does not have edit rights on POA ${poaId}`);
-  }
 
   const existing = await loadDoctorApproval(poaId, kodePI, namaCust);
   const fromStatus = existing?.status ?? PoaStatus.DRAFT;
+
+  // Hak submit dibaca PER DOKTER (canEditDoctor), bukan per seluruh POA (canEdit): lock whole-POA dibaca dari
+  // audit log SELURUH POA, sehingga begitu atasan meng-approve SATU dokter, MR tidak bisa lagi mengajukan dokter LAIN
+  // (yang belum pernah diajukan atau sedang REVISI) di POA yang sama — error "does not have edit rights" yang
+  // ditelan UI sebagai tombol Ajukan yang tidak bereaksi (2026-10-12). Selaras dengan pola 2026-08-18 di
+  // lineItem.ts (assertCanEditDoctor): dokter tanpa approval selalu boleh oleh pemilik; dokter yang sudah
+  // diajukan tetap terkunci lewat lock level dokter itu sendiri.
+  if (!(await canEditDoctor(actingUser, poa, existing))) {
+    throw new Error(`User ${actingUserId} does not have edit rights on doctor ${namaCust} in POA ${poaId}`);
+  }
 
   // Resubmitting after a GRANTED edit request resumes at the level that had
   // already approved (editResumeRole), skipping the lower levels instead of
