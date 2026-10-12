@@ -11,9 +11,17 @@
  * 2. DATA POA PER PERIODE (Rekap per Periode)
  * 3. SUMMARY BY PRODUK (Rekap Semua Produk)
  * 4. BIAYA ENTERTAIN OUTLET (Jika ada data entertain)
+ *
+ * STREAMING (2026-10-12): produksi punya 200rb+ baris produk, dan versi sebelumnya memuat semua form + membangun
+ * seluruh workbook di memori (ExcelJS menyimpan tiap sel sebagai objek, ~300x ukuran file) lalu `writeBuffer`
+ * → OOM. Sekarang: form diambil per halaman (PAGE_SIZE) lalu baris langsung di-commit ke ExcelJS WorkbookWriter
+ * yang menulis ke response stream, jadi memori datar terhadap jumlah baris. Konsekuensi: sheet ditulis berurutan
+ * (1 → 2 → 3 → 4), sehingga halaman form dihitung ulang untuk tiap sheet (CPU 2-3x, bukan memori), dan agregat
+ * Sheet 3 dikumpulkan saat Sheet 2 ditulis. Rumus per baris tidak berubah.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { PassThrough, Readable } from "node:stream";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
@@ -27,6 +35,8 @@ import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa
 import { calculateCashbackDetails } from "@/components/sc/edit/hooks/useSalesCounterCashback";
 import { getPeriodMonthList } from "@/components/sc/detail/utils/outletCalculationUtils";
 
+const PAGE_SIZE = 100;
+
 interface MasterProductItem {
   kodeProduk: string;
   namaProduk: string;
@@ -34,6 +44,43 @@ interface MasterProductItem {
   konversiPembagi: any;
   satuanTerkecil: string | null;
   satuan: string;
+}
+
+interface GlobalProductSummary {
+  kodeProduk: string;
+  namaProduk: string;
+  totalQty: number;
+  totalEstSales: number;
+  totalNilaiSc: number;
+  totalDiskon: number;
+  totalCashback: number;
+  totalRencanaBiaya: number;
+  outlets: Set<string>;
+}
+
+const BLUE = "FF0063A0";
+const WHITE = "FFFFFFFF";
+const RP_FMT = "#,##0";
+const PCT_FMT = "0.0%";
+
+type ColDef = { header: string; key: string; width: number; numFmt?: string };
+
+/** Sheet dengan header berwarna + format angka per kolom (WorkbookWriter: header ditulis manual lalu di-commit). */
+function startSheet(wb: ExcelJS.stream.xlsx.WorkbookWriter, name: string, cols: ColDef[]) {
+  const ws = wb.addWorksheet(name);
+  ws.columns = cols.map((c) => ({ key: c.key, width: c.width, style: c.numFmt ? { numFmt: c.numFmt } : {} }));
+  const header = ws.addRow(cols.map((c) => c.header));
+  header.font = { bold: true, color: { argb: WHITE } };
+  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
+  header.alignment = { wrapText: true, vertical: "middle" };
+  header.commit();
+  return ws;
+}
+
+/** Tulis satu baris (objek ber-key) tepat sesuai urutan kolom, lalu commit supaya langsung dilepas dari memori. */
+function writeRow(ws: ExcelJS.Worksheet, cols: ColDef[], data: Record<string, unknown>) {
+  const row = ws.addRow(cols.map((c) => data[c.key] as ExcelJS.CellValue));
+  row.commit();
 }
 
 export async function GET(req: NextRequest) {
@@ -53,112 +100,82 @@ export async function GET(req: NextRequest) {
   const isAllPeriod = periodParam === "all";
   const targetPeriod = isAllPeriod ? null : (periodParam && periodParam !== "current" ? periodParam : currentQuarter());
 
+  if (isAllPeriod && (await getAppSetting("export.team.periodAllDisabled"))) {
+    return NextResponse.json({ error: settingMessage("export.team.periodAllDisabled") }, { status: 400 });
+  }
+
   const where: any = { AND: [visibleFilter] };
   if (targetPeriod) {
     where.AND.push({ period: targetPeriod });
   }
 
-  const drafts = await prisma.poaScForm.findMany({
+  // Urutan deterministik: Periode Kuartal (asc), Kode PI Outlet (asc); id sebagai pemecah seri supaya halaman stabil.
+  const refs: { id: string; kodePI: string | null; period: string | null }[] = await prisma.poaScForm.findMany({
     where,
-    include: {
-      owner: true,
-      currentHolder: true,
-      products: true,
-      persons: true,
-      entertainItems: true,
-    },
-    orderBy: [{ period: "asc" }, { kodePI: "asc" }],
+    select: { id: true, kodePI: true, period: true },
+    orderBy: [{ period: "asc" }, { kodePI: "asc" }, { id: "asc" }],
   });
 
-  if (drafts.length === 0) {
+  if (refs.length === 0) {
     return NextResponse.json(
       { error: `Tidak ada data POA Sales Counter ditemukan untuk ${targetPeriod ? `periode ${targetPeriod}` : "semua periode"}` },
       { status: 404 }
     );
   }
 
-  // Ensure deterministic sorting: Periode Kuartal (asc / kecil ke besar), Kode PI Outlet (asc)
-  drafts.sort((a: any, b: any) =>
-    (a.period || "").localeCompare(b.period || "") ||
-    (a.kodePI || "").localeCompare(b.kodePI || "")
-  );
+  const indexById = new Map(refs.map((r, i) => [r.id, i]));
 
-  // Fetch product master details for all products in drafts
-  const allProductCodes = Array.from(
-    new Set(drafts.flatMap((d: any) => d.products.map((p: any) => p.kodeProduk)).filter(Boolean))
-  );
-
+  // Master produk: hanya kode yang benar-benar dipakai (distinct di DB, bukan memuat semua baris).
+  const codeRows: { kodeProduk: string | null }[] = await prisma.poaScProductItem.findMany({
+    where: { poaSc: where },
+    distinct: ["kodeProduk"],
+    select: { kodeProduk: true },
+  });
+  const allProductCodes = codeRows.map((r) => r.kodeProduk).filter((c): c is string => !!c);
   const masterProducts: MasterProductItem[] = await prisma.product.findMany({
     where: { kodeProduk: { in: allProductCodes } },
-    select: {
-      kodeProduk: true,
-      namaProduk: true,
-      hna: true,
-      konversiPembagi: true,
-      satuanTerkecil: true,
-      satuan: true,
-    },
+    select: { kodeProduk: true, namaProduk: true, hna: true, konversiPembagi: true, satuanTerkecil: true, satuan: true },
   });
+  const masterMap = new Map<string, MasterProductItem>(masterProducts.map((p) => [p.kodeProduk, p]));
 
-  const masterMap = new Map<string, MasterProductItem>(
-    masterProducts.map((p: MasterProductItem) => [p.kodeProduk, p])
-  );
-
-  const outletCodes = Array.from(new Set(drafts.map((d: any) => d.kodePI).filter(Boolean))) as string[];
+  const outletCodes = Array.from(new Set(refs.map((d) => d.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
   const outletScProductCodesMap = new Map<string, Set<string>>();
   const outletCashbackMap = new Map<string, any>();
 
   const outletPeriodMap = new Map<string, string>();
-  for (const d of drafts) {
-    if (d.kodePI && d.period && !outletPeriodMap.has(d.kodePI)) {
-      outletPeriodMap.set(d.kodePI, d.period);
-    }
+  for (const d of refs) {
+    if (d.kodePI && d.period && !outletPeriodMap.has(d.kodePI)) outletPeriodMap.set(d.kodePI, d.period);
   }
 
-  await mapWithConcurrency(
-    outletCodes,
-    8,
-    async (kodePI: string) => {
-      try {
-        const draftPeriod = outletPeriodMap.get(kodePI) || targetPeriod;
-        const [scRes, cbRes] = await Promise.all([
-          getSalesCounterProduct(kodePI, draftPeriod).catch(() => null),
-          getScCashbackPoa(kodePI).catch(() => null),
-        ]);
-        if (scRes?.data) {
-          const scSet = new Set<string>();
-          for (const cp of scRes.data) {
-            canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
-              sales_counter_value: cp.sales_counter_value || 0,
-              sales_counter_minimum: cp.sales_counter_minimum || 0,
-            });
-            if (cp.pro_code) scSet.add(cp.pro_code);
-          }
-          outletScProductCodesMap.set(kodePI, scSet);
+  await mapWithConcurrency(outletCodes, 8, async (kodePI: string) => {
+    try {
+      const draftPeriod = outletPeriodMap.get(kodePI) || targetPeriod;
+      const [scRes, cbRes] = await Promise.all([
+        getSalesCounterProduct(kodePI, draftPeriod).catch(() => null),
+        getScCashbackPoa(kodePI).catch(() => null),
+      ]);
+      if (scRes?.data) {
+        const scSet = new Set<string>();
+        for (const cp of scRes.data) {
+          canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
+            sales_counter_value: cp.sales_counter_value || 0,
+            sales_counter_minimum: cp.sales_counter_minimum || 0,
+          });
+          if (cp.pro_code) scSet.add(cp.pro_code);
         }
-        if (cbRes) {
-          outletCashbackMap.set(kodePI, cbRes);
-        }
-      } catch (err) {
-        console.error(`Error fetching SC/Cashback for ${kodePI}:`, err);
+        outletScProductCodesMap.set(kodePI, scSet);
       }
+      if (cbRes) outletCashbackMap.set(kodePI, cbRes);
+    } catch (err) {
+      console.error(`Error fetching SC/Cashback for ${kodePI}:`, err);
     }
-  );
+  });
 
-  // Build ExcelJS Workbook
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "POA Sales Counter System";
-  wb.created = new Date();
+  const hasEntertain = (await prisma.poaScEntertainItem.count({ where: { poaSc: where } })) > 0;
 
-  const BLUE = "FF0063A0";
-  const WHITE = "FFFFFFFF";
-  const RP_FMT = "#,##0";
-  const PCT_FMT = "0.0%";
-
-  // ─── Sheet 1: DATA INPUT POA (Detail per Bulan) ───────────────────────────
-  const formSheet = wb.addWorksheet("DATA INPUT POA");
-  formSheet.columns = [
+  // ─── Kolom ────────────────────────────────────────────────────────────────
+  const formCols: ColDef[] = [
     { header: "No. Form SC", key: "formNo", width: 12 },
     { header: "NIP MR", key: "nipMr", width: 14 },
     { header: "Nama MR", key: "namaMr", width: 24 },
@@ -170,25 +187,18 @@ export async function GET(req: NextRequest) {
     { header: "Kode Produk", key: "kodeProduk", width: 14 },
     { header: "Nama Produk SC", key: "namaProduk", width: 30 },
     { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
-    { header: "Qty ST / Bulan", key: "qtyPerBulan", width: 16 },
-    { header: "Estimasi Sales / Bln (Rp)", key: "estSalesBulan", width: 22 },
-    { header: "% Matriks SC (Insentif)", key: "persenMatriksSc", width: 18 },
-    { header: "Insentif SC / Bln (Rp)", key: "nilaiScBulan", width: 20 },
-    { header: "% Diskon", key: "persenDiskon", width: 14 },
-    { header: "Diskon / Bln (Rp)", key: "diskonBulan", width: 22 },
-    { header: "% Cashback", key: "persenCashback", width: 14 },
-    { header: "Cashback Matrik / bulan", key: "cashbackBulan", width: 24 },
-    { header: "Total Rencana Biaya SC (Rp)", key: "rencanaTotalBiaya", width: 24 },
+    { header: "Qty ST / Bulan", key: "qtyPerBulan", width: 16, numFmt: RP_FMT },
+    { header: "Estimasi Sales / Bln (Rp)", key: "estSalesBulan", width: 22, numFmt: RP_FMT },
+    { header: "% Matriks SC (Insentif)", key: "persenMatriksSc", width: 18, numFmt: PCT_FMT },
+    { header: "Insentif SC / Bln (Rp)", key: "nilaiScBulan", width: 20, numFmt: RP_FMT },
+    { header: "% Diskon", key: "persenDiskon", width: 14, numFmt: PCT_FMT },
+    { header: "Diskon / Bln (Rp)", key: "diskonBulan", width: 22, numFmt: RP_FMT },
+    { header: "% Cashback", key: "persenCashback", width: 14, numFmt: PCT_FMT },
+    { header: "Cashback Matrik / bulan", key: "cashbackBulan", width: 24, numFmt: RP_FMT },
+    { header: "Total Rencana Biaya SC (Rp)", key: "rencanaTotalBiaya", width: 24, numFmt: RP_FMT },
     { header: "Status", key: "status", width: 16 },
   ];
-
-  formSheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
-  formSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-  formSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
-
-  // ─── Sheet 2: DATA POA PER PERIODE (Rekap Akumulasi per Periode) ───────────
-  const periodSheet = wb.addWorksheet("DATA POA PER PERIODE");
-  periodSheet.columns = [
+  const periodCols: ColDef[] = [
     { header: "No. Form SC", key: "formNo", width: 12 },
     { header: "NIP MR", key: "nipMr", width: 14 },
     { header: "Nama MR", key: "namaMr", width: 24 },
@@ -199,38 +209,50 @@ export async function GET(req: NextRequest) {
     { header: "Kode Produk", key: "kodeProduk", width: 14 },
     { header: "Nama Produk SC", key: "namaProduk", width: 30 },
     { header: "Produk Kompetitor", key: "produkKompetitor", width: 22 },
-    { header: "Total Qty ST", key: "totalQty", width: 16 },
-    { header: "Total Estimasi Sales (Rp)", key: "totalEstSales", width: 24 },
-    { header: "% Matriks SC (Insentif)", key: "persenMatriksSc", width: 18 },
-    { header: "Total Insentif SC (Rp)", key: "totalNilaiSc", width: 22 },
-    { header: "% Diskon", key: "persenDiskon", width: 14 },
-    { header: "Total Diskon (Rp)", key: "totalDiskon", width: 22 },
-    { header: "% Cashback", key: "persenCashback", width: 14 },
-    { header: "Total Cashback (Rp)", key: "totalCashback", width: 22 },
-    { header: "Total Rencana Biaya SC (Rp)", key: "totalRencanaBiaya", width: 24 },
+    { header: "Total Qty ST", key: "totalQty", width: 16, numFmt: RP_FMT },
+    { header: "Total Estimasi Sales (Rp)", key: "totalEstSales", width: 24, numFmt: RP_FMT },
+    { header: "% Matriks SC (Insentif)", key: "persenMatriksSc", width: 18, numFmt: PCT_FMT },
+    { header: "Total Insentif SC (Rp)", key: "totalNilaiSc", width: 22, numFmt: RP_FMT },
+    { header: "% Diskon", key: "persenDiskon", width: 14, numFmt: PCT_FMT },
+    { header: "Total Diskon (Rp)", key: "totalDiskon", width: 22, numFmt: RP_FMT },
+    { header: "% Cashback", key: "persenCashback", width: 14, numFmt: PCT_FMT },
+    { header: "Total Cashback (Rp)", key: "totalCashback", width: 22, numFmt: RP_FMT },
+    { header: "Total Rencana Biaya SC (Rp)", key: "totalRencanaBiaya", width: 24, numFmt: RP_FMT },
     { header: "Status", key: "status", width: 16 },
   ];
+  const summaryCols: ColDef[] = [
+    { header: "Kode Produk", key: "kodeProduk", width: 14 },
+    { header: "Nama Produk", key: "namaProduk", width: 32 },
+    { header: "Total Qty ST", key: "totalQty", width: 16, numFmt: RP_FMT },
+    { header: "Total Estimasi Sales (Rp)", key: "totalEstSales", width: 24, numFmt: RP_FMT },
+    { header: "Total Insentif SC (Rp)", key: "totalNilaiSc", width: 22, numFmt: RP_FMT },
+    { header: "Total Diskon (Rp)", key: "totalDiskon", width: 22, numFmt: RP_FMT },
+    { header: "Total Cashback (Rp)", key: "totalCashback", width: 22, numFmt: RP_FMT },
+    { header: "Total Rencana Biaya (Rp)", key: "totalRencanaBiaya", width: 24, numFmt: RP_FMT },
+    { header: "Cost Ratio (%)", key: "costRatio", width: 16, numFmt: PCT_FMT },
+    { header: "Jumlah Outlet", key: "outletCount", width: 16, numFmt: RP_FMT },
+  ];
+  const entertainCols: ColDef[] = [
+    { header: "No. Form SC", key: "formNo", width: 12 },
+    { header: "NIP MR", key: "nipMr", width: 14 },
+    { header: "Nama MR", key: "namaMr", width: 24 },
+    { header: "KodePI Outlet", key: "kodePI", width: 14 },
+    { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
+    { header: "Periode Kuartal", key: "periodeKuartal", width: 16 },
+    { header: "Periode Bulan", key: "periodeMonth", width: 16 },
+    { header: "Biaya Entertain (Rp)", key: "biayaEntertain", width: 22, numFmt: RP_FMT },
+  ];
 
-  periodSheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
-  periodSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-  periodSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
-
-  // Global Product Aggregations for Sheet 3
-  interface GlobalProductSummary {
-    kodeProduk: string;
-    namaProduk: string;
-    totalQty: number;
-    totalEstSales: number;
-    totalNilaiSc: number;
-    totalDiskon: number;
-    totalCashback: number;
-    totalRencanaBiaya: number;
-    outlets: Set<string>;
+  /** Satu halaman form lengkap dengan relasi, urut sesuai `refs` (id dalam halaman diurutkan ulang). */
+  async function loadPage(start: number, include: Record<string, boolean>) {
+    const ids = refs.slice(start, start + PAGE_SIZE).map((r) => r.id);
+    const rows: any[] = await prisma.poaScForm.findMany({ where: { id: { in: ids } }, include: { owner: true, ...include } });
+    rows.sort((a, b) => (indexById.get(a.id) ?? 0) - (indexById.get(b.id) ?? 0));
+    return rows;
   }
-  const globalProductSummaryMap = new Map<string, GlobalProductSummary>();
 
-  let formCounter = 1;
-  for (const draft of drafts) {
+  /** Turunan satu draft (produk valid, rekap kasbek) — sama persis dengan logika versi sebelumnya. */
+  function deriveDraft(draft: any) {
     const scPersonStr = draft.persons.map((p: any) => `${p.personName} (${p.positionName})`).join(", ") || "-";
     const scCodes = outletScProductCodesMap.get(draft.kodePI);
 
@@ -241,18 +263,13 @@ export async function GET(req: NextRequest) {
       }
       return true;
     });
-
-    // Sort products by kodeProduk (asc) then periodeMonth (asc)
     validProducts.sort((a: any, b: any) =>
       a.kodeProduk.localeCompare(b.kodeProduk) || (a.periodeMonth || "").localeCompare(b.periodeMonth || "")
     );
 
-    // Group valid products by kodeProduk
-    const productGroups = new Map<string, typeof validProducts>();
+    const productGroups = new Map<string, any[]>();
     for (const p of validProducts) {
-      if (!productGroups.has(p.kodeProduk)) {
-        productGroups.set(p.kodeProduk, []);
-      }
+      if (!productGroups.has(p.kodeProduk)) productGroups.set(p.kodeProduk, []);
       productGroups.get(p.kodeProduk)!.push(p);
     }
 
@@ -261,15 +278,12 @@ export async function GET(req: NextRequest) {
     const distinctMonths = Array.from(new Set(validProducts.map((p: any) => p.periodeMonth).filter(Boolean))) as string[];
     const periodMonths = generatedMonths.length > 0 ? generatedMonths : distinctMonths;
 
-    // Prepare inputs for calculateCashbackDetails (exact web logic)
     const cashbackData = outletCashbackMap.get(draft.kodePI);
     const selectedProductsForCb = Array.from(productGroups.entries()).map(([kodeProduk, items]) => {
       const primary = items[0];
       const itemMonthMap = new Map<string, number>();
       for (const it of items) {
-        if (it.periodeMonth) {
-          itemMonthMap.set(it.periodeMonth, it.qtyPerBulan);
-        }
+        if (it.periodeMonth) itemMonthMap.set(it.periodeMonth, it.qtyPerBulan);
       }
       const hasAnyPeriodeMonth = items.some((it: any) => Boolean(it.periodeMonth));
       const monthlyQty = periodMonths.map((m) => {
@@ -278,13 +292,7 @@ export async function GET(req: NextRequest) {
           : (hasAnyPeriodeMonth || periodMonths.length > 1 ? 0 : (primary.qtyPerBulan || 0));
         return String(q);
       });
-
-      return {
-        kodeProduk,
-        qtyPerBulan: String(primary.qtyPerBulan || 0),
-        monthlyQty,
-        persenCashback: String(primary.persenCashback || 0),
-      };
+      return { kodeProduk, qtyPerBulan: String(primary.qtyPerBulan || 0), monthlyQty, persenCashback: String(primary.persenCashback || 0) };
     });
 
     const masterProductsForCb = Array.from(productGroups.keys()).map((code) => {
@@ -303,282 +311,232 @@ export async function GET(req: NextRequest) {
       lamaPeriode: lama,
     });
 
-    // Sort products by kodeProduk then periodeMonth for Sheet 1
-    validProducts.sort((a: any, b: any) =>
-      a.kodeProduk.localeCompare(b.kodeProduk) || (a.periodeMonth || "").localeCompare(b.periodeMonth || "")
-    );
+    return { scPersonStr, validProducts, productGroups, periodMonths, cashbackData, cbDetails };
+  }
 
-    // Populate Sheet 1: Detail per Bulan
-    for (const p of validProducts) {
-      const mp = masterMap.get(p.kodeProduk);
-      const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
-      const qty = p.qtyPerBulan || 0;
-      const estSalesBulan = qty * hnaSJ;
-      const pctMatriks = (parseFloat(p.persenMatriksSc.toString()) || 0) / 100;
-      const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
-      const scVal = cp?.sales_counter_value;
-      const scMin = cp?.sales_counter_minimum || 0;
+  function detailRow(draft: any, formNo: number, d: ReturnType<typeof deriveDraft>, p: any) {
+    const mp = masterMap.get(p.kodeProduk);
+    const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
+    const qty = p.qtyPerBulan || 0;
+    const estSalesBulan = qty * hnaSJ;
+    const pctMatriks = (parseFloat(p.persenMatriksSc.toString()) || 0) / 100;
+    const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
+    const scVal = cp?.sales_counter_value;
+    const scMin = cp?.sales_counter_minimum || 0;
 
-      let nilaiScBulan = 0;
-      if (scVal != null && scVal > 0) {
-        nilaiScBulan = qty >= scMin ? qty * scVal : 0;
+    let nilaiScBulan = 0;
+    if (scVal != null && scVal > 0) nilaiScBulan = qty >= scMin ? qty * scVal : 0;
+    else nilaiScBulan = estSalesBulan * pctMatriks;
+
+    const pctDiskon = (parseFloat(p.persenDiskon.toString()) || 0) / 100;
+    const diskonBulan = estSalesBulan * pctDiskon;
+    const pctCashback = (parseFloat(p.persenCashback.toString()) || 0) / 100;
+
+    let cashbackBulan = 0;
+    if (d.cashbackData) {
+      const mIdx = p.periodeMonth ? d.periodMonths.indexOf(p.periodeMonth) : -1;
+      if (mIdx >= 0 && d.cbDetails?.monthlyStats?.[mIdx]) {
+        const stat = d.cbDetails.monthlyStats[mIdx].productStats.find((ps: any) => ps.kodeProduk === p.kodeProduk);
+        cashbackBulan = stat ? stat.mCashbackVal : 0;
       } else {
-        nilaiScBulan = estSalesBulan * pctMatriks;
+        cashbackBulan = d.cbDetails?.monthlyResultMap?.get(p.kodeProduk) ?? 0;
       }
+    } else {
+      cashbackBulan = estSalesBulan * pctCashback;
+    }
 
-      const pctDiskon = (parseFloat(p.persenDiskon.toString()) || 0) / 100;
-      const diskonBulan = estSalesBulan * pctDiskon;
+    const totalBiayaProduk = nilaiScBulan + diskonBulan + cashbackBulan;
+    return {
+      formNo,
+      nipMr: draft.owner.nip,
+      namaMr: draft.owner.name,
+      kodePI: draft.kodePI,
+      namaOutlet: draft.namaOutlet || draft.kodePI,
+      periodeKuartal: draft.period,
+      periodeBulan: p.periodeMonth || draft.periodeAwal || draft.period,
+      scPersonNames: d.scPersonStr,
+      kodeProduk: p.kodeProduk,
+      namaProduk: p.namaProduk,
+      produkKompetitor: p.produkKompetitor || "-",
+      qtyPerBulan: qty,
+      estSalesBulan: Math.round(estSalesBulan),
+      persenMatriksSc: pctMatriks,
+      nilaiScBulan: Math.round(nilaiScBulan),
+      persenDiskon: pctDiskon,
+      diskonBulan: Math.round(diskonBulan),
+      persenCashback: pctCashback,
+      cashbackBulan: Math.round(cashbackBulan),
+      rencanaTotalBiaya: Math.round(totalBiayaProduk),
+      status: draft.status.replace(/_/g, " "),
+    };
+  }
 
-      const pctCashback = (parseFloat(p.persenCashback.toString()) || 0) / 100;
+  const globalProductSummaryMap = new Map<string, GlobalProductSummary>();
 
-      let cashbackBulan = 0;
-      if (cashbackData) {
-        const mIdx = p.periodeMonth ? periodMonths.indexOf(p.periodeMonth) : -1;
-        if (mIdx >= 0 && cbDetails?.monthlyStats?.[mIdx]) {
-          const stat = cbDetails.monthlyStats[mIdx].productStats.find((ps) => ps.kodeProduk === p.kodeProduk);
-          cashbackBulan = stat ? stat.mCashbackVal : 0;
-        } else {
-          cashbackBulan = cbDetails?.monthlyResultMap?.get(p.kodeProduk) ?? 0;
-        }
-      } else {
-        cashbackBulan = estSalesBulan * pctCashback;
-      }
+  function recapRow(draft: any, formNo: number, d: ReturnType<typeof deriveDraft>, items: any[]) {
+    const primary = items[0];
+    const mp = masterMap.get(primary.kodeProduk);
+    const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
+    const pctMatriks = (parseFloat(primary.persenMatriksSc.toString()) || 0) / 100;
+    const pctDiskon = (parseFloat(primary.persenDiskon.toString()) || 0) / 100;
+    const pctCashback = (parseFloat(primary.persenCashback.toString()) || 0) / 100;
 
-      const totalBiayaProduk = nilaiScBulan + diskonBulan + cashbackBulan;
+    const cp = canvasserProductMap.get(`${draft.kodePI}_${primary.kodeProduk}`);
+    const scVal = cp?.sales_counter_value;
+    const scMin = cp?.sales_counter_minimum || 0;
 
-      formSheet.addRow({
-        formNo: formCounter,
-        nipMr: draft.owner.nip,
-        namaMr: draft.owner.name,
-        kodePI: draft.kodePI,
-        namaOutlet: draft.namaOutlet || draft.kodePI,
-        periodeKuartal: draft.period,
-        periodeBulan: p.periodeMonth || draft.periodeAwal || draft.period,
-        scPersonNames: scPersonStr,
-        kodeProduk: p.kodeProduk,
-        namaProduk: p.namaProduk,
-        produkKompetitor: p.produkKompetitor || "-",
-        qtyPerBulan: qty,
-        estSalesBulan: Math.round(estSalesBulan),
-        persenMatriksSc: pctMatriks,
-        nilaiScBulan: Math.round(nilaiScBulan),
-        persenDiskon: pctDiskon,
-        diskonBulan: Math.round(diskonBulan),
-        persenCashback: pctCashback,
-        cashbackBulan: Math.round(cashbackBulan),
-        rencanaTotalBiaya: Math.round(totalBiayaProduk),
-        status: draft.status.replace(/_/g, " "),
+    let totalQty = 0;
+    let totalEstSales = 0;
+    let totalNilaiSc = 0;
+    let totalDiskon = 0;
+    for (const it of items) {
+      const q = it.qtyPerBulan || 0;
+      const estMonth = q * hnaSJ;
+      let scMonth = 0;
+      if (scVal != null && scVal > 0) scMonth = q >= scMin ? q * scVal : 0;
+      else scMonth = estMonth * pctMatriks;
+      totalQty += q;
+      totalEstSales += estMonth;
+      totalNilaiSc += scMonth;
+      totalDiskon += estMonth * pctDiskon;
+    }
+    const totalCashback = d.cashbackData
+      ? (d.cbDetails?.resultMap?.get(primary.kodeProduk) ?? 0)
+      : totalEstSales * pctCashback;
+    const totalBiaya = totalNilaiSc + totalDiskon + totalCashback;
+
+    // Agregat Sheet 3
+    const gKey = primary.kodeProduk;
+    if (!globalProductSummaryMap.has(gKey)) {
+      globalProductSummaryMap.set(gKey, {
+        kodeProduk: primary.kodeProduk, namaProduk: primary.namaProduk,
+        totalQty: 0, totalEstSales: 0, totalNilaiSc: 0, totalDiskon: 0, totalCashback: 0, totalRencanaBiaya: 0,
+        outlets: new Set<string>(),
       });
     }
+    const gItem = globalProductSummaryMap.get(gKey)!;
+    gItem.totalQty += totalQty;
+    gItem.totalEstSales += totalEstSales;
+    gItem.totalNilaiSc += totalNilaiSc;
+    gItem.totalDiskon += totalDiskon;
+    gItem.totalCashback += totalCashback;
+    gItem.totalRencanaBiaya += totalBiaya;
+    gItem.outlets.add(draft.kodePI);
 
-    // Populate Sheet 2: Rekap / Sum per Produk untuk Satu Periode (Sorted by Kode Produk asc)
-    const sortedProductGroups = Array.from(productGroups.entries()).sort(([codeA], [codeB]) =>
-      codeA.localeCompare(codeB)
+    return {
+      formNo,
+      nipMr: draft.owner.nip,
+      namaMr: draft.owner.name,
+      kodePI: draft.kodePI,
+      namaOutlet: draft.namaOutlet || draft.kodePI,
+      periode: draft.period,
+      scPersonNames: d.scPersonStr,
+      kodeProduk: primary.kodeProduk,
+      namaProduk: primary.namaProduk,
+      produkKompetitor: primary.produkKompetitor || "-",
+      totalQty,
+      totalEstSales: Math.round(totalEstSales),
+      persenMatriksSc: pctMatriks,
+      totalNilaiSc: Math.round(totalNilaiSc),
+      persenDiskon: pctDiskon,
+      totalDiskon: Math.round(totalDiskon),
+      persenCashback: pctCashback,
+      totalCashback: Math.round(totalCashback),
+      totalRencanaBiaya: Math.round(totalBiaya),
+      status: draft.status.replace(/_/g, " "),
+    };
+  }
+
+  // ─── Stream ───────────────────────────────────────────────────────────────
+  const pass = new PassThrough();
+  const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: pass, useStyles: true, useSharedStrings: false });
+  wb.creator = "POA Sales Counter System";
+  wb.created = new Date();
+
+  (async () => {
+    // Sheet 1
+    const formSheet = startSheet(wb, "DATA INPUT POA", formCols);
+    for (let start = 0; start < refs.length; start += PAGE_SIZE) {
+      const page = await loadPage(start, { products: true, persons: true } as any);
+      for (const draft of page) {
+        const d = deriveDraft(draft);
+        const formNo = (indexById.get(draft.id) ?? 0) + 1;
+        for (const p of d.validProducts) writeRow(formSheet, formCols, detailRow(draft, formNo, d, p));
+      }
+    }
+    formSheet.commit();
+
+    // Sheet 2 (+ agregat Sheet 3)
+    const periodSheet = startSheet(wb, "DATA POA PER PERIODE", periodCols);
+    for (let start = 0; start < refs.length; start += PAGE_SIZE) {
+      const page = await loadPage(start, { products: true, persons: true } as any);
+      for (const draft of page) {
+        const d = deriveDraft(draft);
+        const formNo = (indexById.get(draft.id) ?? 0) + 1;
+        const groups = Array.from(d.productGroups.entries()).sort(([a], [b]) => a.localeCompare(b));
+        for (const [, items] of groups) writeRow(periodSheet, periodCols, recapRow(draft, formNo, d, items));
+      }
+    }
+    periodSheet.commit();
+
+    // Sheet 3
+    const summarySheet = startSheet(wb, "SUMMARY BY PRODUK", summaryCols);
+    const sortedSummaryRows = Array.from(globalProductSummaryMap.values()).sort(
+      (a, b) => b.totalEstSales - a.totalEstSales || a.kodeProduk.localeCompare(b.kodeProduk)
     );
-    for (const [, items] of sortedProductGroups) {
-      const primary = items[0];
-      const mp = masterMap.get(primary.kodeProduk);
-      const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
-      const pctMatriks = (parseFloat(primary.persenMatriksSc.toString()) || 0) / 100;
-      const pctDiskon = (parseFloat(primary.persenDiskon.toString()) || 0) / 100;
-      const pctCashback = (parseFloat(primary.persenCashback.toString()) || 0) / 100;
-
-      const cp = canvasserProductMap.get(`${draft.kodePI}_${primary.kodeProduk}`);
-      const scVal = cp?.sales_counter_value;
-      const scMin = cp?.sales_counter_minimum || 0;
-
-      let totalQty = 0;
-      let totalEstSales = 0;
-      let totalNilaiSc = 0;
-      let totalDiskon = 0;
-
-      for (const it of items) {
-        const q = it.qtyPerBulan || 0;
-        const estMonth = q * hnaSJ;
-
-        let scMonth = 0;
-        if (scVal != null && scVal > 0) {
-          scMonth = q >= scMin ? q * scVal : 0;
-        } else {
-          scMonth = estMonth * pctMatriks;
-        }
-
-        const dMonth = estMonth * pctDiskon;
-
-        totalQty += q;
-        totalEstSales += estMonth;
-        totalNilaiSc += scMonth;
-        totalDiskon += dMonth;
-      }
-
-      const totalCashback = cashbackData
-        ? (cbDetails?.resultMap?.get(primary.kodeProduk) ?? 0)
-        : totalEstSales * pctCashback;
-
-      const totalBiaya = totalNilaiSc + totalDiskon + totalCashback;
-
-      periodSheet.addRow({
-        formNo: formCounter,
-        nipMr: draft.owner.nip,
-        namaMr: draft.owner.name,
-        kodePI: draft.kodePI,
-        namaOutlet: draft.namaOutlet || draft.kodePI,
-        periode: draft.period,
-        scPersonNames: scPersonStr,
-        kodeProduk: primary.kodeProduk,
-        namaProduk: primary.namaProduk,
-        produkKompetitor: primary.produkKompetitor || "-",
-        totalQty,
-        totalEstSales: Math.round(totalEstSales),
-        persenMatriksSc: pctMatriks,
-        totalNilaiSc: Math.round(totalNilaiSc),
-        persenDiskon: pctDiskon,
-        totalDiskon: Math.round(totalDiskon),
-        persenCashback: pctCashback,
-        totalCashback: Math.round(totalCashback),
-        totalRencanaBiaya: Math.round(totalBiaya),
-        status: draft.status.replace(/_/g, " "),
+    for (const s of sortedSummaryRows) {
+      const costRatio = s.totalEstSales > 0 ? (s.totalRencanaBiaya / s.totalEstSales) * 100 : 0;
+      writeRow(summarySheet, summaryCols, {
+        kodeProduk: s.kodeProduk,
+        namaProduk: s.namaProduk,
+        totalQty: s.totalQty,
+        totalEstSales: Math.round(s.totalEstSales),
+        totalNilaiSc: Math.round(s.totalNilaiSc),
+        totalDiskon: Math.round(s.totalDiskon),
+        totalCashback: Math.round(s.totalCashback),
+        totalRencanaBiaya: Math.round(s.totalRencanaBiaya),
+        costRatio: costRatio / 100,
+        outletCount: s.outlets.size,
       });
+    }
+    summarySheet.commit();
 
-      // Update Global Product Summary for Sheet 3
-      const gKey = primary.kodeProduk;
-      if (!globalProductSummaryMap.has(gKey)) {
-        globalProductSummaryMap.set(gKey, {
-          kodeProduk: primary.kodeProduk,
-          namaProduk: primary.namaProduk,
-          totalQty: 0,
-          totalEstSales: 0,
-          totalNilaiSc: 0,
-          totalDiskon: 0,
-          totalCashback: 0,
-          totalRencanaBiaya: 0,
-          outlets: new Set<string>(),
-        });
+    // Sheet 4 (bila ada)
+    if (hasEntertain) {
+      const entertainSheet = startSheet(wb, "BIAYA ENTERTAIN OUTLET", entertainCols);
+      for (let start = 0; start < refs.length; start += PAGE_SIZE) {
+        const page = await loadPage(start, { entertainItems: true } as any);
+        for (const draft of page) {
+          const formNo = (indexById.get(draft.id) ?? 0) + 1;
+          const sorted = draft.entertainItems.slice().sort((a: any, b: any) => (a.periodeMonth || "").localeCompare(b.periodeMonth || ""));
+          for (const ent of sorted) {
+            writeRow(entertainSheet, entertainCols, {
+              formNo,
+              nipMr: draft.owner.nip,
+              namaMr: draft.owner.name,
+              kodePI: draft.kodePI,
+              namaOutlet: draft.namaOutlet || draft.kodePI,
+              periodeKuartal: draft.period,
+              periodeMonth: ent.periodeMonth,
+              biayaEntertain: parseFloat(ent.biayaEntertain.toString()) || 0,
+            });
+          }
+        }
       }
-      const gItem = globalProductSummaryMap.get(gKey)!;
-      gItem.totalQty += totalQty;
-      gItem.totalEstSales += totalEstSales;
-      gItem.totalNilaiSc += totalNilaiSc;
-      gItem.totalDiskon += totalDiskon;
-      gItem.totalCashback += totalCashback;
-      gItem.totalRencanaBiaya += totalBiaya;
-      gItem.outlets.add(draft.kodePI);
+      entertainSheet.commit();
     }
 
-    formCounter++;
-  }
-
-  // ─── Sheet 3: SUMMARY BY PRODUK ──────────────────────────────────────────
-  const summarySheet = wb.addWorksheet("SUMMARY BY PRODUK");
-  summarySheet.columns = [
-    { header: "Kode Produk", key: "kodeProduk", width: 14 },
-    { header: "Nama Produk", key: "namaProduk", width: 32 },
-    { header: "Total Qty ST", key: "totalQty", width: 16 },
-    { header: "Total Estimasi Sales (Rp)", key: "totalEstSales", width: 24 },
-    { header: "Total Insentif SC (Rp)", key: "totalNilaiSc", width: 22 },
-    { header: "Total Diskon (Rp)", key: "totalDiskon", width: 22 },
-    { header: "Total Cashback (Rp)", key: "totalCashback", width: 22 },
-    { header: "Total Rencana Biaya (Rp)", key: "totalRencanaBiaya", width: 24 },
-    { header: "Cost Ratio (%)", key: "costRatio", width: 16 },
-    { header: "Jumlah Outlet", key: "outletCount", width: 16 },
-  ];
-
-  summarySheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
-  summarySheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-  summarySheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
-
-  const sortedSummaryRows = Array.from(globalProductSummaryMap.values()).sort(
-    (a, b) => b.totalEstSales - a.totalEstSales || a.kodeProduk.localeCompare(b.kodeProduk)
-  );
-
-  for (const s of sortedSummaryRows) {
-    const costRatio = s.totalEstSales > 0 ? (s.totalRencanaBiaya / s.totalEstSales) * 100 : 0;
-    summarySheet.addRow({
-      kodeProduk: s.kodeProduk,
-      namaProduk: s.namaProduk,
-      totalQty: s.totalQty,
-      totalEstSales: Math.round(s.totalEstSales),
-      totalNilaiSc: Math.round(s.totalNilaiSc),
-      totalDiskon: Math.round(s.totalDiskon),
-      totalCashback: Math.round(s.totalCashback),
-      totalRencanaBiaya: Math.round(s.totalRencanaBiaya),
-      costRatio: costRatio / 100, // format as percentage
-      outletCount: s.outlets.size,
-    });
-  }
-
-  // Format Sheet 1
-  ["persenMatriksSc", "persenDiskon", "persenCashback"].forEach((k) => {
-    formSheet.getColumn(k).numFmt = PCT_FMT;
+    await wb.commit();
+  })().catch((err) => {
+    console.error("[sc/export] streaming failed:", err);
+    pass.destroy(err instanceof Error ? err : new Error(String(err)));
   });
-  ["estSalesBulan", "nilaiScBulan", "diskonBulan", "cashbackBulan", "rencanaTotalBiaya"].forEach((k) => {
-    formSheet.getColumn(k).numFmt = RP_FMT;
-  });
-  formSheet.getColumn("qtyPerBulan").numFmt = RP_FMT;
 
-  // Format Sheet 2
-  ["persenMatriksSc", "persenDiskon", "persenCashback"].forEach((k) => {
-    periodSheet.getColumn(k).numFmt = PCT_FMT;
-  });
-  ["totalEstSales", "totalNilaiSc", "totalDiskon", "totalCashback", "totalRencanaBiaya"].forEach((k) => {
-    periodSheet.getColumn(k).numFmt = RP_FMT;
-  });
-  periodSheet.getColumn("totalQty").numFmt = RP_FMT;
-
-  // Format Sheet 3
-  ["totalEstSales", "totalNilaiSc", "totalDiskon", "totalCashback", "totalRencanaBiaya"].forEach((k) => {
-    summarySheet.getColumn(k).numFmt = RP_FMT;
-  });
-  summarySheet.getColumn("totalQty").numFmt = RP_FMT;
-  summarySheet.getColumn("costRatio").numFmt = PCT_FMT;
-  summarySheet.getColumn("outletCount").numFmt = RP_FMT;
-
-  // ─── Sheet 4: BIAYA ENTERTAIN OUTLET (Jika ada) ──────────────────────────
-  const hasEntertain = drafts.some((d: any) => d.entertainItems && d.entertainItems.length > 0);
-  if (hasEntertain) {
-    const entertainSheet = wb.addWorksheet("BIAYA ENTERTAIN OUTLET");
-    entertainSheet.columns = [
-      { header: "No. Form SC", key: "formNo", width: 12 },
-      { header: "NIP MR", key: "nipMr", width: 14 },
-      { header: "Nama MR", key: "namaMr", width: 24 },
-      { header: "KodePI Outlet", key: "kodePI", width: 14 },
-      { header: "Nama Outlet SC", key: "namaOutlet", width: 30 },
-      { header: "Periode Kuartal", key: "periodeKuartal", width: 16 },
-      { header: "Periode Bulan", key: "periodeMonth", width: 16 },
-      { header: "Biaya Entertain (Rp)", key: "biayaEntertain", width: 22 },
-    ];
-    entertainSheet.getRow(1).font = { bold: true, color: { argb: WHITE } };
-    entertainSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-    entertainSheet.getRow(1).alignment = { wrapText: true, vertical: "middle" };
-
-    let fNum = 1;
-    for (const draft of drafts) {
-      const sortedEntertain = draft.entertainItems.slice().sort((a: any, b: any) =>
-        (a.periodeMonth || "").localeCompare(b.periodeMonth || "")
-      );
-      for (const ent of sortedEntertain) {
-        entertainSheet.addRow({
-          formNo: fNum,
-          nipMr: draft.owner.nip,
-          namaMr: draft.owner.name,
-          kodePI: draft.kodePI,
-          namaOutlet: draft.namaOutlet || draft.kodePI,
-          periodeKuartal: draft.period,
-          periodeMonth: ent.periodeMonth,
-          biayaEntertain: parseFloat(ent.biayaEntertain.toString()) || 0,
-        });
-      }
-      fNum++;
-    }
-    entertainSheet.getColumn("biayaEntertain").numFmt = RP_FMT;
-  }
-
-  const buffer = await wb.xlsx.writeBuffer();
   const filename = targetPeriod
     ? `POA_SC_${targetPeriod}_Export.xlsx`
     : `POA_SC_Semua_Produk_Periode_Export.xlsx`;
 
-  return new NextResponse(buffer, {
+  return new NextResponse(Readable.toWeb(pass) as unknown as ReadableStream, {
     status: 200,
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
