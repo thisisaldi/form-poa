@@ -39,7 +39,6 @@ export async function saveSalesCounterFormAction(
     label: string;
     value: string;
   }[],
-  persenResepDokter: number,
   namaOutletParam?: string,
   jumlahKaryawan?: number | null,
   jumlahPasien?: number | null,
@@ -266,7 +265,6 @@ export async function saveSalesCounterFormAction(
           existing.period !== period ||
           existing.periodeAwal !== periodeAwal ||
           existing.lamaPeriode !== lamaPeriode ||
-          existing.persenResepDokter !== persenResepDokter ||
           existing.jumlahKaryawan !== jumlahKaryawan ||
           existing.jumlahPasien !== jumlahPasien ||
           existing.jumlahPasienResep !== jumlahPasienResep ||
@@ -382,7 +380,6 @@ export async function saveSalesCounterFormAction(
             currentHolderId: targetHolderId,
             version: existing.version + 1,
             namaOutlet: namaOutlet || existing.namaOutlet,
-            persenResepDokter,
             jumlahKaryawan: jumlahKaryawan ?? null,
             jumlahPasien: jumlahPasien ?? null,
             jumlahPasienResep: jumlahPasienResep ?? null,
@@ -400,7 +397,6 @@ export async function saveSalesCounterFormAction(
             ownerId: session.userId,
             status: PoaStatus.DRAFT,
             version: 1,
-            persenResepDokter,
             jumlahKaryawan: jumlahKaryawan ?? null,
             jumlahPasien: jumlahPasien ?? null,
             jumlahPasienResep: jumlahPasienResep ?? null,
@@ -467,11 +463,6 @@ export async function saveSalesCounterFormAction(
       const snapshot: any = {};
       if (!isNew && existing) {
         // Compare root scalar columns
-        if (existing.persenResepDokter !== persenResepDokter) {
-          snapshot.old_persenResepDokter = existing.persenResepDokter;
-          snapshot.new_persenResepDokter = persenResepDokter;
-        }
-
         if ((existing.jumlahKaryawan ?? null) !== (jumlahKaryawan ?? null)) {
           snapshot.old_jumlahKaryawan = existing.jumlahKaryawan ?? null;
           snapshot.new_jumlahKaryawan = jumlahKaryawan ?? null;

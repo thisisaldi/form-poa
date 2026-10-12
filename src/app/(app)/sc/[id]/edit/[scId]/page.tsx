@@ -68,7 +68,6 @@ export default async function EditSalesCounterByIdPage({
           initialEntertainItems={form.entertainItems}
           initialPeriodeAwal={form.periodeAwal}
           initialLamaPeriode={form.lamaPeriode}
-          initialPersenResepDokter={form.persenResepDokter}
           initialJumlahKaryawan={form.jumlahKaryawan}
           initialJumlahPasien={form.jumlahPasien}
           initialJumlahPasienResep={form.jumlahPasienResep}

@@ -83,7 +83,6 @@ export async function getSalesCounterFormById(
     isOnline: !!targetOutlet?.isOnline,
     periodeAwal: form.periodeAwal,
     lamaPeriode: form.lamaPeriode,
-    persenResepDokter: form.persenResepDokter,
     jumlahKaryawan: (form.jumlahKaryawan && form.jumlahKaryawan > 0) ? form.jumlahKaryawan : (targetOutlet?.jumlah_karyawan ?? form.jumlahKaryawan ?? null),
     jumlahPasien: (form.jumlahPasien && form.jumlahPasien > 0) ? form.jumlahPasien : (targetOutlet?.jumlah_pasien ?? form.jumlahPasien ?? null),
     jumlahPasienResep: (form.jumlahPasienResep && form.jumlahPasienResep > 0) ? form.jumlahPasienResep : (targetOutlet?.jumlah_pasien_resep ?? form.jumlahPasienResep ?? null),

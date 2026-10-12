@@ -197,7 +197,6 @@ export default async function SalesCounterApprovalsPage({
       version: d.version,
       kodePI: d.kodePI,
       namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
-      persenResepDokter: d.persenResepDokter,
       jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (matchedOutlet?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
       jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (matchedOutlet?.jumlah_pasien ?? d.jumlahPasien ?? null),
       jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (matchedOutlet?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),

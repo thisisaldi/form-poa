@@ -54,7 +54,6 @@ export interface ScDraftFormItem {
   version: number;
   kodePI: string;
   namaOutlet: string;
-  persenResepDokter: number;
   jumlahKaryawan?: number | null;
   jumlahPasien?: number | null;
   jumlahPasienResep?: number | null;

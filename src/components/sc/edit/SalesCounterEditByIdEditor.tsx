@@ -46,7 +46,6 @@ export function SalesCounterEditByIdEditor({
   initialEntertainItems,
   initialPeriodeAwal,
   initialLamaPeriode,
-  initialPersenResepDokter,
   initialJumlahKaryawan,
   initialJumlahPasien,
   initialJumlahPasienResep,
@@ -145,7 +144,6 @@ export function SalesCounterEditByIdEditor({
   };
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const persenResepDokter = String(initialPersenResepDokter ?? "0");
 
   const {
     selectedPersonIds,
@@ -284,7 +282,6 @@ export function SalesCounterEditByIdEditor({
         selectedPersonIds,
         products,
         entertainList,
-        parseInt(persenResepDokter, 10) || 0,
         namaOutlet || undefined,
         parseInt(jumlahKaryawan, 10) || 0,
         parseInt(jumlahPasien, 10) || 0,

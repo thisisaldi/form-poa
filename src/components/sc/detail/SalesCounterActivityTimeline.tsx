@@ -13,17 +13,23 @@ import type {
 export type { SalesCounterAuditLogItem };
 
 export function SalesCounterActivityTimeline({
-  auditLogs = [],
   outlets = [],
 }: SalesCounterActivityTimelineProps) {
   const {
-    selectedOutlet,
-    setSelectedOutlet,
+    query,
+    setQuery,
     availableOutlets,
-    filteredLogs,
-  } = useActivityTimeline({ auditLogs, outlets });
+    searchResults,
+    selectedOutlet,
+    selectOutlet,
+    clearOutlet,
+    logs,
+    truncated,
+    isLoading,
+    hasError,
+  } = useActivityTimeline({ outlets });
 
-  if (auditLogs.length === 0) {
+  if (availableOutlets.length === 0) {
     return (
       <div className="p-4 text-center text-sm" style={{ color: "var(--color-text-muted)" }}>
         Belum ada aktivitas.
@@ -33,53 +39,86 @@ export function SalesCounterActivityTimeline({
 
   return (
     <div>
-      {/* Dropdown Filter Outlet */}
-      {availableOutlets.length > 1 && (
-        <div
-          className="p-3 border-b flex flex-wrap items-center justify-between gap-3 text-xs"
-          style={{
-            background: "var(--color-bg-subtle)",
-            borderColor: "var(--color-border)",
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="font-medium" style={{ color: "var(--color-text-muted)" }}>
-              Filter Outlet:
+      {/* Cari outlet dulu — log hanya dimuat untuk outlet yang dipilih */}
+      <div className="px-4 pt-4 space-y-2 text-xs">
+        {selectedOutlet ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium" style={{ color: "var(--color-text)" }}>
+              Outlet: {selectedOutlet.namaOutlet} ({selectedOutlet.kodePI})
             </span>
-            <select
-              value={selectedOutlet}
-              onChange={(e) => setSelectedOutlet(e.target.value)}
-              className="px-2.5 py-1.5 rounded-md border text-xs font-medium cursor-pointer outline-none transition-colors"
+            <button
+              type="button"
+              onClick={clearOutlet}
+              className="px-2.5 py-1 rounded-md border text-xs font-medium cursor-pointer"
+              style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}
+            >
+              Ganti outlet
+            </button>
+          </div>
+        ) : (
+          <>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Cari nama outlet atau Kode PI (${availableOutlets.length} outlet)`}
+              className="w-full px-2.5 py-1.5 rounded-md border text-xs outline-none"
               style={{
                 background: "var(--color-surface)",
                 borderColor: "var(--color-border)",
                 color: "var(--color-text)",
               }}
-            >
-              <option value="ALL">Semua Outlet ({auditLogs.length})</option>
-              {availableOutlets.map((o) => (
-                <option key={o.kodePI} value={o.kodePI}>
-                  {o.namaOutlet} {o.kodePI !== "UNKNOWN" ? `(${o.kodePI})` : ""} [{o.count}]
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-            Menampilkan {filteredLogs.length} dari {auditLogs.length} aktivitas
-          </span>
-        </div>
-      )}
+            />
+            {query.trim() && (
+              searchResults.length === 0 ? (
+                <p style={{ color: "var(--color-text-muted)" }}>Outlet tidak ditemukan.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {searchResults.map((o) => (
+                    <li key={o.kodePI}>
+                      <button
+                        type="button"
+                        onClick={() => selectOutlet(o)}
+                        className="w-full text-left px-2.5 py-1.5 rounded-md border cursor-pointer hover:bg-(--color-bg-subtle)"
+                        style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+                      >
+                        {o.namaOutlet} <span style={{ color: "var(--color-text-faint)" }}>({o.kodePI})</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )
+            )}
+          </>
+        )}
+      </div>
 
       {/* Timeline List */}
       <div className="p-4">
-        {filteredLogs.length === 0 ? (
+        {!selectedOutlet ? (
+          <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
+            Cari dan pilih outlet untuk melihat riwayat aktivitasnya.
+          </p>
+        ) : isLoading ? (
+          <p className="text-xs text-center py-4" style={{ color: "var(--color-text-muted)" }}>
+            Memuat riwayat aktivitas...
+          </p>
+        ) : hasError ? (
+          <p className="text-xs text-center py-4" style={{ color: "var(--color-text-muted)" }}>
+            Gagal memuat riwayat aktivitas.
+          </p>
+        ) : logs.length === 0 ? (
           <p className="text-xs text-center py-4" style={{ color: "var(--color-text-muted)" }}>
             Tidak ada riwayat aktivitas untuk outlet yang dipilih.
           </p>
         ) : (
           <ol className="relative space-y-4 pl-5 border-l" style={{ borderColor: "var(--color-border)" }}>
-            {filteredLogs.map((log) => {
+            {truncated && (
+              <li className="text-[11px] italic" style={{ color: "var(--color-text-faint)" }}>
+                Hanya menampilkan aktivitas terbaru.
+              </li>
+            )}
+            {logs.map((log) => {
               const snap = parseSnapshot(log.snapshot);
               const hasOutletChanges =
                 snap &&

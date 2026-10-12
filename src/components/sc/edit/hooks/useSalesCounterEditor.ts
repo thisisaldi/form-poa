@@ -87,7 +87,6 @@ export function useSalesCounterEditor({
   const [entertainList, setEntertainList] = useState<EntertainRow[]>([]);
 
   // % Resep Dokter
-  const [persenResepDokter, setPersenResepDokter] = useState("");
 
   // Patient & Employee Statistics
   const [jumlahKaryawan, setJumlahKaryawan] = useState("");
@@ -355,7 +354,6 @@ export function useSalesCounterEditor({
       setSelectedPersonIds(draft.persons.map((p: any) => parseInt(p.outletPersonId || p.nik_ktp, 10)));
       setPeriodeAwal(draft.periodeAwal);
       setLamaPeriode(draft.lamaPeriode);
-      setPersenResepDokter(String(draft.persenResepDokter ?? draft.surveyPasienHarian ?? ""));
       setJumlahKaryawan(draft.jumlahKaryawan != null ? String(draft.jumlahKaryawan) : "");
       setJumlahPasien(draft.jumlahPasien != null ? String(draft.jumlahPasien) : "");
       setJumlahPasienResep(draft.jumlahPasienResep != null ? String(draft.jumlahPasienResep) : "");
@@ -453,7 +451,6 @@ export function useSalesCounterEditor({
       setSelectedPersonIds([]);
       setPeriodeAwal(defaultPeriodeAwal);
       setLamaPeriode(3);
-      setPersenResepDokter("");
       setJumlahKaryawan("");
       setJumlahPasien("");
       setJumlahPasienResep("");
@@ -767,7 +764,6 @@ export function useSalesCounterEditor({
         selectedPersonIds,
         products,
         entertainList,
-        parseInt(persenResepDokter, 10) || 0,
         matchedOutlet?.namaOutlet,
         parseInt(jumlahKaryawan, 10) || 0,
         numPasien,
@@ -814,8 +810,6 @@ export function useSalesCounterEditor({
     setRowQuarter,
     entertainList,
     updateEntertainValue,
-    persenResepDokter,
-    setPersenResepDokter,
     jumlahKaryawan,
     setJumlahKaryawan,
     jumlahPasien,
