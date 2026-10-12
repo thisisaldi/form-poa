@@ -278,7 +278,7 @@ export async function GET(req: NextRequest) {
             namaCust: true, kodeCust: true, spesialisasi: true, role: true,
             isManualCustomer: true,
             kodeProduk: true, namaProduk: true, itemKode: true, satuanTerkecil: true,
-            periodeAwal: true, lamaPeriode: true,
+            periodeAwal: true, lamaPeriode: true, batch: true,
             statusStandarisasi: true, rencanaTotalBiaya: true,
             rencanaVisitMinggu: true, hariKerjaBulan: true,
             jumlahResepHari: true, qtyProdukResep: true, jumlahPasienHari: true,
@@ -300,7 +300,7 @@ export async function GET(req: NextRequest) {
           namaCust: string; kodeCust: string | null; spesialisasi: string; role: string;
           isManualCustomer: boolean;
           kodeProduk: string; namaProduk: string; itemKode: string; satuanTerkecil: string;
-          periodeAwal: string; lamaPeriode: number;
+          periodeAwal: string; lamaPeriode: number; batch: number;
           statusStandarisasi: string | null; rencanaTotalBiaya: { toString(): string };
           rencanaVisitMinggu: number; hariKerjaBulan: number | null;
           jumlahResepHari: number | null; qtyProdukResep: number | null; jumlahPasienHari: number | null;
@@ -818,6 +818,7 @@ export async function GET(req: NextRequest) {
     { header: "KodePI - Nama Outlet", key: "outlet",           width: 32 },
     { header: "Spesialisasi",         key: "spesialisasi",     width: 22 },
     { header: "Nama User",            key: "namaUser",         width: 32 },
+    { header: "Gelombang",            key: "gelombang",        width: 11 },
     { header: "Sumber User",          key: "sumberUser",       width: 14 },
     { header: "Label User",           key: "labelUser",        width: 20 },
     { header: "Nama Produk Kompetitor Utama", key: "produkKompetitor", width: 22 },
@@ -998,6 +999,7 @@ export async function GET(req: NextRequest) {
       outlet: `${li.kodePI ?? "-"} - ${li.namaOutlet}`,
       spesialisasi: spesLabel(li.spesialisasi),
       namaUser: `${li.kodeCust ?? "-"} - ${li.namaCust}`,
+      gelombang: li.batch ?? 1, // gelombang approval dokter (docs/poa-deal-addendum/)
       sumberUser: li.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
       labelUser,
       produkKompetitor: li.produkKompetitor ?? "-",

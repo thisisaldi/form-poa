@@ -407,6 +407,7 @@ export async function GET(
     { header: "KodePI - Nama Outlet", key: "outlet", width: 32 },
     { header: "Spesialisasi", key: "spesialisasi", width: 22 },
     { header: "Nama User", key: "namaUser", width: 32 },
+    { header: "Gelombang", key: "gelombang", width: 11 },
     { header: "Sumber User", key: "sumberUser", width: 14 },
     { header: "Label User", key: "labelUser", width: 20 },
     { header: "Nama Produk Kompetitor Utama", key: "produkKompetitor", width: 22 },
@@ -589,6 +590,8 @@ export async function GET(
       outlet: `${item.kodePI ?? "-"} - ${item.namaOutlet}`,
       spesialisasi: item.spesialisasi,
       namaUser: `${item.kodeCust ?? "-"} - ${item.namaCust}`,
+      // Gelombang approval dokter ini (docs/poa-deal-addendum/): 1 = semula; >= 2 = baris yang ditambah setelah gelombang sebelumnya Deal.
+      gelombang: item.batch ?? 1,
       sumberUser: item.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
       labelUser,
       produkKompetitor: item.produkKompetitor ?? "-",

@@ -710,9 +710,11 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy, doctorDeal, canDeleteDoctor,
+  doctorItems, allDoctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy, doctorDeal, canDeleteDoctor,
 }: {
   doctorItems: PoaLineItem[];
+  /** Semua baris dokter ini di POA (semua gelombang) — dasar WARNING input ganda lintas gelombang. */
+  allDoctorItems?: PoaLineItem[];
   checked: boolean;
   onToggle: () => void;
   selectable?: boolean;
@@ -1308,8 +1310,11 @@ function DoctorRow({
             <tbody>
               {doctorItems.map((it) => {
                 // Same product with a different jenis/bentuk/pihak PSSP is a legit separate row — only identical types warn.
-                const isDuplicateProduk = doctorItems.some((o) => o.id !== it.id && o.kodeProduk === it.kodeProduk
+                // Dibandingkan ke SEMUA gelombang dokter ini (bukan hanya kartu ini): baris di gelombang 2 yang sama
+                // dengan baris gelombang Deal juga input ganda (docs/poa-deal-addendum/).
+                const duplicateOf = (allDoctorItems ?? doctorItems).find((o) => o.id !== it.id && o.kodeProduk === it.kodeProduk
                   && o.jenisPssp === it.jenisPssp && o.jenisPsSp === it.jenisPsSp && o.bentukPssp === it.bentukPssp && o.pihakPssp === it.pihakPssp);
+                const isDuplicateProduk = !!duplicateOf;
                 const itemPengali = it.pengaliNilaiR != null ? toNum(it.pengaliNilaiR) : 1;
                 const itemBase = toNum(it.rencanaTotalBiaya);
                 const itemNilaiPssp = itemBase * toNum(it.persenPsspDokter) * itemPengali;
@@ -1320,7 +1325,7 @@ function DoctorRow({
                       {isDuplicateProduk && (
                         <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded font-semibold whitespace-nowrap" title="Produk yang sama diinput lebih dari sekali untuk dokter & outlet ini"
                           style={{ color: "var(--color-warning, #b45309)", background: "var(--color-warning-light, #fef3c7)" }}>
-                          ⚠ WARNING: input ganda
+                          ⚠ WARNING: input ganda{duplicateOf && duplicateOf.batch !== it.batch ? ` (sama dengan Gelombang ${duplicateOf.batch})` : ""}
                         </span>
                       )}
                     </td>
@@ -1556,6 +1561,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
               <DoctorRow
                 key={key}
                 doctorItems={doctorItems}
+                allDoctorItems={items.filter((o) => o.kodePI === doctorItems[0].kodePI && o.namaCust === doctorItems[0].namaCust)}
                 checked={checked.has(key)}
                 onToggle={() => toggle(key)}
                 selectable={selectable}
