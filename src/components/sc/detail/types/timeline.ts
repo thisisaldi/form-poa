@@ -3,7 +3,7 @@ import type { PoaStatus, User } from "@prisma/client";
 export interface SalesCounterAuditLogItem {
   id: string;
   actorId: string;
-  actor: User;
+  actor: Pick<User, "nip" | "name" | "role" | "jabatan">;
   action: string;
   fromStatus?: PoaStatus | string | null;
   toStatus?: PoaStatus | string | null;
@@ -16,10 +16,9 @@ export interface SalesCounterAuditLogItem {
 export interface AvailableOutletItem {
   kodePI: string;
   namaOutlet: string;
-  count: number;
+  formIds: string[];
 }
 
 export interface SalesCounterActivityTimelineProps {
-  auditLogs: SalesCounterAuditLogItem[];
-  outlets?: Array<{ kodePI: string; namaOutlet?: string | null }>;
+  outlets: Array<{ formId: string; kodePI: string; namaOutlet?: string | null }>;
 }

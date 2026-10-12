@@ -32,7 +32,6 @@ export interface SalesCounterEditByIdEditorProps {
   initialEntertainItems: EntertainItem[];
   initialPeriodeAwal: string;
   initialLamaPeriode: number;
-  initialPersenResepDokter: number;
   initialJumlahKaryawan?: number | null;
   initialJumlahPasien?: number | null;
   initialJumlahPasienResep?: number | null;

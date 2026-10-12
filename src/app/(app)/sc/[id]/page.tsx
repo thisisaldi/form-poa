@@ -131,8 +131,7 @@ export default async function SalesCounterDetailPage({
         </summary>
         <Card className="mt-2 p-0 overflow-hidden">
           <SalesCounterActivityTimeline
-            auditLogs={poa.auditLogs}
-            outlets={scDrafts}
+            outlets={scDrafts.map((d) => ({ formId: d.id, kodePI: d.kodePI, namaOutlet: d.namaOutlet }))}
           />
         </Card>
       </details>

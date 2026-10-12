@@ -113,8 +113,10 @@ export async function getSalesCounterDetailData(
       products: true,
       persons: true,
       entertainItems: true,
+      // Per-outlet cards only need these for revision / edit-request info; the
+      // Riwayat Aktivitas section loads its logs on demand (getScActivityLogsAction).
       auditLogs: {
-        include: { actor: true },
+        include: { actor: { select: { nip: true, name: true, role: true, jabatan: true } } },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -132,15 +134,6 @@ export async function getSalesCounterDetailData(
       owner: isAsmApproval ? (targetUser || first.owner) : first.owner,
       currentHolderId: first.currentHolderId,
       currentHolder: first.currentHolder,
-      auditLogs: drafts
-        .flatMap((d: any) =>
-          d.auditLogs.map((log: any) => ({
-            ...log,
-            namaOutlet: d.namaOutlet || null,
-            kodePI: d.kodePI || null,
-          }))
-        )
-        .sort((a: any, b: any) => a.createdAt.getTime() - b.createdAt.getTime()),
       entertainItems: drafts
         .flatMap((d: any) => d.entertainItems)
         .map((e: any) => ({
@@ -158,7 +151,6 @@ export async function getSalesCounterDetailData(
       owner: targetUser || actor,
       currentHolderId: null,
       currentHolder: null,
-      auditLogs: [],
       entertainItems: [],
     };
   }
@@ -284,7 +276,6 @@ export async function getSalesCounterDetailData(
       version: d.version,
       kodePI: d.kodePI,
       namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
-      persenResepDokter: d.persenResepDokter,
       jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
       jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien ?? d.jumlahPasien ?? null),
       jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
