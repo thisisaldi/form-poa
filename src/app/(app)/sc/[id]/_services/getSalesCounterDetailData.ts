@@ -4,22 +4,10 @@ import { getScSubordinateIdsUnder } from "@/lib/authz";
 import { getMrSalesSummary } from "@/lib/salesSummary";
 import { resolveTargetHospitalValueFallback } from "@/lib/targetHospitalValue";
 import type { ScDraftFormItem } from "@/components/sc/types";
-import { getSalesCounterProduct } from "./getSalesCounterProduct";
-import { postHistorySales } from "./postHistorySales";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
-import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
-import { parseOutletHistorySales } from "@/lib/historySalesUtils";
-import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
-
-interface MasterProductItem {
-  kodeProduk: string;
-  namaProduk: string;
-  hna: any;
-  konversiPembagi: any;
-  satuanTerkecil: string | null;
-  satuan: string;
-}
+import { b3RangeLabelFromEnd, getB3RollingPeriodInfo } from "@/lib/b3Utils";
+import { SC_DRAFT_FORM_INCLUDE, loadScLiveOutletData, loadScMasterProducts, toScDraftItem } from "../../_services/scDraftItems";
 
 export async function getSalesCounterDetailData(
   id: string,
@@ -107,19 +95,9 @@ export async function getSalesCounterDetailData(
 
   const drafts = await prisma.poaScForm.findMany({
     where: draftsWhere,
-    include: {
-      owner: true,
-      currentHolder: true,
-      products: true,
-      persons: true,
-      entertainItems: true,
-      // Per-outlet cards only need these for revision / edit-request info; the
-      // Riwayat Aktivitas section loads its logs on demand (getScActivityLogsAction).
-      auditLogs: {
-        include: { actor: { select: { nip: true, name: true, role: true, jabatan: true } } },
-        orderBy: { createdAt: "asc" },
-      },
-    },
+    // Audit logs: the per-outlet cards only need them for revision / edit-request
+    // info; the Riwayat Aktivitas section loads its logs on demand (getScActivityLogsAction).
+    include: { ...SC_DRAFT_FORM_INCLUDE, owner: true, currentHolder: true },
   });
 
   let poa: any = null;
@@ -160,192 +138,38 @@ export async function getSalesCounterDetailData(
   // Each outlet card enforces individual lock status (DRAFT/REVISI vs APPROVED).
   const userCanEdit = isOwner || isEditRole;
 
-  // Collect all product codes across drafts to fetch master Product information
-  const allProductCodes = Array.from(
-    new Set(drafts.flatMap((d: any) => d.products.map((p: any) => p.kodeProduk)).filter(Boolean))
-  );
-
-  const masterProducts: MasterProductItem[] = await prisma.product.findMany({
-    where: { kodeProduk: { in: allProductCodes } },
-    select: {
-      kodeProduk: true,
-      namaProduk: true,
-      hna: true,
-      konversiPembagi: true,
-      satuanTerkecil: true,
-      satuan: true,
-    },
-  });
-
-  const masterProductMap = new Map<string, MasterProductItem>(
-    masterProducts.map((p: MasterProductItem) => [p.kodeProduk, p])
-  );
-
-  const outletCodes = Array.from(new Set(drafts.map((d: any) => d.kodePI).filter(Boolean))) as string[];
-  const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
-  const outletScProductCodesMap = new Map<string, Set<string>>();
-  const outletScTotalCountMap = new Map<string, number>();
-  const outletHistorySalesQuarterMap = new Map<string, number>();
-
   const b3Info = getB3RollingPeriodInfo(targetPeriod);
-  const targetPeriodsSet = new Set((b3Info.targetPeriods || []).map(Number));
 
-  const [blastInSet, rawOutlets, batchHistRes] = await Promise.all([
+  // Forms with a stored summary are rendered from their own columns. Canvasser
+  // is only asked about outlets that still have a form without one.
+  const liveOutletCodes = drafts.filter((d: any) => d.summaryVersion == null).map((d: any) => d.kodePI);
+
+  const [master, blastInSet, rawOutlets, liveByOutlet] = await Promise.all([
+    loadScMasterProducts(drafts.flatMap((d: any) => d.products.map((p: any) => p.kodeProduk))),
     getBlastInOutletSet(),
     getSalesCounterOutletsDirect(targetOwnerId || actor.nip).catch(() => []),
-    outletCodes.length > 0
-      ? postHistorySales({
-          piCodes: outletCodes,
-          period: b3Info.targetPeriods,
-          agg: true,
-        }).catch(() => null)
-      : null,
+    loadScLiveOutletData(liveOutletCodes, poa.period, b3Info.targetPeriods),
   ]);
 
-  await mapWithConcurrency(
-    outletCodes,
-    8,
-    async (kodePI: string) => {
-      try {
-        const scProductRes = await getSalesCounterProduct(kodePI, poa.period).catch(() => null);
-        const scCodes = new Set<string>();
-        if (scProductRes?.data) {
-          for (const cp of scProductRes.data) {
-            canvasserProductMap.set(`${kodePI}_${cp.pro_code}`, {
-              sales_counter_value: cp.sales_counter_value || 0,
-              sales_counter_minimum: cp.sales_counter_minimum || 0,
-            });
-            if (cp.pro_code) {
-              scCodes.add(cp.pro_code);
-              scCodes.add(String(cp.pro_code).replace(/^0+/, "").toUpperCase());
-            }
-            if (cp.kode_item) {
-              scCodes.add(cp.kode_item);
-              scCodes.add(String(cp.kode_item).replace(/^0+/, "").toUpperCase());
-            }
-          }
-          outletScProductCodesMap.set(kodePI, scCodes);
-          outletScTotalCountMap.set(kodePI, scProductRes.data.length);
-        }
-
-        const scProCodes = Array.from(scCodes);
-
-        // Check if batchHistRes already has sales for this outlet
-        const parsed = parseOutletHistorySales(batchHistRes, kodePI);
-        if (parsed.totalSales > 0 || parsed.productSalesMap.size > 0) {
-          // Filter strictly to SC products only
-          let scTotalSales = 0;
-          for (const [code, val] of parsed.productSalesMap.entries()) {
-            const norm = code.replace(/^0+/, "").toUpperCase();
-            if (scCodes.size > 0 && (scCodes.has(code) || scCodes.has(norm))) {
-              scTotalSales += (val || 0) * 3; // 3 months total
-            }
-          }
-          if (scTotalSales > 0) {
-            outletHistorySalesQuarterMap.set(kodePI, scTotalSales);
-            return;
-          }
-        }
-
-        outletHistorySalesQuarterMap.set(kodePI, 0);
-      } catch (err) {
-        console.error(`Error fetching SC data for ${kodePI}:`, err);
-      }
-    }
-  );
-
-  const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));
+  const outletByCode = new Map(rawOutlets.map((o) => [o.kodePI, o]));
   const totalCoverageScOutlets = rawOutlets.filter((o) => !!o.is_sc).length;
 
-  // Build clean SC Draft Form items
-  const scDrafts: ScDraftFormItem[] = drafts.map((d: any) => {
-    const scCodes = outletScProductCodesMap.get(d.kodePI) || new Set<string>();
-    const totalScProducts = outletScTotalCountMap.get(d.kodePI) ?? 0;
-    const scOnlyProducts = scCodes.size > 0
-      ? d.products.filter((p: any) => scCodes.has(p.kodeProduk) || scCodes.has(String(p.kodeProduk || "").replace(/^0+/, "")))
-      : d.products;
-    const distinctScCodes = new Set(scOnlyProducts.map((p: any) => p.kodeProduk).filter(Boolean));
-    const validScProductsCount = distinctScCodes.size;
-
-    return {
-      id: d.id,
-      period: d.period,
-      periodeAwal: d.periodeAwal,
-      lamaPeriode: d.lamaPeriode,
-      status: d.status,
-      version: d.version,
-      kodePI: d.kodePI,
-      namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
-      jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
-      jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien ?? d.jumlahPasien ?? null),
-      jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
-      jumlahPasienNonResep: (d.jumlahPasienNonResep && d.jumlahPasienNonResep > 0) ? d.jumlahPasienNonResep : (rawOutlets.find((o: any) => o.kodePI === d.kodePI)?.jumlah_pasien_non_resep ?? d.jumlahPasienNonResep ?? null),
-      ownerId: d.ownerId,
-      ownerName: d.owner?.name,
-      ownerNip: d.owner?.nip,
-      is_sc: outletScMap.get(d.kodePI) ?? false,
+  const scDrafts: ScDraftFormItem[] = drafts.map((d: any) =>
+    toScDraftItem(d, {
+      master,
+      outlet: outletByCode.get(d.kodePI),
       isBlastIn: blastInSet.has(d.kodePI),
-      totalScProducts,
-      validScProductsCount,
-      historySalesQuarter: outletHistorySalesQuarterMap.get(d.kodePI) ?? 0,
-      persons: d.persons.map((p: any) => ({
-        id: p.id,
-        outletPersonId: p.outletPersonId,
-        nik_ktp: p.outletPersonId,
-        personName: p.personName,
-        positionName: p.positionName,
-      })),
-      products: scOnlyProducts.map((p: any) => {
-        const mp = masterProductMap.get(p.kodeProduk);
-        const cp = canvasserProductMap.get(`${d.kodePI}_${p.kodeProduk}`);
-        const isScProduct = scCodes.has(p.kodeProduk);
-        return {
-          id: p.id,
-          kodeProduk: p.kodeProduk,
-          namaProduk: p.namaProduk,
-          periodeMonth: p.periodeMonth,
-          produkKompetitor: p.produkKompetitor || null,
-          qtyPerBulan: p.qtyPerBulan,
-          persenMatriksSc: Number(p.persenMatriksSc.toString()),
-          persenDiskon: Number(p.persenDiskon.toString()),
-          persenCashback: Number(p.persenCashback.toString()),
-          rencanaTotalBiaya: Number(p.rencanaTotalBiaya.toString()),
-          hnaSJ: mp ? Number(mp.hna.toString()) : 0,
-          konversiPembagi: mp?.konversiPembagi ? Number(mp.konversiPembagi.toString()) : 1,
-          satuanTerkecil: mp?.satuanTerkecil || "ST",
-          satuanSJ: mp?.satuan || "SJ",
-          salesCounterValue: cp?.sales_counter_value || 0,
-          salesCounterMinimum: cp?.sales_counter_minimum || 0,
-          isScProduct,
-        };
-      }),
-      entertainItems: d.entertainItems.map((e: any) => ({
-        id: e.id,
-        periodeMonth: e.periodeMonth,
-        biayaEntertain: Number(e.biayaEntertain.toString()),
-      })),
-      auditLogs: (d.auditLogs || []).map((log: any) => ({
-        id: log.id,
-        poaScId: log.poaScId,
-        actorId: log.actorId,
-        action: log.action,
-        fromStatus: log.fromStatus,
-        toStatus: log.toStatus,
-        snapshot: log.snapshot,
-        createdAt: log.createdAt,
-        actor: log.actor
-          ? {
-              nip: log.actor.nip,
-              name: log.actor.name,
-              role: log.actor.role,
-              jabatan: log.actor.jabatan,
-            }
-          : null,
-      })),
-      updatedAt: d.updatedAt,
-      createdAt: d.createdAt,
-    };
-  });
+      live: liveByOutlet.get(d.kodePI),
+    })
+  );
+
+  // One label for the panel: the window the stored history was taken from when
+  // every form agrees on it, otherwise today's window like before.
+  const storedEnds = new Set(scDrafts.filter((d) => d.hasSummary && d.historyPeriodEnd).map((d) => d.historyPeriodEnd as number));
+  const historyQuarterLabel =
+    storedEnds.size === 1 && scDrafts.every((d) => d.hasSummary)
+      ? b3RangeLabelFromEnd(Array.from(storedEnds)[0])
+      : b3Info.rangeLabel;
 
   const salesSummary = poa.owner?.isDummy
     ? { historisTahunLalu: 0, historisTahunLaluLabel: String(new Date().getFullYear() - 1), salesYtd: 0, growthPct: 0 }
@@ -372,6 +196,6 @@ export async function getSalesCounterDetailData(
     salesSummary,
     targetValueFromGT,
     totalCoverageScOutlets,
-    historyQuarterLabel: b3Info.rangeLabel,
+    historyQuarterLabel,
   };
 }

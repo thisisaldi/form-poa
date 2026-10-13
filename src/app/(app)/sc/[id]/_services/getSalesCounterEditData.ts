@@ -4,6 +4,7 @@ import { getSalesCounterOutletsDirect, getScProducts } from "@/lib/masterData";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 
 import { canUserEditScForm } from "@/lib/authz";
+import { SC_FORM_SUMMARY_COLUMNS, SC_PRODUCT_SUMMARY_COLUMNS, omitColumns } from "@/lib/scFormSummary";
 
 export async function getSalesCounterEditData(id: string, periodParam: string | undefined, sessionUserId: string, sessionRole?: string) {
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: sessionUserId } });
@@ -75,12 +76,14 @@ export async function getSalesCounterEditData(id: string, periodParam: string | 
 
   const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!(o as any).is_sc]));
 
+  // The editor does not use the stored summary columns, and their Decimal
+  // values cannot be passed to a client component.
   const serializedDrafts = savedDrafts.map((draft: any) => ({
-    ...draft,
+    ...omitColumns(draft, SC_FORM_SUMMARY_COLUMNS),
     is_sc: outletScMap.get(draft.kodePI) ?? false,
     isBlastIn: blastInSet.has(draft.kodePI),
     products: draft.products.map((p: any) => ({
-      ...p,
+      ...omitColumns(p, SC_PRODUCT_SUMMARY_COLUMNS),
       persenMatriksSc: Number(p.persenMatriksSc.toString()),
       persenDiskon: Number(p.persenDiskon.toString()),
       persenCashback: Number(p.persenCashback.toString()),

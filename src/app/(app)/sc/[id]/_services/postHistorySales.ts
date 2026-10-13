@@ -29,9 +29,7 @@ export interface PostHistorySalesParams {
   proCodes?: string[];
 }
 
-export async function postHistorySales(
-  params: PostHistorySalesParams
-): Promise<PostHistorySalesResponse | null> {
+function buildPostHistorySalesPayload(params: PostHistorySalesParams): Record<string, unknown> | null {
   const { piCodes, period, agg = true, proCodes } = params;
   const cleanPiCodes = (piCodes || []).map((c) => String(c).trim()).filter(Boolean);
   if (cleanPiCodes.length === 0) return null;
@@ -55,6 +53,15 @@ export async function postHistorySales(
     }
   }
 
+  return payload;
+}
+
+export async function postHistorySales(
+  params: PostHistorySalesParams
+): Promise<PostHistorySalesResponse | null> {
+  const payload = buildPostHistorySalesPayload(params);
+  if (!payload) return null;
+
   try {
     const url = `${CANVASSER_API_BASE_URL}/api/post-history-sales`;
     const res = await fetchWithTimeout(url, {
@@ -76,4 +83,28 @@ export async function postHistorySales(
     console.error("Error calling post-history-sales API:", error);
     return null;
   }
+}
+
+/**
+ * Like postHistorySales, but only "no history" (404) resolves to null — any
+ * other failure (non-2xx, timeout, network) throws, so callers that persist
+ * the result (form summary) can tell "no sales" apart from "API down".
+ */
+export async function postHistorySalesStrict(
+  params: PostHistorySalesParams
+): Promise<PostHistorySalesResponse | null> {
+  const payload = buildPostHistorySalesPayload(params);
+  if (!payload) return null;
+
+  const url = `${CANVASSER_API_BASE_URL}/api/post-history-sales`;
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  }, 60000);
+
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`post-history-sales returned status ${res.status}`);
+  return (await res.json()) as PostHistorySalesResponse;
 }

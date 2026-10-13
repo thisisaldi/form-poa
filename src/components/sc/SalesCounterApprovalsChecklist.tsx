@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
@@ -11,6 +11,7 @@ import { useSalesCounterDetail } from "./hooks/useSalesCounterDetail";
 import { formatCurrency as formatRp } from "@/lib/format";
 import { approveSalesCounterFormAction } from "@/app/actions/scApprovalActions";
 import { useScToast } from "./ui/ScToast";
+import { SC_APPROVALS_OUTLET_PAGE_SIZE } from "./approvalsPaging";
 import type { ScDraftFormItem, SalesFigures } from "./types";
 import type { PoaStatus } from "@prisma/client";
 
@@ -45,7 +46,7 @@ export interface MrApprovalGroup {
 
 // Every mounted SalesCounterOutletCard fires its own Canvasser API calls, so only
 // the current page of cards is rendered. Selection/stats still cover all rows.
-const OUTLET_PAGE_SIZE = 5;
+const OUTLET_PAGE_SIZE = SC_APPROVALS_OUTLET_PAGE_SIZE;
 const GROUP_PAGE_SIZE = 10;
 
 function Pager({ page, totalPages, total, pageSize, onChange }: {
@@ -78,6 +79,14 @@ function Pager({ page, totalPages, total, pageSize, onChange }: {
   );
 }
 
+type StatsPanelMetrics = React.ComponentProps<typeof SalesCounterStatsPanel>["metrics"];
+
+/** Stats-panel numbers as the server sends them (a Map cannot be a prop of a client component). */
+export type ScApprovalsMetrics = Omit<StatsPanelMetrics, "monthlyBreakdownMap"> & {
+  monthlyBreakdown: [string, { estimasiSales: number; nilaiSc: number }][];
+};
+
+/** Approvals page computed in the browser from every pending form (the page before docs/sc-form-summary). */
 export function SalesCounterApprovalsChecklist({
   mrGroups,
   scDrafts = [],
@@ -93,6 +102,131 @@ export function SalesCounterApprovalsChecklist({
   availablePeriods?: string[];
   selectedPeriod?: string;
 }) {
+  const [outletPage, setOutletPage] = useState(1);
+  const { metrics, quarterMonths } = useSalesCounterDetail({
+    scDrafts,
+    poaPeriod: dominantPeriod,
+  });
+
+  const outletTotalPages = Math.max(1, Math.ceil(scDrafts.length / OUTLET_PAGE_SIZE));
+  const outletPageClamped = Math.min(outletPage, outletTotalPages);
+
+  return (
+    <ApprovalsChecklistView
+      mrGroups={mrGroups}
+      userRole={userRole}
+      availablePeriods={availablePeriods}
+      selectedPeriod={selectedPeriod}
+      metrics={metrics}
+      quarterMonths={quarterMonths}
+      totalOutletCount={scDrafts.length}
+      allOutletIds={scDrafts.map((d) => d.id)}
+      pagedDrafts={scDrafts.slice((outletPageClamped - 1) * OUTLET_PAGE_SIZE, outletPageClamped * OUTLET_PAGE_SIZE)}
+      outletPage={outletPageClamped}
+      outletTotalPages={outletTotalPages}
+      onOutletPageChange={setOutletPage}
+    />
+  );
+}
+
+/**
+ * Approvals page fed by the server from the stored form summaries: totals come
+ * ready-made, and only the current page of outlet cards is loaded (?page=).
+ */
+export function SalesCounterApprovalsSummaryChecklist({
+  mrGroups,
+  userRole = "SM",
+  availablePeriods = [],
+  selectedPeriod = "ALL",
+  metrics,
+  quarterMonths,
+  totalOutletCount,
+  allOutletIds,
+  pagedDrafts,
+  outletPage,
+  outletTotalPages,
+  uncomputedCount,
+}: {
+  mrGroups: MrApprovalGroup[];
+  userRole?: string;
+  availablePeriods?: string[];
+  selectedPeriod?: string;
+  metrics: ScApprovalsMetrics;
+  quarterMonths: string[];
+  totalOutletCount: number;
+  allOutletIds: string[];
+  pagedDrafts: ScDraftFormItem[];
+  outletPage: number;
+  outletTotalPages: number;
+  uncomputedCount: number;
+}) {
+  const router = useRouter();
+  const panelMetrics = useMemo(
+    () => ({ ...metrics, monthlyBreakdownMap: new Map(metrics.monthlyBreakdown) }),
+    [metrics]
+  );
+
+  const goToOutletPage = (page: number) => {
+    const params = new URLSearchParams();
+    if (selectedPeriod !== "ALL") params.set("period", selectedPeriod);
+    if (page > 1) params.set("page", String(page));
+    const query = params.toString();
+    router.push(query ? `/sc/approvals?${query}` : "/sc/approvals");
+  };
+
+  return (
+    <ApprovalsChecklistView
+      mrGroups={mrGroups}
+      userRole={userRole}
+      availablePeriods={availablePeriods}
+      selectedPeriod={selectedPeriod}
+      metrics={panelMetrics}
+      quarterMonths={quarterMonths}
+      totalOutletCount={totalOutletCount}
+      allOutletIds={allOutletIds}
+      pagedDrafts={pagedDrafts}
+      outletPage={outletPage}
+      outletTotalPages={outletTotalPages}
+      onOutletPageChange={goToOutletPage}
+      notice={
+        uncomputedCount > 0
+          ? `${uncomputedCount} form belum terhitung, jadi belum masuk ke angka ringkasan di halaman ini.`
+          : undefined
+      }
+    />
+  );
+}
+
+function ApprovalsChecklistView({
+  mrGroups,
+  userRole,
+  availablePeriods,
+  selectedPeriod,
+  metrics,
+  quarterMonths,
+  totalOutletCount,
+  allOutletIds,
+  pagedDrafts,
+  outletPage,
+  outletTotalPages,
+  onOutletPageChange,
+  notice,
+}: {
+  mrGroups: MrApprovalGroup[];
+  userRole: string;
+  availablePeriods: string[];
+  selectedPeriod: string;
+  metrics: StatsPanelMetrics;
+  quarterMonths: string[];
+  /** Every pending form, not just the cards on this page. */
+  totalOutletCount: number;
+  allOutletIds: string[];
+  pagedDrafts: ScDraftFormItem[];
+  outletPage: number;
+  outletTotalPages: number;
+  onOutletPageChange: (page: number) => void;
+  notice?: string;
+}) {
   const router = useRouter();
   const { showToast } = useScToast();
   const isASM = userRole === "ASM";
@@ -102,15 +236,9 @@ export function SalesCounterApprovalsChecklist({
   const [selectedGroupKeys, setSelectedGroupKeys] = useState<Set<string>>(new Set());
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
   const [activeKompetitorDraftId, setActiveKompetitorDraftId] = useState<string | null>(null);
-  const [outletPage, setOutletPage] = useState(1);
   const [groupPage, setGroupPage] = useState(1);
 
   const [isPending, startTransition] = useTransition();
-
-  const { metrics, quarterMonths } = useSalesCounterDetail({
-    scDrafts,
-    poaPeriod: dominantPeriod,
-  });
 
   const salesFigures: SalesFigures = {
     historisTahunLalu: 0,
@@ -120,14 +248,10 @@ export function SalesCounterApprovalsChecklist({
   };
 
   // Calculations for ASM (Per Outlet)
-  const outletTotalPages = Math.max(1, Math.ceil(scDrafts.length / OUTLET_PAGE_SIZE));
-  const outletPageClamped = Math.min(outletPage, outletTotalPages);
-  const pagedDrafts = scDrafts.slice((outletPageClamped - 1) * OUTLET_PAGE_SIZE, outletPageClamped * OUTLET_PAGE_SIZE);
   const groupTotalPages = Math.max(1, Math.ceil(mrGroups.length / GROUP_PAGE_SIZE));
   const groupPageClamped = Math.min(groupPage, groupTotalPages);
   const pagedGroups = mrGroups.slice((groupPageClamped - 1) * GROUP_PAGE_SIZE, groupPageClamped * GROUP_PAGE_SIZE);
 
-  const allOutletIds = scDrafts.map((d) => d.id);
   const allOutletsSelected = allOutletIds.length > 0 && allOutletIds.every((id) => selectedOutletIds.has(id));
   const selectedOutletCount = selectedOutletIds.size;
 
@@ -227,7 +351,7 @@ export function SalesCounterApprovalsChecklist({
   };
 
   const hasNoData = isASM
-    ? scDrafts.length === 0 && availablePeriods.length === 0
+    ? totalOutletCount === 0 && availablePeriods.length === 0
     : mrGroups.length === 0 && availablePeriods.length === 0;
 
   if (hasNoData) {
@@ -247,8 +371,8 @@ export function SalesCounterApprovalsChecklist({
         {/* Panel statistik di mobile view */}
         <div className="md:hidden">
           <SalesCounterStatsPanel
-            selectedOutletCount={isASM && selectedOutletCount > 0 ? selectedOutletCount : scDrafts.length}
-            totalOutletCount={scDrafts.length}
+            selectedOutletCount={isASM && selectedOutletCount > 0 ? selectedOutletCount : totalOutletCount}
+            totalOutletCount={totalOutletCount}
             metrics={metrics}
             targetArea={0}
             salesFigures={salesFigures}
@@ -300,7 +424,16 @@ export function SalesCounterApprovalsChecklist({
           </div>
 
           {/* Action Bar (Select All & Approve Terpilih) */}
-          {((isASM && scDrafts.length > 0) || (!isASM && mrGroups.length > 0)) && (
+          {notice && (
+            <p
+              className="text-xs rounded-md px-3 py-2"
+              style={{ background: "var(--color-bg-subtle)", border: "1px solid var(--color-border)", color: "var(--color-text-muted)" }}
+            >
+              {notice}
+            </p>
+          )}
+
+          {((isASM && totalOutletCount > 0) || (!isASM && mrGroups.length > 0)) && (
             <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[var(--color-bg-subtle,#f8fafc)] border border-[var(--color-border)]">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -347,7 +480,7 @@ export function SalesCounterApprovalsChecklist({
           )}
 
           {/* Empty state under filter */}
-          {((isASM && scDrafts.length === 0) || (!isASM && mrGroups.length === 0)) && (
+          {((isASM && totalOutletCount === 0) || (!isASM && mrGroups.length === 0)) && (
             <div className="py-8 text-center">
               <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
                 Tidak ada pengajuan yang cocok dengan filter periode {selectedPeriod}.
@@ -380,7 +513,7 @@ export function SalesCounterApprovalsChecklist({
                   onCloseKompetitor={() => setActiveKompetitorDraftId(null)}
                 />
               ))}
-              <Pager page={outletPageClamped} totalPages={outletTotalPages} total={scDrafts.length} pageSize={OUTLET_PAGE_SIZE} onChange={setOutletPage} />
+              <Pager page={outletPage} totalPages={outletTotalPages} total={totalOutletCount} pageSize={OUTLET_PAGE_SIZE} onChange={onOutletPageChange} />
             </div>
           ) : (
             /* ================= MODE SM KE ATAS: APPROVAL PER ORANG ================= */
@@ -567,8 +700,8 @@ export function SalesCounterApprovalsChecklist({
       {/* Sisi Kanan: SalesCounterStatsPanel Sticky */}
       <div className="hidden md:block sticky top-8 max-h-[calc(100vh-5rem)] overflow-y-auto">
         <SalesCounterStatsPanel
-          selectedOutletCount={isASM && selectedOutletCount > 0 ? selectedOutletCount : scDrafts.length}
-          totalOutletCount={scDrafts.length}
+          selectedOutletCount={isASM && selectedOutletCount > 0 ? selectedOutletCount : totalOutletCount}
+          totalOutletCount={totalOutletCount}
           metrics={metrics}
           targetArea={0}
           salesFigures={salesFigures}

@@ -85,7 +85,7 @@ export async function getSalesCounterProduct(
       if (res.ok) {
         const json = (await res.json()) as SalesCounterProductApiResponse;
         if (json && Array.isArray(json.data) && json.data.length > 0) {
-          return json;
+          return { ...json, resolvedPeriod: p };
         }
       }
     } catch (err) {
@@ -116,7 +116,9 @@ export async function getSalesCounterProduct(
       return null;
     }
 
-    return (await res.json()) as SalesCounterProductApiResponse;
+    // Without a period Canvasser answers with the list that is active now.
+    const json = (await res.json()) as SalesCounterProductApiResponse;
+    return { ...json, resolvedPeriod: candidates[candidates.length - 1] };
   } catch (error) {
     console.error(`Failed fetching sales counter products from Canvasser API for outlet ${piCode}:`, error);
     return null;

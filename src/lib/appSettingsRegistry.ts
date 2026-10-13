@@ -8,7 +8,7 @@
  * positif (nama fiturnya); panel Admin yang membalik tampilannya menjadi FITUR AKTIF / FITUR MATI.
  */
 
-export type AppSettingGroup = "export" | "standarisasi";
+export type AppSettingGroup = "export" | "standarisasi" | "sc";
 
 export interface AppSettingDef {
   key: string;
@@ -63,6 +63,14 @@ export const APP_SETTINGS = [
     message:
       "Pengajuan DPL/DPF dari sini belum tersedia — integrasi ke Exodus masih menunggu konfirmasi tim Exodus. Ajukan lewat sistem Exodus.",
   },
+  {
+    key: "sc.approvalsSummary.disabled",
+    group: "sc",
+    label: "Halaman Persetujuan SC dari ringkasan tersimpan",
+    description:
+      "/sc/approvals membaca angka ringkasan yang disimpan per form (tanpa memuat semua produk dan tanpa memanggil Canvasser per outlet). Aktifkan setelah backfill ringkasan selesai (npm run backfill:sc-summary); matikan untuk kembali ke halaman lama.",
+    default: true,
+  },
 ] as const satisfies readonly AppSettingDef[];
 
 export type AppSettingKey = (typeof APP_SETTINGS)[number]["key"];
@@ -72,6 +80,7 @@ export const APP_SETTING_DEFS: Record<string, AppSettingDef> = Object.fromEntrie
 export const APP_SETTING_GROUP_LABELS: Record<AppSettingGroup, string> = {
   export: "Export Excel",
   standarisasi: "POA Standarisasi",
+  sc: "POA Sales Counter",
 };
 
 /** Peta key → nilai efektif; dikirim server → client lewat FeatureFlagsProvider. */

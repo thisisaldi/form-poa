@@ -16,6 +16,7 @@
     "sync:customers": "tsx scripts/syncCustomers.ts",
     "mock:generate": "tsx scripts/generateMockData.ts excel/\"STRUKTUR JULI.csv\" excel/Customer_Database_20260710.xlsx excel/\"RS GROUP - PHAROS INDONESIA.xlsx\" excel/\"LIST PRODUK PI update 15 Juni 2026.xlsx\"",
     "seed:local": "tsx scripts/seedLocal.ts",
+    "backfill:sc-summary": "tsx scripts/backfillScFormSummary.ts",
     "db:studio": "prisma studio",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate": "prisma migrate deploy",
