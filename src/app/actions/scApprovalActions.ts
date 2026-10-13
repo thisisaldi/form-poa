@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
 import { PoaStatus, AuditAction } from "@prisma/client";
+import { refreshScHistoryForSubmit } from "@/lib/scFormSummaryStore";
 
 async function requireSession() {
   const session = await getCurrentUser();
@@ -146,6 +147,10 @@ export async function submitSalesCounterFormAction(
       });
       nextHolderId = manager?.nip || null;
     }
+
+    // Approvers should see history sales of the current B-3 window; no-op
+    // unless the window moved since the form was saved, never blocks the submit.
+    await refreshScHistoryForSubmit(poaScIds, session.userId);
 
     await prisma.$transaction(async (tx: any) => {
       const forms = await tx.poaScForm.findMany({

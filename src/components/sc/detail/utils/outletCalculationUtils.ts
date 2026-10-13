@@ -175,6 +175,20 @@ export function extractQuarterAndYear(
   return { year: String(now.getFullYear()), quarter: `Q${q}` };
 }
 
+export type ScGrowthCategory = "intensifikasi" | "ekstensifikasi" | "penurunan" | "tetap";
+
+/**
+ * Strategy badge of one product row: no B-3 history = ekstensifikasi, else by
+ * the sign of the sales growth. Shared by the outlet card and the stored form
+ * summary (src/lib/scFormSummary.ts).
+ */
+export function scGrowthCategory(row: Pick<ProductDetailRowItem, "salesHistorical" | "growthPct">): ScGrowthCategory {
+  if (row.salesHistorical <= 0) return "ekstensifikasi";
+  if (row.growthPct > 0) return "intensifikasi";
+  if (row.growthPct < 0) return "penurunan";
+  return "tetap";
+}
+
 /**
  * Calculates per-product metrics, totals, and growth for the products table.
  * Supports multi-month entries (e.g. 202607: 3, 202608: 4, 202609: 5) grouped by product.

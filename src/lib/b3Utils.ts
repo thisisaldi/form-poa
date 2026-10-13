@@ -72,6 +72,17 @@ export function getB3PeriodInfo(poaPeriod: string) {
   };
 }
 
+/** "Jul 2026 - Sep 2026" for the 3-month window ending at `periodEnd` (YYYYMM), the same wording as rangeLabel. */
+export function b3RangeLabelFromEnd(periodEnd: number): string {
+  const year = Math.floor(periodEnd / 100);
+  const month = periodEnd % 100;
+  const label = (minusMonths: number) => {
+    const d = new Date(year, month - 1 - minusMonths, 1);
+    return `${d.toLocaleDateString("id-ID", { month: "short" })} ${d.getFullYear()}`;
+  };
+  return `${label(2)} - ${label(0)}`;
+}
+
 export function getB3ByQuarter(poaPeriod: string) {
   const now = new Date();
   const currentYear = now.getFullYear();

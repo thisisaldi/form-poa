@@ -13,6 +13,7 @@ import { REJECT_CATEGORY_LABELS, REJECT_CATEGORY_OPTIONS } from "./constants/rej
 import { useSalesCounterOutletActions } from "./hooks/useSalesCounterOutletActions";
 import { useSalesCounterOutletData } from "./hooks/useSalesCounterOutletData";
 import { formatMonthLabel } from "./utils/formatDateUtils";
+import { scGrowthCategory } from "./utils/outletCalculationUtils";
 import { canEditScOutletByLockLevel } from "./utils/scEditLockUtils";
 import { SalesCounterProductBreakdownTable } from "./SalesCounterProductBreakdownTable";
 import type { SalesCounterOutletCardProps } from "./types";
@@ -184,15 +185,11 @@ export function SalesCounterOutletCard({
     let tetap = 0;
 
     for (const row of productDetailRows.rows) {
-      if (row.salesHistorical <= 0) {
-        ekstensifikasi++;
-      } else if (row.growthPct > 0) {
-        intensifikasi++;
-      } else if (row.growthPct < 0) {
-        penurunan++;
-      } else {
-        tetap++;
-      }
+      const category = scGrowthCategory(row);
+      if (category === "ekstensifikasi") ekstensifikasi++;
+      else if (category === "intensifikasi") intensifikasi++;
+      else if (category === "penurunan") penurunan++;
+      else tetap++;
     }
     return { intensifikasi, ekstensifikasi, penurunan, tetap };
   }, [productDetailRows.rows]);

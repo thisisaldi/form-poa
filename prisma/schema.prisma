@@ -2229,13 +2229,54 @@ model PoaScForm {
   entertainItems  PoaScEntertainItem[] // Biaya Entertain per-outlet
   auditLogs       PoaScAuditLog[]      // Log Aktivitas
 
+  // Ringkasan angka form, dihitung & dibekukan saat MR menyimpan (src/lib/scFormSummary.ts).
+  // Dibaca halaman approvals supaya tidak perlu memuat semua produk / memanggil API
+  // eksternal per outlet. null = belum dihitung (lihat summaryVersion).
+  sumEstimasiSales      Decimal?  @db.Decimal(18, 2)
+  sumNilaiSc            Decimal?  @db.Decimal(18, 2)
+  sumDiskon             Decimal?  @db.Decimal(18, 2)
+  sumCashback           Decimal?  @db.Decimal(18, 2)
+  sumEntertain          Decimal?  @db.Decimal(18, 2)
+  sumBudgetSc           Decimal?  @db.Decimal(18, 2) // nilaiSc + diskon + cashback + entertain
+  tercacahEstimasiSales Decimal?  @db.Decimal(18, 2) // porsi yang jatuh di bulan-bulan kuartal `period`
+  tercacahNilaiSc       Decimal?  @db.Decimal(18, 2)
+  historySalesQuarter   Decimal?  @db.Decimal(18, 2) // total_sales B-3 (3 bulan), produk SC outlet
+  monthlyBreakdown      Json?     // { "YYYYMM": { "estimasiSales": number, "nilaiSc": number, "cashback": number } }
+  historyPeriodEnd      Int?      // bulan akhir jendela B-3 yang dipakai (YYYYMM); beda dari jendela hari ini = hitung ulang saat diajukan
+  // Daftar produk SC Canvasser yang berlaku saat disimpan, untuk menyaring history tanpa Canvasser
+  scProductListId       String?
+  scProductList         PoaScProductList? @relation(fields: [scProductListId], references: [id], onDelete: SetNull)
+  totalScProducts       Int?      // jumlah produk SC outlet di Canvasser saat disimpan
+  // Jumlah produk form per kategori growth (estimasi sales vs history B-3); jumlahnya = produk SC di form
+  countIntensifikasi    Int?      // punya history, growth > 0
+  countEkstensifikasi   Int?      // tanpa history B-3
+  countPenurunan        Int?      // punya history, growth < 0
+  countTetap            Int?      // punya history, growth = 0
+  summaryVersion        Int?      // versi rumus SUMMARY_VERSION; null = belum dihitung
+  summaryComputedAt     DateTime?
+
   @@unique([kodePI, periodeAwal, ownerId]) // Unik per outlet, per bulan mulai, per MR
   @@index([ownerId])
-  @@index([currentHolderId])
+  @@index([currentHolderId, period])
   @@index([status])
 }
 
 // 2. Detail Produk di Outlet Tersebut (Dihitung per-orang)
+// Daftar pro_code produk SC dari Canvasser (get-sales-counter-product) untuk satu bulan.
+// Daftarnya sama untuk semua outlet dalam satu bulan, jadi disimpan sekali dan dirujuk
+// PoaScForm.scProductListId, bukan disalin ke tiap form. `hash` hanya pengaman: kalau
+// Canvasser ternyata memberi daftar berbeda di bulan yang sama, jadinya baris kedua.
+model PoaScProductList {
+  id        String      @id @default(uuid())
+  period    String      // YYYYMM yang diminta ke Canvasser
+  hash      String      // md5 dari proCodes (terurut, dipisah koma)
+  proCodes  String[]
+  createdAt DateTime    @default(now())
+  forms     PoaScForm[]
+
+  @@unique([period, hash])
+}
+
 model PoaScProductItem {
   id                  String     @id @default(uuid())
   poaScId             String
@@ -2258,6 +2299,13 @@ model PoaScProductItem {
 
   // Estimasi Biaya Rencana untuk 1 orang canvasser
   rencanaTotalBiaya   Decimal    @db.Decimal(18, 2)
+
+  // Input perhitungan yang dibekukan saat MR menyimpan (null = data lama, belum di-backfill)
+  salesCounterValue   Decimal?   @db.Decimal(18, 2) // sales_counter_value dari Canvasser
+  salesCounterMinimum Int?                          // sales_counter_minimum dari Canvasser
+  hnaSnapshot         Decimal?   @db.Decimal(18, 2) // HNA saat disimpan (Exodus sell_price, fallback Product.hna)
+  historySalesB3      Decimal?   @db.Decimal(18, 2) // rata-rata sales B-3 per bulan produk ini (sama di semua baris bulan)
+  cashbackSnapshot    Decimal?   @db.Decimal(18, 2) // cashback produk ini untuk bulan baris ini; Σ baris = sumCashback form
 
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt

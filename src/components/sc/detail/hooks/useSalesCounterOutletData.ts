@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import type { ScDraftFormItem, ScProductItemData } from "../../types";
-import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
+import { b3RangeLabelFromEnd, getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import {
   getScCashbackPoaAction,
   getSalesCounterProductsAction,
@@ -52,10 +52,15 @@ export function useSalesCounterOutletData({
     return extractQuarterAndYear(draft.period, draft.periodeAwal, poaId);
   }, [draft.period, draft.periodeAwal, poaId]);
 
+  // A form with a stored summary (docs/sc-form-summary) renders its numbers from
+  // the draft itself. Canvasser is then only asked once the card is opened, for
+  // the parts that are not stored: unselected SC products, incentive history.
+  const frozen = draft.hasSummary === true;
+
   const b3Info = useMemo(() => {
     return getB3RollingPeriodInfo(draft.period || draft.periodeAwal || poaId);
   }, [draft.period, draft.periodeAwal, poaId]);
-  const b3RangeLabel = b3Info.rangeLabel;
+  const b3RangeLabel = frozen && draft.historyPeriodEnd ? b3RangeLabelFromEnd(draft.historyPeriodEnd) : b3Info.rangeLabel;
 
   const targetPeriodsKey = useMemo(() => {
     return (b3Info.targetPeriods || []).join(",");
@@ -88,7 +93,7 @@ export function useSalesCounterOutletData({
 
   // Fetch cashback data
   useEffect(() => {
-    if (!draft.kodePI) return;
+    if (!draft.kodePI || frozen) return;
     if (cashbackCache.has(draft.kodePI)) {
       setCashbackData(cashbackCache.get(draft.kodePI));
       return;
@@ -97,11 +102,11 @@ export function useSalesCounterOutletData({
       cashbackCache.set(draft.kodePI, res);
       setCashbackData(res);
     });
-  }, [draft.kodePI]);
+  }, [draft.kodePI, frozen]);
 
   // Fetch B-3 history sales data (Parallelized)
   useEffect(() => {
-    if (!draft.kodePI) {
+    if (!draft.kodePI || (frozen && !isExpanded)) {
       setIsLoadingB3(false);
       return;
     }
@@ -214,14 +219,15 @@ export function useSalesCounterOutletData({
     return () => {
       isMounted = false;
     };
-  }, [draft.kodePI, b3Info.period, targetPeriodsKey, b3CacheKey]);
+  }, [draft.kodePI, b3Info.period, targetPeriodsKey, b3CacheKey, frozen, isExpanded]);
 
-  // Fetch insentif history
+  // Fetch insentif history (only shown inside the opened card)
   useEffect(() => {
     if (!draft.kodePI) {
       setIsLoadingIncentiveHistory(false);
       return;
     }
+    if (!isExpanded) return;
 
     if (scHistoryIncentiveCache.has(incentiveCacheKey) && insentifHistoryCache.has(draft.kodePI)) {
       setScHistoryIncentiveData(scHistoryIncentiveCache.get(incentiveCacheKey) || []);
@@ -257,7 +263,7 @@ export function useSalesCounterOutletData({
     return () => {
       isMounted = false;
     };
-  }, [draft.kodePI, poaQuarter, poaYear, incentiveCacheKey]);
+  }, [draft.kodePI, poaQuarter, poaYear, incentiveCacheKey, isExpanded]);
 
   // Fetch competitor / nexus data ONLY when competitor sidebar is opened
   useEffect(() => {
@@ -301,6 +307,8 @@ export function useSalesCounterOutletData({
 
   // Filter products to strictly SC products
   const scProducts = useMemo(() => {
+    // Stored summary: the server already sent only the rows that were SC products at save.
+    if (frozen) return draft.products.filter((p) => p.isScProduct !== false);
     if (clientScData && clientScData.codes.size > 0) {
       return draft.products.filter(
         (p) =>
@@ -312,7 +320,7 @@ export function useSalesCounterOutletData({
       return draft.products.filter((p) => p.isScProduct !== false);
     }
     return draft.products;
-  }, [draft.products, clientScData]);
+  }, [draft.products, clientScData, frozen]);
 
   const selectedProductCodes = useMemo(() => {
     return new Set<string>(
@@ -324,7 +332,21 @@ export function useSalesCounterOutletData({
   const validScCount = selectedProductCodes.size;
   const lama = draft.lamaPeriode || 3;
 
+  // Stored summary: history B-3 and cashback per product as frozen at save.
+  const stored = useMemo(() => {
+    if (!frozen) return null;
+    const salesMap = new Map<string, number>();
+    const cashbackByKode = new Map<string, number>();
+    for (const p of draft.products) {
+      if (!p.kodeProduk) continue;
+      salesMap.set(p.kodeProduk, p.historySalesB3 ?? 0);
+      cashbackByKode.set(p.kodeProduk, (cashbackByKode.get(p.kodeProduk) ?? 0) + (p.cashbackSnapshot ?? 0));
+    }
+    return { salesMap, cashbackByKode, outletSalesPerMonth: (draft.historySalesQuarter ?? 0) / 3 };
+  }, [frozen, draft.products, draft.historySalesQuarter]);
+
   const cbDetails = useMemo(() => {
+    if (stored) return { resultMap: stored.cashbackByKode };
     return calculateCashbackDetails({
       cashbackData,
       selectedProducts: scProducts.map((p) => ({
@@ -339,9 +361,9 @@ export function useSalesCounterOutletData({
       })),
       lamaPeriode: draft.lamaPeriode,
     });
-  }, [cashbackData, draft.lamaPeriode, scProducts]);
+  }, [cashbackData, draft.lamaPeriode, scProducts, stored]);
 
-  const isCashbackNotFound = isCashbackResponseNotFound(cashbackData);
+  const isCashbackNotFound = stored ? false : isCashbackResponseNotFound(cashbackData);
 
   const { outletEstSales, outletNilaiSc } = useMemo(() => {
     return calculateOutletTotals(scProducts, lama);
@@ -376,10 +398,11 @@ export function useSalesCounterOutletData({
       scProducts,
       lama,
       periodeAwal: draft.periodeAwal || draft.period,
-      cashbackData,
+      // Any truthy value makes the rows read cbDetails.resultMap instead of the flat-percentage fallback.
+      cashbackData: stored ? {} : cashbackData,
       cbDetails,
-      b3SalesMap,
-      b3TotalOutletSalesPerMonth,
+      b3SalesMap: stored ? stored.salesMap : b3SalesMap,
+      b3TotalOutletSalesPerMonth: stored ? stored.outletSalesPerMonth : b3TotalOutletSalesPerMonth,
       scHistoryIncentiveMap,
       totalOutletHistoryIncentive,
     });
@@ -394,6 +417,7 @@ export function useSalesCounterOutletData({
     b3TotalOutletSalesPerMonth,
     scHistoryIncentiveMap,
     totalOutletHistoryIncentive,
+    stored,
   ]);
 
   const insentifGrowthPct = useMemo(() => {
@@ -421,7 +445,8 @@ export function useSalesCounterOutletData({
     b3SalesMap,
     b3QtyMap,
     b3TotalOutletSalesPerMonth,
-    isLoadingB3,
+    // With a stored summary nothing the card shows up front waits for Canvasser.
+    isLoadingB3: frozen ? false : isLoadingB3,
     cashbackData,
     cbDetails,
     isCashbackNotFound,

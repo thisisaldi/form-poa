@@ -18,6 +18,11 @@
  * yang menulis ke response stream, jadi memori datar terhadap jumlah baris. Konsekuensi: sheet ditulis berurutan
  * (1 → 2 → 3 → 4), sehingga halaman form dihitung ulang untuk tiap sheet (CPU 2-3x, bukan memori), dan agregat
  * Sheet 3 dikumpulkan saat Sheet 2 ditulis. Rumus per baris tidak berubah.
+ *
+ * RINGKASAN TERSIMPAN (2026-10-13, docs/sc-form-summary): form yang sudah punya ringkasan memakai nilai SC, HNA,
+ * dan cashback dari barisnya sendiri (dibekukan saat disimpan). Canvasser hanya dipanggil untuk outlet yang masih
+ * punya form tanpa ringkasan — sebelumnya 2 panggilan per outlet sebelum byte pertama dikirim (ratusan outlet
+ * untuk SM/NSM), yang membuat export terasa macet walau memorinya sudah datar.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -34,6 +39,8 @@ import { getSalesCounterProduct } from "@/app/(app)/sc/[id]/_services/getSalesCo
 import { getScCashbackPoa } from "@/app/(app)/sc/[id]/_services/getScCashbackPoa";
 import { calculateCashbackDetails } from "@/components/sc/edit/hooks/useSalesCounterCashback";
 import { getPeriodMonthList } from "@/components/sc/detail/utils/outletCalculationUtils";
+import { SC_EXPORT_PCT_FMT, SC_EXPORT_RP_FMT, startScExportSheet, writeScExportRow, type ScExportCol } from "@/lib/scExportSheet";
+import { hasScSummary, isStoredScProduct, storedCashbackBulan, storedCashbackTotal, storedProductInputs } from "@/lib/scExportSummary";
 
 const PAGE_SIZE = 100;
 
@@ -58,30 +65,11 @@ interface GlobalProductSummary {
   outlets: Set<string>;
 }
 
-const BLUE = "FF0063A0";
-const WHITE = "FFFFFFFF";
-const RP_FMT = "#,##0";
-const PCT_FMT = "0.0%";
-
-type ColDef = { header: string; key: string; width: number; numFmt?: string };
-
-/** Sheet dengan header berwarna + format angka per kolom (WorkbookWriter: header ditulis manual lalu di-commit). */
-function startSheet(wb: ExcelJS.stream.xlsx.WorkbookWriter, name: string, cols: ColDef[]) {
-  const ws = wb.addWorksheet(name);
-  ws.columns = cols.map((c) => ({ key: c.key, width: c.width, style: c.numFmt ? { numFmt: c.numFmt } : {} }));
-  const header = ws.addRow(cols.map((c) => c.header));
-  header.font = { bold: true, color: { argb: WHITE } };
-  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: BLUE } };
-  header.alignment = { wrapText: true, vertical: "middle" };
-  header.commit();
-  return ws;
-}
-
-/** Tulis satu baris (objek ber-key) tepat sesuai urutan kolom, lalu commit supaya langsung dilepas dari memori. */
-function writeRow(ws: ExcelJS.Worksheet, cols: ColDef[], data: Record<string, unknown>) {
-  const row = ws.addRow(cols.map((c) => data[c.key] as ExcelJS.CellValue));
-  row.commit();
-}
+const RP_FMT = SC_EXPORT_RP_FMT;
+const PCT_FMT = SC_EXPORT_PCT_FMT;
+type ColDef = ScExportCol;
+const startSheet = startScExportSheet;
+const writeRow = writeScExportRow;
 
 export async function GET(req: NextRequest) {
   if (await getAppSetting("export.sc.disabled")) {
@@ -110,9 +98,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Urutan deterministik: Periode Kuartal (asc), Kode PI Outlet (asc); id sebagai pemecah seri supaya halaman stabil.
-  const refs: { id: string; kodePI: string | null; period: string | null }[] = await prisma.poaScForm.findMany({
+  const refs: { id: string; kodePI: string | null; period: string | null; summaryVersion: number | null }[] = await prisma.poaScForm.findMany({
     where,
-    select: { id: true, kodePI: true, period: true },
+    select: { id: true, kodePI: true, period: true, summaryVersion: true },
     orderBy: [{ period: "asc" }, { kodePI: "asc" }, { id: "asc" }],
   });
 
@@ -138,13 +126,15 @@ export async function GET(req: NextRequest) {
   });
   const masterMap = new Map<string, MasterProductItem>(masterProducts.map((p) => [p.kodeProduk, p]));
 
-  const outletCodes = Array.from(new Set(refs.map((d) => d.kodePI).filter(Boolean))) as string[];
+  // Canvasser hanya untuk outlet yang masih punya form tanpa ringkasan tersimpan.
+  const liveRefs = refs.filter((d) => !hasScSummary(d));
+  const outletCodes = Array.from(new Set(liveRefs.map((d) => d.kodePI).filter(Boolean))) as string[];
   const canvasserProductMap = new Map<string, { sales_counter_value: number; sales_counter_minimum: number }>();
   const outletScProductCodesMap = new Map<string, Set<string>>();
   const outletCashbackMap = new Map<string, any>();
 
   const outletPeriodMap = new Map<string, string>();
-  for (const d of refs) {
+  for (const d of liveRefs) {
     if (d.kodePI && d.period && !outletPeriodMap.has(d.kodePI)) outletPeriodMap.set(d.kodePI, d.period);
   }
 
@@ -251,12 +241,17 @@ export async function GET(req: NextRequest) {
     return rows;
   }
 
-  /** Turunan satu draft (produk valid, rekap kasbek) — sama persis dengan logika versi sebelumnya. */
+  /**
+   * Turunan satu draft (produk valid, rekap kasbek). Form dengan ringkasan tersimpan (`stored`) memakai nilai
+   * barisnya sendiri; form tanpa ringkasan memakai Canvasser, sama persis dengan logika versi sebelumnya.
+   */
   function deriveDraft(draft: any) {
     const scPersonStr = draft.persons.map((p: any) => `${p.personName} (${p.positionName})`).join(", ") || "-";
+    const stored = hasScSummary(draft);
     const scCodes = outletScProductCodesMap.get(draft.kodePI);
 
     const validProducts = draft.products.filter((p: any) => {
+      if (stored) return isStoredScProduct(p);
       if (!p.kodeProduk) return false;
       if (scCodes && scCodes.size > 0 && !scCodes.has(p.kodeProduk) && !scCodes.has(p.kodeProduk.replace(/^0+/, ""))) {
         return false;
@@ -304,25 +299,35 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const cbDetails = calculateCashbackDetails({
-      cashbackData,
-      selectedProducts: selectedProductsForCb,
-      masterProducts: masterProductsForCb,
-      lamaPeriode: lama,
-    });
+    const cbDetails = stored
+      ? null
+      : calculateCashbackDetails({
+          cashbackData,
+          selectedProducts: selectedProductsForCb,
+          masterProducts: masterProductsForCb,
+          lamaPeriode: lama,
+        });
 
-    return { scPersonStr, validProducts, productGroups, periodMonths, cashbackData, cbDetails };
+    return { scPersonStr, validProducts, productGroups, periodMonths, cashbackData, cbDetails, stored, lama };
+  }
+
+  /** HNA dan nilai SC satu baris produk: dari baris itu sendiri bila form punya ringkasan, selain itu dari master/Canvasser. */
+  function productInputs(draft: any, d: ReturnType<typeof deriveDraft>, p: any) {
+    if (d.stored) return storedProductInputs(p);
+    const mp = masterMap.get(p.kodeProduk);
+    const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
+    return {
+      hnaSJ: mp ? parseFloat(mp.hna.toString()) : 0,
+      scVal: cp?.sales_counter_value,
+      scMin: cp?.sales_counter_minimum || 0,
+    };
   }
 
   function detailRow(draft: any, formNo: number, d: ReturnType<typeof deriveDraft>, p: any) {
-    const mp = masterMap.get(p.kodeProduk);
-    const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
+    const { hnaSJ, scVal, scMin } = productInputs(draft, d, p);
     const qty = p.qtyPerBulan || 0;
     const estSalesBulan = qty * hnaSJ;
     const pctMatriks = (parseFloat(p.persenMatriksSc.toString()) || 0) / 100;
-    const cp = canvasserProductMap.get(`${draft.kodePI}_${p.kodeProduk}`);
-    const scVal = cp?.sales_counter_value;
-    const scMin = cp?.sales_counter_minimum || 0;
 
     let nilaiScBulan = 0;
     if (scVal != null && scVal > 0) nilaiScBulan = qty >= scMin ? qty * scVal : 0;
@@ -333,7 +338,9 @@ export async function GET(req: NextRequest) {
     const pctCashback = (parseFloat(p.persenCashback.toString()) || 0) / 100;
 
     let cashbackBulan = 0;
-    if (d.cashbackData) {
+    if (d.stored) {
+      cashbackBulan = storedCashbackBulan(p, d.periodMonths, d.lama);
+    } else if (d.cashbackData) {
       const mIdx = p.periodeMonth ? d.periodMonths.indexOf(p.periodeMonth) : -1;
       if (mIdx >= 0 && d.cbDetails?.monthlyStats?.[mIdx]) {
         const stat = d.cbDetails.monthlyStats[mIdx].productStats.find((ps: any) => ps.kodeProduk === p.kodeProduk);
@@ -375,15 +382,10 @@ export async function GET(req: NextRequest) {
 
   function recapRow(draft: any, formNo: number, d: ReturnType<typeof deriveDraft>, items: any[]) {
     const primary = items[0];
-    const mp = masterMap.get(primary.kodeProduk);
-    const hnaSJ = mp ? parseFloat(mp.hna.toString()) : 0;
+    const { hnaSJ, scVal, scMin } = productInputs(draft, d, primary);
     const pctMatriks = (parseFloat(primary.persenMatriksSc.toString()) || 0) / 100;
     const pctDiskon = (parseFloat(primary.persenDiskon.toString()) || 0) / 100;
     const pctCashback = (parseFloat(primary.persenCashback.toString()) || 0) / 100;
-
-    const cp = canvasserProductMap.get(`${draft.kodePI}_${primary.kodeProduk}`);
-    const scVal = cp?.sales_counter_value;
-    const scMin = cp?.sales_counter_minimum || 0;
 
     let totalQty = 0;
     let totalEstSales = 0;
@@ -400,9 +402,11 @@ export async function GET(req: NextRequest) {
       totalNilaiSc += scMonth;
       totalDiskon += estMonth * pctDiskon;
     }
-    const totalCashback = d.cashbackData
-      ? (d.cbDetails?.resultMap?.get(primary.kodeProduk) ?? 0)
-      : totalEstSales * pctCashback;
+    const totalCashback = d.stored
+      ? storedCashbackTotal(items)
+      : d.cashbackData
+        ? (d.cbDetails?.resultMap?.get(primary.kodeProduk) ?? 0)
+        : totalEstSales * pctCashback;
     const totalBiaya = totalNilaiSc + totalDiskon + totalCashback;
 
     // Agregat Sheet 3

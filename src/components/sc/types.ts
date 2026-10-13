@@ -29,6 +29,10 @@ export interface ScProductItemData {
   salesCounterValue?: number;
   salesCounterMinimum?: number;
   isScProduct?: boolean;
+  /** Stored summary (docs/sc-form-summary): average B-3 sales per month of this product. null = form has no summary. */
+  historySalesB3?: number | null;
+  /** Stored summary: cashback of this product for this row's month. */
+  cashbackSnapshot?: number | null;
 }
 
 export interface ScPersonItemData {
@@ -68,6 +72,10 @@ export interface ScDraftFormItem {
   totalScProducts?: number;
   validScProductsCount?: number;
   historySalesQuarter?: number;
+  /** true = numbers come from the summary stored at save; the card then needs no Canvasser call to render. */
+  hasSummary?: boolean;
+  /** Last month (YYYYMM) of the B-3 window the stored history was taken from. */
+  historyPeriodEnd?: number | null;
   products: ScProductItemData[];
   persons: ScPersonItemData[];
   entertainItems: ScEntertainItemData[];

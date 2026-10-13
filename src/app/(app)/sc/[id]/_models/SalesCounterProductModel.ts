@@ -14,4 +14,6 @@ export interface SalesCounterProduct {
 
 export interface SalesCounterProductApiResponse {
   data: SalesCounterProduct[];
+  /** YYYYMM whose list this is — set by getSalesCounterProduct, not by the API. */
+  resolvedPeriod?: string;
 }

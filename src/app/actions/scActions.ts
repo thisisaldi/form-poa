@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
@@ -11,6 +12,8 @@ import { getSalesCounterProduct } from "../(app)/sc/[id]/_services/getSalesCount
 import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { canUserEditScForm } from "@/lib/authz";
 import { quarterToMonths } from "@/lib/quarterUtils";
+import { SUMMARY_VERSION } from "@/lib/scFormSummary";
+import { refreshScFormSummaries } from "@/lib/scFormSummaryStore";
 
 async function requireSession() {
   const session = await getCurrentUser();
@@ -379,6 +382,8 @@ export async function saveSalesCounterFormAction(
             status: targetStatus,
             currentHolderId: targetHolderId,
             version: existing.version + 1,
+            // Rows are replaced below; the summary is recomputed after the commit.
+            summaryVersion: null,
             namaOutlet: namaOutlet || existing.namaOutlet,
             jumlahKaryawan: jumlahKaryawan ?? null,
             jumlahPasien: jumlahPasien ?? null,
@@ -690,6 +695,13 @@ export async function saveSalesCounterFormAction(
       return poaSc;
     });
 
+    // Summary columns (docs/sc-form-summary) need Canvasser/Exodus, so they are
+    // filled after the response: a slow or failing API never delays or fails
+    // the save, the form just stays "belum terhitung" until the backfill.
+    if (result.summaryVersion !== SUMMARY_VERSION) {
+      after(() => refreshScFormSummaries([result.id]));
+    }
+
     revalidatePath(`/sc/${period}`);
     revalidatePath(`/sc/${period}/edit`);
     if (scIdParam) {
@@ -800,6 +812,8 @@ export async function updateSalesCounterPeriodAction(
           data: {
             period,
             periodeAwal: newPeriodeAwal,
+            // History B-3 and tercacah depend on the period; recomputed after the commit.
+            summaryVersion: null,
           },
         });
 
@@ -823,6 +837,8 @@ export async function updateSalesCounterPeriodAction(
         });
       }
     });
+
+    after(() => refreshScFormSummaries(drafts.map((d: any) => d.id)));
 
     revalidatePath(`/sc/${currentPeriod}`);
     revalidatePath(`/sc/${period}`);
