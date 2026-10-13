@@ -16,6 +16,9 @@ export default async function StandarisasiDashboardPage() {
 
   const totalSudah = rows.reduce((n, r) => n + r.sudah.length, 0);
   const totalOnProgress = rows.reduce((n, r) => n + r.onProgress.length, 0);
+  const allDpl = rows.flatMap((r) => r.dpl);
+  const dplApproved = allDpl.filter((d) => d.status === "APPROVED").length;
+  const dplPending = allDpl.filter((d) => d.status === "PENDING").length;
 
   return (
     <div className="space-y-6">
@@ -26,10 +29,12 @@ export default async function StandarisasiDashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <SummaryCard label="Outlet" value={rows.length} />
         <SummaryCard label="Produk sudah standarisasi" value={totalSudah} color="var(--color-status-approved, #008f42)" />
         <SummaryCard label="Produk on progress" value={totalOnProgress} color="var(--color-orange, #ea580c)" />
+        <SummaryCard label="DPL/DPF Approved" value={dplApproved} color="var(--color-status-approved, #008f42)" />
+        <SummaryCard label="DPL/DPF Pending" value={dplPending} color="var(--color-orange, #ea580c)" />
       </div>
 
       <StandarisasiDashboardTable rows={rows} canOpenDetail={canOpenDetail} />

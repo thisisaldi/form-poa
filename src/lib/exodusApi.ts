@@ -1003,6 +1003,63 @@ export async function submitDiscountRequest(input: ExodusDiscountRequestInput): 
  * (filter outlet_code, urut lama -> baru) request baru dengan tipe + pembuat
  * (created_by_nip) + rentang persen yang sama. Null = tidak ditemukan.
  */
+export interface ExodusDiscountRequestRow {
+  id: number;
+  refId: string;
+  discountType: string;
+  createdByNip: string;
+  createdAt: string;
+  /** Status mentah Exodus: submitted | approved | active | done | rejected (+ tahap antara approval). */
+  status: string;
+  minPct?: number;
+  maxPct?: number;
+}
+
+/** Semua request diskon (DPL/DPF) satu outlet, GET promotion/v1/request/discount?outlet_code= (maks 10 halaman × 100). Null = Exodus belum dikonfigurasi / tanpa token. */
+export async function listDiscountRequestsByOutlet(outletCode: string): Promise<ExodusDiscountRequestRow[] | null> {
+  const token = await getAccessToken();
+  if (!token) return null;
+  const out: ExodusDiscountRequestRow[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount`);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("limit", "100");
+    url.searchParams.set("outlet_code", outletCode);
+    const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 8000);
+    if (!res.ok) break;
+    const body = (await res.json()) as { data?: Record<string, any>[] | null };
+    const data = body.data ?? [];
+    for (const r of data) {
+      out.push({
+        id: Number(r.id),
+        refId: String(r.ref_id ?? ""),
+        discountType: String(r.discount_type ?? ""),
+        createdByNip: String(r.created_by_nip ?? ""),
+        createdAt: String(r.created_at ?? ""),
+        status: String(r.status ?? ""),
+        minPct: r.range_discount?.min_percentage_range,
+        maxPct: r.range_discount?.max_percentage_range,
+      });
+    }
+    if (data.length < 100) break;
+  }
+  return out;
+}
+
+/** Request yang cocok dengan tipe + pembuat + waktu buat (>= sinceMs - 5 dtk) + rentang persen. `pick` newest = konfirmasi submit barusan, earliest = pencocokan ulang baris lama. */
+export function matchDiscountRequest(
+  rows: ExodusDiscountRequestRow[],
+  q: { discountType: string; createdBy: string; sinceMs: number; minPct: number; maxPct: number },
+  pick: "newest" | "earliest" = "newest"
+): ExodusDiscountRequestRow | undefined {
+  const near = (a: number | undefined, b: number) => a !== undefined && Math.abs(a - b) < 0.005;
+  const hits = rows
+    .filter((r) => r.discountType === q.discountType && r.createdByNip === q.createdBy && new Date(r.createdAt).getTime() >= q.sinceMs - 5000)
+    .filter((r) => near(r.minPct, q.minPct) && near(r.maxPct, q.maxPct))
+    .sort((a, b) => (pick === "newest" ? b.id - a.id : a.id - b.id));
+  return hits[0];
+}
+
 export async function confirmDiscountRequest(params: {
   outletCode: string;
   discountType: "DPL" | "DPF";
@@ -1010,31 +1067,14 @@ export async function confirmDiscountRequest(params: {
   sinceMs: number;
   minPct: number;
   maxPct: number;
-}): Promise<{ id: number; refId: string } | null> {
-  const token = await getAccessToken();
-  if (!token) return null;
-  const near = (a: number | undefined, b: number) => a !== undefined && Math.abs(a - b) < 0.005;
+}): Promise<{ id: number; refId: string; status: string } | null> {
   for (let attempt = 0; attempt < 4; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
     try {
-      let rows: { id: number; ref_id: string; discount_type: string; created_by_nip: string; created_at: string; range_discount?: { min_percentage_range?: number; max_percentage_range?: number } }[] = [];
-      for (let page = 1; page <= 10; page++) {
-        const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/request/discount`);
-        url.searchParams.set("page", String(page));
-        url.searchParams.set("limit", "100");
-        url.searchParams.set("outlet_code", params.outletCode);
-        const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 8000);
-        if (!res.ok) break;
-        const body = (await res.json()) as { data?: typeof rows | null };
-        const data = body.data ?? [];
-        rows = rows.concat(data);
-        if (data.length < 100) break;
-      }
-      const hit = rows
-        .filter((r) => r.discount_type === params.discountType && r.created_by_nip === params.createdBy && new Date(r.created_at).getTime() >= params.sinceMs - 5000)
-        .filter((r) => near(r.range_discount?.min_percentage_range, params.minPct) && near(r.range_discount?.max_percentage_range, params.maxPct))
-        .sort((a, b) => b.id - a.id)[0];
-      if (hit) return { id: hit.id, refId: hit.ref_id };
+      const rows = await listDiscountRequestsByOutlet(params.outletCode);
+      if (rows === null) return null;
+      const hit = matchDiscountRequest(rows, params);
+      if (hit) return { id: hit.id, refId: hit.refId, status: hit.status };
     } catch {
       /* coba lagi */
     }

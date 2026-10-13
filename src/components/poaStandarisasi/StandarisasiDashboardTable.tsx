@@ -6,12 +6,17 @@ import type { StandarisasiDashboardOutletRow } from "@/app/actions/poaStandarisa
 
 export function StandarisasiDashboardTable({ rows, canOpenDetail }: { rows: StandarisasiDashboardOutletRow[]; canOpenDetail: boolean }) {
   const [query, setQuery] = useState("");
+  const [dplFilter, setDplFilter] = useState<"" | "APPROVED" | "PENDING" | "REJECTED">("");
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? rows.filter((r) => r.namaOutlet.toLowerCase().includes(q) || r.kodePI.toLowerCase().includes(q)) : rows;
-  }, [rows, query]);
+    return rows.filter(
+      (r) =>
+        (!q || r.namaOutlet.toLowerCase().includes(q) || r.kodePI.toLowerCase().includes(q)) &&
+        (!dplFilter || r.dpl.some((d) => d.status === dplFilter))
+    );
+  }, [rows, query, dplFilter]);
 
   function toggle(kodePI: string) {
     setOpen((prev) => {
@@ -27,14 +32,28 @@ export function StandarisasiDashboardTable({ rows, canOpenDetail }: { rows: Stan
 
   return (
     <div className="space-y-3">
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Cari outlet (nama atau kode)…"
-        className="w-full max-w-sm rounded px-3 py-2 text-sm"
-        style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
-      />
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Cari outlet (nama atau kode)…"
+          className="w-full max-w-sm rounded px-3 py-2 text-sm"
+          style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
+        />
+        <select
+          value={dplFilter}
+          onChange={(e) => setDplFilter(e.target.value as typeof dplFilter)}
+          className="rounded px-3 py-2 text-sm"
+          style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}
+          aria-label="Filter status DPL/DPF"
+        >
+          <option value="">Semua status DPL/DPF</option>
+          <option value="APPROVED">Ada DPL/DPF Approved</option>
+          <option value="PENDING">Ada DPL/DPF Pending</option>
+          <option value="REJECTED">Ada DPL/DPF Rejected</option>
+        </select>
+      </div>
 
       {filtered.length === 0 && <p className="text-sm" style={{ color: "var(--color-text-faint)" }}>Tidak ada outlet yang cocok.</p>}
 
@@ -51,6 +70,8 @@ export function StandarisasiDashboardTable({ rows, canOpenDetail }: { rows: Stan
                 <Pill color="#008f42">{r.sudah.length} sudah</Pill>
                 <Pill color="#ea580c">{r.onProgress.length} on progress</Pill>
                 {r.gagal > 0 && <Pill color="#dc2626">{r.gagal} gagal</Pill>}
+                {r.dpl.some((d) => d.status === "APPROVED") && <Pill color="#008f42">{r.dpl.filter((d) => d.status === "APPROVED").length} DPL/DPF approved</Pill>}
+                {r.dpl.some((d) => d.status === "PENDING") && <Pill color="#ea580c">{r.dpl.filter((d) => d.status === "PENDING").length} DPL/DPF pending</Pill>}
                 <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>{isOpen ? "▲" : "▼"}</span>
               </button>
 
@@ -91,6 +112,23 @@ export function StandarisasiDashboardTable({ rows, canOpenDetail }: { rows: Stan
                       </ul>
                     )}
                   </div>
+                  {r.dpl.length > 0 && (
+                    <div className="md:col-span-2">
+                      <div className="text-xs font-bold uppercase tracking-wide mb-1.5 mt-2" style={{ color: "var(--color-text-muted)" }}>Request DPL/DPF ke Exodus</div>
+                      <ul className="space-y-1">
+                        {r.dpl.map((d) => (
+                          <li key={d.id} className="text-xs flex justify-between gap-2">
+                            <span style={{ color: "var(--color-text)" }}>
+                              {d.tipe} · {d.distributorKode} · {d.produk.join(", ") || "-"}
+                            </span>
+                            <span className="text-right whitespace-nowrap" style={{ color: DPL_COLOR[d.status] }}>
+                              {DPL_LABEL[d.status]} · {new Date(d.submittedAt).toLocaleDateString("id-ID")}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -100,6 +138,9 @@ export function StandarisasiDashboardTable({ rows, canOpenDetail }: { rows: Stan
     </div>
   );
 }
+
+const DPL_LABEL = { APPROVED: "Approved", PENDING: "Pending", REJECTED: "Rejected" } as const;
+const DPL_COLOR = { APPROVED: "#008f42", PENDING: "#ea580c", REJECTED: "#dc2626" } as const;
 
 function Pill({ color, children }: { color: string; children: React.ReactNode }) {
   return (

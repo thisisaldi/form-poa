@@ -29,6 +29,7 @@ import { getAppSetting } from "@/lib/appSettings";
 import { settingMessage } from "@/lib/appSettingsRegistry";
 import { SALES_TEAM_ROLES } from "@/lib/role";
 import { assertHkaGateway } from "@/lib/hkaGateway";
+import { dplStatusOf, refreshOpenDiscountRequests, type DplStatus } from "@/lib/discountRequestStatus";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -275,6 +276,8 @@ export interface StandarisasiDashboardOutletRow {
   onProgress: { kodeProduk: string; namaProduk: string; phaseLabel: string; pengajuanId: string; ownerNama: string }[];
   /** Jumlah produk distinct yang final submit tapi ditandai gagal standarisasi (dan belum pernah sukses di outlet ini). */
   gagal: number;
+  /** Request DPL/DPF yang sudah diajukan ke Exodus untuk outlet ini + status approval-nya (lihat discountRequestStatus.ts). */
+  dpl: { id: string; tipe: string; distributorKode: string; status: DplStatus; produk: string[]; submittedAt: Date }[];
 }
 
 /**
@@ -312,15 +315,25 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
       outlet: { select: { namaOutlet: true } },
       owner: { select: { name: true } },
       produk: { select: { standarisasiGagal: true, product: { select: { kodeProduk: true, namaProduk: true } } } },
+      discountRequests: { select: { id: true, tipe: true, distributorKode: true, produk: true, submittedByNip: true, submittedAt: true, exodusRefId: true, exodusStatus: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  type Acc = { namaOutlet: string; sudah: Map<string, { kodeProduk: string; namaProduk: string; submittedAt: Date }>; onProgress: StandarisasiDashboardOutletRow["onProgress"]; gagal: Set<string> };
+  // Refresh lazy status DPL/DPF dari Exodus (hanya baris yang belum final, throttle) lalu timpa di memori.
+  const refreshed = await refreshOpenDiscountRequests(
+    pengajuan.flatMap((p: (typeof pengajuan)[number]) => p.discountRequests.map((d: (typeof p.discountRequests)[number]) => ({ ...d, kodePI: p.kodePI })))
+  );
+
+  type Acc = { namaOutlet: string; sudah: Map<string, { kodeProduk: string; namaProduk: string; submittedAt: Date }>; onProgress: StandarisasiDashboardOutletRow["onProgress"]; gagal: Set<string>; dpl: StandarisasiDashboardOutletRow["dpl"] };
   const byOutlet = new Map<string, Acc>();
   for (const p of pengajuan) {
-    const acc: Acc = byOutlet.get(p.kodePI) ?? { namaOutlet: p.outlet.namaOutlet, sudah: new Map(), onProgress: [], gagal: new Set<string>() };
+    const acc: Acc = byOutlet.get(p.kodePI) ?? { namaOutlet: p.outlet.namaOutlet, sudah: new Map(), onProgress: [], gagal: new Set<string>(), dpl: [] };
     byOutlet.set(p.kodePI, acc);
+    for (const d of p.discountRequests) {
+      const names = ((d.produk as { namaProduk?: string }[] | null) ?? []).map((x) => x.namaProduk ?? "").filter(Boolean);
+      acc.dpl.push({ id: d.id, tipe: d.tipe, distributorKode: d.distributorKode, status: dplStatusOf(refreshed.get(d.id)?.exodusStatus ?? d.exodusStatus), produk: names, submittedAt: d.submittedAt });
+    }
     const phaseLabel = PHASES.find((ph) => ph.id === p.currentPhase)?.label ?? p.currentPhase;
     for (const prod of p.produk) {
       const { kodeProduk, namaProduk } = prod.product;
@@ -341,6 +354,7 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
     sudah: [...a.sudah.values()].sort((x, y) => x.namaProduk.localeCompare(y.namaProduk, "id")),
     onProgress: a.onProgress.sort((x, y) => x.namaProduk.localeCompare(y.namaProduk, "id")),
     gagal: [...a.gagal].filter((k) => !a.sudah.has(k)).length,
+    dpl: a.dpl.sort((x, y) => y.submittedAt.getTime() - x.submittedAt.getTime()),
   }));
   rows.sort((x, y) => (y.sudah.length + y.onProgress.length) - (x.sudah.length + x.onProgress.length) || x.namaOutlet.localeCompare(y.namaOutlet, "id"));
 
@@ -2006,6 +2020,10 @@ async function submitDiscountRequestActionImpl(formData: FormData): Promise<void
     console.error("[poaStandarisasi/submitDiscountRequest] POST 200 tapi request tidak ditemukan di GET Exodus", { outlet: pengajuan.kodePI, tipe, createdBy: actor.nip });
     throw new Error("Request belum terkonfirmasi di Exodus (tidak ditemukan setelah dikirim). Cek dulu di sistem Exodus sebelum mengirim ulang agar tidak dobel, dan hubungi admin kalau berulang.");
   }
+  await prisma.poaStandarisasiDiscountRequest.update({
+    where: { id: reservation.id },
+    data: { exodusRefId: confirmed.refId, exodusStatus: confirmed.status, exodusStatusAt: new Date() },
+  });
   revalidatePath(`/poa-standarisasi/${pengajuanId}`);
 }
 

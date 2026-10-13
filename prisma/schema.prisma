@@ -1993,6 +1993,13 @@ model PoaStandarisasiDiscountRequest {
   submittedBy    User     @relation(fields: [submittedByNip], references: [nip])
   submittedAt    DateTime @default(now())
 
+  // Status approval dari Exodus (GET promotion/v1/request/discount: ref_id + status), diisi saat submit
+  // terkonfirmasi dan di-refresh lazy dari Monitoring POA Standarisasi (src/lib/discountRequestStatus.ts).
+  // exodusStatus mentah: submitted | approved | active | done | rejected (+ tahap antara). Null = belum pernah tercocokkan.
+  exodusRefId    String?
+  exodusStatus   String?
+  exodusStatusAt DateTime?
+
   @@unique([pengajuanId, dedupKey])
   @@index([pengajuanId])
 }
