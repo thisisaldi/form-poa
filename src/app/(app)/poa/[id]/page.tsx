@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/Button";
 import { getAppSetting } from "@/lib/appSettings";
 import { settingMessage } from "@/lib/appSettingsRegistry";
 import { Card } from "@/components/ui/Card";
+import type { DoctorHistoryEntry } from "@/components/poa/DraftChecklist";
 import { PoaDetailTabs, type DoctorActions, type DoctorEditRequestInfo, type DoctorRejectInfo } from "@/components/poa/PoaDetailTabs";
 import { getActivePsspByOutlets, getPsspEverKodeCust } from "@/app/actions/customer";
 import { computeKontesProductTargetsSummary } from "@/lib/targetCalculation";
@@ -210,6 +211,55 @@ export default async function PoaDetailPage({
     ? await prisma.user.findMany({ where: { nip: { in: approverNips } }, select: { nip: true, name: true } })
     : [];
   const approverNameByNip = new Map(approverUsers.map((u: { nip: string; name: string }) => [u.nip, u.name]));
+
+  // Riwayat aktivitas PER BARIS dokter (2026-10-13: "di baris lihat/edit poa ada riwayat aktivitas juga, hanya
+  // untuk baris itu"). Log berpindah ke baris lewat doctorApprovalId bila ada (satu approval = satu gelombang);
+  // log edit baris (UPDATE/REVISE) tidak punya itu, jadi dicocokkan lewat nama dokter (+kodePI bila ada di
+  // snapshot) dan gelombang yang sedang berjalan saat log dibuat (awal gelombang = item paling awal gelombang itu).
+  type ApprovalRef = { id: string; kodePI: string; namaCust: string; batch: number };
+  const approvalById = new Map<string, ApprovalRef>((poa.doctorApprovals as ApprovalRef[]).map((a) => [a.id, a]));
+  const batchStartsByName = new Map<string, Map<number, number>>(); // `${kodePI}|${nama}` -> batch -> ms
+  for (const it of poa.items as PoaLineItem[]) {
+    const nk = `${it.kodePI ?? ""}|${it.namaCust.trim().toLowerCase()}`;
+    const m = batchStartsByName.get(nk) ?? new Map<number, number>();
+    const at = new Date(it.createdAt).getTime();
+    m.set(it.batch, Math.min(m.get(it.batch) ?? Infinity, at));
+    batchStartsByName.set(nk, m);
+  }
+  const doctorHistory: Record<string, DoctorHistoryEntry[]> = {};
+  for (const log of poa.auditLogs as (AuditLogType & { actor: UserType })[]) {
+    const snap = log.snapshot as AuditSnapshot & { newBatch?: number };
+    let rowKey: string | null = null;
+    if (log.doctorApprovalId) {
+      const a = approvalById.get(log.doctorApprovalId);
+      if (a) rowKey = doctorKeyOf(a.kodePI, a.namaCust, a.batch);
+    } else {
+      const nama = (snap?.namaCust ?? snap?.customer ?? "").trim().toLowerCase();
+      if (nama) {
+        const kodePIs = snap?.kodePI ? [snap.kodePI] : [...new Set((poa.items as PoaLineItem[]).map((i) => i.kodePI ?? ""))];
+        for (const kp of kodePIs) {
+          const starts = batchStartsByName.get(`${kp}|${nama}`);
+          if (!starts) continue;
+          const at = new Date(log.createdAt).getTime();
+          const batches = [...starts.entries()].sort((x, y) => x[0] - y[0]);
+          const batch = snap?.newBatch ?? [...batches].reverse().find(([, start]) => start <= at)?.[0] ?? batches[0][0];
+          rowKey = doctorKeyOf(kp, (poa.items as PoaLineItem[]).find((i) => i.kodePI === kp && i.namaCust.trim().toLowerCase() === nama)!.namaCust, batch);
+          break;
+        }
+      }
+    }
+    if (!rowKey) continue;
+    (doctorHistory[rowKey] ??= []).push({
+      id: log.id,
+      at: formatWib(log.createdAt),
+      actor: log.actor.name,
+      label: auditActionLabel(log.action, snap),
+      toStatus: log.toStatus && log.toStatus !== log.fromStatus ? log.toStatus.replace(/_/g, " ") : null,
+      rejectLabel: log.rejectCategory ? REJECT_CATEGORY_LABELS[log.rejectCategory] ?? log.rejectCategory : null,
+      notes: snap?.notes ?? null,
+      detail: [snap?.product ? `Produk: ${snap.product}` : null].filter(Boolean).join(" · ") || null,
+    });
+  }
 
   // Atasan actions (approve/reject/cancel), keyed the same way as
   // doctorStatuses so DraftChecklist's DoctorRow can render them inline in
@@ -566,6 +616,7 @@ export default async function PoaDetailPage({
         doctorRejectInfo={doctorRejectInfo}
         doctorExodusApprovedBy={doctorExodusApprovedBy}
         doctorDeal={doctorDeal}
+        doctorHistory={doctorHistory}
         canDeleteDoctor={canDeleteDoctor}
         doctorCanEdit={doctorCanEdit}
         activePssp={activePssp}

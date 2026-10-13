@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { PoaLineItem, PoaStatus } from "@prisma/client";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { DraftChecklist, ActivePsspListCard, formatRp } from "@/components/poa/DraftChecklist";
+import { DraftChecklist, ActivePsspListCard, formatRp, type DoctorHistoryEntry } from "@/components/poa/DraftChecklist";
 import { quarterToMonths, quarterLabelFromMonths } from "@/lib/quarterUtils";
 import { computeActivePsspStats } from "@/lib/activePssp";
 import type { ActivePsspRow } from "@/app/actions/customer";
@@ -76,7 +76,7 @@ export interface DoctorRejectInfo {
 
 export function PoaDetailTabs({
   items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor,
-  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo, doctorCanEdit, doctorExodusApprovedBy, doctorDeal, canDeleteDoctor,
+  selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], kontesProductTargets, salesSummary, targetArea, doctorStatuses, doctorVersions, doctorActions, doctorEditRequests, doctorRejectInfo, doctorCanEdit, doctorExodusApprovedBy, doctorDeal, doctorHistory, canDeleteDoctor,
 }: {
   items: PoaLineItem[];
   poaId?: string;
@@ -116,6 +116,7 @@ export function PoaDetailTabs({
   doctorExodusApprovedBy?: Record<string, string | null>;
   /** kodePI|namaCust -> state tombol Deal (2026-09-24) — cuma ada untuk dokter fully approved. */
   doctorDeal?: Record<string, { dealAt: string | null; canDeal: boolean }>;
+  doctorHistory?: Record<string, DoctorHistoryEntry[]>;
   /** Owner (or ADMIN) can delete any doctor here regardless of approval progress (2026-09-11 decision). */
   canDeleteDoctor?: boolean;
   activePssp?: ActivePsspRow[];
@@ -234,6 +235,7 @@ export function PoaDetailTabs({
               doctorCanEdit={doctorCanEdit}
               doctorExodusApprovedBy={doctorExodusApprovedBy}
               doctorDeal={doctorDeal}
+              doctorHistory={doctorHistory}
               canDeleteDoctor={canDeleteDoctor}
             />
           )}

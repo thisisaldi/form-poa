@@ -710,7 +710,7 @@ function StatTile({ label, value, sub, emphasize = false }: { label: string; val
 }
 
 function DoctorRow({
-  doctorItems, allDoctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy, doctorDeal, canDeleteDoctor,
+  doctorItems, allDoctorItems, checked, onToggle, selectable = true, totalEstimasi, poaId, userCanEdit, quarterMonths, everPsspKodeCust, otherDoctorsAtOutletCount, outletPsspInfo, doctorPsspInfo, showSubmit, doctorStatus, doctorVersion, doctorActions, doctorEditRequest, doctorRejectInfo, doctorExodusApprovedBy, doctorDeal, history, canDeleteDoctor,
 }: {
   doctorItems: PoaLineItem[];
   /** Semua baris dokter ini di POA (semua gelombang) — dasar WARNING input ganda lintas gelombang. */
@@ -743,6 +743,7 @@ function DoctorRow({
   doctorVersion?: number;
   /** This viewer's atasan actions for this doctor — see DraftChecklist's own prop doc. */
   doctorActions?: DoctorActions;
+  history?: DoctorHistoryEntry[];
   /** This doctor's edit-lock/request-edit state — see DraftChecklist's own prop doc. */
   doctorEditRequest?: DoctorEditRequestInfo;
   /** This doctor's rejection reason/category — see DraftChecklist's own prop doc. */
@@ -1212,6 +1213,28 @@ function DoctorRow({
         </div>
       )}
 
+      {history && history.length > 0 && (
+        <details className="mt-2.5 rounded-lg border px-3 py-2" style={{ borderColor: "var(--color-border)" }}>
+          <summary className="cursor-pointer select-none text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
+            Riwayat Aktivitas ({history.length})
+          </summary>
+          <ol className="relative mt-2 space-y-3 pl-4 border-l" style={{ borderColor: "var(--color-border)" }}>
+            {history.map((h) => (
+              <li key={h.id} className="text-xs">
+                <p style={{ color: "var(--color-text-faint)" }}>{h.at}</p>
+                <p className="font-medium" style={{ color: "var(--color-text)" }}>
+                  {h.actor} <span className="font-normal" style={{ color: "var(--color-text-muted)" }}>{h.label}</span>
+                </p>
+                {h.detail && <p style={{ color: "var(--color-text-muted)" }}>{h.detail}</p>}
+                {h.toStatus && <p style={{ color: "var(--color-text-muted)" }}>→ {h.toStatus}</p>}
+                {h.rejectLabel && <p style={{ color: "var(--color-red)" }}>Kategori: {h.rejectLabel}</p>}
+                {h.notes && <p className="italic" style={{ color: "var(--color-text-muted)" }}>&quot;{h.notes}&quot;</p>}
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+
       {atasanPanelOpen && doctorActions && (
         <div className="mt-2.5 rounded-lg border p-3 space-y-3" style={{ borderColor: "var(--color-blue)" }}>
           {doctorActions.canApprove && (
@@ -1356,7 +1379,19 @@ function DoctorRow({
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {}, doctorExodusApprovedBy = {}, doctorDeal: doctorDealMap = {}, canDeleteDoctor = false }: {
+/** Satu entri riwayat aktivitas untuk SATU baris dokter (sudah diformat server, WIB). */
+export interface DoctorHistoryEntry {
+  id: string;
+  at: string;
+  actor: string;
+  label: string;
+  toStatus: string | null;
+  rejectLabel: string | null;
+  notes: string | null;
+  detail: string | null;
+}
+
+export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdit, canAddDoctor, selectable = true, activePssp = [], outletPsspInfo = {}, doctorPsspInfo = {}, everPsspKodeCust = [], salesSummary, targetArea: targetAreaProp, doctorStatuses = {}, doctorVersions = {}, doctorActions = {}, doctorEditRequests = {}, doctorRejectInfo = {}, doctorCanEdit = {}, doctorExodusApprovedBy = {}, doctorDeal: doctorDealMap = {}, doctorHistory = {}, canDeleteDoctor = false }: {
   items: PoaLineItem[];
   poaId?: string;
   poaPeriod: string;
@@ -1425,6 +1460,8 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
    * OQ-3 — a sibling doctor being approved must never lock this one). Falls
    * back to `userCanEdit` for a doctor absent from the map. */
   doctorCanEdit?: Record<string, boolean>;
+  /** Riwayat aktivitas per baris dokter (kunci sama dengan doctorStatuses). */
+  doctorHistory?: Record<string, DoctorHistoryEntry[]>;
   /** kodePI|namaCust -> approver name set by Exodus (docs/exodus-poa-usage/, 2026-09-09) — display-only. */
   doctorExodusApprovedBy?: Record<string, string | null>;
   /** kodePI|namaCust -> state tombol Deal (2026-09-24) — cuma ada untuk dokter fully approved. */
@@ -1581,6 +1618,7 @@ export function DraftChecklist({ items, poaId, poaPeriod, showSubmit, userCanEdi
                 doctorRejectInfo={doctorRejectInfo[key]}
                 doctorExodusApprovedBy={doctorExodusApprovedBy[key]}
                 doctorDeal={doctorDealMap[key]}
+                history={doctorHistory[key]}
                 canDeleteDoctor={canDeleteDoctor}
               />
             ))}
