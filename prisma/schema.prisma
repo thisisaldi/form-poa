@@ -2422,3 +2422,19 @@ model LoginAccessConfig {
   updatedByNip String?
   updatedAt    DateTime @updatedAt
 }
+
+// Bank Spesialis (docs/poa-bank-spesialis/, 2026-10-13): pasangan spesialis dokter -> produk. Produk yang ada
+// di tabel ini = Produk Kontes; dasar WARNING "produk tidak sesuai spesialisasi dokter". Dikelola ADMIN.
+model BankSpesialis {
+  id           String   @id @default(uuid())
+  spesialis    String // nama kanonik, mis. "ANAK (PEDIATRIC)"
+  kodeProduk   String
+  namaProduk   String
+  keterangan   String? // alasan relevansi (kolom Keterangan di sheet)
+  updatedByNip String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([spesialis, kodeProduk])
+  @@index([kodeProduk])
+}

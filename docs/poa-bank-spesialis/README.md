@@ -15,18 +15,22 @@ rekomendasi PSSP + **warning** bila estimasi produk tidak sesuai spesialisasi do
 
 ## Implementasi
 
-- `scripts/generateBankSpesialisData.py` → `src/lib/bankSpesialisData.ts` (generated; jangan edit tangan). Key nama produk memuat ejaan Excel DAN `Product.namaProduk` (beda ejaan pada sebagian kode).
-- `src/lib/bankSpesialis.ts`: `canonicalBankSpesialis`, `isProdukSesuaiSpesialisasi` (true/false/null), `bankKeterangan`.
-- `src/lib/paketProduk.ts`: `PAKET_BY_PRODUK` & `getPaketsBySpesialisasi` membaca Bank. `SPESIALISASI_TO_PAKET` tinggal dipakai sebagai daftar key dropdown spesialisasi (nilainya legacy).
+- **Sumber kebenaran = tabel `BankSpesialis`** (migrasi `20261013120000_bank_spesialis`, seed 677 pasangan dari sheet). Dikelola ADMIN di halaman Admin → panel "Bank Spesialis" (lihat/cari/filter, tambah, hapus, edit Keterangan), tanpa deploy.
+- `src/lib/bankSpesialis.ts` (pure, aman client): indeks modul-level + helper `canonicalBankSpesialis`, `isProdukSesuaiSpesialisasi` (true/false/null), `bankKeterangan`, `bankSpesialisForNama`. Alias spesialisasi DB/Exodus → nama Bank ada di sini (`BANK_ALIAS`).
+- `src/lib/bankSpesialisStore.ts` (server): `loadBankSpesialis()` baca tabel (+ `Product.namaProduk` per kode karena ejaan Excel bisa beda), cache 30 dtk. Dipanggil di `(app)/layout.tsx`, summary, export tim, export POA, dan `targetCalculation`.
+- `BankSpesialisProvider` mengisi indeks client dari layout. `paketProduk.ts` (`getAllPakets`, `getProductTier`, `getPaketsBySpesialisasi`) membaca indeks itu.
+- `src/lib/bankSpesialisData.ts` (generated `scripts/generateBankSpesialisData.py`) hanya **fallback** bila tabel gagal dibaca; bukan sumber utama.
 
 ## Dampak yang perlu diketahui
 
 - Produk Kontes naik dari daftar lama ke 166 produk → tile/tabel "Produk Kontes" di Ringkasan, `computeKontesProductTargetsSummary`, export Excel, dan DraftChecklist ikut memakai definisi baru (semuanya lewat `getAllPakets`).
 - Label paket di picker (`sublabel`) kini nama spesialis, bukan "PAKET …".
-- Kolom **Keterangan** Bank (95 baris terisi) sudah ikut di-generate (`BANK_KETERANGAN`) tapi belum ditampilkan di UI.
+- Kolom **Keterangan** Bank (95 baris terisi) bisa dilihat/diedit di panel Admin, belum ditampilkan ke MR di UI.
+- **Prod butuh migrasi** `20261013120000_bank_spesialis` (CREATE TABLE + seed). Tanpa migrasi, loader jatuh ke data fallback (perilaku sama dengan seed), tapi panel Admin error.
+- Spesialis baru tidak bisa dibuat dari panel (hanya 17 nama yang ada); ejaan lain harus ditambah di `BANK_ALIAS`.
 - Sheet "Bank Spesialis - Edit" (keterangan lebih lengkap) tidak dipakai — sesuai permintaan memakai "Bank Spesialis".
 
-## Regenerasi
+## Regenerasi fallback / seed ulang
 
 1. Dump sheet "Bank Spesialis" (kolom A–D, baris 4+) ke JSON `[{spesialis,kode,nama,ket}]` (openpyxl read_only; exceljs OOM karena workbook 36MB).
 2. Dump `Product` untuk kode-kode itu → `[{kodeProduk,namaProduk}]`.

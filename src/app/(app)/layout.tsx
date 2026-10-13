@@ -7,6 +7,8 @@ import { getMaintenanceState, maintenanceMessage } from "@/lib/maintenance";
 import { ScToastProvider } from "@/components/sc/ui/ScToast";
 import { getAppSettings } from "@/lib/appSettings";
 import { FeatureFlagsProvider } from "@/components/providers/FeatureFlags";
+import { BankSpesialisProvider } from "@/components/providers/BankSpesialisProvider";
+import { loadBankSpesialis } from "@/lib/bankSpesialisStore";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -44,10 +46,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   // Pengaturan fitur dari DB (AppSetting) untuk komponen client — lihat FeatureFlagsProvider.
-  const featureFlags = await getAppSettings();
+  const [featureFlags, bankSpesialis] = await Promise.all([getAppSettings(), loadBankSpesialis()]);
 
   return (
     <FeatureFlagsProvider values={featureFlags}>
+    <BankSpesialisProvider payload={bankSpesialis}>
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--color-bg)" }}>
       <Sidebar
         userRole={session.role}
@@ -72,6 +75,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </main>
     </div>
+    </BankSpesialisProvider>
     </FeatureFlagsProvider>
   );
 }

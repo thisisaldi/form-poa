@@ -22,6 +22,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { getAllPakets } from "@/lib/paketProduk";
+import { loadBankSpesialis } from "@/lib/bankSpesialisStore";
 import { toYYYYMM, quarterToMonths } from "@/lib/quarterUtils";
 
 export { quarterToMonths };
@@ -280,6 +281,7 @@ export interface QuarterlyKontesSummary {
 
 /** Runs the per-product SM-territory simulation for every kontes product, then rolls up to SM and NSM totals. */
 export async function computeKontesProductTargetsSummary(quarter: string): Promise<QuarterlyKontesSummary> {
+  await loadBankSpesialis();
   const { getProducts } = await import("@/lib/masterData");
   const allProducts = await getProducts();
   const kontesProducts = allProducts.filter((p) => getAllPakets(p.namaProduk).length > 0);
@@ -366,6 +368,7 @@ export async function getProductTargetInput(kodeProduk: string, quarter: string)
 }
 
 export async function listKontesProducts(): Promise<{ kodeProduk: string; namaProduk: string }[]> {
+  await loadBankSpesialis();
   const { getProducts } = await import("@/lib/masterData");
   const allProducts = await getProducts();
   return allProducts

@@ -42,6 +42,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getSubordinateOwnerNips } from "@/lib/authz";
 import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistoryByCustomers, getSurveyRekomendasiByCustomers, getDiskonByOutlets, getDiskonHistoryByOutlets, getNexusSpesialisasiByOutlets, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
+import { loadBankSpesialis } from "@/lib/bankSpesialisStore";
 import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown, computeJumlahPeriode } from "@/lib/poaUtils";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel } from "@/lib/spesialisasi";
@@ -96,6 +97,7 @@ export async function GET(req: NextRequest) {
   }
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  await loadBankSpesialis(); // Produk Kontes dari tabel BankSpesialis (docs/poa-bank-spesialis/)
   // SFE used to be blocked here too (2026-07-24: "hanya monitor summarynya
   // saja") — reversed 2026-08-14 per explicit request: SFE and VIEWER (the
   // latter never blocked here) should be able to bulk-export, not just pull

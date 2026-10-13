@@ -1,24 +1,21 @@
-import { BANK_SPESIALIS_BY_NAMA_PRODUK } from "./bankSpesialisData";
-import { canonicalBankSpesialis } from "./bankSpesialis";
+import { bankSpesialisForNama, canonicalBankSpesialis } from "./bankSpesialis";
 
 /**
- * Mapping namaProduk (UPPERCASE) → "paket" produk kontes. Sejak 2026-10-13 sumbernya Bank Spesialis
- * (docs/poa-bank-spesialis/, src/lib/bankSpesialisData.ts): "paket" = nama spesialis yang
- * direkomendasikan untuk produk itu, dan produk ada di Bank = Produk Kontes. Menggantikan daftar
- * "PAKET PEDIATRIC/PENCERNAAN/..." dari Paket Produk Kontes PM.xlsx (2026-08-06).
+ * "Paket" produk kontes. Sejak 2026-10-13 sumbernya Bank Spesialis (docs/poa-bank-spesialis/, tabel
+ * BankSpesialis lewat src/lib/bankSpesialis.ts): "paket" = nama spesialis yang direkomendasikan untuk
+ * produk itu, dan produk ada di Bank = Produk Kontes. Menggantikan daftar "PAKET PEDIATRIC/PENCERNAAN/..."
+ * dari Paket Produk Kontes PM.xlsx (2026-08-06).
  */
-export const PAKET_BY_PRODUK: Record<string, string[]> = BANK_SPESIALIS_BY_NAMA_PRODUK;
 
 /** Returns the primary paket label for a product name, or null if not a kontes product. */
 export function getPaketLabel(namaProduk: string): string | null {
-  const pakets = PAKET_BY_PRODUK[namaProduk.toUpperCase()];
-  if (!pakets || pakets.length === 0) return null;
-  return pakets[0];
+  const pakets = bankSpesialisForNama(namaProduk);
+  return pakets.length === 0 ? null : pakets[0];
 }
 
 /** Returns all pakets for a product name. */
 export function getAllPakets(namaProduk: string): string[] {
-  return PAKET_BY_PRODUK[namaProduk.toUpperCase()] ?? [];
+  return bankSpesialisForNama(namaProduk);
 }
 
 /**
@@ -169,8 +166,8 @@ export function getPaketsBySpesialisasi(spesialisasi: string): string[] {
 
 /** Returns 0 = matched focus, 1 = other focus, 2 = non-focus for a product given matched pakets. */
 export function getProductTier(namaProduk: string, matchedPakets: string[]): 0 | 1 | 2 {
-  const pakets = PAKET_BY_PRODUK[namaProduk.toUpperCase()];
-  if (!pakets || pakets.length === 0) return 2;
+  const pakets = bankSpesialisForNama(namaProduk);
+  if (pakets.length === 0) return 2;
   if (matchedPakets.length > 0 && pakets.some((pk) => matchedPakets.includes(pk))) return 0;
   return 1;
 }

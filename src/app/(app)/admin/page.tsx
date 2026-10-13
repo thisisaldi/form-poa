@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { AdminTabs } from "@/components/admin/AdminTabs";
 import { MaintenanceModeToggle } from "@/components/admin/MaintenanceModeToggle";
 import { AppSettingsPanel } from "@/components/admin/AppSettingsPanel";
+import { BankSpesialisPanel } from "@/components/admin/BankSpesialisPanel";
 import { LoginAccessPanel } from "@/components/admin/LoginAccessPanel";
 import { PoaDoctorsApiCredentialPanel } from "@/components/admin/PoaDoctorsApiCredentialPanel";
 import { GoogleDriveConfigPanel } from "@/components/admin/GoogleDriveConfigPanel";
@@ -84,6 +85,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         <div className="space-y-5">
           <MaintenanceModeToggle />
           <AppSettingsPanel />
+          <BankSpesialisPanel />
           <LoginAccessPanel />
           <PoaDoctorsApiCredentialPanel />
           <GoogleDriveConfigPanel />

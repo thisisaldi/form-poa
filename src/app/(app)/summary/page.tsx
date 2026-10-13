@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { dedupeLineItems, sumTargetOncePerOwnerPeriod } from "@/lib/dedupeLineItems";
 import { getSubordinateMRNips, NON_DRAFT_STATUSES } from "@/lib/authz";
 import { getAllPakets } from "@/lib/paketProduk";
+import { loadBankSpesialis } from "@/lib/bankSpesialisStore";
 import { spesLabel } from "@/lib/spesialisasi";
 import { currentQuarter, quarterToMonths } from "@/lib/quarterUtils";
 import { computeMonthlyBreakdown, computeApportionedBiaya, formatPeriode } from "@/lib/poaUtils";
@@ -207,6 +208,7 @@ export default async function SummaryPage({
 }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
+  await loadBankSpesialis(); // Produk Kontes dari tabel BankSpesialis (docs/poa-bank-spesialis/)
 
   const user = await prisma.user.findUnique({ where: { nip: session.userId }, select: { project: true } });
   const project = user?.project ?? session.project;

@@ -16,6 +16,7 @@ import { settingMessage } from "@/lib/appSettingsRegistry";
 import { computePeriodeAkhir, formatPeriode, computeMonthlyBreakdown, computeJumlahPeriode } from "@/lib/poaUtils";
 import { displayRole } from "@/lib/role";
 import { getAllPakets } from "@/lib/paketProduk";
+import { loadBankSpesialis } from "@/lib/bankSpesialisStore";
 import { getPsspHistory, getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getSurveyRekomendasiByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 
 const STATUS_STANDARISASI_LABELS: Record<string, string> = {
@@ -113,6 +114,7 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  await loadBankSpesialis(); // Produk Kontes dari tabel BankSpesialis (docs/poa-bank-spesialis/)
 
   const { id } = await params;
 
