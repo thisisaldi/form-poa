@@ -587,13 +587,17 @@ async function DashboardContent({
                     </td>
                     <td className="py-3" style={{ color: "var(--color-text)" }}>{poa.period}</td>
                     <td className="py-3">
-                      <StatusBadge status={poa.status} version={poa.version} />
                       {(() => {
                         const b = doctorBreakdown.get(poa.id);
-                        if (!b) return null;
+                        // Status POA satu label untuk banyak dokter itu ambigu (2026-10-13): kalau sudah ada
+                        // dokter yang diajukan, tampilkan hanya rincian per dokter. Tanpa dokter terajukan
+                        // (mis. DRAFT) tetap pakai label status POA.
+                        if (!b || (b.approved === 0 && b.proses === 0 && b.revisi === 0)) {
+                          return <StatusBadge status={poa.status} version={poa.version} />;
+                        }
                         const chip = "rounded border px-1.5 py-0.5 font-mono text-[11px]";
                         return (
-                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <div className="flex flex-wrap gap-1.5">
                             {b.approved > 0 && <span className={chip} style={{ color: "var(--color-status-approved)", borderColor: "var(--color-status-approved)" }}>{b.approved} fully approved</span>}
                             {b.proses > 0 && <span className={chip} style={{ color: "var(--color-status-pending)", borderColor: "var(--color-status-pending)" }}>{b.proses} proses</span>}
                             {b.revisi > 0 && <span className={chip} style={{ color: "var(--color-status-revisi)", borderColor: "var(--color-status-revisi)" }}>{b.revisi} revisi</span>}
