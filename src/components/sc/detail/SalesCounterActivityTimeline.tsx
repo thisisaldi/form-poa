@@ -1,5 +1,6 @@
 "use client";
 
+import { formatWibShort } from "@/lib/formatWib";
 import { AUDIT_ACTION_LABELS } from "./constants/auditActionLabels";
 import { formatMonthKey } from "./utils/formatDateUtils";
 import { formatRp } from "./SalesCounterStatsPanel";
@@ -140,13 +141,7 @@ export function SalesCounterActivityTimeline({
                   />
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <p className="text-xs font-mono" style={{ color: "var(--color-text-faint)" }}>
-                      {new Date(log.createdAt).toLocaleString("id-ID", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatWibShort(log.createdAt)}
                     </p>
                     {log.namaOutlet && (
                       <span

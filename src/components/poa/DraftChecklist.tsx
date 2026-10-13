@@ -1005,7 +1005,7 @@ function DoctorRow({
           {doctorDeal && (
             doctorDeal.dealAt ? (
               <p className="text-[10px] leading-tight whitespace-nowrap font-semibold" style={{ color: "var(--color-status-approved, #008f42)" }}>
-                ✓ Deal {new Date(doctorDeal.dealAt).toLocaleDateString("id-ID")}
+                ✓ Deal {new Date(doctorDeal.dealAt).toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta" })}
               </p>
             ) : doctorDeal.canDeal ? (
               dealError ? <p className="text-[10px] leading-tight" style={{ color: "var(--color-error)" }}>{dealError}</p> : null

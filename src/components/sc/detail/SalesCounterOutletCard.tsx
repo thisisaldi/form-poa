@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { formatWibShort } from "@/lib/formatWib";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -474,13 +475,7 @@ export function SalesCounterOutletCard({
 
           {draft.updatedAt && (
             <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-              Terakhir diperbarui: {new Date(draft.updatedAt).toLocaleString("id-ID", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              Terakhir diperbarui: {formatWibShort(draft.updatedAt)}
             </span>
           )}
         </div>

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { formatWibShort } from "@/lib/formatWib";
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -538,13 +539,7 @@ export default async function SalesCounterDashboardPage({
                     <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
                       {p.updatedAt ? (
                         <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-                          Terakhir diperbarui: {new Date(p.updatedAt).toLocaleString("id-ID", {
-                            day: "numeric",
-                            month: "short",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          Terakhir diperbarui: {formatWibShort(p.updatedAt)}
                         </span>
                       ) : <span />}
 

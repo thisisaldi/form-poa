@@ -1,4 +1,5 @@
 import { doctorKeyOf } from "@/lib/doctorKey";
+import { formatWib } from "@/lib/formatWib";
 import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaStatus } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
@@ -614,7 +615,7 @@ export default async function PoaDetailPage({
                     <span className="absolute left-[-1.4rem] mt-1 h-2.5 w-2.5 rounded-full border-2 border-white"
                       style={{ background: "var(--color-blue)" }} />
                     <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-                      {new Date(log.createdAt).toLocaleString("id-ID")}
+                      {formatWib(log.createdAt)}
                     </p>
                     <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
                       {log.actor.name}
