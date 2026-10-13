@@ -23,12 +23,8 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { getSubordinateOwnerNips } from "@/lib/authz";
-import { PHASES } from "@/lib/poaStandarisasiPhases";
+import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
 import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
-
-function phaseLabel(phase: string): string {
-  return PHASES.find((p) => p.id === phase)?.label ?? phase;
-}
 
 function num(v: { toString(): string } | null | undefined): number | null {
   return v == null ? null : parseFloat(v.toString());
@@ -61,6 +57,7 @@ export async function GET(_req: NextRequest) {
           product: { select: { kodeProduk: true, namaProduk: true } },
           dokterApproval: { select: { customerId: true, sudahTtd: true, customer: { select: { namaCustomer: true } } } },
           dokterUser: { include: { customer: { select: { namaCustomer: true } } } },
+          approvals: { select: { level: true, status: true, decidedAt: true } },
         },
       },
     },
@@ -119,7 +116,11 @@ export async function GET(_req: NextRequest) {
     { header: "Kode Outlet", key: "kodeOutlet", width: 12 },
     { header: "Outlet", key: "outlet", width: 26 },
     { header: "Tipe", key: "tipe", width: 12 },
-    { header: "Tahap", key: "tahap", width: 16 },
+    { header: "Planning", key: "progPlanning", width: 22 },
+    { header: "Approval ASM", key: "progAsm", width: 22 },
+    { header: "Approval SM", key: "progSm", width: 22 },
+    { header: "Approval User/Dokter", key: "progUserDokter", width: 20 },
+    { header: "Finalisasi", key: "progFinalisasi", width: 22 },
     { header: "Kode Produk", key: "kodeProduk", width: 12 },
     { header: "Nama Produk", key: "namaProduk", width: 28 },
     { header: "Distributor", key: "distributor", width: 20 },
@@ -139,6 +140,7 @@ export async function GET(_req: NextRequest) {
 
   for (const p of rows) {
     const approvers = approversByPengajuanId.get(p.id)!;
+    const progress = buildPhaseProgress(p);
     const shared = {
       namaMr: p.owner.name,
       namaAsm: approvers.asmNip ? approverNameByNip.get(approvers.asmNip) ?? "-" : "-",
@@ -147,7 +149,11 @@ export async function GET(_req: NextRequest) {
       kodeOutlet: p.kodePI,
       outlet: p.outlet.namaOutlet,
       tipe: p.tipeStandarisasi === "PERIODIC" ? "Periodic" : p.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic",
-      tahap: p.submittedAt ? "Sudah Disubmit" : phaseLabel(p.currentPhase),
+      progPlanning: progress.planning,
+      progAsm: progress.approvalAsm,
+      progSm: progress.approvalSm,
+      progUserDokter: progress.approvalUserDokter,
+      progFinalisasi: progress.finalisasi,
       distributor: p.distributors.join(", ") || "-",
       target: p.estimasiTimelineSelesai ? p.estimasiTimelineSelesai.toLocaleDateString("id-ID") : "-",
       tanggalKft: p.jadwalMeetingKft ? p.jadwalMeetingKft.toLocaleDateString("id-ID") : "-",

@@ -18,14 +18,10 @@ import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canViewPoaStandarisasi, getPoaStandarisasiApprovers } from "@/lib/authz";
-import { PHASES } from "@/lib/poaStandarisasiPhases";
+import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
 
 const STATUS_PENGAJUAN_LABELS: Record<string, string> = { BARU: "Baru", PERPANJANGAN: "Perpanjangan" };
 const SKEMA_LABELS: Record<string, string> = { DISKON: "Diskon", DP: "DP" };
-
-function phaseLabel(phase: string): string {
-  return PHASES.find((p) => p.id === phase)?.label ?? phase;
-}
 
 function num(v: { toString(): string } | null | undefined): number | null {
   return v == null ? null : parseFloat(v.toString());
@@ -56,6 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
             product: { select: { kodeProduk: true, namaProduk: true } },
             dokterApproval: { include: { customer: { select: { namaCustomer: true } } } },
             dokterUser: { include: { customer: { select: { namaCustomer: true } } } },
+            approvals: { select: { level: true, status: true, decidedAt: true } },
           },
           orderBy: { createdAt: "asc" },
         },
@@ -79,7 +76,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     { header: "Nama NSM", key: "namaNsm", width: 24 },
     { header: "Outlet", key: "outlet", width: 28 },
     { header: "Tipe Standarisasi", key: "tipe", width: 14 },
-    { header: "Tahap", key: "tahap", width: 16 },
+    { header: "Planning", key: "progPlanning", width: 22 },
+    { header: "Approval ASM", key: "progAsm", width: 22 },
+    { header: "Approval SM", key: "progSm", width: 22 },
+    { header: "Approval User/Dokter", key: "progUserDokter", width: 20 },
+    { header: "Finalisasi", key: "progFinalisasi", width: 22 },
     { header: "Distributor", key: "distributors", width: 16 },
     { header: "Item Kode - Nama Produk", key: "produk", width: 32 },
     { header: "Status Pengajuan Produk", key: "statusProduk", width: 16 },
@@ -114,7 +115,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const outletLabel = pengajuan.outlet.namaOutlet;
   const tipeLabel = pengajuan.tipeStandarisasi === "PERIODIC" ? "Periodic" : pengajuan.tipeStandarisasi === "SISIPAN" ? "Sisipan" : "Non Periodic";
-  const tahapLabel = pengajuan.submittedAt ? "Sudah Disubmit" : phaseLabel(pengajuan.currentPhase);
+  const progress = buildPhaseProgress(pengajuan);
   const distributorsLabel = pengajuan.distributors.join(", ") || "-";
 
   for (const prod of pengajuan.produk) {
@@ -152,7 +153,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (dokterRows.length === 0) {
       sheet.addRow({
         namaMr, namaAsm, namaSm, namaNsm,
-        outlet: outletLabel, tipe: tipeLabel, tahap: tahapLabel, distributors: distributorsLabel,
+        outlet: outletLabel, tipe: tipeLabel,
+        progPlanning: progress.planning, progAsm: progress.approvalAsm, progSm: progress.approvalSm,
+        progUserDokter: progress.approvalUserDokter, progFinalisasi: progress.finalisasi,
+        distributors: distributorsLabel,
         produk: produkLabel, statusProduk: STATUS_PENGAJUAN_LABELS[prod.statusPengajuan] ?? prod.statusPengajuan,
         skema: SKEMA_LABELS[skema] ?? skema, diskonPi: skema === "DISKON" ? diskonPi : null,
         diskonDist: skema === "DISKON" ? diskonDist : null, valueDp: skema === "DP" ? valueDp : null,
@@ -169,7 +173,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         namaNsm,
         outlet: outletLabel,
         tipe: tipeLabel,
-        tahap: tahapLabel,
+        progPlanning: progress.planning,
+        progAsm: progress.approvalAsm,
+        progSm: progress.approvalSm,
+        progUserDokter: progress.approvalUserDokter,
+        progFinalisasi: progress.finalisasi,
         distributors: distributorsLabel,
         produk: produkLabel,
         statusProduk: STATUS_PENGAJUAN_LABELS[prod.statusPengajuan] ?? prod.statusPengajuan,
