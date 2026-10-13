@@ -13,6 +13,7 @@ import { getStandarisasiCustomerKodesByOutletAction, getStandarisasiProdukForDok
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { spesLabel, buildSpesialisasiOptions } from "@/lib/spesialisasi";
+import { isProdukSesuaiSpesialisasi } from "@/lib/bankSpesialis";
 import { getAllPakets, sortProductsBySpesialisasi, getPaketsBySpesialisasi, getProductTier, isRelevantToSpesialisasi } from "@/lib/paketProduk";
 import { Button } from "@/components/ui/Button";
 import { Combobox, type ComboboxOption, TAG_COLORS } from "@/components/ui/Combobox";
@@ -1204,6 +1205,12 @@ function ProdukEntryRow({
           {isDuplicateProduk && (
             <p className="text-xs mt-1 px-2 py-1 rounded font-medium" style={{ color: "var(--color-warning, #b45309)", background: "var(--color-warning-light, #fef3c7)" }}>
               ⚠ WARNING: produk ini sudah diinput di baris lain untuk dokter yang sama. Tetap bisa disimpan, pastikan memang disengaja.
+            </p>
+          )}
+          {/* Bank Spesialis (docs/poa-bank-spesialis/, 2026-10-13): hanya peringatan, tidak memblokir simpan. */}
+          {product && spesialisasi && isProdukSesuaiSpesialisasi(product.kodeProduk, product.namaProduk, spesialisasi) === false && (
+            <p className="text-xs mt-1 px-2 py-1 rounded font-medium" style={{ color: "var(--color-warning, #b45309)", background: "var(--color-warning-light, #fef3c7)" }}>
+              ⚠ WARNING: {product.namaProduk} tidak sesuai dengan spesialisasi dokter ({spesLabel(spesialisasi)}) menurut Bank Spesialis. Tetap bisa disimpan, pastikan memang disengaja.
             </p>
           )}
           {product && (

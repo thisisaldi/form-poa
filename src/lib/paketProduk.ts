@@ -1,64 +1,13 @@
+import { BANK_SPESIALIS_BY_NAMA_PRODUK } from "./bankSpesialisData";
+import { canonicalBankSpesialis } from "./bankSpesialis";
+
 /**
- * Mapping from namaProduk (uppercase) to the paket(s) it belongs to.
- * Keys must match exact namaProduk values in the Product table (uppercased).
- * Derived from excel/ProductPMDatabase.xlsx Unpivot sheets, updated against
- * internal/Paket Produk Kontes PM.xlsx (PM's latest official list, 2026-08-06).
+ * Mapping namaProduk (UPPERCASE) → "paket" produk kontes. Sejak 2026-10-13 sumbernya Bank Spesialis
+ * (docs/poa-bank-spesialis/, src/lib/bankSpesialisData.ts): "paket" = nama spesialis yang
+ * direkomendasikan untuk produk itu, dan produk ada di Bank = Produk Kontes. Menggantikan daftar
+ * "PAKET PEDIATRIC/PENCERNAAN/..." dari Paket Produk Kontes PM.xlsx (2026-08-06).
  */
-export const PAKET_BY_PRODUK: Record<string, string[]> = {
-  // NARFOZ — sirup (015942, 008870)
-  "NARFOZ 4 MG/5 ML SYRUP 30 ML":              ["PAKET PENCERNAAN", "PAKET PEDIATRIC"],
-  "NARFOZ 4 MG/5 ML SYRUP 60 ML":              ["PAKET PENCERNAAN", "PAKET PEDIATRIC"],
-  // NARFOZ — injeksi (005327, 005338)
-  "NARFOZ 4 INJEKSI":                           ["PAKET PENCERNAAN", "PAKET PEDIATRIC", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  "NARFOZ 8 INJEKSI":                           ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  // NARFOZ — tablet (003171, 003182)
-  "NARFOZ 4 TABLET":                            ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  "NARFOZ 8 TABLET":                            ["PAKET PENCERNAAN", "PAKET PERNAPASAN", "PAKET ONKOLOGI"],
-  // PENCERNAAN (010398)
-  "ARCOLASE 20 MG EC TABLET":                   ["PAKET PENCERNAAN"],
-  // GRIFOLS (015777)
-  "HUMAN ALBUMIN GRIFOLS 20 % INFUSION 100":    ["PAKET PENCERNAAN", "PAKET ONKOLOGI"],
-  // PRORIS (006064)
-  "PRORIS SUPPOSITORIA":                        ["PAKET PEDIATRIC", "PAKET PENCERNAAN"],
-  // PRAXION (007550, 007538, 007549)
-  "PRAXION 100MG/ML DROPS SUSPENSI":            ["PAKET PEDIATRIC", "PAKET PENCERNAAN"],
-  "PRAXION 120MG/5ML SUSPENSI":                 ["PAKET PEDIATRIC"],
-  "PRAXION 250MG/5ML SUSPENSI":                 ["PAKET PEDIATRIC"],
-  // PRORIS (003259, 011014, in addition to 006064 below)
-  "PRORIS SUSPENSI 60 ML":                      ["PAKET PEDIATRIC"],
-  "PRORIS FORTE SUSPENSION 50 ML":              ["PAKET PEDIATRIC"],
-  // CALTONAL (033300/033388) — namaProduk persis dari Exodus core products API
-  // adalah "CALTONAL 100 INJEKSI"/"CALTONAL 50 INJEKSI" (confirmed 2026-09-18),
-  // BUKAN "CALTONAL 50"/"CALTONAL 100" tanpa suffix seperti sebelumnya di sini —
-  // getPaketLabel match exact string, jadi key lama itu gak pernah nyambung.
-  "CALTONAL 50 INJEKSI":                        ["PAKET PAIN"],
-  "CALTONAL 100 INJEKSI":                       ["PAKET PAIN"],
-  // OZEN (006119)
-  "OZEN DROPS 12 ML":                           ["PAKET PEDIATRIC"],
-  // INTRIX (004865)
-  "INTRIX 1 G INJEKSI":                         ["PAKET PEDIATRIC", "PAKET PERNAPASAN"],
-  // AZTRIN (011290)
-  "AZTRIN 500 MG DRY INJECTION":                ["PAKET PEDIATRIC", "PAKET PERNAPASAN"],
-  // PAIN (013401, 013390)
-  "EVIDUR 120 MG FC TABLET":                    ["PAKET PAIN"],
-  "ACETRAM 37.5/325MG FC TABLET":               ["PAKET PAIN", "PAKET ONKOLOGI"],
-  // PLEXION (008528)
-  "PLEXION 50 MG TABLET SC":                    ["PAKET PAIN"],
-  // PERNAPASAN (012818)
-  "ZIGAT 400 MG FC TABLET":                     ["PAKET PERNAPASAN"],
-  // PSIKIATRI (008187, 008198, 020771, 004800, 004810)
-  "REMITAL 5 MG FC TABLET":                     ["PAKET PSIKIATRI"],
-  "REMITAL 10 MG FC TABLET":                    ["PAKET PSIKIATRI"],
-  "REMITAL 10 MG ODT":                          ["PAKET PSIKIATRI"],
-  "ANTIPRESTIN 10 KAPSUL":                      ["PAKET PSIKIATRI"],
-  "ANTIPRESTIN 20 KAPSUL":                      ["PAKET PSIKIATRI"],
-  // ONKOLOGI (014545, 011223, 015777 see above, 012884, 010805, 014853)
-  "PROSMOL 0.25 MG/5 ML INJECTION":             ["PAKET ONKOLOGI"],
-  "GRAMET 3 MG/3 ML INJECTION":                 ["PAKET ONKOLOGI"],
-  "APRION 75 MG CAPSULE":                       ["PAKET ONKOLOGI"],
-  "APRION 150 MG CAPSULE":                      ["PAKET ONKOLOGI"],
-  "IMDROS 100 MG FC TABLET":                    ["PAKET ONKOLOGI"],
-};
+export const PAKET_BY_PRODUK: Record<string, string[]> = BANK_SPESIALIS_BY_NAMA_PRODUK;
 
 /** Returns the primary paket label for a product name, or null if not a kontes product. */
 export function getPaketLabel(namaProduk: string): string | null {
@@ -213,8 +162,9 @@ export const SPESIALISASI_ALIAS: Record<string, string> = {
  * Used to prioritise focus products relevant to the doctor's specialty.
  */
 export function getPaketsBySpesialisasi(spesialisasi: string): string[] {
-  const key = spesialisasi.trim().toUpperCase();
-  return SPESIALISASI_TO_PAKET[key] ?? SPESIALISASI_TO_PAKET[SPESIALISASI_ALIAS[key]] ?? [];
+  // "Paket" = nama spesialis kanonik Bank Spesialis; spesialisasi tanpa padanan → [] (tidak ada rekomendasi).
+  const c = canonicalBankSpesialis(spesialisasi);
+  return c ? [c] : [];
 }
 
 /** Returns 0 = matched focus, 1 = other focus, 2 = non-focus for a product given matched pakets. */
