@@ -368,9 +368,23 @@ export async function GET(req: NextRequest) {
       }) as Promise<{ poaId: string; action: string; toStatus: string; createdAt: Date; actor: { name: string } }[]>
     : Promise.resolve([]);
 
-  const [outlet, hierMap, lineItemData, auditLogsAll] = await Promise.all([
-    outletBranch, hierarchyBranch, lineItemBranch, auditLogsPromise,
+  // Status approval PER DOKTER (PoaDoctorApproval): PoaForm.status hanyalah rollup seluruh dokter, jadi satu
+  // dokter yang sudah APPROVED_BY_NSM tetap terbaca "SUBMITTED TO NSM" bila dokter lain di POA itu belum
+  // (bug laporan 2026-10-13). Kolom "Status Approval" per baris dibaca dari sini.
+  const doctorApprovalsPromise = poaIds.length > 0
+    ? prisma.poaDoctorApproval.findMany({
+        where: { poaId: { in: poaIds } },
+        select: { poaId: true, kodePI: true, namaCust: true, batch: true, status: true },
+      }) as Promise<{ poaId: string; kodePI: string; namaCust: string; batch: number; status: string }[]>
+    : Promise.resolve([]);
+
+  const [outlet, hierMap, lineItemData, auditLogsAll, doctorApprovalsAll] = await Promise.all([
+    outletBranch, hierarchyBranch, lineItemBranch, auditLogsPromise, doctorApprovalsPromise,
   ]);
+  const doctorStatusByKey = new Map<string, string>(
+    doctorApprovalsAll.map((a) => [`${a.poaId}|${a.kodePI}|${a.namaCust}|${a.batch}`, a.status]),
+  );
+  const poaIdsWithDoctorApprovals = new Set(doctorApprovalsAll.map((a) => a.poaId));
   const { assignments, assignedOutlets, activePsspAll, hospinetSnapshotsAll, strukturRows } = outlet;
   const { lineItems, psspHistoryMap, surveyRowsByKey, diskonByOutletMap, diskonHistoryByOutletMap, productRowsForPengajuan } = lineItemData;
 
@@ -995,7 +1009,12 @@ export async function GET(req: NextRequest) {
 
     const row = ws3.addRow({
       periodPoa: mr.period ?? "-",
-      statusApproval: mr.status.replace(/_/g, " "),
+      // Dokter tanpa baris approval di POA yang sudah punya approval = belum diajukan (DRAFT); POA lama tanpa
+      // satu pun baris approval jatuh ke status POA.
+      statusApproval: (
+        doctorStatusByKey.get(`${li.poaId}|${li.kodePI ?? ""}|${li.namaCust}|${li.batch ?? 1}`)
+        ?? (poaIdsWithDoctorApprovals.has(li.poaId) ? "DRAFT" : mr.status)
+      ).replace(/_/g, " "),
       nomorRencana: groupNumberByKey.get(key),
       nipMr: mr.nip,
       namaMr: mr.name,
