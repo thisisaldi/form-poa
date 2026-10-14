@@ -234,6 +234,75 @@ function resolvePengaliNilaiR(entryValue: string): number {
 }
 
 /**
+ * % Deal Dokter + Pengali Nilai R (2026-10-14, arahan atasan: "fokus input di % deal dokter, bukan pengali R").
+ * % Deal = persen PSSP yang dikeluarkan untuk dokter ini (input utama, di kiri); Pengali Nilai R = turunannya
+ * (pengali = % deal ÷ rata-rata % Nilai R produk, tertimbang estimasi) dan tetap bisa diisi langsung —
+ * mengubah salah satu menyesuaikan yang lain. Yang tersimpan tetap SATU pengali per dokter, jadi rumus
+ * Nilai PSSP dan data ke Exodus tidak berubah.
+ */
+function PersenDealPengaliInputs({ produkList, products, dokterFields, setDokterFields }: {
+  produkList: ProdukEntry[];
+  products: Product[];
+  dokterFields: DokterFields;
+  setDokterFields: React.Dispatch<React.SetStateAction<DokterFields>>;
+}) {
+  const nilaiRBasePct = useMemo(() => {
+    let weighted = 0, estTotal = 0;
+    for (const entry of produkList) {
+      const p = products.find((pr) => pr.kodeProduk === entry.kodeProduk) ?? null;
+      const base = computeEstimasi(entry, dokterFields, p);
+      if (base <= 0) continue;
+      weighted += base * (parseFloat(entry.persenPsspDokter) || 0);
+      estTotal += base;
+    }
+    const avg = estTotal > 0 ? weighted / estTotal : 0;
+    return avg > 0 ? avg : null;
+  }, [produkList, dokterFields, products]);
+  // Teks yang sedang diketik user di kolom % Deal (null = tampilkan nilai turunan dari pengali).
+  const [persenDealText, setPersenDealText] = useState<string | null>(null);
+  const pengali = resolvePengaliNilaiR(dokterFields.pengaliNilaiR);
+  const persenDealShown = persenDealText ?? (nilaiRBasePct != null ? (nilaiRBasePct * pengali).toFixed(2) : "");
+  const pengaliFromDeal = (deal: number, base: number) => String(Math.round((deal / base) * 10000) / 10000);
+
+  function applyPersenDeal(v: string) {
+    setPersenDealText(v);
+    if (v.trim() === "") return setDokterFields((prev) => ({ ...prev, pengaliNilaiR: "" }));
+    const n = parseFloat(v);
+    if (nilaiRBasePct != null && !isNaN(n)) setDokterFields((prev) => ({ ...prev, pengaliNilaiR: pengaliFromDeal(n, nilaiRBasePct) }));
+  }
+  // Produk/estimasi berubah saat % deal jadi acuan → pengali dihitung ulang supaya % deal tetap.
+  useEffect(() => {
+    if (persenDealText == null || nilaiRBasePct == null) return;
+    const n = parseFloat(persenDealText);
+    if (isNaN(n)) return;
+    const next = pengaliFromDeal(n, nilaiRBasePct);
+    setDokterFields((prev) => (prev.pengaliNilaiR === next ? prev : { ...prev, pengaliNilaiR: next }));
+  }, [nilaiRBasePct, persenDealText, setDokterFields]);
+
+  return (
+    <div className="flex items-center gap-4 flex-wrap">
+      <label className="flex items-center gap-2">
+        <span className="text-xs font-semibold" style={{ color: "var(--color-text)" }}>% Deal Dokter (PSSP)</span>
+        <div style={{ width: 110 }} title={nilaiRBasePct == null ? "Pilih produk dan isi estimasi dulu" : undefined}>
+          <UnitInput value={persenDealShown} onChange={applyPersenDeal} unit="%" placeholder="0" step={0.1} />
+        </div>
+      </label>
+      <label className="flex items-center gap-2">
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
+        <div style={{ width: 110 }}>
+          <UnitInput
+            value={dokterFields.pengaliNilaiR}
+            onChange={(v) => { setPersenDealText(null); setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v })); }}
+            unit="x"
+            placeholder="1"
+            step={0.1} />
+        </div>
+      </label>
+    </div>
+  );
+}
+
+/**
  * The DiskonKontrak (DPL) row backing "% Diskon (DPL/DPF)"'s real default for
  * a product, at this outlet covering periodeAwal — PRIMARY source, imported
  * via scripts/importDpl.ts from "internal/DPL <bulan tahun>.xlsx" (e.g.
@@ -3386,17 +3455,7 @@ function AddPanel({
               {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
                   fields at the top of the form) — customer-level, shared across
                   every product for this doctor. */}
-              <label className="flex items-center gap-2">
-                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
-                <div style={{ width: 110 }}>
-                  <UnitInput
-                    value={dokterFields.pengaliNilaiR}
-                    onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
-                    unit="x"
-                    placeholder="1"
-                    step={0.1} />
-                </div>
-              </label>
+              <PersenDealPengaliInputs produkList={produkList} products={products} dokterFields={dokterFields} setDokterFields={setDokterFields} />
             </div>
             <div className="flex gap-6 flex-wrap items-start">
               <div>
@@ -4284,17 +4343,7 @@ export function EditDoctorPanel({ items, poaId, poaPeriod, products, redirectTo,
               {/* Pengali Nilai R (2026-07-28 request: moved down here, out of the
                   fields at the top of the form) — customer-level, shared across
                   every product for this doctor. */}
-              <label className="flex items-center gap-2">
-                <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Pengali Nilai R</span>
-                <div style={{ width: 110 }}>
-                  <UnitInput
-                    value={dokterFields.pengaliNilaiR}
-                    onChange={(v) => setDokterFields((prev) => ({ ...prev, pengaliNilaiR: v }))}
-                    unit="x"
-                    placeholder="1"
-                    step={0.1} />
-                </div>
-              </label>
+              <PersenDealPengaliInputs produkList={produkList} products={products} dokterFields={dokterFields} setDokterFields={setDokterFields} />
             </div>
             <div className="flex gap-6 flex-wrap items-start">
               <div>
