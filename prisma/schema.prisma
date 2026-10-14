@@ -197,6 +197,7 @@ model User {
   poaStandarisasiDokterReassignLogs PoaStandarisasiDokterReassignLog[]
   poaStandarisasiDiscountRequests PoaStandarisasiDiscountRequest[]
   poaStandarisasiSpNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
+  poaStandarisasiActivityLogs PoaStandarisasiActivityLog[]
 
   // ─── Tambahan Relasi Balik untuk Sales Counter ───
   poaScOwned           PoaScForm[]          @relation("PoaScOwner")
@@ -1713,10 +1714,32 @@ model PoaStandarisasi {
   fileAccessLogs PoaStandarisasiFileAccessLog[]
   spNonSalesDocuments PoaStandarisasiSpNonSalesDocument[]
   discountRequests    PoaStandarisasiDiscountRequest[]
+  activityLogs        PoaStandarisasiActivityLog[]
 
   @@index([ownerId])
   @@index([kodePI])
   @@index([currentPhase])
+}
+
+// Riwayat aktivitas pengajuan (2026-10-14, arahan atasan: tracking milestone
+// buat PM — approval atasan, TTD dokter, meeting KFT, memo SP Non Sales, dst,
+// lengkap dengan waktu kejadian). Satu row = satu aksi, append-only. `detail`
+// = teks siap tampil (snapshot nama produk/dokter), bukan FK — log ini murni
+// riwayat. Waktu disimpan UTC, ditampilkan WIB (src/lib/formatWib.ts).
+model PoaStandarisasiActivityLog {
+  id String @id @default(uuid())
+
+  pengajuanId String
+  pengajuan   PoaStandarisasi @relation(fields: [pengajuanId], references: [id], onDelete: Cascade)
+
+  action String // kode di src/lib/poaStandarisasiActivity.ts
+  detail String?
+
+  actorNip  String
+  actor     User     @relation(fields: [actorNip], references: [nip])
+  createdAt DateTime @default(now())
+
+  @@index([pengajuanId, createdAt])
 }
 
 model PoaStandarisasiProduk {

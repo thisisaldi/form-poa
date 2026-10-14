@@ -25,6 +25,7 @@ import { getCurrentUser } from "@/lib/session";
 import { getSubordinateOwnerNips } from "@/lib/authz";
 import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
 import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
+import { addActivitySheet } from "@/lib/poaStandarisasiActivity";
 
 function num(v: { toString(): string } | null | undefined): number | null {
   return v == null ? null : parseFloat(v.toString());
@@ -211,6 +212,12 @@ export async function GET(_req: NextRequest) {
     }
   }
   if (rows.every((p: (typeof rows)[number]) => p.produk.length === 0)) detail.addRow(["(Belum ada produk)"]);
+
+  const activityLogs = await prisma.poaStandarisasiActivityLog.findMany({
+    where: { pengajuanId: { in: rows.map((p: Row) => p.id) } },
+    include: { actor: { select: { name: true } } },
+  });
+  addActivitySheet(wb, activityLogs, new Map(rows.map((p: Row) => [p.id, { namaMr: p.owner.name, kodeOutlet: p.kodePI, outlet: p.outlet.namaOutlet }])));
 
   const buffer = await wb.xlsx.writeBuffer();
   return new NextResponse(buffer, {

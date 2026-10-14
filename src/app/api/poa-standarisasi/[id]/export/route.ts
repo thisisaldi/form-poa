@@ -19,6 +19,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { canViewPoaStandarisasi, getPoaStandarisasiApprovers } from "@/lib/authz";
 import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
+import { addActivitySheet } from "@/lib/poaStandarisasiActivity";
 
 const STATUS_PENGAJUAN_LABELS: Record<string, string> = { BARU: "Baru", PERPANJANGAN: "Perpanjangan" };
 const SKEMA_LABELS: Record<string, string> = { DISKON: "Diskon", DP: "DP" };
@@ -202,6 +203,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   if (pengajuan.produk.length === 0) sheet.addRow(["(Belum ada produk)"]);
+
+  const activityLogs = await prisma.poaStandarisasiActivityLog.findMany({
+    where: { pengajuanId: pengajuan.id },
+    include: { actor: { select: { name: true } } },
+  });
+  addActivitySheet(wb, activityLogs, new Map([[pengajuan.id, { namaMr, kodeOutlet: pengajuan.kodePI, outlet: outletLabel }]]));
 
   const buffer = await wb.xlsx.writeBuffer();
   return new NextResponse(buffer, {

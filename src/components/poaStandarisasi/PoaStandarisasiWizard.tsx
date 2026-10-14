@@ -15,6 +15,8 @@ import { RekomendasiSidebar } from "@/components/poaStandarisasi/RekomendasiSide
 import { buildProductOptions } from "@/components/poa/LineItemEditor";
 import { discountApprovalLevel } from "@/lib/discountApprovalLevel";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
+import { formatWib } from "@/lib/formatWib";
+import type { ActivityRow } from "@/lib/poaStandarisasiActivity";
 import {
   checkHkaGatewayAction,
   savePlanningAction,
@@ -448,7 +450,9 @@ export function PoaStandarisasiWizard({
   canApproveNsm,
   myApproverLevels,
   isOwner,
+  activity = [],
 }: {
+  activity?: ActivityRow[];
   pengajuan: PoaStandarisasiDetail;
   productOptions: Product[];
   dokterOptions: CustomerOption[];
@@ -886,6 +890,36 @@ export function PoaStandarisasiWizard({
           canEdit={isOwner}
         />
       )}
+
+      <details className="mt-6">
+        <summary className="cursor-pointer select-none list-none">
+          <Card>
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-sm" style={{ color: "var(--color-text)" }}>Riwayat Aktivitas ({activity.length})</p>
+              <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>Klik untuk lihat ▼</p>
+            </div>
+          </Card>
+        </summary>
+        <Card className="mt-2">
+          {activity.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>Belum ada aktivitas.</p>
+          ) : (
+            <ol className="relative space-y-4 pl-5 border-l" style={{ borderColor: "var(--color-border)" }}>
+              {activity.map((a) => (
+                <li key={a.id} className="relative">
+                  <span className="absolute left-[-1.4rem] mt-1 h-2.5 w-2.5 rounded-full border-2 border-white" style={{ background: "var(--color-blue)" }} />
+                  <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>{formatWib(a.at)}</p>
+                  <p className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+                    {a.actorNama}
+                    <span className="ml-1.5 font-normal" style={{ color: "var(--color-text-muted)" }}>{a.label}</span>
+                  </p>
+                  {a.detail && <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-muted)" }}>{a.detail}</p>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+      </details>
     </div>
   );
 }
