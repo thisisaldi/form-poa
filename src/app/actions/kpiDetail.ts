@@ -75,6 +75,8 @@ export type SubordinateRow = {
   akhirKontrak: string | null;
   complete: boolean;
   notes: string[];
+  /** Angka mentah + skor per pilar untuk `period` (dipakai export detail). */
+  month: DetailMonth;
   decision: Decision | null;
   /** "Belum dievaluasi" · "Disetujui SM, menunggu ASM & NSM" · "Disetujui lengkap". */
   status: string;
@@ -131,14 +133,14 @@ export async function getKpiSubordinates(scheme: KpiScheme, period: string): Pro
     const data = await computeKpiRows(period, scope, { hospitalOnly: true });
     rows = data.map((r) => ({
       nip: r.nip, name: r.name, role: r.role, jabatan: r.jabatan, area: r.area, point: r.totalScore, rec: r.recommendation,
-      akhirKontrak: null, complete: r.totalScore != null,
+      akhirKontrak: null, complete: r.totalScore != null, month: hospitalMonth(period, r),
       notes: [r.activityScore == null && "Call Activity belum terisi", r.absensiScore == null && "Absensi belum terisi", !r.salesTargetRp && "Target sales kosong"].filter((x): x is string => !!x),
     }));
   } else {
     const data = await getNonHospitalMonitoringRows(period, { scopeNips: scope });
     rows = data.map((r) => ({
       nip: r.nip, name: r.name, role: r.role, jabatan: r.jabatan, area: r.gt, point: r.totalScore, rec: r.recommendation,
-      akhirKontrak: r.akhirKontrak, complete: r.notes.length === 0 && r.totalScore != null, notes: r.notes,
+      akhirKontrak: r.akhirKontrak, complete: r.notes.length === 0 && r.totalScore != null, notes: r.notes, month: nhMonth(period, r),
     }));
   }
   const [decisions, above] = await Promise.all([decisionsFor(rows.map((r) => r.nip), await lastCompletedPeriod()), rolesAbove(rows.map((r) => r.nip))]);

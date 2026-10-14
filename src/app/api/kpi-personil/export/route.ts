@@ -36,13 +36,27 @@ export async function GET(req: NextRequest) {
     let filename: string;
     if (!nip) {
       const rows = await getKpiSubordinates(scheme, period);
-      addSheet(wb, hosp ? "Detail KPI Hospital" : "Detail KPI Non-Hospital", rows.map((r, i) => ({
-        No: i + 1, Nama: titleCase(r.name), NIP: r.nip, Jabatan: r.jabatan ?? r.role, [hosp ? "Area" : "Wilayah"]: r.area ?? "",
-        "Akhir Kontrak": r.akhirKontrak ? fmtDate(r.akhirKontrak) : "", [`Point ${periodLabel(period)}`]: r2(r.point),
-        "Status Data": r.complete ? "Lengkap" : "Belum lengkap", "Catatan Data": r.notes.join("; "),
-        "Rekomendasi (bulan)": r.rec?.months ?? "", Rekomendasi: r.rec?.label ?? "",
-        "Keputusan (bulan)": r.decision?.months ?? "", "Status Approval": r.status,
-      })));
+      addSheet(wb, hosp ? "Detail KPI Hospital" : "Detail KPI Non-Hospital", rows.map((r, i) => {
+        const h = r.month.h, n = r.month.n;
+        const pct = (v: number | null | undefined) => (v == null ? null : r2(v * 100));
+        const base = { No: i + 1, Nama: titleCase(r.name), NIP: r.nip, Jabatan: r.jabatan ?? r.role, [hosp ? "Area" : "Wilayah"]: r.area ?? "", "Akhir Kontrak": r.akhirKontrak ? fmtDate(r.akhirKontrak) : "" };
+        const detail: Record<string, string | number | null> = hosp ? {
+          "Target Sales (Rp)": h?.salesTarget ?? null, "Aktual Sales (Rp)": h?.salesActual ?? null, "ACV Sales (%)": r2(h?.salesPct ?? null), "Skor Sales": h?.salesScore ?? null,
+          "Standar Kunjungan": h?.callStandar ?? null, "Realisasi Kunjungan": h?.callReal ?? null, "ACV Call Activity (%)": r2(h?.callPct ?? null), "Skor Call Activity": h?.callScore ?? null,
+          "Customer Aktif": h?.customer ?? null, "Skor Customer": h?.customerScore ?? null,
+          "Absensi (Reporting)": r2(h?.absensi ?? null), "Skor Absensi": h?.absensiScore ?? null,
+        } : {
+          "Target (Rp)": n?.target ?? null, "Sales (Rp)": n?.sales ?? null, "ACV Sales (%)": pct(n?.ach),
+          Visit: n?.visit ?? null, "Hari Aktif": n?.hariAktif ?? null, "ACV Kunjungan (%)": pct(n?.achKunjungan),
+          "SC Menang": n?.sc ?? null, "Hari Telat": n?.telat ?? null,
+        };
+        return {
+          ...base, ...detail, [`Point ${periodLabel(period)}`]: r2(r.point),
+          "Status Data": r.complete ? "Lengkap" : "Belum lengkap", "Catatan Data": r.notes.join("; "),
+          "Rekomendasi (bulan)": r.rec?.months ?? "", Rekomendasi: r.rec?.label ?? "",
+          "Keputusan (bulan)": r.decision?.months ?? "", "Status Approval": r.status,
+        };
+      }));
       filename = `Detail-KPI-${scheme}-${period}.xlsx`;
     } else {
       const d = await getKpiPersonDetail(scheme, nip);
