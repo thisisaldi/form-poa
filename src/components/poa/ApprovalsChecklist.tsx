@@ -5,7 +5,6 @@ import Link from "next/link";
 import type { PoaDoctorApproval, PoaForm, PoaLineItem, User } from "@prisma/client";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import {
   StatsPanel, formatRp, toNum, doctorKey,
@@ -21,7 +20,7 @@ export interface PendingPoaRow extends PoaForm {
 
 // ─── MR row ─────────────────────────────────────────────────────────────────
 
-function MrRow({ poa }: { poa: PendingPoaRow }) {
+function MrRow({ poa, viewerNip, viewerLabel }: { poa: PendingPoaRow; viewerNip: string; viewerLabel: string }) {
   const est = poa.items.reduce((s, it) => s + toNum(it.rencanaTotalBiaya), 0);
   const doctorCount = new Set(poa.items.map(doctorKey)).size;
   // Per-doctor approve progress (2026-08-19 bug fix follow-up: "di samping
@@ -34,6 +33,10 @@ function MrRow({ poa }: { poa: PendingPoaRow }) {
   // or not yet submitted at all) counts as belum.
   const approvedCount = poa.doctorApprovals.filter((a) => a.status.startsWith("APPROVED_BY_")).length;
   const belumCount = doctorCount - approvedCount;
+  // Label dibuat dari sudut pandang yang melihat (2026-10-15): status POA satu label untuk banyak dokter itu
+  // ambigu ("Fully Approved" padahal 6 dokter belum). Yang relevan di inbox ini hanya: berapa dokter yang
+  // menunggu approval SAYA. Tanpa dokter yang menunggu saya, tidak ada label.
+  const mineCount = poa.doctorApprovals.filter((a) => a.currentHolderId === viewerNip && a.status.startsWith("SUBMITTED_TO_")).length;
 
   return (
     <div className="flex items-center gap-3 py-3 px-2 rounded-lg">
@@ -47,7 +50,12 @@ function MrRow({ poa }: { poa: PendingPoaRow }) {
 
       <div className="flex items-center gap-3 shrink-0">
         <div className="text-right">
-          <StatusBadge status={poa.status} version={poa.version} />
+          {mineCount > 0 && (
+            <span className="inline-block rounded px-2 py-0.5 text-xs font-semibold"
+              style={{ color: "var(--color-status-pending)", background: "var(--color-warning-light, #fef3c7)" }}>
+              Butuh Approval {viewerLabel} · {mineCount} dokter
+            </span>
+          )}
           <p className="text-xs mt-1" style={{ color: "var(--color-text-faint)" }}>
             {doctorCount} user · {est > 0 ? formatRp(est) : "-"}
           </p>
@@ -67,8 +75,11 @@ function MrRow({ poa }: { poa: PendingPoaRow }) {
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export function ApprovalsChecklist({ pending, activePssp = [] }: {
+export function ApprovalsChecklist({ pending, viewerNip, viewerLabel, activePssp = [] }: {
   pending: PendingPoaRow[];
+  /** NIP dan label level (mis. "ASD") yang sedang melihat — untuk label "Butuh Approval {level}". */
+  viewerNip: string;
+  viewerLabel: string;
   /** Still-active PSSP contracts for the doctors across all pending POAs, for the ringkasan. */
   activePssp?: ActivePsspRow[];
 }) {
@@ -123,7 +134,7 @@ export function ApprovalsChecklist({ pending, activePssp = [] }: {
 
           <div className="space-y-0.5">
             {pending.map((poa) => (
-              <MrRow key={poa.id} poa={poa} />
+              <MrRow key={poa.id} poa={poa} viewerNip={viewerNip} viewerLabel={viewerLabel} />
             ))}
           </div>
         </Card>

@@ -69,7 +69,13 @@ export default async function ApprovalsPage() {
           </div>
         </Card>
       ) : (
-        <ApprovalsChecklist pending={pending} activePssp={activePssp} />
+        <ApprovalsChecklist
+          pending={pending}
+          viewerNip={actor.nip}
+          // Role DB untuk level ASD adalah GM — di UI disebut ASD.
+          viewerLabel={actor.role === "GM" ? "ASD" : displayRole(session.role, actor.jabatan)}
+          activePssp={activePssp}
+        />
       )}
 
       <PoaStandarisasiApprovalSection pending={pendingStandarisasiRows} />
