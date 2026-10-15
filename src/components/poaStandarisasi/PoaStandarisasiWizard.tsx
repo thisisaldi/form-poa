@@ -1326,8 +1326,8 @@ export function PlanningPhase(props: {
               )}
             </div>
 
-            <div className="flex gap-3 items-start">
-              <div className="flex-1 min-w-0" {...(produkEmptyErr && !p.kodeProduk ? { "data-field-err": "true" } : {})}>
+            <div className="flex flex-wrap gap-3 items-start">
+              <div className="w-full sm:w-auto sm:flex-1 sm:min-w-[220px]" {...(produkEmptyErr && !p.kodeProduk ? { "data-field-err": "true" } : {})}>
                 <span className="text-xs font-medium block mb-1">Nama Produk *</span>
                 <div style={produkEmptyErr && !p.kodeProduk ? ERR_RING : undefined}>
                 <Combobox
@@ -1345,7 +1345,7 @@ export function PlanningPhase(props: {
                 />
                 </div>
               </div>
-              <div className="w-40 shrink-0">
+              <div className="w-[calc(50%-6px)] sm:w-40 shrink-0">
                 <span className="text-xs font-medium block mb-1">Status Pengajuan</span>
                 <div
                   className="rounded px-3 py-2 text-sm font-semibold"
@@ -1364,7 +1364,7 @@ export function PlanningPhase(props: {
                   </div>
                 )}
               </div>
-              <div className="w-40 shrink-0">
+              <div className="w-[calc(50%-6px)] sm:w-40 shrink-0">
                 <span className="text-xs font-medium block mb-1">Skema</span>
                 <Combobox
                   name={`skemaPembayaran-${idx}`}
@@ -1378,23 +1378,23 @@ export function PlanningPhase(props: {
                 />
               </div>
               {p.skemaPembayaran === "DP" ? (
-                <div className="w-36 shrink-0">
+                <div className="w-[calc(50%-6px)] sm:w-36 shrink-0">
                   <span className="text-xs font-medium block mb-1">Value DP</span>
                   <RpInput value={p.estimasiValueDpRp} onChange={(v) => updateProduk(idx, { estimasiValueDpRp: v })} disabled={disabled} />
                 </div>
               ) : (
                 <>
-                  <div className="w-32 shrink-0">
+                  <div className="w-[calc(50%-6px)] sm:w-32 shrink-0">
                     <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (PI)</span>
                     <UnitCountInput unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
                   </div>
-                  <div className="w-32 shrink-0">
+                  <div className="w-[calc(50%-6px)] sm:w-32 shrink-0">
                     <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (Dist.)</span>
                     <UnitCountInput unit="%" value={p.estimasiDiskonDistributorPct} onChange={(v) => updateProduk(idx, { estimasiDiskonDistributorPct: v })} disabled={disabled} />
                   </div>
                 </>
               )}
-              <div className="w-36 shrink-0">
+              <div className="w-[calc(50%-6px)] sm:w-36 shrink-0">
                 <span className="text-xs font-medium block mb-1 whitespace-nowrap">Estimasi Biaya Listing</span>
                 <RpInput value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
