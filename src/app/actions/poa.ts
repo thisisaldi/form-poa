@@ -100,7 +100,7 @@ export async function dealDoctorAction(poaId: string, kodePI: string, namaCust: 
   ]);
   if (!approval || !poa) throw new Error("Dokter tidak ditemukan.");
   if (poa.ownerId !== actor.nip && actor.role !== "ADMIN") throw new Error("Hanya pemilik POA yang bisa klik Deal.");
-  if (!approval.status.startsWith("APPROVED_BY_")) throw new Error("Dokter ini belum fully approved.");
+  if (!approval.status.startsWith("APPROVED_BY_")) throw new Error("Dokter ini belum approved.");
   if (approval.dealAt) throw new Error("Dokter ini sudah Deal.");
 
   await prisma.poaDoctorApproval.update({

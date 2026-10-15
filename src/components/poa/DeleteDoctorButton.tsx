@@ -41,7 +41,7 @@ export function DeleteDoctorButton({ poaId, kodePI, namaCust }: { poaId: string;
         open={open}
         tone="danger"
         title="Hapus dokter ini?"
-        message={`${namaCust} beserta semua baris produk, riwayat approval, dan audit trail-nya (khusus dokter ini) akan dihapus permanen — termasuk kalau sudah fully approved. Tindakan ini tidak bisa dibatalkan.`}
+        message={`${namaCust} beserta semua baris produk, riwayat approval, dan audit trail-nya (khusus dokter ini) akan dihapus permanen — termasuk kalau sudah approved. Tindakan ini tidak bisa dibatalkan.`}
         confirmLabel="Ya, Hapus"
         cancelLabel="Batal"
         confirmPending={isPending}

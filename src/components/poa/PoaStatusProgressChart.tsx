@@ -36,7 +36,7 @@ const REVISI_COLOR = "#C0392B";   // var(--color-status-revisi)
 // doesn't belong in that pipeline. Applies to both callers (Dashboard,
 // Ringkasan Summary) since they share this one component/order.
 // 4 real stages of the active approval pipeline (2026-09-07)
-// Dokumen yang diapprove langsung lanjut ke antrean berikutnya (ASM -> SM -> NSM -> Fully Approved),
+// Dokumen yang diapprove langsung lanjut ke antrean berikutnya (ASM -> SM -> NSM -> Approved),
 // sehingga status legacy APPROVED_BY_ASM dan APPROVED_BY_SM yang bernilai 0 tidak perlu ditampilkan.
 export const POA_STATUS_FLOW_ORDER: PoaStatus[] = [
   "SUBMITTED_TO_ASM",
@@ -48,11 +48,11 @@ export const POA_STATUS_FLOW_ORDER: PoaStatus[] = [
 const STATUS_META: Record<PoaStatus, { label: string; color: string }> = {
   DRAFT: { label: "Draft", color: DRAFT_COLOR },
   SUBMITTED_TO_ASM: { label: "Menunggu Review ASM", color: PENDING_COLOR },
-  APPROVED_BY_ASM: { label: "Fully Approved (ASM)", color: APPROVED_COLOR },
+  APPROVED_BY_ASM: { label: "Approved (ASM)", color: APPROVED_COLOR },
   SUBMITTED_TO_SM: { label: "Menunggu Review SM", color: PENDING_COLOR },
-  APPROVED_BY_SM: { label: "Fully Approved (SM)", color: APPROVED_COLOR },
+  APPROVED_BY_SM: { label: "Approved (SM)", color: APPROVED_COLOR },
   SUBMITTED_TO_NSM: { label: "Menunggu Review NSM", color: PENDING_COLOR },
-  APPROVED_BY_NSM: { label: "Fully Approved", color: APPROVED_COLOR },
+  APPROVED_BY_NSM: { label: "Approved", color: APPROVED_COLOR },
   // ASD/SD (2026-09-09, docs/exodus-poa-usage/01-business-rules.md §11) —
   // not yet part of this dashboard's pipeline rows below (feature not live
   // yet, exodusRequiredRole unwired); present only so this Record stays
@@ -60,7 +60,7 @@ const STATUS_META: Record<PoaStatus, { label: string; color: string }> = {
   SUBMITTED_TO_ASD: { label: "Menunggu Review ASD", color: PENDING_COLOR },
   APPROVED_BY_ASD: { label: "Approved ASD", color: APPROVED_COLOR },
   SUBMITTED_TO_SD: { label: "Menunggu Review SD", color: PENDING_COLOR },
-  APPROVED_BY_SD: { label: "Fully Approved", color: APPROVED_COLOR },
+  APPROVED_BY_SD: { label: "Approved", color: APPROVED_COLOR },
   REVISI: { label: "Revisi", color: REVISI_COLOR },
 };
 

@@ -41,7 +41,7 @@ export function DeletePoaButton({ poaId, period }: { poaId: string; period: stri
         open={open}
         tone="danger"
         title="Hapus POA ini?"
-        message={`POA periode ${period} akan dihapus permanen beserta semua baris rencana, riwayat approval, dan audit trail-nya — termasuk dokter yang sudah fully approved. Tindakan ini tidak bisa dibatalkan.`}
+        message={`POA periode ${period} akan dihapus permanen beserta semua baris rencana, riwayat approval, dan audit trail-nya — termasuk dokter yang sudah approved. Tindakan ini tidak bisa dibatalkan.`}
         confirmLabel="Ya, Hapus"
         cancelLabel="Batal"
         confirmPending={isPending}

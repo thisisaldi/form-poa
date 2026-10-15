@@ -598,7 +598,7 @@ async function DashboardContent({
                         const chip = "rounded border px-1.5 py-0.5 font-mono text-[11px]";
                         return (
                           <div className="flex flex-wrap gap-1.5">
-                            {b.approved > 0 && <span className={chip} style={{ color: "var(--color-status-approved)", borderColor: "var(--color-status-approved)" }}>{b.approved} fully approved</span>}
+                            {b.approved > 0 && <span className={chip} style={{ color: "var(--color-status-approved)", borderColor: "var(--color-status-approved)" }}>{b.approved} approved</span>}
                             {b.proses > 0 && <span className={chip} style={{ color: "var(--color-status-pending)", borderColor: "var(--color-status-pending)" }}>{b.proses} proses</span>}
                             {b.revisi > 0 && <span className={chip} style={{ color: "var(--color-status-revisi)", borderColor: "var(--color-status-revisi)" }}>{b.revisi} revisi</span>}
                           </div>
