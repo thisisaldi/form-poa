@@ -1,4 +1,5 @@
 import { doctorKeyOf } from "@/lib/doctorKey";
+import { censorName } from "@/lib/censorName";
 import { formatWib } from "@/lib/formatWib";
 import { notFound, redirect } from "next/navigation";
 import type { PoaAuditLog as AuditLogType, User as UserType, PoaLineItem, PoaStatus } from "@prisma/client";
@@ -675,7 +676,7 @@ export default async function PoaDetailPage({
                       </span>
                       {snapshot?.namaCust && (
                         <span className="ml-1.5 font-normal" style={{ color: "var(--color-blue)" }}>
-                          — {snapshot.namaCust}
+                          — {censorName(snapshot.namaCust)}
                         </span>
                       )}
                     </p>
@@ -702,7 +703,7 @@ export default async function PoaDetailPage({
                         <div className="mt-1 rounded border px-2 py-1.5 text-xs space-y-0.5"
                           style={{ borderColor: "var(--color-border)", color: "var(--color-text-muted)" }}>
                           {snapshot?.customer && (
-                            <p><span style={{ color: "var(--color-text-faint)" }}>Customer:</span> {snapshot.customer}</p>
+                            <p><span style={{ color: "var(--color-text-faint)" }}>Customer:</span> {censorName(snapshot.customer)}</p>
                           )}
                           {snapshot?.product && (
                             <p><span style={{ color: "var(--color-text-faint)" }}>Produk:</span> {snapshot.product}</p>

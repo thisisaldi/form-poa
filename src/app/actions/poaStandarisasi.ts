@@ -30,7 +30,7 @@ import { settingMessage } from "@/lib/appSettingsRegistry";
 import { SALES_TEAM_ROLES } from "@/lib/role";
 import { assertHkaGateway } from "@/lib/hkaGateway";
 import { dplStatusOf, refreshOpenDiscountRequests, type DplStatus } from "@/lib/discountRequestStatus";
-import { logPoaStandarisasiActivity, type ActivityRow, ACTIVITY_LABELS } from "@/lib/poaStandarisasiActivity";
+import { logPoaStandarisasiActivity, censorActivityDetail, type ActivityRow, ACTIVITY_LABELS } from "@/lib/poaStandarisasiActivity";
 import type { Product as PrismaProduct, Prisma } from "@prisma/client";
 
 async function requireSession() {
@@ -2332,7 +2332,7 @@ export async function getPoaStandarisasiActivityAction(pengajuanId: string): Pro
     id: r.id,
     action: r.action,
     label: ACTIVITY_LABELS[r.action] ?? r.action,
-    detail: r.detail,
+    detail: r.detail ? censorActivityDetail(r.action, r.detail) : null, // nama dokter disensor (sama seperti export)
     actorNama: r.actor.name,
     at: r.createdAt.toISOString(),
   }));
