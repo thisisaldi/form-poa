@@ -281,6 +281,51 @@ export interface StandarisasiDashboardOutletRow {
   gagal: number;
   /** Request DPL/DPF yang sudah diajukan ke Exodus untuk outlet ini + status approval-nya (lihat discountRequestStatus.ts). */
   dpl: { id: string; tipe: string; distributorKode: string; status: DplStatus; produk: string[]; submittedAt: Date }[];
+  /** Pengajuan di outlet ini (terbaru dulu) — buat tracking tahapan per pengajuan. */
+  pengajuan: StandarisasiDashboardPengajuan[];
+  /** Aktivitas terakhir dari semua pengajuan outlet ini (null = belum ada log). */
+  lastActivityAt: Date | null;
+}
+
+export type StandarisasiStepState = "done" | "partial" | "todo";
+
+export interface StandarisasiDashboardPengajuan {
+  id: string;
+  ownerNama: string;
+  createdAt: Date;
+  produkCount: number;
+  /** Planning → Approval Atasan → Approval Dokter → Finalisasi → SP Non Sales → DPL/DPF. */
+  steps: { label: string; state: StandarisasiStepState; at: Date | null }[];
+  /** Label step pertama yang belum done, atau "Selesai". */
+  stage: string;
+  lastActivity: { label: string; actorNama: string; at: Date } | null;
+  activityCount: number;
+}
+
+/** Urutan tahapan monitoring — juga dipakai ringkasan per tahap di halaman. */
+const MONITOR_STEPS = ["Planning", "Approval Atasan", "Approval Dokter", "Finalisasi", "SP Non Sales", "DPL/DPF"] as const;
+
+function buildMonitorSteps(p: {
+  currentPhase: string;
+  createdAt: Date;
+  submittedAt: Date | null;
+  spNonSalesSubmittedAt: Date | null;
+  spNonSalesSignedAt: Date | null;
+  dpl: { status: DplStatus; submittedAt: Date }[];
+}): { steps: StandarisasiDashboardPengajuan["steps"]; stage: string } {
+  // Fase legacy MENUNGGU_MEETING_KFT (tidak ada di PHASES) setara posisi Approval Dokter.
+  const phaseIdx = p.submittedAt ? PHASES.length : Math.max(PHASES.findIndex((ph) => ph.id === p.currentPhase), p.currentPhase === "MENUNGGU_MEETING_KFT" ? 2 : 0);
+  const byPhase = (i: number): StandarisasiStepState => (phaseIdx > i ? "done" : "todo");
+  const dplFirst = p.dpl.length ? p.dpl.reduce((a, b) => (a.submittedAt < b.submittedAt ? a : b)).submittedAt : null;
+  const steps: StandarisasiDashboardPengajuan["steps"] = [
+    { label: MONITOR_STEPS[0], state: byPhase(0), at: p.createdAt },
+    { label: MONITOR_STEPS[1], state: byPhase(1), at: null },
+    { label: MONITOR_STEPS[2], state: byPhase(2), at: null },
+    { label: MONITOR_STEPS[3], state: byPhase(3), at: p.submittedAt },
+    { label: MONITOR_STEPS[4], state: p.spNonSalesSignedAt ? "done" : p.spNonSalesSubmittedAt ? "partial" : "todo", at: p.spNonSalesSignedAt ?? p.spNonSalesSubmittedAt },
+    { label: MONITOR_STEPS[5], state: p.dpl.some((d) => d.status === "APPROVED") ? "done" : p.dpl.length ? "partial" : "todo", at: dplFirst },
+  ];
+  return { steps, stage: steps.find((s) => s.state !== "done")?.label ?? "Selesai" };
 }
 
 /**
@@ -314,9 +359,12 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
   const pengajuan = await prisma.poaStandarisasi.findMany({
     where,
     select: {
-      id: true, kodePI: true, currentPhase: true, submittedAt: true,
+      id: true, kodePI: true, currentPhase: true, submittedAt: true, createdAt: true, spNonSalesSubmittedAt: true, spNonSalesSignedAt: true,
       outlet: { select: { namaOutlet: true } },
       owner: { select: { name: true } },
+      // Cuma log terakhir per pengajuan — riwayat lengkap di-load on demand (getPoaStandarisasiActivityAction).
+      activityLogs: { select: { action: true, createdAt: true, actor: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 1 },
+      _count: { select: { activityLogs: true } },
       produk: { select: { standarisasiGagal: true, product: { select: { kodeProduk: true, namaProduk: true } } } },
       discountRequests: { select: { id: true, tipe: true, distributorKode: true, produk: true, submittedByNip: true, submittedAt: true, exodusRefId: true, exodusStatus: true } },
     },
@@ -328,15 +376,27 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
     pengajuan.flatMap((p: (typeof pengajuan)[number]) => p.discountRequests.map((d: (typeof p.discountRequests)[number]) => ({ ...d, kodePI: p.kodePI })))
   );
 
-  type Acc = { namaOutlet: string; sudah: Map<string, { kodeProduk: string; namaProduk: string; submittedAt: Date }>; onProgress: StandarisasiDashboardOutletRow["onProgress"]; gagal: Set<string>; dpl: StandarisasiDashboardOutletRow["dpl"] };
+  type Acc = { namaOutlet: string; sudah: Map<string, { kodeProduk: string; namaProduk: string; submittedAt: Date }>; onProgress: StandarisasiDashboardOutletRow["onProgress"]; gagal: Set<string>; dpl: StandarisasiDashboardOutletRow["dpl"]; pengajuan: StandarisasiDashboardPengajuan[] };
   const byOutlet = new Map<string, Acc>();
   for (const p of pengajuan) {
-    const acc: Acc = byOutlet.get(p.kodePI) ?? { namaOutlet: p.outlet.namaOutlet, sudah: new Map(), onProgress: [], gagal: new Set<string>(), dpl: [] };
+    const acc: Acc = byOutlet.get(p.kodePI) ?? { namaOutlet: p.outlet.namaOutlet, sudah: new Map(), onProgress: [], gagal: new Set<string>(), dpl: [], pengajuan: [] };
     byOutlet.set(p.kodePI, acc);
+    const ownDpl: StandarisasiDashboardOutletRow["dpl"] = [];
     for (const d of p.discountRequests) {
       const names = ((d.produk as { namaProduk?: string }[] | null) ?? []).map((x) => x.namaProduk ?? "").filter(Boolean);
-      acc.dpl.push({ id: d.id, tipe: d.tipe, distributorKode: d.distributorKode, status: dplStatusOf(refreshed.get(d.id)?.exodusStatus ?? d.exodusStatus), produk: names, submittedAt: d.submittedAt });
+      ownDpl.push({ id: d.id, tipe: d.tipe, distributorKode: d.distributorKode, status: dplStatusOf(refreshed.get(d.id)?.exodusStatus ?? d.exodusStatus), produk: names, submittedAt: d.submittedAt });
     }
+    acc.dpl.push(...ownDpl);
+    const last = p.activityLogs[0];
+    acc.pengajuan.push({
+      id: p.id,
+      ownerNama: p.owner.name,
+      createdAt: p.createdAt,
+      produkCount: p.produk.length,
+      ...buildMonitorSteps({ ...p, dpl: ownDpl }),
+      lastActivity: last ? { label: ACTIVITY_LABELS[last.action] ?? last.action, actorNama: last.actor.name, at: last.createdAt } : null,
+      activityCount: p._count.activityLogs,
+    });
     const phaseLabel = PHASES.find((ph) => ph.id === p.currentPhase)?.label ?? p.currentPhase;
     for (const prod of p.produk) {
       const { kodeProduk, namaProduk } = prod.product;
@@ -358,6 +418,8 @@ export async function getStandarisasiDashboardAction(): Promise<{ rows: Standari
     onProgress: a.onProgress.sort((x, y) => x.namaProduk.localeCompare(y.namaProduk, "id")),
     gagal: [...a.gagal].filter((k) => !a.sudah.has(k)).length,
     dpl: a.dpl.sort((x, y) => y.submittedAt.getTime() - x.submittedAt.getTime()),
+    pengajuan: a.pengajuan,
+    lastActivityAt: a.pengajuan.reduce<Date | null>((m, p) => (p.lastActivity && (!m || p.lastActivity.at > m) ? p.lastActivity.at : m), null),
   }));
   rows.sort((x, y) => (y.sudah.length + y.onProgress.length) - (x.sudah.length + x.onProgress.length) || x.namaOutlet.localeCompare(y.namaOutlet, "id"));
 

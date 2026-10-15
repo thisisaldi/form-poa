@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { getStandarisasiDashboardAction } from "@/app/actions/poaStandarisasi";
 import { StandarisasiDashboardTable } from "@/components/poaStandarisasi/StandarisasiDashboardTable";
+import { Card } from "@/components/ui/Card";
 
 export const metadata = { title: "Monitoring POA Standarisasi · Form POA" };
 
@@ -16,25 +17,52 @@ export default async function StandarisasiDashboardPage() {
 
   const totalSudah = rows.reduce((n, r) => n + r.sudah.length, 0);
   const totalOnProgress = rows.reduce((n, r) => n + r.onProgress.length, 0);
+  const totalProduk = totalSudah + totalOnProgress;
+  const totalPengajuan = rows.reduce((n, r) => n + r.pengajuan.length, 0);
+  const pengajuanSelesai = rows.reduce((n, r) => n + r.pengajuan.filter((p) => p.stage === "Selesai").length, 0);
   const allDpl = rows.flatMap((r) => r.dpl);
   const dplApproved = allDpl.filter((d) => d.status === "APPROVED").length;
   const dplPending = allDpl.filter((d) => d.status === "PENDING").length;
+  const pct = (n: number, of: number) => (of ? Math.round((n / of) * 100) : 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h1>Monitoring POA Standarisasi</h1>
         <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Produk yang sudah standarisasi (pengajuan sudah final submit) dan yang masih on progress, per outlet.
+          Pantau posisi tiap pengajuan, kapan aksi terakhir dilakukan, dan produk yang sudah standarisasi per outlet.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <SummaryCard label="Outlet" value={rows.length} />
-        <SummaryCard label="Produk sudah standarisasi" value={totalSudah} color="var(--color-status-approved, #008f42)" />
-        <SummaryCard label="Produk on progress" value={totalOnProgress} color="var(--color-orange, #ea580c)" />
-        <SummaryCard label="DPL/DPF Approved" value={dplApproved} color="var(--color-status-approved, #008f42)" />
-        <SummaryCard label="DPL/DPF Pending" value={dplPending} color="var(--color-orange, #ea580c)" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard
+          label="Outlet"
+          value={rows.length}
+          tone={TONE.blue}
+          ratio={pct(pengajuanSelesai, totalPengajuan)}
+          hint={`${totalPengajuan} pengajuan, ${pengajuanSelesai} sudah selesai`}
+        />
+        <StatCard
+          label="Produk sudah standarisasi"
+          value={totalSudah}
+          tone={TONE.green}
+          ratio={pct(totalSudah, totalProduk)}
+          hint={`${pct(totalSudah, totalProduk)}% dari ${totalProduk} produk diajukan`}
+        />
+        <StatCard
+          label="Produk on progress"
+          value={totalOnProgress}
+          tone={TONE.amber}
+          ratio={pct(totalOnProgress, totalProduk)}
+          hint="Pengajuan belum final submit"
+        />
+        <StatCard
+          label="Request DPL/DPF"
+          value={allDpl.length}
+          tone={TONE.green}
+          ratio={pct(dplApproved, allDpl.length)}
+          hint={`${dplApproved} approved, ${dplPending} pending`}
+        />
       </div>
 
       <StandarisasiDashboardTable rows={rows} canOpenDetail={canOpenDetail} />
@@ -42,11 +70,23 @@ export default async function StandarisasiDashboardPage() {
   );
 }
 
-function SummaryCard({ label, value, color }: { label: string; value: number; color?: string }) {
+/** Sama dengan TONE di halaman daftar POA Standarisasi. */
+const TONE = {
+  blue: { fg: "var(--color-blue)", bar: "var(--color-blue)" },
+  green: { fg: "var(--color-status-approved)", bar: "var(--color-status-approved)" },
+  amber: { fg: "#9A6F1B", bar: "var(--color-status-pending)" },
+} as const;
+
+/** Pola StatCard KPI (KpiDashboardStats): label, angka besar, bar tipis rasio, keterangan. */
+function StatCard({ label, value, tone, ratio, hint }: { label: string; value: number; tone: { fg: string; bar: string }; ratio: number; hint: string }) {
   return (
-    <div className="rounded-xl border px-4 py-3" style={{ background: "var(--color-bg)", borderColor: "var(--color-border)" }}>
-      <div className="text-xs" style={{ color: "var(--color-text-faint)" }}>{label}</div>
-      <div className="text-2xl font-bold" style={{ color: color ?? "var(--color-text)" }}>{value}</div>
-    </div>
+    <Card className="p-4!">
+      <p className="text-xs font-medium" style={{ color: "var(--color-text-muted)" }}>{label}</p>
+      <p className="mt-1.5 text-2xl font-semibold tabular-nums" style={{ color: value ? tone.fg : "var(--color-text-faint)" }}>{value}</p>
+      <div className="mt-2 h-1 overflow-hidden rounded-full" style={{ background: "var(--color-bg-subtle)" }} role="presentation">
+        <div className="h-full rounded-full" style={{ width: `${ratio}%`, background: tone.bar }} />
+      </div>
+      <p className="mt-1.5 text-[11px]" style={{ color: "var(--color-text-faint)" }}>{hint}</p>
+    </Card>
   );
 }
