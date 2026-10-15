@@ -20,6 +20,7 @@ import { getCurrentUser } from "@/lib/session";
 import { canViewPoaStandarisasi, getPoaStandarisasiApprovers } from "@/lib/authz";
 import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
 import { addActivitySheet } from "@/lib/poaStandarisasiActivity";
+import { censorName } from "@/lib/censorName";
 
 const STATUS_PENGAJUAN_LABELS: Record<string, string> = { BARU: "Baru", PERPANJANGAN: "Perpanjangan" };
 const SKEMA_LABELS: Record<string, string> = { DISKON: "Diskon", DP: "DP" };
@@ -51,8 +52,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         produk: {
           include: {
             product: { select: { kodeProduk: true, namaProduk: true } },
-            dokterApproval: { include: { customer: { select: { namaCustomer: true } } } },
-            dokterUser: { include: { customer: { select: { namaCustomer: true } } } },
+            dokterApproval: { include: { customer: { select: { kodeCustomer: true, namaCustomer: true } } } },
+            dokterUser: { include: { customer: { select: { kodeCustomer: true, namaCustomer: true } } } },
             approvals: { select: { level: true, status: true, decidedAt: true } },
           },
           orderBy: { createdAt: "asc" },
@@ -90,6 +91,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     { header: "Diskon Distributor", key: "diskonDist", width: 14 },
     { header: "Value DP", key: "valueDp", width: 16 },
     { header: "Biaya Listing", key: "biayaListing", width: 16 },
+    { header: "Kode Dokter", key: "kodeDokter", width: 14 },
     { header: "Nama Dokter", key: "namaDokter", width: 26 },
     { header: "Sumber Data Dokter", key: "sumberData", width: 16 },
     { header: "Jumlah Hari Praktek / Bulan", key: "hariPraktek", width: 14 },
@@ -132,7 +134,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const useFinal = prod.dokterUser.length > 0;
     const dokterRows = useFinal
       ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
-          nama: d.customer.namaCustomer,
+          kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
           hariPraktek: d.jumlahHariPraktekPerBulan,
           jumlahPasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt),
@@ -141,7 +143,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           entertain: num(d.entertainRp),
         }))
       : prod.dokterApproval.map((d: (typeof prod.dokterApproval)[number]) => ({
-          nama: d.customer.namaCustomer,
+          kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
           hariPraktek: d.jumlahHariPraktekPerBulan,
           jumlahPasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt),
@@ -161,7 +163,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         produk: produkLabel, statusProduk: STATUS_PENGAJUAN_LABELS[prod.statusPengajuan] ?? prod.statusPengajuan,
         skema: SKEMA_LABELS[skema] ?? skema, diskonPi: skema === "DISKON" ? diskonPi : null,
         diskonDist: skema === "DISKON" ? diskonDist : null, valueDp: skema === "DP" ? valueDp : null,
-        biayaListing, namaDokter: "-", sumberData: "-",
+        biayaListing, kodeDokter: "-", namaDokter: "-", sumberData: "-",
       });
       continue;
     }
@@ -187,7 +189,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         diskonDist: skema === "DISKON" ? diskonDist : null,
         valueDp: skema === "DP" ? valueDp : null,
         biayaListing,
-        namaDokter: d.nama,
+        kodeDokter: d.kode, namaDokter: d.nama,
         sumberData,
         hariPraktek: d.hariPraktek,
         jumlahPasien: d.jumlahPasien,

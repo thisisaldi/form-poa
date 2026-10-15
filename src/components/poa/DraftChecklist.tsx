@@ -19,6 +19,7 @@ import { computeActivePsspStats, apportion } from "@/lib/activePssp";
 import { computeMonthlyBreakdown, formatPeriode, formatPeriodeRange, REJECT_CATEGORY_LABELS } from "@/lib/poaUtils";
 import { LabelCustomerBadge } from "@/components/poa/LineItemEditor";
 import { formatCurrency } from "@/lib/format";
+import { censorName } from "@/lib/censorName";
 import { displayRole } from "@/lib/role";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -28,15 +29,6 @@ import { displayRole } from "@/lib/role";
 // keeps the suffixed formatCurrency default (2026-09-02 request).
 export const formatRp = (val: Parameters<typeof formatCurrency>[0]) => formatCurrency(val, false);
 export const formatRpPssp = (val: Parameters<typeof formatCurrency>[0]) => formatCurrency(val, false);
-
-// Masks a doctor's name for the draft view: keeps every other character, replaces the rest with X.
-function censorName(name: string): string {
-  return name
-    .toUpperCase()
-    .split(" ")
-    .map((word) => [...word].map((ch, i) => (i % 2 === 0 ? ch : "X")).join(""))
-    .join(" ");
-}
 
 export function toNum(v: unknown): number {
   return parseFloat(String(v ?? 0)) || 0;

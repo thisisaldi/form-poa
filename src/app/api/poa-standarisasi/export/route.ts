@@ -26,6 +26,7 @@ import { getSubordinateOwnerNips } from "@/lib/authz";
 import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
 import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
 import { addActivitySheet } from "@/lib/poaStandarisasiActivity";
+import { censorName } from "@/lib/censorName";
 
 function num(v: { toString(): string } | null | undefined): number | null {
   return v == null ? null : parseFloat(v.toString());
@@ -56,8 +57,8 @@ export async function GET(_req: NextRequest) {
       produk: {
         include: {
           product: { select: { kodeProduk: true, namaProduk: true } },
-          dokterApproval: { select: { customerId: true, sudahTtd: true, customer: { select: { namaCustomer: true } } } },
-          dokterUser: { include: { customer: { select: { namaCustomer: true } } } },
+          dokterApproval: { select: { customerId: true, sudahTtd: true, customer: { select: { kodeCustomer: true, namaCustomer: true } } } },
+          dokterUser: { include: { customer: { select: { kodeCustomer: true, namaCustomer: true } } } },
           approvals: { select: { level: true, status: true, decidedAt: true } },
         },
       },
@@ -130,6 +131,7 @@ export async function GET(_req: NextRequest) {
     { header: "DP (Rp)", key: "dpRp", width: 14 },
     { header: "Est. Qty/bln (SJ)", key: "estimasiQty", width: 12 },
     { header: "Est. Sales/bln", key: "estimasiSales", width: 16 },
+    { header: "Kode Dokter", key: "kodeDokter", width: 14 },
     { header: "Nama Dokter", key: "namaDokter", width: 26 },
     { header: "Dokter Approved", key: "dokterApproved", width: 14 },
     { header: "Target Penyelesaian", key: "target", width: 16 },
@@ -170,13 +172,13 @@ export async function GET(_req: NextRequest) {
       const useFinal = prod.dokterUser.length > 0;
       const dokterRows = useFinal
         ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
-            nama: d.customer.namaCustomer,
+            kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
             approved: sudahTtdByCustomerId.get(d.customerId) ?? null,
             qty: d.estimasiQtyUbPerBulan,
             sales: num(d.estimasiSalesRpPerBulan),
           }))
         : prod.dokterApproval.map((d: (typeof prod.dokterApproval)[number]) => ({
-            nama: d.customer.namaCustomer,
+            kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
             approved: d.sudahTtd,
             qty: null as number | null,
             sales: null as number | null,
@@ -192,7 +194,7 @@ export async function GET(_req: NextRequest) {
       };
 
       if (dokterRows.length === 0) {
-        detail.addRow({ ...produkShared, estimasiQty: null, estimasiSales: null, namaDokter: "-", dokterApproved: "-" });
+        detail.addRow({ ...produkShared, estimasiQty: null, estimasiSales: null, kodeDokter: "-", namaDokter: "-", dokterApproved: "-" });
         continue;
       }
 
@@ -201,7 +203,7 @@ export async function GET(_req: NextRequest) {
           ...produkShared,
           estimasiQty: d.qty,
           estimasiSales: d.sales,
-          namaDokter: d.nama,
+          kodeDokter: d.kode, namaDokter: d.nama,
           dokterApproved: d.approved == null ? "-" : d.approved ? "Ya" : "Tidak",
         });
         row.getCell("diskonPi").numFmt = PCT_FMT;

@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { censorName } from "@/lib/censorName";
 import { getSubordinateOwnerNips } from "@/lib/authz";
 import { getActivePsspByOutlets, getHospinetSnapshotsByOutlets, getPsspHistoryByCustomers, getSurveyRekomendasiByCustomers, getDiskonByOutlets, getDiskonHistoryByOutlets, getNexusSpesialisasiByOutlets, type PsspKontrakSummary, type DiskonByProduct, type DiskonHistoryByProduct } from "@/app/actions/customer";
 import { getAllPakets } from "@/lib/paketProduk";
@@ -1023,7 +1024,7 @@ export async function GET(req: NextRequest) {
       namaNsm: mr.nsmName,
       outlet: `${li.kodePI ?? "-"} - ${li.namaOutlet}`,
       spesialisasi: spesLabel(li.spesialisasi),
-      namaUser: `${li.kodeCust ?? "-"} - ${li.namaCust}`,
+      namaUser: `${li.kodeCust ?? "-"} - ${censorName(li.namaCust)}`,
       gelombang: li.batch ?? 1, // gelombang approval dokter (docs/poa-deal-addendum/)
       sumberUser: li.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
       labelUser,
@@ -1149,7 +1150,7 @@ export async function GET(req: NextRequest) {
       nsmNip: mr?.nsmNip ?? "—", nsmName: mr?.nsmName ?? "—",
       sumber: "PSSP Kontrak",
       cUrut: r.cUrut,
-      namaUser: r.nmCust ?? "—",
+      namaUser: r.nmCust ? censorName(r.nmCust) : "—",
       kodeCustomer: r.kdCust ?? "—",
       kodeOutlet: r.kdOutlet ?? "—", namaOutlet: r.nmOutlet ?? "—",
       kodeProduk: r.kdProduk ?? "—", namaProduk: r.nmProduk ?? "—",
@@ -1172,7 +1173,7 @@ export async function GET(req: NextRequest) {
       nsmNip: mr?.nsmNip ?? "—", nsmName: mr?.nsmName ?? "—",
       sumber: "PSSP Hospinet",
       cUrut: "—",
-      namaUser: r.namaCustomer,
+      namaUser: censorName(r.namaCustomer),
       kodeCustomer: r.kodeCustomer ?? "—",
       kodeOutlet: r.kodePI, namaOutlet: r.namaOutlet ?? "—",
       kodeProduk: "—", namaProduk: "—",
@@ -1872,7 +1873,7 @@ export async function GET(req: NextRequest) {
     const biayaAktifPengajuan = r.biayaAktif + r.budgetTotal;
     const costRatio = estimasiAktifPengajuan > 0 ? (biayaAktifPengajuan / estimasiAktifPengajuan) * 100 : 0;
     ws9.addRow({
-      kodeCust: r.kodeCust, namaCust: r.namaCust, spesialisasi: r.spesialisasi,
+      kodeCust: r.kodeCust, namaCust: censorName(r.namaCust), spesialisasi: r.spesialisasi,
       estimasiAktifPengajuan: Math.round(estimasiAktifPengajuan),
       variasiProdukKontes: r.variasiProdukKontes,
       variasiProdukNonKontes: r.variasiProduk - r.variasiProdukKontes,

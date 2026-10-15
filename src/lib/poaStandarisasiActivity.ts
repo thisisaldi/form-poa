@@ -3,6 +3,7 @@
  * (bukan "use server") supaya bisa dipakai action, halaman, dan route export.
  */
 import type { Prisma } from "@prisma/client";
+import { censorName } from "@/lib/censorName";
 
 export const ACTIVITY_LABELS: Record<string, string> = {
   DIBUAT: "Pengajuan dibuat",
@@ -31,6 +32,25 @@ export async function logPoaStandarisasiActivity(
   await db.poaStandarisasiActivityLog.create({
     data: { pengajuanId: e.pengajuanId, action: e.action, actorNip: e.actorNip, detail: e.detail ?? null },
   });
+}
+
+/**
+ * Detail log yang memuat nama dokter (format dari poaStandarisasi.ts):
+ *   TTD_DOKTER / TTD_DOKTER_BATAL: "Nama Dokter — Produk"
+ *   GANTI_DOKTER: "Nama Lama → Nama Baru (alasan)"
+ * Disensor di export Excel (sama seperti kolom Nama Dokter).
+ */
+export function censorActivityDetail(action: string, detail: string | null): string {
+  if (!detail) return "";
+  if (action === "TTD_DOKTER" || action === "TTD_DOKTER_BATAL") {
+    const i = detail.indexOf(" — ");
+    return i < 0 ? censorName(detail) : `${censorName(detail.slice(0, i))}${detail.slice(i)}`;
+  }
+  if (action === "GANTI_DOKTER") {
+    const m = detail.match(/^([\s\S]*?) → ([\s\S]*?)( \([\s\S]*\))?$/);
+    return m ? `${censorName(m[1])} → ${censorName(m[2])}${m[3] ?? ""}` : censorName(detail);
+  }
+  return detail;
 }
 
 export interface ActivityRow {
@@ -76,7 +96,7 @@ export function addActivitySheet(
       outlet: m?.outlet ?? "-",
       waktu: `${l.createdAt.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB`,
       aktivitas: ACTIVITY_LABELS[l.action] ?? l.action,
-      detail: l.detail ?? "",
+      detail: censorActivityDetail(l.action, l.detail),
       oleh: l.actor.name,
     });
   }

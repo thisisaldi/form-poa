@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { censorName } from "@/lib/censorName";
 import { canViewPusat } from "@/lib/hka";
 
 const STATUS_LABELS: Record<string, string> = { BARU: "Baru", PERPANJANGAN: "Perpanjangan" };
@@ -40,8 +41,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         produk: {
           include: {
             product: { select: { kodeProduk: true, namaProduk: true } },
-            dokter: { include: { customer: { select: { namaCustomer: true } } } },
-            dokterUser: { include: { customer: { select: { namaCustomer: true } } } },
+            dokter: { include: { customer: { select: { kodeCustomer: true, namaCustomer: true } } } },
+            dokterUser: { include: { customer: { select: { kodeCustomer: true, namaCustomer: true } } } },
           },
           orderBy: { id: "asc" },
         },
@@ -70,6 +71,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     { header: "Diskon Distributor", key: "diskonDist", width: 14 },
     { header: "Value DP", key: "valueDp", width: 16 },
     { header: "Biaya Listing", key: "biayaListing", width: 16 },
+    { header: "Kode Dokter", key: "kodeDokter", width: 14 },
     { header: "Nama Dokter", key: "namaDokter", width: 26 },
     { header: "Sumber Data Dokter", key: "sumberData", width: 18 },
     { header: "Jumlah Hari Praktek / Bulan", key: "hariPraktek", width: 14 },
@@ -112,22 +114,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const ttdByCustomer = new Map<string, boolean>(prod.dokter.map((d: (typeof prod.dokter)[number]) => [d.customerId, d.sudahTtd]));
     const dokterRows = useFinal
       ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
-          customerId: d.customerId, nama: d.customer.namaCustomer, hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
+          customerId: d.customerId, kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer), hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt), qty: d.estimasiQtyUbPerBulan, sales: num(d.estimasiSalesRpPerBulan), entertain: num(d.entertainRp),
         }))
       : prod.dokter.map((d: (typeof prod.dokter)[number]) => ({
-          customerId: d.customerId, nama: d.customer.namaCustomer, hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
+          customerId: d.customerId, kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer), hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt), qty: d.estimasiQtyUbPerBulan, sales: num(d.estimasiNilaiRpPerBulan), entertain: num(d.entertainRp),
         }));
     const sumberData = useFinal ? "Final (Finalisasi)" : "Estimasi (Planning)";
     if (dokterRows.length === 0) {
-      sheet.addRow({ ...prodCols, namaDokter: "-", sumberData: "-" });
+      sheet.addRow({ ...prodCols, kodeDokter: "-", namaDokter: "-", sumberData: "-" });
       continue;
     }
     for (const d of dokterRows) {
       const row = sheet.addRow({
         ...prodCols,
-        namaDokter: d.nama,
+        kodeDokter: d.kode, namaDokter: d.nama,
         sumberData,
         hariPraktek: d.hari,
         jumlahPasien: d.pasien,
