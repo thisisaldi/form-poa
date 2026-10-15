@@ -217,7 +217,8 @@ curl -X POST https://staging-form-poa.chc.pharmalink.id/api/sync/org-structure \
 
 ### `POST /api/sync/org-structure`
 Sinkronisasi struktur organisasi dari Nexus API (`get_employees`/`get_subordinates`) ke Postgres — cutover 2026-08-20, sebelumnya dari MSSQL (lihat `docs/org-nexus-migration/`). `nipAtasan` diinferensi lewat closest-enclosing-ancestor algorithm (`src/lib/sync/orgNexusInference.ts`), bukan field eksplisit dari API. GM di luar scope (tetap manual via `scripts/importStrukturVerifiedKAM.ts`).
-- **Response 200**: `{ "ok": true, ...hasil dari runOrgSync }`. `500` apabila gagal.
+- **Response 200**: `{ "ok": true, "upserted", "deactivated", "inGrace", "errors" }` (hasil `runOrgSync`). `500` apabila gagal.
+- User yang hilang dari Nexus **tidak langsung** dinonaktifkan: baru dinonaktifkan kalau absen ≥36 jam (2 sync harian berturut-turut, `DEACTIVATE_GRACE_MS`). Selama masa tenggang (`inGrace`) user tetap aktif dan bawahannya tetap di bawahnya — sejak insiden L260395 2026-10-15.
 
 ### `POST /api/sync/sales-history`
 Sinkronisasi histori sales outlet (`OutletSalesHistory`, 12 bulan terakhir per kodePI × itemKode) dari `mkt_insight.dbo.DIR10001B`.

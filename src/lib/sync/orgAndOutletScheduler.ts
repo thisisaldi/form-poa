@@ -50,7 +50,7 @@ async function runOnce() {
   try {
     const orgResult = await runOrgSync();
     console.log(
-      `[scheduler] org-structure done — upserted ${orgResult.upserted}, deactivated ${orgResult.deactivated}` +
+      `[scheduler] org-structure done — upserted ${orgResult.upserted}, deactivated ${orgResult.deactivated}, in grace ${orgResult.inGrace}` +
       (orgResult.errors.length > 0 ? `, errors: ${orgResult.errors.join("; ")}` : "")
     );
   } catch (err) {

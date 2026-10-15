@@ -63,7 +63,26 @@ async function fetchOrgFromNexus(): Promise<{ records: OrgRecord[]; failedManage
 export interface SyncResult {
   upserted: number;
   deactivated: number;
+  /** Absent from Nexus this run but still within DEACTIVATE_GRACE_MS — kept active, team kept under them. */
+  inGrace: number;
   errors: string[];
+}
+
+/**
+ * How long a user may be missing from Nexus before Pass 3 deactivates them.
+ * 2026-10-15 incident (L260395, ASM): Nexus dropped him for ONE daily run,
+ * the old immediate-deactivate locked him out and Pass 2 re-parented his two
+ * SPVs to the SM; Nexus had him back the next day. 36h = deactivate only on
+ * the second consecutive missed daily (00:00 WIB) run — syncedAt is bumped
+ * every run the user IS present, so a first miss is ~24h old, a second ~48h.
+ * Manual mid-day syncs don't shorten this (a 12h-old syncedAt is still in grace).
+ * Real departures now take effect one day later — accepted trade-off.
+ */
+export const DEACTIVATE_GRACE_MS = 36 * 60 * 60 * 1000;
+
+/** Still inside the grace window? Null syncedAt (never seen in Nexus, e.g. script-created) = no grace, same as before. */
+export function isWithinDeactivateGrace(syncedAt: Date | null, now: Date): boolean {
+  return syncedAt != null && now.getTime() - syncedAt.getTime() < DEACTIVATE_GRACE_MS;
 }
 
 /**
@@ -123,9 +142,34 @@ export async function runOrgSync(): Promise<SyncResult> {
     }
   }
 
+  // Same in-scope filter as Pass 3 below — users missing from this run.
+  const activeNips = records.map((r) => r.nip);
+  const inScopeMissing = {
+    nip: { notIn: activeNips },
+    isActive: true,
+    isDummy: false,
+    // Tim HKA (docs/poa-standarisasi-pusat/) tidak ada di struktur sales Nexus tapi tetap harus bisa login.
+    isHka: false,
+    role: { in: ["MR", "ASM", "SM", "NSM"] as Role[] },
+    project: null,
+  };
+  const missing = await prisma.user.findMany({ where: inScopeMissing, select: { nip: true, syncedAt: true } });
+  const graceNips = new Set(missing.filter((u: { syncedAt: Date | null }) => isWithinDeactivateGrace(u.syncedAt, now)).map((u: { nip: string }) => u.nip));
+
+  // Current atasan of everyone in this run, one query — Pass 2 keeps it when
+  // that atasan is in grace (otherwise the absent manager's team would be
+  // re-parented to the next level up for the day, the L260395 symptom).
+  const currentAtasan = new Map<string, string | null>(
+    (await prisma.user.findMany({ where: { nip: { in: activeNips } }, select: { nip: true, nipAtasan: true } })).map(
+      (u: { nip: string; nipAtasan: string | null }) => [u.nip, u.nipAtasan]
+    )
+  );
+
   // Pass 2: wire up atasan (stores manager NIP directly, since nip is the PK)
   for (const rec of records) {
     if (!rec.reportsToNip) continue;
+    const cur = currentAtasan.get(rec.nip);
+    if (cur && cur !== rec.reportsToNip && graceNips.has(cur)) continue;
     try {
       const manager = await prisma.user.findUnique({
         where: { nip: rec.reportsToNip },
@@ -150,19 +194,11 @@ export async function runOrgSync(): Promise<SyncResult> {
   // isDummy workshop accounts, 331 project="omega" Sales Counter users
   // — those are synced separately by omegaUserSync.ts, scoped the same way
   // — and GM/ADMIN/SFE/VIEWER, none of which this endpoint ever returns).
-  const activeNips = records.map((r) => r.nip);
+  // Only those past the grace window (DEACTIVATE_GRACE_MS) — see its comment.
   const deactivated = await prisma.user.updateMany({
-    where: {
-      nip: { notIn: activeNips },
-      isActive: true,
-      isDummy: false,
-      // Tim HKA (docs/poa-standarisasi-pusat/) tidak ada di struktur sales Nexus tapi tetap harus bisa login.
-      isHka: false,
-      role: { in: ["MR", "ASM", "SM", "NSM"] },
-      project: null,
-    },
+    where: { ...inScopeMissing, nip: { notIn: [...activeNips, ...graceNips] } },
     data: { isActive: false },
   });
 
-  return { upserted, deactivated: deactivated.count, errors };
+  return { upserted, deactivated: deactivated.count, inGrace: graceNips.size, errors };
 }
