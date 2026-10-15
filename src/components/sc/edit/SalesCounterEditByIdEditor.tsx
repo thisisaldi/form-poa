@@ -641,7 +641,7 @@ export function SalesCounterEditByIdEditor({
           style={{ background: "var(--color-blue-light, #eff6ff)", color: "var(--color-blue)", border: "1px solid var(--color-blue)" }}>
           <p>
             {status === "APPROVED_BY_NSM"
-              ? "Outlet ini sudah berstatus Fully Approved pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja)."
+              ? "Outlet ini sudah berstatus Approved pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja)."
               : isOwner
               ? "Mode Lihat (Read-Only) — Outlet ini sudah disetujui oleh Atasan. Untuk melakukan perubahan rencana, Anda dapat mengajukan permohonan edit ke Atasan."
               : "Mode Lihat (Read-Only) — Anda melihat form ini sebagai Atasan (Akses Read-Only)."}

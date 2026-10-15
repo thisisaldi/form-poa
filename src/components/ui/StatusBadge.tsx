@@ -21,7 +21,7 @@ const STATUS_CONFIG: Record<
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_ASM: {
-    label: "Fully Approved",
+    label: "Approved",
     colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   SUBMITTED_TO_SM: {
@@ -29,7 +29,7 @@ const STATUS_CONFIG: Record<
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_SM: {
-    label: "Fully Approved",
+    label: "Approved",
     colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   SUBMITTED_TO_NSM: {
@@ -37,18 +37,18 @@ const STATUS_CONFIG: Record<
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_NSM: {
-    label: "Fully Approved",
+    label: "Approved",
     colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   // ASD/SD (docs/exodus-poa-usage/01-business-rules.md §11, 2026-09-09) —
   // only reached when a doctor's exodusRequiredRole ceiling calls for it;
-  // APPROVED_BY_NSM above stays "Fully Approved" for every other doctor.
+  // APPROVED_BY_NSM above stays "Approved" for every other doctor.
   SUBMITTED_TO_ASD: {
     label: "Butuh Approval ASD",
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_ASD: {
-    label: "Fully Approved",
+    label: "Approved",
     colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   SUBMITTED_TO_SD: {
@@ -56,7 +56,7 @@ const STATUS_CONFIG: Record<
     colorClass: "bg-[var(--color-status-pending-bg)] text-[var(--color-status-pending)]",
   },
   APPROVED_BY_SD: {
-    label: "Fully Approved",
+    label: "Approved",
     colorClass: "bg-[var(--color-status-approved-bg)] text-[var(--color-status-approved)] font-semibold",
   },
   REVISI: {

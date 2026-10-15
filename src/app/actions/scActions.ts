@@ -246,7 +246,7 @@ export async function saveSalesCounterFormAction(
 
       if (existing) {
         if (existing.status === PoaStatus.APPROVED_BY_NSM) {
-          throw new Error("Form ini sudah berstatus Fully Approved dan tidak dapat diedit kembali.");
+          throw new Error("Form ini sudah berstatus Approved dan tidak dapat diedit kembali.");
         }
         const canEdit = canUserEditScForm(
           session.role,
@@ -723,7 +723,7 @@ export async function deleteSalesCounterFormAction(poaScId: string): Promise<{ o
     });
     if (!poaSc) return { ok: false, error: "POA tidak ditemukan." };
     if (poaSc.status === PoaStatus.APPROVED_BY_NSM) {
-      return { ok: false, error: "Rencana POA yang sudah Fully Approved tidak dapat dihapus." };
+      return { ok: false, error: "Rencana POA yang sudah Approved tidak dapat dihapus." };
     }
     if (poaSc.ownerId !== session.userId) return { ok: false, error: "Tidak memiliki akses untuk menghapus POA ini." };
 

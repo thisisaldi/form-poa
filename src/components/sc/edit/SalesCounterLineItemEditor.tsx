@@ -762,7 +762,7 @@ export function SalesCounterLineItemEditor({
                 border: "1px solid var(--color-blue)",
               }}
             >
-              Outlet ini sudah berstatus <strong>Fully Approved</strong> pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja).
+              Outlet ini sudah berstatus <strong>Approved</strong> pada periode ini sehingga rencana tidak dapat diubah lagi (Mode Lihat Saja).
             </div>
           )}
 
