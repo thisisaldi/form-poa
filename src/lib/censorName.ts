@@ -1,8 +1,8 @@
 /**
  * Sensor nama dokter untuk tampilan/export. Gelar dibuang dulu (cuma nama
- * orangnya yang ditampilkan), lalu tiap kata hanya huruf depan + 4 bintang
- * TETAP supaya panjang nama asli tidak terbaca.
- *   "dr. Lina Kartika, SpPD" -> "L**** K****"
+ * orangnya yang ditampilkan), lalu tiap kata hanya VISIBLE_LETTERS huruf depan
+ * + 4 bintang TETAP supaya panjang nama asli tidak terbaca.
+ *   "dr. Lina Kartika, SpPD" -> "LI**** KA****"
  *
  * Pola gelar dari data Customer (18k nama, 2026-10-15):
  *   depan   : DR / dr. / Dr. / drg / DRG / Prof / H. / Hj.
@@ -50,10 +50,20 @@ export function stripTitles(name: string): string {
   return (kept.length ? kept : original).join(" ");
 }
 
+/**
+ * Jumlah huruf depan yang tetap terlihat per kata. UJI COBA 2026-10-15: 2 huruf
+ * (sebelumnya 1) supaya lebih terbaca; kalau tim sales memilih 1, cukup ganti
+ * angka ini. Jumlah bintang tetap (tidak mengikuti panjang nama).
+ */
+export const VISIBLE_LETTERS = 2;
+const STARS = "****";
+
 export function censorName(name: string | null | undefined): string {
   return stripTitles(name ?? "")
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => `${[...w][0].toUpperCase()}****`)
+    .map((w) => [...w].filter((c) => /[\p{L}\p{N}]/u.test(c)).slice(0, VISIBLE_LETTERS).join("")) // huruf/angka saja, titik "M." tidak ikut
+    .filter(Boolean)
+    .map((w) => `${w.toUpperCase()}${STARS}`)
     .join(" ");
 }
