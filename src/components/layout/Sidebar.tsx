@@ -195,7 +195,7 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject,
       return allowedSdHrefs.includes(item.href);
     }
     if (isViewer && multiProject) {
-      const allowedViewerMultiHrefs = ["/dashboard", "/sc/dashboard", "/summary", "/faq"];
+      const allowedViewerMultiHrefs = ["/dashboard", "/sc/dashboard", "/summary", "/poa-standarisasi/dashboard", "/faq"];
       return allowedViewerMultiHrefs.includes(item.href);
     }
 
@@ -208,7 +208,8 @@ export function Sidebar({ userRole, userJabatan, userName, userNip, userProject,
       // Approvals (/sc/approvals), dan FAQ (/faq).
       // Menu lain seperti Input Data Survey, Summary, dsb dihilangkan.
       if (isViewer) {
-        const allowedOmegaHrefs = ["/dashboard"];
+        // Monitoring Standarisasi dibuka untuk semua VIEWER (2026-10-15, user request).
+        const allowedOmegaHrefs = ["/dashboard", "/poa-standarisasi/dashboard"];
         return allowedOmegaHrefs.includes(item.href);
       } else{
         const allowedOmegaHrefs = ["/dashboard", "/sc/new", "/sc/approvals"];

@@ -27,11 +27,22 @@ export default async function StandarisasiDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1>Monitoring POA Standarisasi</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
-          Pantau posisi tiap pengajuan, kapan aksi terakhir dilakukan, dan produk yang sudah standarisasi per outlet.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1>Monitoring POA Standarisasi</h1>
+          <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            Pantau posisi tiap pengajuan, kapan aksi terakhir dilakukan, dan produk yang sudah standarisasi per outlet.
+          </p>
+        </div>
+        {/* Export yang sama dengan halaman daftar POA Standarisasi (scope company-wide untuk VIEWER/GM/ADMIN/SD/SFE);
+            gaya tombol mengikuti DashboardExportButton di dashboard POA Estimasi. */}
+        <a
+          href="/api/poa-standarisasi/export"
+          className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+          style={{ backgroundColor: "var(--color-bg)", border: "1px solid var(--color-border)", color: "var(--color-text)" }}
+        >
+          ↓ Export Excel
+        </a>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
