@@ -2461,3 +2461,44 @@ model BankSpesialis {
   @@unique([spesialis, kodeProduk])
   @@index([kodeProduk])
 }
+
+// MCL (docs/mcl-rekomendasi-dokter/): hasil import sekali dari Excel internal sheet "Main".
+// Status listing produk per outlet; dasar indikator "sudah standarisasi" (Excel = sumber utama).
+enum ListingStatusExcel {
+  SUDAH_LISTING
+  BELUM_LISTING
+  PRODUK_TIDAK_ADA
+  OUTLET_TIDAK_ADA
+}
+
+model OutletProdukListing {
+  id          String             @id @default(uuid())
+  kodePI      String
+  kodeProduk  String
+  status      ListingStatusExcel
+  importBatch String
+  importedAt  DateTime           @default(now())
+
+  @@unique([kodePI, kodeProduk])
+  @@index([kodePI])
+}
+
+// Rekomendasi dokter per outlet. customerId hanya diisi bila match EXACT (tanpa FK keras:
+// baris Excel harus tetap tampil walau dokternya belum terdaftar). SELALU di-query per kodePI.
+model MclRekomendasiDokter {
+  id             String   @id @default(uuid())
+  kodePI         String
+  namaDokter     String
+  namaNormalized String
+  spesialis      String
+  kodeProduk     String
+  keterangan     String?
+  estimasiAktif  Decimal? @db.Decimal(18, 2)
+  pelunasan      Decimal? @db.Decimal(18, 2)
+  customerId     String?
+  matchTier      String
+  importBatch    String
+
+  @@unique([kodePI, namaNormalized, spesialis, kodeProduk])
+  @@index([kodePI])
+}

@@ -12,7 +12,7 @@ Trigger SDD yang terpenuhi (`docs/sdd/01-when-and-workflow.md`): sumber dari dok
 
 ## Status
 
-⬜ **Spesifikasi draft — belum ada kode implementasi.** Tidak ada tabel/script MCL di `prisma/schema.prisma` maupun `scripts/` saat ini (kata "MCL" tidak muncul di kode/docs sebelum dokumen ini).
+🟡 **Implementasi bertahap (2026-10-15).** Langkah 1 selesai ditulis: skema + migration `20261015100000_mcl_rekomendasi`, `src/lib/mclMatch.ts`, `scripts/importMclRekomendasi.ts` (dry-run terverifikasi). **Belum diterapkan ke DB** (migration + `--apply`). Langkah 2-4 (indikator, sidebar Standarisasi, section POA Estimasi) belum dikerjakan.
 
 ⚠️ **Asumsi kerja (bukan konfirmasi stakeholder)** — ditandai juga di tempatnya masing-masing:
 - Excel = sumber **utama** indikator listing; pengajuan final-submit di app hanya melengkapi satu arah (belum→sudah) karena file tidak akan diperbarui. Ini tafsiran atas "excel sebagai utamanya" (pengguna 2026-10-15) — lihat §6 Q1.

@@ -7,7 +7,7 @@ Sumber: percakapan Clara 2026-10-13 ("ada untuk rekomendasi POA standarisasi di 
 | Bagian | Isi | Dipakai untuk |
 |---|---|---|
 | Sheet `Main` | Per baris: hierarki (GM..FF sebagai teks nama), `KODE PI`, outlet, `SPESIALIS`, `NAMA DOKTER`, `KODE/NAMA PRODUK`, `KETERANGAN` (alasan klinis), `STATUS STANDARISASI`, `ESTIMASI AKTIF`, `SUM OF PELUNASAN` | Rekomendasi POA Standarisasi + indikator "sudah standarisasi" |
-| Sheet `Bank Spesialis - Edit` / `Bank Spesialis` | Mapping spesialis → produk + keterangan relevansi | Rekomendasi PSSP + warning bila produk tidak sesuai spesialisasi dokter (tahap 2, §5) |
+| Sheet `Bank Spesialis` | Mapping spesialis → produk + keterangan relevansi | **Sudah dibangun terpisah** — tabel `BankSpesialis`, Produk Kontes, warning spesialisasi (`docs/poa-bank-spesialis/`, 2026-10-13). Di luar scope dokumen ini (§5) |
 | Sheet lain (`Struktur`, `List Dokter PSSP`, `List hospital HMA`, dst.) | Pendukung | Di luar scope v1 |
 
 Header `Main` ada di baris 3 (baris 1-2 kosong); 321.010 baris data, 293 `KODE PI` unik, 6.297 dokter unik per (outlet, nama), 151 produk, 16 spesialis. Status ada **empat nilai** (bukan dua):
@@ -51,9 +51,11 @@ Matching dibatasi per `KODE PI` lebih dulu, baru nama dokter dalam outlet itu.
 
 Tidak ketemu: 2.442 (38,8%), tersebar di 258 dari 293 outlet — bukan masalah satu-dua outlet. Ini keterbatasan **data** (dokter belum terdaftar di outlet itu), bukan algoritma; fuzzy yang lebih agresif hanya menambah risiko salah orang. Tier match: exact ±50%, subset ±11% (nama Excel lebih panjang/pendek, risiko salah orang lebih tinggi), fuzzy ≈0,1%.
 
-## §5. Tahap 2 (di luar v1, dicatat agar tidak hilang)
+**Hasil dry-run `scripts/importMclRekomendasi.ts` (2026-10-15, `customerId` hanya dari `CustomerOutlet` lokal, belum termasuk dokter Exodus live):** 316.106 baris rekomendasi (dari 321.010; 991 baris placeholder nama `"0"` dilewati), 6.272 dokter unik: EXACT 3.232 (51,5%), SUBSET 221, FUZZY 3, tanpa tautan 2.816. Listing: 41.515 pasangan — SUDAH 3.875, BELUM 31.707, PRODUK_TIDAK_ADA 4.225, OUTLET_TIDAK_ADA 1.708; 0 konflik antar dokter. Dokter Exodus yang belum ada di tabel lokal terselesaikan saat runtime lewat `getCustomersByOutlet`, bukan saat import.
 
-Bridging spesialis → produk untuk rekomendasi PSSP + warning ketidaksesuaian di POA Estimasi (sheet `Bank Spesialis`). Butuh keputusan sheet mana yang resmi (§6 Q4) dan perubahan di `LineItemEditor` — spesifikasinya ditulis terpisah saat tahap ini dimulai.
+## §5. Bridging spesialis (sudah selesai, bukan bagian dokumen ini)
+
+Bridging spesialis → produk + warning ketidaksesuaian di POA Estimasi sudah diimplementasikan 2026-10-13 di `docs/poa-bank-spesialis/` (tabel `BankSpesialis`, sheet "Bank Spesialis", Produk Kontes = produk Bank). MCL **tidak** menduplikasinya. Perbedaan peran: Bank Spesialis = produk yang cocok per **spesialis** (tanpa nama dokter/outlet); `Main` = produk yang direkomendasikan per **dokter bernama di outlet tertentu**, dengan keterangan dan status listing. Di POA Estimasi keduanya tampil berdampingan (section "Produk Kontes PM" dari Bank vs "Produk Rekomendasi Dokter" dari Main).
 
 ## §6. Open questions — status & assumptions dipakai untuk v1
 
@@ -62,7 +64,7 @@ Bridging spesialis → produk untuk rekomendasi PSSP + warning ketidaksesuaian d
 | Q1 | ~~Murni Excel atau Excel + pengajuan final-submit?~~ **Terjawab 2026-10-15:** "excel sebagai utamanya untuk informasi sudah listing atau belum" — Excel = baseline utama; pengajuan final-submit di app sebagai overlay satu arah belum→sudah (§2). ⚠️ Tafsiran saya atas kata "utamanya"; bila yang dimaksud murni Excel, cukup hapus overlay (tanpa migrasi) | — | Excel utama + overlay satu arah | Pengguna (konfirmasi tafsiran) |
 | Q2 | ~~Siapa yang menyediakan Excel versi baru dan seberapa sering?~~ **Terjawab 2026-10-15:** satu file saja, tidak ada refresh. | — | Import sekali via script; tidak perlu desain siklus refresh/UI upload | — |
 | Q3 | `PRODUK TIDAK ADA DI DATA LISTING` dan `OUTLET TIDAK ADA DI DATA LISTING` = "belum"? | Tidak | Belum | Clara |
-| Q4 | Sheet spesialis mana yang resmi: `Bank Spesialis - Edit` (keterangan terisi) atau `Bank Spesialis`? Clara menyebut "list spesialisasi" — tidak ada sheet bernama itu | Tidak untuk v1 (tahap 2) | Belum dipilih | Clara |
+| Q4 | ~~Sheet spesialis mana yang resmi?~~ **Terjawab 2026-10-13** (`docs/poa-bank-spesialis/`): sheet `Bank Spesialis`; sheet "list spesialisasi" yang disebut Clara tidak ada di workbook. Sudah diimplementasikan. | — | — | — |
 | Q5 | Fitur memo awal (note atasan→bawahan per dokter, list prioritas yang diarahkan atasan, "geser ke database lain") masih diharapkan? Perlu align dengan Bu Ummie & Pak Rudi (memo poin 3) | Tidak untuk v1 | Tidak masuk v1 | Pak Brian / Pak Arthur / Tim Sales |
 | Q6 | `ESTIMASI AKTIF` / `SUM OF PELUNASAN` hanya terisi di 1.995 dari 321.010 baris — ditampilkan atau diabaikan? | Tidak | Disimpan, tidak ditampilkan di v1 | Clara |
 | Q7 | Subset match (nama Excel vs DB tidak persis sama, ±11%) ditautkan otomatis atau hanya disarankan ("mungkin dokter yang sama")? | Tidak | Hanya disarankan, tidak auto-link | Pengguna |

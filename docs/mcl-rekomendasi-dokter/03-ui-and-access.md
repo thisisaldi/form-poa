@@ -23,7 +23,7 @@ Import Excel dijalankan developer/ADMIN lewat script — tidak ada UI upload di 
 ## Non-goals v1
 
 - Note atasan → bawahan per dokter, list prioritas yang diarahkan atasan, dan "geser dokter ke database lain" (memo awal) — ditunda, lihat `01-business-rules.md` §6 Q5.
-- Bridging spesialis → produk + warning di POA Estimasi (sheet Bank Spesialis) — tahap 2.
+- Bridging spesialis → produk + warning di POA Estimasi — sudah ada terpisah (`docs/poa-bank-spesialis/`), tidak diubah.
 - Upload Excel dari UI dan jadwal refresh otomatis — file tunggal, import sekali via script.
 - Saran dokter per outlet saat memilih dokter di POA Estimasi (AddPanel) — lihat Q8.
 - Tab atau halaman baru khusus MCL, dan daftar company-wide/lintas outlet (PERFORMANCE.md).

@@ -46,7 +46,7 @@ model MclRekomendasiDokter {
   matchTier      String   // EXACT | SUBSET | FUZZY | NONE
   importBatch    String
 
-  @@unique([kodePI, namaNormalized, kodeProduk])
+  @@unique([kodePI, namaNormalized, spesialis, kodeProduk])
   @@index([kodePI])
 }
 ```
@@ -63,7 +63,7 @@ model MclRekomendasiDokter {
 
 ## Invariant
 
-1. (kodePI, kodeProduk) unik di `OutletProdukListing`; (kodePI, namaNormalized, kodeProduk) unik di `MclRekomendasiDokter`.
+1. (kodePI, kodeProduk) unik di `OutletProdukListing`; (kodePI, namaNormalized, spesialis, kodeProduk) unik di `MclRekomendasiDokter` (spesialis ikut kunci: dua dokter beda spesialis dengan nama ternormalisasi sama tidak boleh menyatu).
 2. Setelah import, seluruh baris punya `importBatch` yang sama (tidak ada campuran batch).
 3. `customerId` terisi hanya bila `matchTier = EXACT` (asumsi v1, Q7).
 4. Tabel hanya diubah oleh script import — tidak ada edit manual dari UI.
