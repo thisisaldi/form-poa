@@ -4,7 +4,6 @@ import { getPendingActionScFilter } from "@/lib/authz";
 import { getB3RollingPeriodInfo } from "@/lib/b3Utils";
 import { quarterToMonths } from "@/lib/quarterUtils";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
-import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import { SC_APPROVALS_OUTLET_PAGE_SIZE } from "@/components/sc/approvalsPaging";
 import type { MrApprovalGroup, ScApprovalsMetrics } from "@/components/sc/SalesCounterApprovalsChecklist";
 import type { ScDraftFormItem } from "@/components/sc/types";
@@ -351,16 +350,14 @@ async function loadOutletPage(
     else liveByPeriod.set(f.period, [f.kodePI]);
   }
 
-  const [master, blastInSet, rawOutlets] = await Promise.all([
+  const [master, blastInSet] = await Promise.all([
     loadScMasterProducts(forms.flatMap((f) => f.products.map((p: { kodeProduk: string }) => p.kodeProduk))),
     getBlastInOutletSet().catch(() => new Set<string>()),
-    getSalesCounterOutletsDirect(actor.nip).catch(() => []),
     ...Array.from(liveByPeriod.entries()).map(async ([formPeriod, kodePIs]) => {
       const live = await loadScLiveOutletData(kodePIs, formPeriod, getB3RollingPeriodInfo(formPeriod).targetPeriods);
       for (const [kodePI, data] of live) liveByKey.set(`${formPeriod}|${kodePI}`, data);
     }),
   ]);
-  const outletByCode = new Map(rawOutlets.map((o) => [o.kodePI, o]));
 
   const pagedDrafts = pageRows
     .map((r) => formById.get(r.id))
@@ -368,7 +365,6 @@ async function loadOutletPage(
     .map((f) =>
       toScDraftItem(f, {
         master,
-        outlet: outletByCode.get(f.kodePI),
         isBlastIn: blastInSet.has(f.kodePI),
         live: liveByKey.get(`${f.period}|${f.kodePI}`),
       })

@@ -4,7 +4,6 @@ export interface ScSidebarProps {
   poaPeriod?: string | null;
   doctorName?: string;
   productsMenang?: any[];
-  productsInsentif?: any[];
   insentifHistory?: any;
   historySalesData?: any;
   salesOnlineData?: any;

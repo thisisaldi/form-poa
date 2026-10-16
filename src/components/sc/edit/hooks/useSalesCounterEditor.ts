@@ -8,7 +8,6 @@ import {
   getSalesCounterProductsAction,
   getSalesCountersAction,
   getScProductMenangAction,
-  getScProductWithInsentifAction,
   getScInsentifHistoryAction,
   getScCashbackPoaAction,
   getRekomendasiProdukAction,
@@ -99,7 +98,6 @@ export function useSalesCounterEditor({
 
   // API helper data states
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
-  const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
   const [historySalesData, setHistorySalesData] = useState<any>(null);
   const [salesOnlineData, setSalesOnlineData] = useState<any>(null);
@@ -189,7 +187,6 @@ export function useSalesCounterEditor({
     setCashbackData(null);
     setCashbackMatrix([]);
     setProductsMenang([]);
-    setProductsInsentif([]);
     setHistorySalesData(null);
     setSalesOnlineData(null);
     setSurveyData([]);
@@ -232,7 +229,6 @@ export function useSalesCounterEditor({
             : [{ kodeProduk: "", produkKompetitor: "", qtyPerBulan: "", persenMatriksSc: "", persenDiskon: "", persenCashback: "", rencanaTotalBiaya: 0 }];
         });
         setProductsMenang(bundle.productsMenang);
-        setProductsInsentif(bundle.productsInsentif);
         setHistorySalesData(bundle.historySalesData);
         setSalesOnlineData(bundle.salesOnlineData);
         setSurveyData(bundle.surveyData);
@@ -828,7 +824,6 @@ export function useSalesCounterEditor({
     loadingOutletData,
     loadingSurvey,
     productsMenang,
-    productsInsentif,
     insentifHistory,
     historySalesData,
     salesOnlineData,
