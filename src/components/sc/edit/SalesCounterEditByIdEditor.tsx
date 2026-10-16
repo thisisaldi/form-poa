@@ -166,7 +166,6 @@ export function SalesCounterEditByIdEditor({
     canvasserProducts,
     rawCashbackData,
     productsMenang,
-    productsInsentif,
     insentifHistory,
     historySalesData,
     b3HistorySalesData,
@@ -1313,7 +1312,6 @@ export function SalesCounterEditByIdEditor({
         poaPeriod={poaPeriod}
         doctorName={namaOutlet || undefined}
         productsMenang={productsMenang}
-        productsInsentif={productsInsentif}
         insentifHistory={insentifHistory}
         historySalesData={historySalesData}
         salesOnlineData={salesOnlineData}

@@ -3,7 +3,6 @@
 import { getSalesCountersByOutlet } from "@/app/(app)/sc/[id]/_services/getSalesCounters";
 import { getSalesCounterProduct } from "@/app/(app)/sc/[id]/_services/getSalesCounterProduct";
 import { getScProductMenang } from "@/app/(app)/sc/[id]/_services/getScProductMenang";
-import { getScProductWithInsentif } from "@/app/(app)/sc/[id]/_services/getScProductWithInsentif";
 import { getScInsentifHistory } from "@/app/(app)/sc/[id]/_services/getScInsentifHistory";
 import { getScHistoryIncentiveCounter } from "@/app/(app)/sc/[id]/_services/getScHistoryIncentiveCounter";
 import { getPrincodeProducts } from "@/app/(app)/sc/[id]/_services/getPrincodeProducts";
@@ -92,12 +91,6 @@ export async function getSalesCounterProductsAction(piCode: string, period?: str
 export async function getScProductMenangAction(piCode: string) {
   if (!piCode) return { data: [] };
   const res = await getScProductMenang(piCode);
-  return res || { data: [] };
-}
-
-export async function getScProductWithInsentifAction(piCode: string) {
-  if (!piCode) return { data: [] };
-  const res = await getScProductWithInsentif(piCode);
   return res || { data: [] };
 }
 
@@ -385,7 +378,6 @@ export interface ScOutletBundleResult {
   personsList: any[];
   canvasserProducts: any[];
   productsMenang: any[];
-  productsInsentif: any[];
   historySalesData: any | null;
   salesOnlineData: any | null;
   surveyData: any[];
@@ -411,7 +403,6 @@ export async function getScOutletBundleAction(params: {
       personsList: [],
       canvasserProducts: [],
       productsMenang: [],
-      productsInsentif: [],
       historySalesData: null,
       salesOnlineData: null,
       surveyData: [],
@@ -428,7 +419,6 @@ export async function getScOutletBundleAction(params: {
     personsRes,
     productsRes,
     menangRes,
-    insentifRes,
     historySalesRes,
     salesOnlineRes,
     surveyNexusRes,
@@ -442,7 +432,6 @@ export async function getScOutletBundleAction(params: {
     getSalesCountersAction(outletId),
     getSalesCounterProductsAction(outletId, targetPeriod),
     getScProductMenangAction(outletId),
-    getScProductWithInsentifAction(outletId),
     postHistorySalesAction([outletId], undefined, undefined, true),
     getSalesOnlineAction(outletId),
     getSurveyNexusAction(outletId),
@@ -459,7 +448,6 @@ export async function getScOutletBundleAction(params: {
   const personsList = personsRes.status === "fulfilled" && personsRes.value?.data ? personsRes.value.data : [];
   const canvasserProducts = productsRes.status === "fulfilled" && productsRes.value?.data ? productsRes.value.data : [];
   const productsMenang = menangRes.status === "fulfilled" && menangRes.value?.data ? menangRes.value.data : [];
-  const productsInsentif = insentifRes.status === "fulfilled" && insentifRes.value?.data ? insentifRes.value.data : [];
   const historySalesData = historySalesRes.status === "fulfilled" ? historySalesRes.value : null;
   const salesOnlineData = salesOnlineRes.status === "fulfilled" ? salesOnlineRes.value : null;
   const surveyNexusData = surveyNexusRes.status === "fulfilled" ? surveyNexusRes.value : null;
@@ -496,7 +484,6 @@ export async function getScOutletBundleAction(params: {
     personsList,
     canvasserProducts,
     productsMenang,
-    productsInsentif,
     historySalesData,
     salesOnlineData,
     surveyData,

@@ -75,7 +75,6 @@ export function SalesCounterLineItemEditor({
     loadingOutletData,
     loadingSurvey,
     productsMenang,
-    productsInsentif,
     insentifHistory,
     historySalesData,
     salesOnlineData,
@@ -202,12 +201,11 @@ export function SalesCounterLineItemEditor({
     return buildScProductOptions({
       canvasserProducts,
       productsMenang,
-      productsInsentif,
       masterProducts: products,
       historySalesData,
       surveyData,
     });
-  }, [canvasserProducts, productsMenang, productsInsentif, products, historySalesData, surveyData]);
+  }, [canvasserProducts, productsMenang, products, historySalesData, surveyData]);
 
   const [historyEntertain, setHistoryEntertain] = useState<number | null>(null);
   const [loadingHistoryEntertain, setLoadingHistoryEntertain] = useState(false);
@@ -1409,7 +1407,6 @@ export function SalesCounterLineItemEditor({
           poaPeriod={poaPeriod}
           doctorName={selectedOutlet?.namaOutlet || undefined}
           productsMenang={productsMenang}
-          productsInsentif={productsInsentif}
           insentifHistory={insentifHistory}
           historySalesData={historySalesData}
           salesOnlineData={salesOnlineData}

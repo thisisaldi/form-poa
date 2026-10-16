@@ -5,7 +5,6 @@ import { aggregateHistorySales } from "@/lib/historySalesUtils";
 export function buildScProductOptions({
   canvasserProducts = [],
   productsMenang = [],
-  productsInsentif = [],
   masterProducts = [],
   historySalesData,
   surveyData = [],
@@ -73,7 +72,6 @@ export function buildScProductOptions({
 
   const menangCodes = new Set([
     ...(productsMenang || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
-    ...(productsInsentif || []).map((p: any) => typeof p === "string" ? p : p.pro_code || p.kode_item || p.kodeProduk || p.code),
   ].filter(Boolean));
 
   const groupSurvey: ScProductOptionItem[] = [];

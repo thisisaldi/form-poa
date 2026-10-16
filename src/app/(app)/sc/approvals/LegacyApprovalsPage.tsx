@@ -11,7 +11,6 @@ import { ScToastProvider } from "@/components/sc/ui/ScToast";
 import { getSalesCounterProduct } from "../[id]/_services/getSalesCounterProduct";
 import { getBlastInOutletSet } from "@/lib/outletBlastIn";
 import { mapWithConcurrency } from "@/lib/mapWithConcurrency";
-import { getSalesCounterOutletsDirect } from "@/lib/masterData";
 import type { ScDraftFormItem } from "@/components/sc/types";
 import { Role, Prisma, type PoaStatus } from "@prisma/client";
 
@@ -141,7 +140,7 @@ export async function LegacySalesCounterApprovalsPage({
     }
   }
 
-  const [masterProducts, blastInSet, rawOutlets] = await Promise.all([
+  const [masterProducts, blastInSet] = await Promise.all([
     allProductCodes.length > 0
       ? (prisma.product.findMany({
           where: { kodeProduk: { in: allProductCodes } },
@@ -156,7 +155,6 @@ export async function LegacySalesCounterApprovalsPage({
         }) as Promise<MasterProductItem[]>)
       : Promise.resolve([] as MasterProductItem[]),
     getBlastInOutletSet().catch(() => new Set<string>()),
-    getSalesCounterOutletsDirect(actor.nip).catch(() => []),
     mapWithConcurrency(
       outletCodes,
       8,
@@ -181,16 +179,13 @@ export async function LegacySalesCounterApprovalsPage({
   const masterProductMap = new Map<string, MasterProductItem>(
     masterProducts.map((p: MasterProductItem) => [p.kodeProduk, p])
   );
-  const outletScMap = new Map(rawOutlets.map((o) => [o.kodePI, !!o.is_sc]));
 
-  type RawOutlet = (typeof rawOutlets)[number];
   type ScPerson = PendingPoaScWithIncludes["persons"][number];
   type ScProduct = PendingPoaScWithIncludes["products"][number];
   type ScEntertain = PendingPoaScWithIncludes["entertainItems"][number];
 
   // Build serialized ScDraftFormItem list for stats panel
   const scDrafts: ScDraftFormItem[] = pendingForms.map((d: PendingPoaScWithIncludes) => {
-    const matchedOutlet = rawOutlets.find((o: RawOutlet) => o.kodePI === d.kodePI);
     return {
       id: d.id,
       period: d.period,
@@ -200,12 +195,11 @@ export async function LegacySalesCounterApprovalsPage({
       version: d.version,
       kodePI: d.kodePI,
       namaOutlet: d.namaOutlet || `Outlet ${d.kodePI}`,
-      jumlahKaryawan: (d.jumlahKaryawan && d.jumlahKaryawan > 0) ? d.jumlahKaryawan : (matchedOutlet?.jumlah_karyawan ?? d.jumlahKaryawan ?? null),
-      jumlahPasien: (d.jumlahPasien && d.jumlahPasien > 0) ? d.jumlahPasien : (matchedOutlet?.jumlah_pasien ?? d.jumlahPasien ?? null),
-      jumlahPasienResep: (d.jumlahPasienResep && d.jumlahPasienResep > 0) ? d.jumlahPasienResep : (matchedOutlet?.jumlah_pasien_resep ?? d.jumlahPasienResep ?? null),
-      jumlahPasienNonResep: (d.jumlahPasienNonResep && d.jumlahPasienNonResep > 0) ? d.jumlahPasienNonResep : (matchedOutlet?.jumlah_pasien_non_resep ?? d.jumlahPasienNonResep ?? null),
+      jumlahKaryawan: d.jumlahKaryawan ?? null,
+      jumlahPasien: d.jumlahPasien ?? null,
+      jumlahPasienResep: d.jumlahPasienResep ?? null,
+      jumlahPasienNonResep: d.jumlahPasienNonResep ?? null,
       ownerId: d.ownerId,
-      is_sc: outletScMap.get(d.kodePI) ?? false,
       isBlastIn: blastInSet.has(d.kodePI),
       persons: d.persons.map((p: ScPerson) => ({
         id: p.id,

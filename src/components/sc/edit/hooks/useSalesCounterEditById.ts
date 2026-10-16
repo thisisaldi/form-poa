@@ -11,7 +11,6 @@ import {
   getScOutletBundleAction,
   getSalesCounterProductsAction,
   getScProductMenangAction,
-  getScProductWithInsentifAction,
   getScInsentifHistoryAction,
   getScCashbackPoaAction,
   postHistorySalesAction,
@@ -271,7 +270,6 @@ export function useSalesCounterEditById({
   const [cashbackMatrix, setCashbackMatrix] = useState<any[]>([]);
   const [rawCashbackData, setRawCashbackData] = useState<any>(null);
   const [productsMenang, setProductsMenang] = useState<any[]>([]);
-  const [productsInsentif, setProductsInsentif] = useState<any[]>([]);
   const [insentifHistory, setInsentifHistory] = useState<any>(null);
   const [historySalesData, setHistorySalesData] = useState<any>(null);
   const [b3HistorySalesData, setB3HistorySalesData] = useState<any>(null);
@@ -330,7 +328,6 @@ export function useSalesCounterEditById({
       setCashbackMatrix([]);
       setRawCashbackData(null);
       setProductsMenang([]);
-      setProductsInsentif([]);
       setHistorySalesData(null);
       setSalesOnlineData(null);
       setSurveyData([]);
@@ -396,7 +393,6 @@ export function useSalesCounterEditById({
 
         // Others
         setProductsMenang(bundle.productsMenang);
-        setProductsInsentif(bundle.productsInsentif);
         setHistorySalesData(bundle.historySalesData);
         setSalesOnlineData(bundle.salesOnlineData);
         setSurveyData(bundle.surveyData);
@@ -610,12 +606,11 @@ export function useSalesCounterEditById({
     return buildScProductOptions({
       canvasserProducts,
       productsMenang,
-      productsInsentif,
       masterProducts,
       historySalesData,
       surveyData,
     });
-  }, [canvasserProducts, productsMenang, productsInsentif, masterProducts, historySalesData, surveyData]);
+  }, [canvasserProducts, productsMenang, masterProducts, historySalesData, surveyData]);
 
   const totalEstimasiSales = products.reduce((sum, row) => {
     if (!row.kodeProduk) return sum;
@@ -849,7 +844,6 @@ export function useSalesCounterEditById({
     cashbackMatrix,
     rawCashbackData,
     productsMenang,
-    productsInsentif,
     insentifHistory,
     historySalesData,
     b3HistorySalesData,
