@@ -5,7 +5,6 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { getSubordinateMRNips } from "@/lib/authz";
 import { loadIdentities, dedupeByIdentity, allNips, KPI_PERSONNEL_FILTER } from "@/lib/kpiIdentity";
 import { resolveTargetForNipGroups } from "@/lib/targetHospitalValue";
 import { getActivePsspByOutlets } from "@/app/actions/customer";
@@ -19,7 +18,6 @@ import {
   scoreSalesAchievement,
   type ContractRecommendation,
 } from "@/lib/kpiScoring";
-import type { Role, User } from "@prisma/client";
 
 function toNum(v: { toString(): string } | number | string | null | undefined): number {
   return parseFloat(String(v ?? 0)) || 0;
@@ -98,21 +96,43 @@ export async function computeKpiRows(period: string, scopeNips: string[] | null,
     absensiSource: string | null;
   };
 
-  // ASM/SM roll-up: reuse authz's role-aware subtree walk (only role+nip are
-  // read by getSubordinateMRNips) rather than re-deriving org depth here.
-  const subtreeCache = new Map<string, string[]>();
-  async function subordinateMrNips(nip: string, role: string): Promise<string[]> {
-    if (role === "MR") return [nip];
-    const key = `${role}:${nip}`;
-    const cached = subtreeCache.get(key);
-    if (cached) return cached;
-    const list = await getSubordinateMRNips({ nip, role: role as Role } as User);
-    subtreeCache.set(key, list);
-    return list;
-  }
-
+  // ASM/SM roll-up: same subtree walk as authz's getMrIdsUnder (ASM = 1 hop,
+  // SM = 2 hops, active reports only), but batched across EVERY ASM/SM row at
+  // once — one `nipAtasan IN [...]` query per level (≤2 total), not one BFS
+  // per manager row run sequentially (docs/PERFORMANCE.md §2 point 4).
+  const depthByRole: Record<string, number> = { ASM: 1, SM: 2 };
   const mrsUnderByNip = new Map<string, string[]>();
-  for (const p of personnel) mrsUnderByNip.set(p.nip, await subordinateMrNips(p.nip, p.role));
+  let frontier: { nip: string; root: string; levelsLeft: number }[] = [];
+  for (const p of personnel) {
+    if (p.role === "MR") {
+      mrsUnderByNip.set(p.nip, [p.nip]);
+      continue;
+    }
+    mrsUnderByNip.set(p.nip, []);
+    const levelsLeft = depthByRole[p.role] ?? 0;
+    if (levelsLeft > 0) frontier.push({ nip: p.nip, root: p.nip, levelsLeft });
+  }
+  while (frontier.length > 0) {
+    const reports = (await prisma.user.findMany({
+      where: { nipAtasan: { in: [...new Set(frontier.map((f) => f.nip))] }, isActive: true },
+      select: { nip: true, role: true, nipAtasan: true },
+    })) as { nip: string; role: string; nipAtasan: string | null }[];
+    const reportsByAtasan = new Map<string, { nip: string; role: string }[]>();
+    for (const r of reports) {
+      if (!r.nipAtasan) continue;
+      const list = reportsByAtasan.get(r.nipAtasan) ?? [];
+      list.push(r);
+      reportsByAtasan.set(r.nipAtasan, list);
+    }
+    const next: typeof frontier = [];
+    for (const f of frontier) {
+      for (const r of reportsByAtasan.get(f.nip) ?? []) {
+        if (r.role === "MR") mrsUnderByNip.get(f.root)!.push(r.nip);
+        else if (f.levelsLeft > 1) next.push({ nip: r.nip, root: f.root, levelsLeft: f.levelsLeft - 1 });
+      }
+    }
+    frontier = next;
+  }
   // Every MR that counts toward anyone's numbers (an ASM/SM's team can include
   // MRs that aren't rows of this listing themselves).
   const allMrNips = [...new Set([...mrNips, ...[...mrsUnderByNip.values()].flat()])];

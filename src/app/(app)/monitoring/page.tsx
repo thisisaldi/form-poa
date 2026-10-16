@@ -93,9 +93,11 @@ export default async function MonitoringPage({
 
   // ── Scope: role-based visibility, then Area/MR filter on top ─────────────
 
+  // buildOrgMaps doesn't depend on the actor — run it alongside the scope lookup.
+  const orgPromise = buildOrgMaps();
   const actor = await prisma.user.findUniqueOrThrow({ where: { nip: session.userId } });
   const baseMrNips = await getSubordinateMRNips(actor);
-  const org = await buildOrgMaps();
+  const org = await orgPromise;
 
   const areaOptions = [...org.mrsBySm.entries()]
     .filter(([, mrs]) => mrs.some((n) => baseMrNips.includes(n)))
