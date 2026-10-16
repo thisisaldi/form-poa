@@ -22,6 +22,7 @@ import {
   savePlanningAction,
   advanceToApprovalAtasanAction,
   approvePoaStandarisasiAtasanAction,
+  reopenPlanningAfterRejectAction,
   addDokterApprovalAction,
   removeDokterApprovalAction,
   reassignDokterApprovalAction,
@@ -637,6 +638,13 @@ export function PoaStandarisasiWizard({
     run(async () => approvePoaStandarisasiAtasanAction(pengajuan.id, level, decision, produkId ? [produkId] : undefined));
   }
 
+  function handleRevise() {
+    run(async () => {
+      await reopenPlanningAfterRejectAction(pengajuan.id);
+      setViewedPhaseId("PLANNING");
+    });
+  }
+
   function handleAdvanceToFinalisasi() {
     run(async () => advanceToFinalisasiAction(pengajuan.id));
   }
@@ -817,6 +825,8 @@ export function PoaStandarisasiWizard({
           canApproveNsm={canApproveNsm && isViewingCurrentPhase}
           myApproverLevels={isViewingCurrentPhase ? myApproverLevels : []}
           onApprove={handleApprove}
+          canRevise={canEdit && isViewingCurrentPhase}
+          onRevise={handleRevise}
         />
       )}
 
@@ -1554,6 +1564,8 @@ function ApprovalAtasanPhase({
   canApproveNsm,
   myApproverLevels,
   onApprove,
+  canRevise,
+  onRevise,
 }: {
   pengajuan: PoaStandarisasiDetail;
   canApproveAsm: boolean;
@@ -1561,13 +1573,29 @@ function ApprovalAtasanPhase({
   canApproveNsm: boolean;
   myApproverLevels: ApprovalLevel[];
   onApprove: (level: ApprovalLevel, decision: "DISETUJUI" | "DITOLAK", produkId?: string) => void;
+  /** Pemilik (atau ADMIN) boleh mengembalikan pengajuan yang ditolak ke Planning untuk direvisi. */
+  canRevise: boolean;
+  onRevise: () => void;
 }) {
+  const ditolak =
+    pengajuan.produk.some((p) => p.approvals.some((a) => a.status === "DITOLAK")) ||
+    [pengajuan.statusApprovalAsm, pengajuan.statusApprovalSm, pengajuan.statusApprovalNsm].includes("DITOLAK");
+  const reviseBanner = ditolak && (
+    <div className="rounded p-4 mb-4 flex flex-wrap items-center justify-between gap-3" style={{ background: "var(--color-error-bg, #FDECEA)", color: "var(--color-error)" }}>
+      <p className="text-sm">
+        Pengajuan ini ditolak atasan. {canRevise ? "Klik Revisi untuk mengedit atau menghapusnya, lalu ajukan ulang. Semua approval akan diulang dari awal." : "Menunggu pemilik pengajuan merevisi."}
+      </p>
+      {canRevise && <Button size="sm" onClick={onRevise}>Revisi Pengajuan</Button>}
+    </div>
+  );
   // Jalur baru: approval level dinamis per produk (docs/poa-standarisasi-approval-level/).
   // Pengajuan lama (tanpa baris approvals) tetap tampil jalur statis ASM -> SM -> NSM di bawah.
   if (pengajuan.produk.some((p) => p.approvals.length > 0)) {
-    return <ApprovalPerProduk pengajuan={pengajuan} myApproverLevels={myApproverLevels} onApprove={onApprove} />;
+    return <>{reviseBanner}<ApprovalPerProduk pengajuan={pengajuan} myApproverLevels={myApproverLevels} onApprove={onApprove} /></>;
   }
   return (
+    <>
+    {reviseBanner}
     <Card className="mb-4">
       <CardHeader><CardTitle>Approval Atasan</CardTitle></CardHeader>
       <p className="text-sm mb-4" style={{ color: "var(--color-blue)" }}>
@@ -1592,6 +1620,7 @@ function ApprovalAtasanPhase({
         Outlet <strong>{pengajuan.outlet.namaOutlet}</strong> · {pengajuan.produk.length} produk diajukan
       </p>
     </Card>
+    </>
   );
 }
 

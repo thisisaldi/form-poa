@@ -9,6 +9,7 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   DIBUAT: "Pengajuan dibuat",
   DIAJUKAN_ATASAN: "Diajukan ke Approval Atasan",
   APPROVAL_ATASAN: "Approval Atasan",
+  DIKEMBALIKAN_REVISI: "Dikembalikan ke Planning untuk revisi (setelah ditolak)",
   GANTI_DOKTER: "Dokter diganti",
   TTD_DOKTER: "Dokter sudah TTD",
   TTD_DOKTER_BATAL: "Centang TTD dokter dibatalkan",

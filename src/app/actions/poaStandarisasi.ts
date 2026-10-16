@@ -1201,6 +1201,42 @@ export async function advanceToApprovalAtasanAction(id: string): Promise<void> {
   revalidatePath(`/poa-standarisasi/${id}`);
 }
 
+/**
+ * Revisi setelah ditolak (2026-10-16): pengajuan yang ditolak di Approval Atasan
+ * (level mana pun, produk mana pun) dikembalikan ke PLANNING supaya pemilik bisa
+ * mengedit/menghapusnya, lalu mengajukan ulang. Approval yang sudah ada dihapus
+ * semuanya (jalur per produk: baris ProdukApproval — dibuat ulang saat diajukan lagi
+ * dengan level dari diskon terbaru; jalur lama: kolom status header di-reset),
+ * jadi ASM/SM/NSM menilai ulang dari awal. Riwayat penolakan tetap ada di log aktivitas.
+ */
+export async function reopenPlanningAfterRejectAction(id: string): Promise<void> {
+  const { actor } = await requireActor();
+  const pengajuan = await prisma.poaStandarisasi.findUnique({ where: { id } });
+  if (!pengajuan) throw new Error("Pengajuan tidak ditemukan.");
+  if (!canEditPoaStandarisasi(actor, pengajuan)) throw new Error("Anda tidak berhak mengedit pengajuan ini.");
+  if (pengajuan.currentPhase !== "APPROVAL_ATASAN") throw new Error("Pengajuan tidak sedang di fase Approval Atasan.");
+
+  const ditolakPerProduk = await prisma.poaStandarisasiProdukApproval.count({ where: { produk: { pengajuanId: id }, status: "DITOLAK" } });
+  const ditolakLegacy = [pengajuan.statusApprovalAsm, pengajuan.statusApprovalSm, pengajuan.statusApprovalNsm].includes("DITOLAK");
+  if (ditolakPerProduk === 0 && !ditolakLegacy) throw new Error("Pengajuan ini belum ditolak, tidak perlu direvisi.");
+
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.poaStandarisasiProdukApproval.deleteMany({ where: { produk: { pengajuanId: id } } });
+    await tx.poaStandarisasi.update({
+      where: { id },
+      data: {
+        currentPhase: "PLANNING",
+        statusApprovalAsm: "MENUNGGU", tanggalApprovalAsm: null,
+        statusApprovalSm: "MENUNGGU", tanggalApprovalSm: null,
+        statusApprovalNsm: "MENUNGGU", tanggalApprovalNsm: null,
+      },
+    });
+    await logPoaStandarisasiActivity(tx, { pengajuanId: id, action: "DIKEMBALIKAN_REVISI", actorNip: actor.nip });
+  });
+  revalidatePath(`/poa-standarisasi/${id}`);
+  revalidatePath("/poa-standarisasi");
+}
+
 // ─── Phase 2: Approval Atasan (blocking, sequential ASM → SM → NSM) ────────
 
 function hasWaitingAtLevel(produk: { id: string; approvals: { level: ApprovalLevel; status: string }[] }[], level: ApprovalLevel): boolean {
