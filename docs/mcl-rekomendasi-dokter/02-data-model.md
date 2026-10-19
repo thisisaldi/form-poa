@@ -78,6 +78,10 @@ Dibatasi per `kodePI` (kandidat = dokter di outlet yang sama dari `CustomerOutle
 
 Prototipe algoritma sudah dijalankan untuk pengukuran di `01-business-rules.md` §4; saat implementasi dijadikan `scripts/importMclRekomendasi.ts` mengikuti pola `scripts/importStrukturVerifiedKAM.ts`.
 
+## Server action untuk UI
+
+Satu action baru `getMclDokterByOutlet(kodePI)` (dibuat saat implementasi UI) membaca `MclRekomendasiDokter` per `kodePI` (index `kodePI`) dan mengembalikan rekomendasi per dokter; dipakai bersama oleh dropdown, blok sidebar Standarisasi, dan section POA Estimasi (satu panggilan per outlet terpilih, di-cache di komponen). `getCustomersByOutlet` tidak dimodifikasi.
+
 ## Performa
 
 Sumber 321 ribu baris sebelum dedupe (±316 ribu sesudah). Aturan wajib (`docs/PERFORMANCE.md`): **semua query MCL di-scope per `kodePI`** (satu outlet yang sedang dipilih) — tidak ada query company-wide ke `MclRekomendasiDokter`. Agregat lintas outlet (mis. ringkasan per RS segrup) hanya dari `OutletProdukListing` (±41 ribu baris, ber-index `kodePI`). Import dilakukan di luar jalur request (script), bukan lewat server action.
