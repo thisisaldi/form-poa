@@ -26,7 +26,7 @@ Import Excel dijalankan developer/ADMIN lewat script — tidak ada UI upload di 
 - Note atasan → bawahan per dokter, list prioritas yang diarahkan atasan, dan "geser dokter ke database lain" (memo awal) — ditunda, lihat `01-business-rules.md` §6 Q5.
 - Bridging spesialis → produk + warning di POA Estimasi — sudah ada terpisah (`docs/poa-bank-spesialis/`), tidak diubah.
 - Upload Excel dari UI dan jadwal refresh otomatis — file tunggal, import sekali via script.
-- Dokter Excel "Belum terdaftar" sebagai opsi dropdown (dibuat otomatis saat dipilih) — lihat Q9.
+- Dokter Excel "Belum terdaftar" sebagai opsi dropdown atau dibuat otomatis jadi Customer — ditolak pengguna (Q9); hanya dokter terdaftar yang ada di dropdown.
 - Dropdown dokter varian Pusat (`poaStandarisasiPusat`) — di luar scope.
 - Tab atau halaman baru khusus MCL, dan daftar company-wide/lintas outlet (PERFORMANCE.md).
 - Menautkan otomatis dokter subset/fuzzy ke `Customer`.
