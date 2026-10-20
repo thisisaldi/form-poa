@@ -352,6 +352,7 @@ export interface ProdukFormState {
   estimasiDiskonDistributorPct: string;
   estimasiValueDpRp: string;
   estimasiBiayaListingRp: string;
+  diskonKompetitorPct: string;
   dokterKlinis: DokterKlinisFormState[];
   finalDiscountPct: string;
   diskonDistributorPct: string;
@@ -371,6 +372,7 @@ export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
     estimasiDiskonDistributorPct: "",
     estimasiValueDpRp: "",
     estimasiBiayaListingRp: "",
+    diskonKompetitorPct: "",
     // New product inherits WHICH dokter to consider, not their estimate figures.
     dokterKlinis: inherit
       ? inherit.dokterKlinis.map((dk) => ({ customerId: dk.customerId, jumlahPasien: "", jumlahHariPraktekPerBulan: "", resepPerPasienSt: "", entertainRp: "" }))
@@ -394,6 +396,7 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
     estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct != null ? String(p.estimasiDiskonDistributorPct) : "",
     estimasiValueDpRp: p.estimasiValueDpRp != null ? String(p.estimasiValueDpRp) : "",
     estimasiBiayaListingRp: p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
+    diskonKompetitorPct: p.diskonKompetitorPct != null ? String(p.diskonKompetitorPct) : "",
     dokterKlinis: p.dokterApproval.map((d) => ({
       customerId: d.customerId,
       jumlahPasien: d.jumlahPasien != null ? String(d.jumlahPasien) : "",
@@ -586,6 +589,7 @@ export function PoaStandarisasiWizard({
             estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct || null,
             estimasiValueDpRp: p.estimasiValueDpRp || null,
             estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
+            diskonKompetitorPct: p.diskonKompetitorPct || null,
             dokterKlinis: p.dokterKlinis.map((dk) => ({
               customerId: dk.customerId,
               jumlahPasien: dk.jumlahPasien || null,
@@ -609,7 +613,7 @@ export function PoaStandarisasiWizard({
   /** Field wajib Planning kosong → highlight + scroll, bukan lempar error (pesan server action dimasking di production). strict = juga cek produk & dokter (lanjut ke Approval Atasan). */
   function planningValid(strict: boolean) {
     const e = planningErrors({ kodePI: pengajuan.kodePI, kpdmList, tipeStandarisasi, periodeBulan, produkList });
-    if (e.kpdm || e.periode || (strict && (e.produk || e.dokter))) {
+    if (e.kpdm || e.periode || (strict && (e.produk || e.dokter || e.kompetitor))) {
       setAttempted(true);
       scrollToFirstFieldErr();
       return false;
@@ -1053,6 +1057,7 @@ export function planningErrors(f: { kodePI: string; kpdmList: KpdmFormState[]; t
     periode: f.tipeStandarisasi !== "PERMANEN" && !Number(f.periodeBulan),
     produk: !f.produkList.some((p) => p.kodeProduk),
     dokter: f.produkList.some((p) => p.kodeProduk && p.dokterKlinis.length === 0),
+    kompetitor: f.produkList.some((p) => p.kodeProduk && !p.diskonKompetitorPct.trim()),
   };
 }
 
@@ -1408,6 +1413,18 @@ export function PlanningPhase(props: {
                 <span className="text-xs font-medium block mb-1 whitespace-nowrap">Estimasi Biaya Listing</span>
                 <RpInput value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
+              {(() => {
+                const kompetitorErr = attempted && !!p.kodeProduk && !p.diskonKompetitorPct.trim();
+                return (
+                  <div className="w-[calc(50%-6px)] sm:w-36 shrink-0" {...(kompetitorErr ? { "data-field-err": "true" } : {})}>
+                    <span className="text-xs font-medium block mb-1 whitespace-nowrap" style={kompetitorErr ? { color: "var(--color-red)" } : undefined}>Diskon Kompetitor *</span>
+                    <div style={kompetitorErr ? ERR_RING : undefined}>
+                      <UnitCountInput unit="%" value={p.diskonKompetitorPct} onChange={(v) => updateProduk(idx, { diskonKompetitorPct: v })} disabled={disabled} />
+                    </div>
+                    {kompetitorErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Info statis produk (HNA + Rekomendasi Resep) — satu klaster, langsung di bawah baris Nama Produk, terpisah dari banner warning di bawah yang sifatnya hasil kalkulasi (redline 2026-09-08 item #2/#3). */}

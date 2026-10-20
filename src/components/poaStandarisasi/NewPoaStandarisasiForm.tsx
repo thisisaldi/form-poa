@@ -132,7 +132,7 @@ export function NewPoaStandarisasiForm({
   function handleSubmit() {
     // Field wajib kosong → highlight + scroll (error server action dimasking di production, jadi jangan andalkan throw server).
     const e = planningErrors({ kodePI, kpdmList, tipeStandarisasi, periodeBulan, produkList });
-    if (e.outlet || e.kpdm || e.periode || e.produk || e.dokter) {
+    if (e.outlet || e.kpdm || e.periode || e.produk || e.dokter || e.kompetitor) {
       setAttempted(true);
       scrollToFirstFieldErr();
       return;
@@ -162,6 +162,7 @@ export function NewPoaStandarisasiForm({
                 estimasiDiskonDistributorPct: p.estimasiDiskonDistributorPct || null,
                 estimasiValueDpRp: p.estimasiValueDpRp || null,
                 estimasiBiayaListingRp: p.estimasiBiayaListingRp || null,
+                diskonKompetitorPct: p.diskonKompetitorPct || null,
                 dokterKlinis: p.dokterKlinis.map((dk) => ({
                   customerId: dk.customerId,
                   jumlahPasien: dk.jumlahPasien || null,

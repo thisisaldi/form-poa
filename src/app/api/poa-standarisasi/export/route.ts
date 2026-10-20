@@ -129,6 +129,7 @@ export async function GET(_req: NextRequest) {
     { header: "Diskon PI (%)", key: "diskonPi", width: 12 },
     { header: "Diskon Dist. (%)", key: "diskonDist", width: 14 },
     { header: "DP (Rp)", key: "dpRp", width: 14 },
+    { header: "Diskon Kompetitor (%)", key: "diskonKompetitor", width: 14 },
     { header: "Est. Qty/bln (SJ)", key: "estimasiQty", width: 12 },
     { header: "Est. Sales/bln", key: "estimasiSales", width: 16 },
     { header: "Kode Dokter", key: "kodeDokter", width: 14 },
@@ -191,6 +192,7 @@ export async function GET(_req: NextRequest) {
         diskonPi: skema === "DISKON" ? diskonPi : null,
         diskonDist: skema === "DISKON" ? diskonDist : null,
         dpRp: skema === "DP" ? dpRp : null,
+        diskonKompetitor: pct(prod.diskonKompetitorPct),
       };
 
       if (dokterRows.length === 0) {
@@ -208,6 +210,7 @@ export async function GET(_req: NextRequest) {
         });
         row.getCell("diskonPi").numFmt = PCT_FMT;
         row.getCell("diskonDist").numFmt = PCT_FMT;
+        row.getCell("diskonKompetitor").numFmt = PCT_FMT;
         row.getCell("dpRp").numFmt = RP_FMT;
         row.getCell("estimasiSales").numFmt = RP_FMT;
       }

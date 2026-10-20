@@ -201,6 +201,7 @@ function serializeDetail(p: RawDetail, discounts: Map<string, ExodusDiscountPct>
       estimasiDiskonDistributorPct: d(prod.estimasiDiskonDistributorPct),
       estimasiValueDpRp: d(prod.estimasiValueDpRp),
       estimasiBiayaListingRp: d(prod.estimasiBiayaListingRp),
+      diskonKompetitorPct: d(prod.diskonKompetitorPct),
       finalDiscountPct: d(prod.finalDiscountPct) ?? discounts?.get(prod.product.kodeProduk)?.principalPct ?? null,
       diskonDistributorPct: d(prod.diskonDistributorPct) ?? discounts?.get(prod.product.kodeProduk)?.distributorPct ?? null,
       finalBiayaListingRp: d(prod.finalBiayaListingRp),
@@ -888,6 +889,8 @@ export interface PlanningProdukInput {
   estimasiDiskonDistributorPct: number | string | null;
   estimasiValueDpRp: number | string | null;
   estimasiBiayaListingRp: number | string | null;
+  /** Diskon kompetitor (%). Opsional di tipe supaya simpan draft tetap boleh kosong; wajib saat lanjut ke Approval Atasan. */
+  diskonKompetitorPct?: number | string | null;
   dokterKlinis: PlanningDokterKlinisInput[];
 }
 
@@ -1060,6 +1063,9 @@ function validateReadyForApprovalAtasan(input: PlanningInput) {
   if (input.produk.some((p) => p.dokterKlinis.length === 0)) {
     throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
   }
+  if (input.produk.some((p) => toNum(p.diskonKompetitorPct) === null)) {
+    throw new Error("Diskon kompetitor wajib diisi untuk setiap produk.");
+  }
 }
 
 /** Upserts KPDM rows for a pengajuan (can be more than one per outlet) — same
@@ -1103,6 +1109,7 @@ async function applyPlanningProduk(tx: Prisma.TransactionClient, pengajuanId: st
       estimasiDiskonDistributorPct: toNum(p.estimasiDiskonDistributorPct),
       estimasiValueDpRp: toNum(p.estimasiValueDpRp),
       estimasiBiayaListingRp: toNum(p.estimasiBiayaListingRp),
+      diskonKompetitorPct: toNum(p.diskonKompetitorPct),
     };
 
     const produkRow = p.id
@@ -1191,6 +1198,9 @@ export async function advanceToApprovalAtasanAction(id: string): Promise<void> {
   if (pengajuan.produk.length === 0) throw new Error("Tambahkan minimal 1 produk sebelum lanjut.");
   if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => p.dokterApproval.length === 0)) {
     throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
+  }
+  if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => p.diskonKompetitorPct === null)) {
+    throw new Error("Diskon kompetitor wajib diisi untuk setiap produk.");
   }
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {

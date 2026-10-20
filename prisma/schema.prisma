@@ -1779,6 +1779,8 @@ model PoaStandarisasiProduk {
   estimasiDiskonPct            Decimal? @db.Decimal(10, 4)
   estimasiDiskonDistributorPct Decimal? @db.Decimal(10, 4)
   estimasiBiayaListingRp       Decimal? @db.Decimal(18, 2)
+  // Diskon kompetitor untuk produk ini di outlet ini (%, satu angka) — padanan "Produk Kompetitor Utama" di POA Estimasi; wajib diisi sebelum lanjut ke Approval Atasan.
+  diskonKompetitorPct          Decimal? @db.Decimal(10, 4)
 
   // ── Finalisasi Biaya ──────────────────────────────────────────────────
   finalDiscountPct     Decimal? @db.Decimal(10, 4)

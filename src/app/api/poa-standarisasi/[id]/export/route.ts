@@ -91,6 +91,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     { header: "Diskon Distributor", key: "diskonDist", width: 14 },
     { header: "Value DP", key: "valueDp", width: 16 },
     { header: "Biaya Listing", key: "biayaListing", width: 16 },
+    { header: "Diskon Kompetitor", key: "diskonKompetitor", width: 14 },
     { header: "Kode Dokter", key: "kodeDokter", width: 14 },
     { header: "Nama Dokter", key: "namaDokter", width: 26 },
     { header: "Sumber Data Dokter", key: "sumberData", width: 16 },
@@ -128,6 +129,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const diskonDist = pct(prod.diskonDistributorPct) ?? pct(prod.estimasiDiskonDistributorPct);
     const valueDp = num(prod.finalValueDpRp) ?? num(prod.estimasiValueDpRp);
     const biayaListing = num(prod.finalBiayaListingRp) ?? num(prod.estimasiBiayaListingRp);
+    const diskonKompetitor = pct(prod.diskonKompetitorPct);
 
     // Final dokter list (Finalisasi) wins once it has rows — falls back to the
     // Planning estimate list only when Finalisasi hasn't been filled yet.
@@ -163,7 +165,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         produk: produkLabel, statusProduk: STATUS_PENGAJUAN_LABELS[prod.statusPengajuan] ?? prod.statusPengajuan,
         skema: SKEMA_LABELS[skema] ?? skema, diskonPi: skema === "DISKON" ? diskonPi : null,
         diskonDist: skema === "DISKON" ? diskonDist : null, valueDp: skema === "DP" ? valueDp : null,
-        biayaListing, kodeDokter: "-", namaDokter: "-", sumberData: "-",
+        biayaListing, diskonKompetitor, kodeDokter: "-", namaDokter: "-", sumberData: "-",
       });
       continue;
     }
@@ -189,6 +191,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         diskonDist: skema === "DISKON" ? diskonDist : null,
         valueDp: skema === "DP" ? valueDp : null,
         biayaListing,
+        diskonKompetitor,
         kodeDokter: d.kode, namaDokter: d.nama,
         sumberData,
         hariPraktek: d.hariPraktek,
@@ -200,6 +203,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       });
       row.getCell("diskonPi").numFmt = PCT_FMT;
       row.getCell("diskonDist").numFmt = PCT_FMT;
+      row.getCell("diskonKompetitor").numFmt = PCT_FMT;
       for (const key of ["valueDp", "biayaListing", "estimasiSales", "entertainRp"]) row.getCell(key).numFmt = RP_FMT;
     }
   }
