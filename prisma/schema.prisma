@@ -1536,6 +1536,23 @@ model SyncLock {
   lockedAt DateTime
 }
 
+// One row per scheduler job execution — Admin → Scheduler (docs/scheduler-monitor/).
+model SyncRun {
+  id          String    @id @default(uuid())
+  job         String // job key, e.g. "pssp-lunas" (src/lib/sync/jobs.ts)
+  trigger     String // "schedule" | "manual"
+  triggeredBy String? // admin nip for manual runs
+  status      String // "running" | "success" | "failed"; "abandoned" is derived on read
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+  summary     String?
+  error       String?
+  detail      Json?
+
+  @@index([job, startedAt(sort: Desc)])
+}
+
 // ─── POA Standarisasi ────────────────────────────────────────────────────────
 // Sub-form BARU, terpisah dari PoaForm/PoaLineItem — lihat docs/poa-standarisasi/.
 // POA Estimasi (existing, di atas) di-scope Dokter × Produk; POA Standarisasi

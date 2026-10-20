@@ -5,7 +5,7 @@
  * in src/lib/sync/vacantTerritoryCoverageSync.ts) — fixes already-empty
  * Outlet.coveredByNip/coveredByRole for never-filled FF+SPV territories
  * right now, instead of waiting for the next scheduled midnight run
- * (orgAndOutletScheduler.ts).
+ * (src/lib/sync/jobs.ts).
  */
 import "dotenv/config";
 import { runVacantTerritoryCoverageSync } from "../src/lib/sync/vacantTerritoryCoverageSync";

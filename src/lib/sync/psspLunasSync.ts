@@ -6,16 +6,18 @@
  * panel, exports, summary — on the same numbers; settlements takes 12-20s per
  * nip, too slow to call on a render path. Split rule: applySettlementPct.
  *
- * Runs daily via psspLunasScheduler.ts, so a fresh importPsspKontrak.ts
+ * Runs daily via src/lib/sync/jobs.ts, so a fresh importPsspKontrak.ts
  * (which rewrites totalLunas from Excel) is corrected by the next night.
  * Manual: scripts/syncPsspLunasFromExodus.ts.
  */
 import { prisma } from "@/lib/prisma";
-import { getExodusPsspSettlementPctByNip, applySettlementPct } from "@/lib/exodusApi";
+import { getAccessToken, getExodusPsspSettlementPctByNip, applySettlementPct } from "@/lib/exodusApi";
 
 const CONCURRENCY = 5;
 
 export async function runPsspLunasSync({ apply, onProgress }: { apply: boolean; onProgress?: (done: number, total: number) => void }) {
+  // Without this every nip "fails" silently and the run would look like a success that changed nothing.
+  if (!(await getAccessToken())) throw new Error("Exodus auth failed or EXODUS_* not configured");
   const nips = (await prisma.psspKontrak.findMany({ where: { nipUsul: { not: null } }, select: { nipUsul: true }, distinct: ["nipUsul"] }))
     .map((r: { nipUsul: string | null }) => r.nipUsul!);
 

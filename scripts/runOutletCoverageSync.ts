@@ -1,6 +1,6 @@
 /**
  * One-off manual trigger for runOutletCoverageSync — same function the daily
- * scheduler (orgAndOutletScheduler.ts) calls automatically after org+outlet
+ * scheduler (src/lib/sync/jobs.ts) calls automatically after org+outlet
  * sync. Run this directly when you don't want to wait for the next 00:00 WIB
  * cycle (e.g. right after deploying the fix, to unblock affected ASMs today).
  * Run: npx tsx scripts/runOutletCoverageSync.ts

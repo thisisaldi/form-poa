@@ -4,7 +4,7 @@
  * Manually triggers runPendingApprovalHolderSync (see its own doc comment in
  * src/lib/sync/pendingApprovalHolderSync.ts) — fixes already-stale
  * PoaDoctorApproval.currentHolderId rows right now, instead of waiting for
- * the next scheduled midnight run (orgAndOutletScheduler.ts).
+ * the next scheduled midnight run (src/lib/sync/jobs.ts).
  */
 import "dotenv/config";
 import { runPendingApprovalHolderSync } from "../src/lib/sync/pendingApprovalHolderSync";

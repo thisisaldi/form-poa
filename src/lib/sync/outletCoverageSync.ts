@@ -41,7 +41,7 @@
  * `DISTINCT ON` query — same "most recent wins" idea getOutletsForMrSubtree
  * (masterData.ts) already uses per-MR, just per-outlet here instead.
  *
- * Wired into orgAndOutletScheduler.ts as the step after org+outlet sync
+ * Wired into src/lib/sync/jobs.ts as the step after org+outlet sync
  * (needs both fresh — reads MrOutletAssignment's latest-per-outlet rows and
  * every User's nipAtasan/isActive).
  */

@@ -1,30 +1,15 @@
 /**
  * Next.js instrumentation hook — runs once when a server instance starts.
- * Used here to start the in-process daily schedulers for OutletSalesMonthly
- * sync (see salesHistoryMonthlyScheduler.ts), OutletSalesValueMonthly sync
- * (see outletSalesValueMonthlyScheduler.ts — added 2026-09-08 after its
- * external-cron trigger silently stopped firing), and the org-structure/
- * outlet sync pair (see orgAndOutletScheduler.ts) — no external cron needed
- * for any of these. Non-Hospital's twin of the sales-value sync (OMG1) runs from
- * omegaSalesValueMonthlyScheduler.ts (added 2026-10-05). PsspKontrak pelunasan
- * from Exodus settlements runs from psspLunasScheduler.ts (added 2026-10-20).
+ * Starts every in-process daily sync job (org-structure/outlet chain, sales
+ * value Hospital + OMG1, sales history, PSSP pelunasan) — registry, runner and
+ * scheduler live in src/lib/sync/jobs.ts; each run is recorded in SyncRun and
+ * visible under Admin → Scheduler (docs/scheduler-monitor/). No external cron
+ * needed for any of these.
  */
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { scheduleSalesHistoryMonthlySync } = await import("./lib/sync/salesHistoryMonthlyScheduler");
-    scheduleSalesHistoryMonthlySync();
-
-    const { scheduleOutletSalesValueMonthlySync } = await import("./lib/sync/outletSalesValueMonthlyScheduler");
-    scheduleOutletSalesValueMonthlySync();
-
-    const { scheduleOmegaSalesValueMonthlySync } = await import("./lib/sync/omegaSalesValueMonthlyScheduler");
-    scheduleOmegaSalesValueMonthlySync();
-
-    const { scheduleOrgAndOutletSync } = await import("./lib/sync/orgAndOutletScheduler");
-    scheduleOrgAndOutletSync();
-
-    const { schedulePsspLunasSync } = await import("./lib/sync/psspLunasScheduler");
-    schedulePsspLunasSync();
+    const { scheduleAllJobs } = await import("./lib/sync/jobs");
+    scheduleAllJobs();
   }
 }

@@ -72,7 +72,7 @@ export interface UserRow {
 
 // checkNexusMissingUsersAction / MissingNexusUserRow removed 2026-09-22
 // (Aldi: "kita sudah tidak pakai nexus") — was a read-only diagnostic for
-// before org sync was automated (see orgAndOutletScheduler.ts).
+// before org sync was automated (see src/lib/sync/jobs.ts).
 
 /** Search staff accounts by NIP or name — capped at 20 results. */
 export async function searchUsersAction(query: string): Promise<UserRow[]> {

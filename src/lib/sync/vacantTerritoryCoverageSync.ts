@@ -19,7 +19,7 @@
  * where BOTH FF and SPV are vacant, rolling coverage up to ASM_NIP (the
  * next level, which the sample data confirms is always a real person).
  *
- * Wired into orgAndOutletScheduler.ts as a step after outletCoverageSync —
+ * Wired into src/lib/sync/jobs.ts as a step after outletCoverageSync —
  * order doesn't actually matter between them (disjoint row sets: one only
  * touches outlets with a real MrOutletAssignment, this one only touches
  * genuinely-never-filled ones), kept adjacent since they update the same

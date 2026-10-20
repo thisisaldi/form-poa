@@ -17,7 +17,7 @@
  * just walking PoaForm.owner's reportsTo chain for a doctor's pending ROLE
  * LEVEL instead of walking for "any coverage role".
  *
- * Wired into orgAndOutletScheduler.ts as the step after org sync (needs
+ * Wired into src/lib/sync/jobs.ts as the step after org sync (needs
  * fresh User.nipAtasan/isActive) — org changes daily, so a stale holder
  * self-heals within one day without anyone noticing it was ever wrong.
  */

@@ -10,6 +10,7 @@ import { BankSpesialisPanel } from "@/components/admin/BankSpesialisPanel";
 import { LoginAccessPanel } from "@/components/admin/LoginAccessPanel";
 import { PoaDoctorsApiCredentialPanel } from "@/components/admin/PoaDoctorsApiCredentialPanel";
 import { GoogleDriveConfigPanel } from "@/components/admin/GoogleDriveConfigPanel";
+import { SchedulerPanel } from "@/components/admin/SchedulerPanel";
 
 export const metadata = { title: "Admin · Form POA" };
 
@@ -29,13 +30,15 @@ function formatPeriode(periode: string): string {
 const SECTIONS = [
   { key: "data", label: "Data Master", desc: "User, outlet, dokter, produk, penugasan outlet, dan semua POA" },
   { key: "sistem", label: "Pengaturan Sistem", desc: "Maintenance, pengaturan fitur (export Excel, upload, DPL/DPF), blokir login, kredensial API, dan Google Drive" },
+  { key: "scheduler", label: "Scheduler", desc: "Status, durasi, dan histori sync data harian, plus jalankan manual" },
 ] as const;
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
   if (session.role !== "ADMIN") redirect("/dashboard");
-  const section = (await searchParams).section === "sistem" ? "sistem" : "data";
+  const requested = (await searchParams).section;
+  const section = SECTIONS.find((t) => t.key === requested)?.key ?? "data";
 
   const [customers, orgStrukturMeta] = await Promise.all([
     getCustomers(),
@@ -81,6 +84,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
       {section === "data" ? (
         <AdminTabs outlets={outlets} />
+      ) : section === "scheduler" ? (
+        <SchedulerPanel />
       ) : (
         <div className="space-y-5">
           <MaintenanceModeToggle />

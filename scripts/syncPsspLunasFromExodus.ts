@@ -1,7 +1,7 @@
 /**
  * Manual trigger for the PsspKontrak.totalLunas ← Exodus settlements sync —
  * see src/lib/sync/psspLunasSync.ts. Also runs daily in-process
- * (psspLunasScheduler.ts); this is for a dry run or a catch-up right after
+ * (src/lib/sync/jobs.ts); this is for a dry run or a catch-up right after
  * importPsspKontrak.ts.
  *
  * Run: npx tsx scripts/syncPsspLunasFromExodus.ts           (dry run)

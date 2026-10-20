@@ -1,7 +1,7 @@
 /**
  * Cross-replica mutex, backed by the SyncLock table (prisma/schema.prisma).
  * Multiple pods each run their own in-process scheduler (see
- * salesHistoryMonthlyScheduler.ts), so without this every replica would
+ * src/lib/sync/jobs.ts), so without this every replica would
  * re-run the same job at ~the same instant.
  *
  * Uses raw SQL rather than the generated Prisma model — the single
@@ -29,4 +29,9 @@ export async function acquireSyncLock(key: string, staleAfterMs: number): Promis
       WHERE "SyncLock"."lockedAt" < now() - (${staleAfterMs}::text || ' milliseconds')::interval
   `;
   return rows === 1;
+}
+
+/** Releases `key` so the next claim succeeds immediately (job runner, end of run). */
+export async function releaseSyncLock(key: string): Promise<void> {
+  await prisma.$executeRaw`DELETE FROM "SyncLock" WHERE "key" = ${key}`;
 }
