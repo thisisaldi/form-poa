@@ -4,7 +4,7 @@
 
 **Status:** 🟢 Fase 1 diimplementasikan 2026-10-06. Diubah 2026-10-20 (keputusan user):
 - Kontrak yang cuma ada di Exodus tampil di `PsspHistoryPanel` sebagai kontrak biasa (tanpa label/kartu terpisah, satu baris "Semua produk", pelunasan 0).
-- Pelunasan kontrak yang ada di `PsspKontrak` **ditimpa angka Exodus** lewat `scripts/syncPsspLunasFromExodus.ts` (tulis ke `totalLunas`, jadi semua pembaca — panel, export, summary — ikut). Jalankan ulang setelah tiap `importPsspKontrak.ts`.
+- Pelunasan kontrak yang ada di `PsspKontrak` **ditimpa angka Exodus** (tulis ke `totalLunas`, jadi semua pembaca — panel, export, summary — ikut). Jalan otomatis tiap 00:00 WIB (`src/lib/sync/psspLunasScheduler.ts`, ~20 menit); manual/dry-run lewat `scripts/syncPsspLunasFromExodus.ts`, mis. langsung setelah `importPsspKontrak.ts`.
 
 Fase 2 (per-produk) masih terblokir Exodus.
 

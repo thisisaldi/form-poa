@@ -6,7 +6,8 @@
  * external-cron trigger silently stopped firing), and the org-structure/
  * outlet sync pair (see orgAndOutletScheduler.ts) — no external cron needed
  * for any of these. Non-Hospital's twin of the sales-value sync (OMG1) runs from
- * omegaSalesValueMonthlyScheduler.ts (added 2026-10-05).
+ * omegaSalesValueMonthlyScheduler.ts (added 2026-10-05). PsspKontrak pelunasan
+ * from Exodus settlements runs from psspLunasScheduler.ts (added 2026-10-20).
  */
 
 export async function register() {
@@ -22,5 +23,8 @@ export async function register() {
 
     const { scheduleOrgAndOutletSync } = await import("./lib/sync/orgAndOutletScheduler");
     scheduleOrgAndOutletSync();
+
+    const { schedulePsspLunasSync } = await import("./lib/sync/psspLunasScheduler");
+    schedulePsspLunasSync();
   }
 }
