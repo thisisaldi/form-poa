@@ -65,29 +65,35 @@ export interface ActivityRow {
 }
 
 /**
- * Sheet "Riwayat Aktivitas" untuk export Excel — satu baris per aksi, waktu dalam WIB
- * (teks, bukan serial date, supaya Excel tidak menggeser zona).
+ * Sheet "Aktivitas Terakhir" untuk export Excel — satu baris per pengajuan, hanya aktivitas
+ * terbaru (bukan seluruh riwayat; user 2026-10-20), waktu dalam WIB (teks, bukan serial date,
+ * supaya Excel tidak menggeser zona). Riwayat lengkap tetap ada di halaman detail pengajuan.
  */
 export function addActivitySheet(
   wb: import("exceljs").Workbook,
   logs: { pengajuanId: string; action: string; detail: string | null; createdAt: Date; actor: { name: string } }[],
   metaByPengajuanId: Map<string, { namaMr: string; kodeOutlet: string; outlet: string }>
 ): void {
-  const sheet = wb.addWorksheet("Riwayat Aktivitas");
+  const sheet = wb.addWorksheet("Aktivitas Terakhir");
   sheet.columns = [
     { header: "Nama MR", key: "namaMr", width: 24 },
     { header: "Kode Outlet", key: "kodeOutlet", width: 12 },
     { header: "Outlet", key: "outlet", width: 28 },
-    { header: "Waktu (WIB)", key: "waktu", width: 26 },
-    { header: "Aktivitas", key: "aktivitas", width: 40 },
+    { header: "Waktu Aktivitas Terakhir (WIB)", key: "waktu", width: 30 },
+    { header: "Aktivitas Terakhir", key: "aktivitas", width: 40 },
     { header: "Detail", key: "detail", width: 60 },
     { header: "Dilakukan Oleh", key: "oleh", width: 24 },
   ];
   sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
   sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0063A0" } };
   const kodeOf = (id: string) => metaByPengajuanId.get(id)?.kodeOutlet ?? "";
-  const sorted = [...logs].sort(
-    (a, b) => kodeOf(a.pengajuanId).localeCompare(kodeOf(b.pengajuanId)) || a.pengajuanId.localeCompare(b.pengajuanId) || a.createdAt.getTime() - b.createdAt.getTime()
+  const latestByPengajuan = new Map<string, (typeof logs)[number]>();
+  for (const l of logs) {
+    const prev = latestByPengajuan.get(l.pengajuanId);
+    if (!prev || l.createdAt.getTime() >= prev.createdAt.getTime()) latestByPengajuan.set(l.pengajuanId, l);
+  }
+  const sorted = [...latestByPengajuan.values()].sort(
+    (a, b) => kodeOf(a.pengajuanId).localeCompare(kodeOf(b.pengajuanId)) || a.pengajuanId.localeCompare(b.pengajuanId)
   );
   for (const l of sorted) {
     const m = metaByPengajuanId.get(l.pengajuanId);
