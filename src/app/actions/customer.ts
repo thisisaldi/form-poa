@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isWriteBlocked, WRITE_BLOCKED_MESSAGE } from "@/lib/maintenance";
-import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusCustomerDatabaseByNip, getExodusDplContracts, getExodusDiskonHistory, getExodusSpecialists, getExodusPsspByCustomerId, type ExodusPsspHeader } from "@/lib/exodusApi";
+import { getVisitCountByCustomerOutlet, lastNMonthsRange, getExodusCustomersByOutletCode, getExodusCustomerDatabaseByNip, getExodusDplContracts, getExodusDiskonHistory, getExodusSpecialists, getExodusPsspByCustomerId } from "@/lib/exodusApi";
 
 export interface NewCustomerResult {
   ok: boolean;
@@ -110,7 +110,11 @@ export interface PsspKontrakSummary {
   nmOutlet: string | null;
 }
 
-/** Returns PSSP contract history for a customer by their kodeCustomer. */
+/**
+ * Returns PSSP contract history for a customer by their kodeCustomer.
+ * totalLunas is kept current from Exodus by scripts/syncPsspLunasFromExodus.ts
+ * (settlements takes 12-20s per nip, too slow to call live here).
+ */
 export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakSummary[]> {
   if (!kodeCustomer) return [];
   const rows = await prisma.psspKontrak.findMany({
@@ -332,15 +336,15 @@ export interface ActivePsspRow extends PsspKontrakSummary {
   nmOutlet: string | null;
 }
 
-export interface ExodusPsspExtra extends ExodusPsspHeader {}
-
 /**
  * Exodus PSSP contracts for a doctor that are NOT already in PsspKontrak
- * (matched by contract number) — supplementary display only, never fed into
- * the pelunasan/estimasi formulas (no per-product or real totalLunas from
- * Exodus yet). See docs/pssp-live/. Empty on any Exodus failure.
+ * (matched by contract number), shaped as contract-level history rows so the
+ * panel treats them like any other contract (user, 2026-10-20). No per-product
+ * split (nmProduk null). totalLunas is 0: the only pelunasan source,
+ * settlements, is too slow to call live (12-20s per nip).
+ * See docs/pssp-live/. Empty on any Exodus failure.
  */
-export async function getExodusPsspExtras(kodeCustomer: string): Promise<ExodusPsspExtra[]> {
+export async function getExodusPsspExtras(kodeCustomer: string, kodePI?: string): Promise<PsspKontrakSummary[]> {
   if (!kodeCustomer) return [];
   const cust = await prisma.customer.findUnique({ where: { kodeCustomer }, select: { customerCodeExodus: true } });
   const id = parseInt(cust?.customerCodeExodus?.replace(/\D/g, "") ?? "", 10);
@@ -352,7 +356,20 @@ export async function getExodusPsspExtras(kodeCustomer: string): Promise<ExodusP
   const knownSet = new Set(known.map((k: { cUrut: string }) => k.cUrut));
   // PsspKontrak.cUrut drops the leading "P" Exodus puts on contract numbers (CJ37904 vs PCJ37904, verified 2026-10-06).
   // Only "P…" numbers are PSSP; "L…"/"F…" are listing fee and other programs sharing the same endpoint.
-  return (exodus ?? []).filter((h) => h.refId.startsWith("P") && !knownSet.has(h.refId.slice(1)));
+  return (exodus ?? [])
+    .filter((h) => h.refId.startsWith("P") && !knownSet.has(h.refId.slice(1)))
+    .map((h) => {
+      const cUrut = h.refId.slice(1);
+      return {
+        id: `exodus-${cUrut}`, cUrut, nmProduk: null, kdProduk: null,
+        prdAwal: h.startPeriod, prdAkhir: h.endPeriod,
+        biaya: h.givenValue, estBaris: h.estimationValue,
+        totalLunas: 0,
+        snapshotDate: null,
+        kdOutlet: kodePI && h.outletCodes.includes(kodePI) ? kodePI : h.outletCodes[0] ?? null,
+        nmOutlet: null,
+      };
+    });
 }
 
 /**

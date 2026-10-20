@@ -1450,3 +1450,61 @@ export async function getExodusPsspByCustomerId(customerId: number): Promise<Exo
     return null;
   }
 }
+
+/**
+ * Rewrites totalLunas on per-product PSSP rows from a contract-level Exodus %.
+ * The contract's new total (Σ estBaris × pct/100) is split across its rows in
+ * proportion to their existing totalLunas, so per-product running rates keep
+ * their shape; by estBaris when the contract had no lunas yet. Contracts
+ * missing from pctByCUrut are returned unchanged.
+ */
+export function applySettlementPct<T extends { cUrut: string; estBaris: number; totalLunas: number }>(rows: T[], pctByCUrut: Map<string, number>): T[] {
+  const totals = new Map<string, { est: number; lunas: number; n: number }>();
+  for (const r of rows) {
+    const t = totals.get(r.cUrut) ?? { est: 0, lunas: 0, n: 0 };
+    t.est += r.estBaris; t.lunas += r.totalLunas; t.n++;
+    totals.set(r.cUrut, t);
+  }
+  return rows.map((r) => {
+    const pct = pctByCUrut.get(r.cUrut);
+    if (pct == null) return r;
+    const t = totals.get(r.cUrut)!;
+    const share = t.lunas > 0 ? r.totalLunas / t.lunas : t.est > 0 ? r.estBaris / t.est : 1 / t.n;
+    return { ...r, totalLunas: Math.round(((t.est * pct) / 100) * share * 100) / 100 };
+  });
+}
+
+const settlementPctCacheByNip = new Map<string, { map: Map<string, number>; expiresAt: number }>();
+
+/**
+ * Pelunasan % per PSSP contract for one MR (/promotion/v1/pssp/settlements —
+ * user_nip is the only filter that works). Keyed by PsspKontrak.cUrut (Exodus
+ * number minus its leading "P"); value is Σ lunas / Σ estimasi × 100, verified
+ * against PsspKontrak 2026-10-20. Null on failure (incl. 500 for unknown nip).
+ */
+export async function getExodusPsspSettlementPctByNip(nip: string): Promise<Map<string, number> | null> {
+  if (!isConfigured || !nip) return null;
+  const cached = settlementPctCacheByNip.get(nip);
+  if (cached && cached.expiresAt > Date.now()) return cached.map;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  try {
+    const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/pssp/settlements`);
+    url.searchParams.set("user_nip", nip);
+    // Slow endpoint: 12-20s per nip measured 2026-10-20 — batch/script use only, never on a page render path.
+    const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 60000);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { pssp_number?: string; percentage?: number | null }[] };
+    const map = new Map<string, number>();
+    for (const r of body.data ?? []) {
+      if (!r.pssp_number?.startsWith("P") || typeof r.percentage !== "number" || !Number.isFinite(r.percentage)) continue;
+      map.set(r.pssp_number.slice(1), r.percentage);
+    }
+    settlementPctCacheByNip.set(nip, { map, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
+    return map;
+  } catch {
+    return null;
+  }
+}

@@ -2,7 +2,11 @@
 
 **Sumber requirement:** permintaan user (2026-10-06): data PSSP di POA estimasi (histori + aktif) diambil live dari Exodus, bukan snapshot tabel `PsspKontrak` yang diisi manual lewat `scripts/importPsspKontrak.ts`.
 
-**Status:** 🟢 Fase 1 diimplementasikan 2026-10-06 sebagai kartu tambahan "PSSP dari Exodus" di `PsspHistoryPanel` (tidak mengganti `PsspKontrak`; tanpa pelunasan, tanpa per-produk; belum menyentuh "PSSP Aktif" per outlet maupun export). Fase 2 (per-produk) masih terblokir Exodus. Tidak ada keputusan yang sudah dikonfirmasi stakeholder selain yang ditandai di `01-business-rules.md` §5.
+**Status:** 🟢 Fase 1 diimplementasikan 2026-10-06. Diubah 2026-10-20 (keputusan user):
+- Kontrak yang cuma ada di Exodus tampil di `PsspHistoryPanel` sebagai kontrak biasa (tanpa label/kartu terpisah, satu baris "Semua produk", pelunasan 0).
+- Pelunasan kontrak yang ada di `PsspKontrak` **ditimpa angka Exodus** lewat `scripts/syncPsspLunasFromExodus.ts` (tulis ke `totalLunas`, jadi semua pembaca — panel, export, summary — ikut). Jalankan ulang setelah tiap `importPsspKontrak.ts`.
+
+Fase 2 (per-produk) masih terblokir Exodus.
 
 ## Ringkasan
 

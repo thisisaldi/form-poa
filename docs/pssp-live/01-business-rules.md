@@ -24,7 +24,7 @@
 | `prdAwal`/`prdAkhir` | `start_period`/`end_period` → `YYYYMM` | Pakai UTC, hindari geser zona waktu. |
 | `biaya` | `total_given_value` | Dikonfirmasi user 2026-09-02. |
 | `estBaris` | `total_estimation_value` | Dikonfirmasi user 2026-09-02. |
-| `totalLunas` | `estBaris × percentage / 100` | ⚠️ Asumsi: `percentage` di settlements = persen pelunasan terhadap estimasi. Diturunkan, bukan angka rupiah asli. |
+| `totalLunas` | `Σ estBaris × percentage / 100` per kontrak, dibagi ke baris produk proporsional `totalLunas` lama (atau `estBaris` kalau masih 0) — `applySettlementPct` di `exodusApi.ts` | ✅ `percentage` = persen pelunasan terhadap estimasi, terverifikasi 2026-10-20 (mayoritas kontrak P080285 cocok ±0.1% dengan `PsspKontrak`). Bisa > 100 (mis. 111.54) — dipakai apa adanya. Endpoint lambat (12–20 dtk/nip) → hanya dipanggil dari script sync, tidak live. |
 | `kdProduk`/`nmProduk` | — | `null` di Fase 1. |
 | Hanya hitung `request_status == "approved"` dan `is_draft == false` | header | Dikonfirmasi 2026-09-02. |
 
@@ -36,7 +36,7 @@
 | 2 | Per-produk: badge "Pernah PSSP" per produk, `computeOldEstPerMonth`, running-rate di `PsspHistoryPanel`. | Exodus menambah filter di `/pssp/products` (§5 Q1) |
 | 3 | Pelunasan rupiah + bulanan. | Exodus menambah field (§5 Q3) |
 
-Fase 1 hanya menampilkan; semua rumus tetap membaca `PsspKontrak`, jadi angka tidak ganda.
+Semua rumus tetap membaca `PsspKontrak`; pelunasan di tabel itu disegarkan dari Exodus oleh `scripts/syncPsspLunasFromExodus.ts` (keputusan user 2026-10-20: Exodus = sumber terbaru, menang atas Excel).
 
 ## 5. Open questions — status & asumsi v1
 
@@ -54,4 +54,4 @@ Mengikuti kontrak `exodusApi.ts`: tanpa konfigurasi / non-2xx / timeout → kemb
 
 ## 7. Non-goals
 
-Tidak mengganti/menghapus tabel `PsspKontrak` atau `importPsspKontrak.ts`; tidak menulis balik ke Exodus; tidak mengubah rumus pelunasan/estimasi di POA.
+Tidak menghapus tabel `PsspKontrak` atau `importPsspKontrak.ts` (pelunasan-nya saja yang ditimpa Exodus); tidak menulis balik ke Exodus; tidak mengubah rumus pelunasan/estimasi di POA.
