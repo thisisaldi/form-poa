@@ -760,6 +760,9 @@ model PsspKontrak {
 
   snapshotDate DateTime? // date of source Excel file
   importedAt   DateTime  @default(now())
+  // Set when totalLunas was last confirmed from Exodus settlements
+  // (src/lib/sync/psspLunasSync.ts); null = still the Excel number.
+  lunasSyncedAt DateTime?
 
   @@unique([cUrut, kdProduk])
   @@index([kdCust])

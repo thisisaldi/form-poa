@@ -183,7 +183,9 @@ async function main() {
         "estBaris" = EXCLUDED."estBaris", "bmBaris" = EXCLUDED."bmBaris",
         "totalEst" = EXCLUDED."totalEst", "totalBm" = EXCLUDED."totalBm", "totalLunas" = EXCLUDED."totalLunas",
         "estByPeriod" = EXCLUDED."estByPeriod", "bmByPeriod" = EXCLUDED."bmByPeriod", "lunasByPeriod" = EXCLUDED."lunasByPeriod",
-        "snapshotDate" = EXCLUDED."snapshotDate", "importedAt" = NOW()
+        "snapshotDate" = EXCLUDED."snapshotDate", "importedAt" = NOW(),
+        -- totalLunas is back to the Excel number; psspLunasSync re-marks it (docs/pssp-live/).
+        "lunasSyncedAt" = NULL
     `;
 
     done += batch.length;

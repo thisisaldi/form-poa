@@ -44,6 +44,14 @@ export async function runPsspLunasSync({ apply, onProgress }: { apply: boolean; 
     for (let i = 0; i < changes.length; i += 500) {
       await prisma.$transaction(changes.slice(i, i + 500).map((u) => prisma.psspKontrak.update({ where: { id: u.id }, data: { totalLunas: u.totalLunas } })));
     }
+    // lunasSyncedAt marks every Exodus-confirmed row (changed or not) for the
+    // "Exodus <date>" vs "Excel" badge in the PSSP history panel.
+    // importPsspKontrak.ts clears it, since an import puts Excel numbers back.
+    const ids = rows.map((r) => r.id);
+    const now = new Date();
+    for (let i = 0; i < ids.length; i += 5000) {
+      await prisma.psspKontrak.updateMany({ where: { id: { in: ids.slice(i, i + 5000) } }, data: { lunasSyncedAt: now } });
+    }
   }
 
   return {

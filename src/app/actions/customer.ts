@@ -108,6 +108,8 @@ export interface PsspKontrakSummary {
   snapshotDate: string | null;
   kdOutlet: string | null;
   nmOutlet: string | null;
+  /** YYYY-MM-DD when totalLunas was last confirmed from Exodus; null = Excel number. Only getPsspHistory fills it (history panel badge). */
+  lunasSyncedAt?: string | null;
 }
 
 /**
@@ -128,7 +130,7 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
       id: true, cUrut: true, nmProduk: true, kdProduk: true,
       prdAwal: true, prdAkhir: true, biaya: true,
       estBaris: true, totalLunas: true,
-      snapshotDate: true, kdOutlet: true, nmOutlet: true,
+      snapshotDate: true, kdOutlet: true, nmOutlet: true, lunasSyncedAt: true,
     },
   });
 
@@ -140,6 +142,7 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
     totalLunas: { toString(): string } | null;
     snapshotDate: Date | null;
     kdOutlet: string | null; nmOutlet: string | null;
+    lunasSyncedAt: Date | null;
   }) => ({
     id: r.id,
     cUrut: r.cUrut,
@@ -153,6 +156,7 @@ export async function getPsspHistory(kodeCustomer: string): Promise<PsspKontrakS
     snapshotDate: r.snapshotDate ? r.snapshotDate.toISOString().slice(0, 10) : null,
     kdOutlet: r.kdOutlet,
     nmOutlet: r.nmOutlet,
+    lunasSyncedAt: r.lunasSyncedAt ? new Date(r.lunasSyncedAt.getTime() + 7 * 3600_000).toISOString().slice(0, 10) : null, // WIB date
   }));
 }
 
@@ -366,6 +370,7 @@ export async function getExodusPsspExtras(kodeCustomer: string, kodePI?: string)
         biaya: h.givenValue, estBaris: h.estimationValue,
         totalLunas: 0,
         snapshotDate: null,
+        lunasSyncedAt: null, // header only, no settlement % here → "Belum update" badge
         kdOutlet: kodePI && h.outletCodes.includes(kodePI) ? kodePI : h.outletCodes[0] ?? null,
         nmOutlet: null,
       };

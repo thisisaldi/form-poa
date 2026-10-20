@@ -1889,6 +1889,18 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
                   Retensi
                 </span>
               )}
+              {first.lunasSyncedAt ? (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" title="Pelunasan dari Exodus"
+                  style={{ color: "var(--color-green, #008f42)", background: "var(--color-green-light, #E6F5EC)" }}>
+                  Terupdate {first.lunasSyncedAt}
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                  title={first.snapshotDate ? `Pelunasan dari Excel ${first.snapshotDate}, belum dikonfirmasi Exodus` : "Belum ada data pelunasan dari Exodus"}
+                  style={{ color: "var(--color-text-faint)", background: "var(--color-bg-subtle)" }}>
+                  Belum update
+                </span>
+              )}
             </div>
             {first.nmOutlet && (
               <div className="text-xs truncate" style={{ color: "var(--color-text-faint)" }}>{first.nmOutlet}</div>
@@ -1974,7 +1986,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
         </div>
       )}
       <p className="text-xs" style={{ color: "var(--color-text-faint)" }}>
-        {byContract.size} kontrak · snapshot {history[0]?.snapshotDate ?? "-"}
+        {byContract.size} kontrak · {[...byContract.values()].filter((rows) => rows[0].lunasSyncedAt).length} terupdate dari Exodus · Excel per {history.find((r) => r.snapshotDate)?.snapshotDate ?? "-"}
       </p>
     </div>
   );
