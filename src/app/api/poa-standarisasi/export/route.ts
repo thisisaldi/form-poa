@@ -26,7 +26,7 @@ import { getSubordinateOwnerNips } from "@/lib/authz";
 import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
 import { POA_STANDARISASI_VIEW_ROLES } from "@/lib/role";
 import { addActivitySheet } from "@/lib/poaStandarisasiActivity";
-import { censorName } from "@/lib/censorName";
+import { censorExport } from "@/lib/censorName";
 
 function num(v: { toString(): string } | null | undefined): number | null {
   return v == null ? null : parseFloat(v.toString());
@@ -173,13 +173,13 @@ export async function GET(_req: NextRequest) {
       const useFinal = prod.dokterUser.length > 0;
       const dokterRows = useFinal
         ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
-            kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
+            kode: d.customer.kodeCustomer ?? "-", nama: censorExport(session.role, d.customer.namaCustomer),
             approved: sudahTtdByCustomerId.get(d.customerId) ?? null,
             qty: d.estimasiQtyUbPerBulan,
             sales: num(d.estimasiSalesRpPerBulan),
           }))
         : prod.dokterApproval.map((d: (typeof prod.dokterApproval)[number]) => ({
-            kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
+            kode: d.customer.kodeCustomer ?? "-", nama: censorExport(session.role, d.customer.namaCustomer),
             approved: d.sudahTtd,
             qty: null as number | null,
             sales: null as number | null,

@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { censorName } from "@/lib/censorName";
+import { censorExport } from "@/lib/censorName";
 import { canViewPusat } from "@/lib/hka";
 
 const STATUS_LABELS: Record<string, string> = { BARU: "Baru", PERPANJANGAN: "Perpanjangan" };
@@ -114,11 +114,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const ttdByCustomer = new Map<string, boolean>(prod.dokter.map((d: (typeof prod.dokter)[number]) => [d.customerId, d.sudahTtd]));
     const dokterRows = useFinal
       ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
-          customerId: d.customerId, kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer), hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
+          customerId: d.customerId, kode: d.customer.kodeCustomer ?? "-", nama: censorExport(session.role, d.customer.namaCustomer), hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt), qty: d.estimasiQtyUbPerBulan, sales: num(d.estimasiSalesRpPerBulan), entertain: num(d.entertainRp),
         }))
       : prod.dokter.map((d: (typeof prod.dokter)[number]) => ({
-          customerId: d.customerId, kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer), hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
+          customerId: d.customerId, kode: d.customer.kodeCustomer ?? "-", nama: censorExport(session.role, d.customer.namaCustomer), hari: d.jumlahHariPraktekPerBulan, pasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt), qty: d.estimasiQtyUbPerBulan, sales: num(d.estimasiNilaiRpPerBulan), entertain: num(d.entertainRp),
         }));
     const sumberData = useFinal ? "Final (Finalisasi)" : "Estimasi (Planning)";

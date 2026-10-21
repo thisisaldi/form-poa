@@ -10,7 +10,7 @@ import ExcelJS from "exceljs";
 import type { PoaLineItem } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { censorName } from "@/lib/censorName";
+import { censorExport } from "@/lib/censorName";
 import { canView } from "@/lib/authz";
 import { getAppSetting } from "@/lib/appSettings";
 import { settingMessage } from "@/lib/appSettingsRegistry";
@@ -593,7 +593,7 @@ export async function GET(
       namaNsm: nsm?.name ?? nsmNamaFallback ?? "-",
       outlet: `${item.kodePI ?? "-"} - ${item.namaOutlet}`,
       spesialisasi: item.spesialisasi,
-      namaUser: `${item.kodeCust ?? "-"} - ${censorName(item.namaCust)}`,
+      namaUser: `${item.kodeCust ?? "-"} - ${censorExport(session.role, item.namaCust)}`,
       // Gelombang approval dokter ini (docs/poa-deal-addendum/): 1 = semula; >= 2 = baris yang ditambah setelah gelombang sebelumnya Deal.
       gelombang: item.batch ?? 1,
       sumberUser: item.isManualCustomer ? "Manual (Belum Terdaftar)" : "Terdaftar",
@@ -697,7 +697,7 @@ export async function GET(
     psspSheet.addRow({
       sumber: "PSSP Kontrak",
       cUrut: r.cUrut,
-      namaUser: r.nmCust ? censorName(r.nmCust) : "-",
+      namaUser: r.nmCust ? censorExport(session.role, r.nmCust) : "-",
       kodeCustomer: r.kdCust ?? "-",
       kodeOutlet: r.kdOutlet ?? "-",
       namaOutlet: r.nmOutlet ?? "-",
@@ -719,7 +719,7 @@ export async function GET(
     psspSheet.addRow({
       sumber: "PSSP Hospinet",
       cUrut: "-",
-      namaUser: censorName(r.namaCustomer),
+      namaUser: censorExport(session.role, r.namaCustomer),
       kodeCustomer: r.kodeCustomer ?? "-",
       kodeOutlet: r.kodePI,
       namaOutlet: r.namaOutlet ?? "-",

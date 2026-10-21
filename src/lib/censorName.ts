@@ -67,3 +67,8 @@ export function censorName(name: string | null | undefined): string {
     .map((w) => `${w.toUpperCase()}${STARS}`)
     .join(" ");
 }
+
+/** Nama dokter untuk export Excel: SFE dapat nama asli, role lain disensor. */
+export function censorExport(role: string, name: string | null | undefined): string {
+  return role === "SFE" ? (name ?? "").trim() : censorName(name);
+}

@@ -20,7 +20,7 @@ import { getCurrentUser } from "@/lib/session";
 import { canViewPoaStandarisasi, getPoaStandarisasiApprovers } from "@/lib/authz";
 import { buildPhaseProgress } from "@/lib/poaStandarisasiPhases";
 import { addActivitySheet } from "@/lib/poaStandarisasiActivity";
-import { censorName } from "@/lib/censorName";
+import { censorExport } from "@/lib/censorName";
 
 const STATUS_PENGAJUAN_LABELS: Record<string, string> = { BARU: "Baru", PERPANJANGAN: "Perpanjangan" };
 const SKEMA_LABELS: Record<string, string> = { DISKON: "Diskon", DP: "DP" };
@@ -136,7 +136,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const useFinal = prod.dokterUser.length > 0;
     const dokterRows = useFinal
       ? prod.dokterUser.map((d: (typeof prod.dokterUser)[number]) => ({
-          kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
+          kode: d.customer.kodeCustomer ?? "-", nama: censorExport(session.role, d.customer.namaCustomer),
           hariPraktek: d.jumlahHariPraktekPerBulan,
           jumlahPasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt),
@@ -145,7 +145,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           entertain: num(d.entertainRp),
         }))
       : prod.dokterApproval.map((d: (typeof prod.dokterApproval)[number]) => ({
-          kode: d.customer.kodeCustomer ?? "-", nama: censorName(d.customer.namaCustomer),
+          kode: d.customer.kodeCustomer ?? "-", nama: censorExport(session.role, d.customer.namaCustomer),
           hariPraktek: d.jumlahHariPraktekPerBulan,
           jumlahPasien: d.jumlahPasien,
           resep: num(d.resepPerPasienSt),
