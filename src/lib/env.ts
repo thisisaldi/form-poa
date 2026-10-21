@@ -26,6 +26,10 @@ const envSchema = z.object({
   EXODUS_AUTH_CLIENT_ID: z.string().optional(),
   EXODUS_AUTH_CLIENT_SECRET: z.string().optional(),
   EXODUS_API_BASE_URL: z.string().optional(),
+  // NIP whose Exodus "projects" cover every PSSP contract — the settlements
+  // listing only works per user_nip (docs/pssp-live/01-business-rules.md §5b).
+  // Default 972977 (Ahsanul Chalid, confirmed by user 2026-10-20).
+  EXODUS_PSSP_LIST_NIP: z.string().default("972977"),
   // Optional — Google Drive upload for "Input Data Survey" + POA
   // Standarisasi (see docs/survey-pasien-features/, src/lib/googleDrive.ts).
   // Two ways to provide the service account credential, either is fine
@@ -100,6 +104,7 @@ function validateEnv(): Env {
         EXODUS_AUTH_CLIENT_ID: undefined,
         EXODUS_AUTH_CLIENT_SECRET: undefined,
         EXODUS_API_BASE_URL: undefined,
+        EXODUS_PSSP_LIST_NIP: "972977",
         GOOGLE_SERVICE_ACCOUNT_KEY_FILE: undefined,
         GOOGLE_SERVICE_ACCOUNT_KEY: undefined,
         NEXUS_API_USERNAME: undefined,

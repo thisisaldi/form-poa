@@ -18,7 +18,7 @@ Tab ketiga di `/admin`: `SECTIONS` di `src/app/(app)/admin/page.tsx:29` ditambah
 | Kolom | Isi |
 |---|---|
 | Job | Label + key, mis. "Pelunasan PSSP (Exodus)" · `pssp-lunas` |
-| Jadwal | "Tiap hari 00:00 WIB" + jadwal berikutnya (dari `msUntilNextWibMidnight`) |
+| Jadwal | "Tiap hari HH:00 WIB" + jadwal berikutnya (dari `msUntilNextWib`) |
 | Run terakhir | Badge status (Berhasil / Gagal / Berjalan / Terputus), waktu mulai, durasi |
 | Ringkasan | `summary` run terakhir, atau `error` (merah) kalau gagal |
 | Aksi | "Jalankan sekarang" (disabled + "Berjalan…" kalau ada run `running` yang belum basi), "Histori" |

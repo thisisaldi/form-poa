@@ -82,17 +82,20 @@ async function runOrgAndOutletChain(): Promise<JobResult> {
   };
 }
 
+// Staggered (user, 2026-10-21) so jobs do not share the DB pool / MSSQL at once:
+// org chain first (sales syncs read the outlets it refreshes), the ~45 min
+// Exodus PSSP job last. Narrow the gaps once Admin → Scheduler shows real durations.
 export const JOBS: JobDef[] = [
   { key: "org-and-outlet-daily", label: "Struktur organisasi & outlet", hourWib: 0, run: runOrgAndOutletChain },
   {
-    key: "outlet-sales-value-monthly", label: "Sales value bulanan (Hospital)", hourWib: 0,
+    key: "outlet-sales-value-monthly", label: "Sales value bulanan (Hospital)", hourWib: 1,
     run: async () => {
       const r = await runOutletSalesValueMonthlySync(mssql());
       return { summary: withErrors(`upserted ${r.upserted} rows (${r.periodeFrom}–${r.periodeTo})`, r.errors), detail: r };
     },
   },
   {
-    key: "omega-sales-value-monthly", label: "Sales value bulanan (Non-Hospital OMG1)", hourWib: 0,
+    key: "omega-sales-value-monthly", label: "Sales value bulanan (Non-Hospital OMG1)", hourWib: 2,
     run: async () => {
       const r = await runOmegaSalesValueMonthlySync(mssql());
       return { summary: `upserted ${r.upserted} rows (${r.periodeFrom}–${r.periodeTo})`, detail: r };
@@ -106,10 +109,14 @@ export const JOBS: JobDef[] = [
     },
   },
   {
-    key: "pssp-lunas", label: "Pelunasan PSSP (Exodus)", hourWib: 0,
+    key: "pssp-lunas", label: "Kontrak & pelunasan PSSP (Exodus)", hourWib: 3,
     run: async () => {
       const r = await runPsspLunasSync({ apply: true });
-      return { summary: `${r.nips - r.failedNips}/${r.nips} NIP dijawab Exodus, ${r.changedContracts}/${r.matchedContracts} kontrak berubah (${r.changedRows} baris)`, detail: r };
+      const gaps = [r.failedPages && `${r.failedPages} halaman listing gagal`, r.failedDetails && `${r.failedDetails} detail kontrak gagal`].filter(Boolean);
+      return {
+        summary: `${r.written}/${r.psspContracts} kontrak ditulis (${r.newContracts} baru, ${r.changedContracts} berubah, ${r.productRows} baris produk)` + (gaps.length ? `; ${gaps.join(", ")}` : ""),
+        detail: r,
+      };
     },
   },
 ];

@@ -48,6 +48,50 @@ Semua rumus tetap membaca `PsspKontrak`; pelunasan di tabel itu disegarkan dari 
 | Q4 | `settlements` hanya bisa per `user_nip`: apakah level GM/NSM/ADMIN (company-wide) bisa dipanggil tanpa melebarkan beban? | Panggil per MR dalam scope, di-cache (pola `customersDbCacheByNip`), bukan satu panggilan global. | Perlu dicek terhadap `docs/PERFORMANCE.md` |
 | Q5 | Apakah settlements memuat kontrak lama (histori > 2 tahun) atau hanya yang belum lunas? | Belum diketahui; kalau terpotong, histori lama tetap dari `PsspKontrak`. | Cek sendiri (probe) |
 
+## 5b. Fase 2 — `PsspKontrak` diisi penuh dari Exodus (diimplementasikan 2026-10-20: `src/lib/sync/psspLunasSync.ts`, job `pssp-lunas`; belum di-apply ke DB mana pun)
+
+*Keputusan user 2026-10-20, setelah ditemukan bug di §3 (`totalLunas` = estimasi Excel × persen Exodus menghasilkan rupiah terlalu kecil: estimasi Excel hanya mencakup bulan yang ada kolomnya di file, ±202501–202607, sedangkan persen Exodus terhadap estimasi seluruh kontrak — mis. CJ43624 est Excel 18,8 jt vs Exodus 66,7 jt). Data prod hasil §3 sengaja dibiarkan sampai Fase 2 siap (keputusan user).*
+
+**Endpoint baru** (dokumentasi Exodus diberikan user 2026-10-20, diverifikasi probe ke prod dengan `pssp_id` 43191 = PCJ43624):
+
+| Endpoint | Waktu | Isi yang dipakai |
+|---|---|---|
+| `GET /pssp/settlements?user_nip=&page=&limit=` | 1,3 dtk (hal. 1) – 9 dtk (hal. 50) per 100 baris; `limit=1000` → 524 timeout | Daftar kontrak: `pssp_id`, `pssp_number`, `customer_code/name`, `outlet_code/name`, `start_date`/`end_date`. Satu-satunya cara mendapat `pssp_id` (tanpa `user_nip` → 500). |
+| `GET /pssp/settlements/details?pssp_id=` | ~150 ms | Per produk per bulan: `product_code/name`, `periode` ("Jun 2026"), `monthly_estimated_value`, `settlement_value`, `is_estimated`, `pssp_total_value`. |
+| `GET /pssp/settlements/summary/:pssp_id` | ~150 ms | Per bulan: `Estimasi`, `Pelunasan`, `Progress`, `Status`. Tidak dipakai untuk menulis (= Σ details per bulan), hanya verifikasi. |
+
+**Keputusan (user, 2026-10-20):**
+
+| # | Keputusan |
+|---|---|
+| D1 | Pelunasan **angka asli Exodus**, tanpa batas. (Excel membatasi lunas per bulan per produk ke % estimasi bulan itu — 85% di CJ43624/CJ37937, 75% di CJ41799; Exodus tidak.) |
+| D2 | Pelunasan produk yang **tidak diestimasi** (`is_estimated=false`, mis. MAXICEF 930 rb di CJ43624) **ikut dihitung** — jadi baris produk dengan estimasi 0. |
+| D3 | Sumber `PsspKontrak` = **Exodus penuh** untuk setiap kontrak yang ada di Exodus (termasuk yang belum ada di DB). Kontrak yang tidak ada di Exodus tetap dari Excel. |
+
+**Pemetaan per kontrak (`pssp_id`) → baris `PsspKontrak` per produk:**
+
+| Field | Sumber |
+|---|---|
+| `cUrut` | `pssp_number` tanpa `P` depan; hanya nomor berawalan `P` |
+| `kdCust` / `nmCust` | `customer_code` / `customer_name` (listing) |
+| `kdOutlet` / `nmOutlet` | `outlet_code` / `outlet_name` (listing) |
+| `prdAwal` / `prdAkhir` | `start_date` / `end_date` → `YYYYMM` (UTC) |
+| `biaya` | `pssp_total_value` (details) |
+| `kdProduk` / `nmProduk` | `product_code` / `product_name` |
+| `estByPeriod[YYYYMM]` / `estBaris` / `totalEst` | `monthly_estimated_value` per bulan / Σ (cocok dengan Excel: CJ43624 Jun & Jul 9,38 jt) |
+| `lunasByPeriod[YYYYMM]` / `totalLunas` | `settlement_value` per bulan / Σ |
+| `lunasSyncedAt` | waktu sync |
+| `nmSpc`, `nipUsul`, `nmUsul`, `divProd`, dst. | tidak ditimpa kalau baris sudah ada; null untuk baris baru |
+
+Per kontrak: baris produk lama yang tidak lagi muncul di Exodus dihapus (penggantian penuh per kontrak). Satu nomor kontrak = satu `pssp_id` (2.176 nomor P dicek, 0 duplikat). Setelah Fase 2, kartu/baris "kontrak Exodus-only" (`getExodusPsspExtras`) tidak diperlukan lagi karena kontraknya sudah jadi baris `PsspKontrak` biasa.
+
+**Open question blocking:**
+
+| # | Pertanyaan | Asumsi |
+|---|---|---|
+| F1 | NIP mana yang dipakai untuk listing semua kontrak? | ✅ `972977` (Ahsanul Chalid, user 2026-10-20) — 18.534 settlement, tidak ada di tabel `User`. Env `EXODUS_PSSP_LIST_NIP` (default `972977`). Lebih baik jangka panjang: Exodus menyediakan listing tanpa `user_nip` untuk client service. |
+| F2 | Durasi sync: ~187 halaman × 1–30 dtk + ~7–8 rb × 150 ms details ≈ 30–45 menit/malam. Beban ke Exodus wajar? | Listing konkurensi 3, detail konkurensi 5, jalan 03:00 WIB (setelah job lain). |
+
 ## 6. Perilaku kegagalan
 
 Mengikuti kontrak `exodusApi.ts`: tanpa konfigurasi / non-2xx / timeout → kembalikan `null`; kartu Exodus tidak muncul, panel tampil seperti sekarang.

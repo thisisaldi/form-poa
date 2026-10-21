@@ -8,7 +8,7 @@ import type { PoaLineItem } from "@prisma/client";
 import type { Product } from "@/lib/hargaST";
 import { hargaST } from "@/lib/hargaST";
 import { addLineItemAction, updateLineItemAction, deleteLineItemAction, getDoctorInOtherPoas, getDoctorUsageInThisPoa, type DoctorInOtherPoa, type DoctorUsageInThisPoa } from "@/app/actions/lineItem";
-import { getCustomersByOutlet, getSpesialisasiOptionsAction, createCustomerAction, getPsspHistory, getExodusPsspExtras, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
+import { getCustomersByOutlet, getSpesialisasiOptionsAction, createCustomerAction, getPsspHistory, getPsspHospinetSnapshot, getListingFeeHistory, getKriteriaByOutlet, getDiskonByOutlet, getDiskonHistoryByOutlet, getSurveyRekomendasiInfo, getSurveyRekomendasiByOutlet, getPsspStatusByOutlet, getPsspProductNamesByOutlet, getVisitHistoryByCustomerOutlet, type CustomerOption, type PsspKontrakSummary, type PsspHospinetSnapshotSummary, type ListingFeeKontrakSummary, type KriteriaByOutlet, type DiskonByProduct, type DiskonHistoryByProduct, type PsspStatusByCustomer, type SurveyRekomendasiRow, type VisitHistorySummary } from "@/app/actions/customer";
 import { getStandarisasiCustomerKodesByOutletAction, getStandarisasiProdukForDokterAction, getStandarisasiProsesKodeByOutletAction, type StandarisasiProdukForDokter } from "@/app/actions/poaStandarisasi";
 import { computePeriodeAkhir, computeMonthlyBreakdown, formatPeriode, formatPeriodeRange } from "@/lib/poaUtils";
 import { quarterToMonths } from "@/lib/quarterUtils";
@@ -1760,12 +1760,10 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
 
   useEffect(() => {
     startLoad(async () => {
-      const [dbRows, snapshot, extras] = await Promise.all([
+      const [rows, snapshot] = await Promise.all([
         getPsspHistory(kodeCustomer),
         doctorName && kodePI ? getPsspHospinetSnapshot(doctorName, kodePI) : Promise.resolve(null),
-        getExodusPsspExtras(kodeCustomer, kodePI).catch(() => []),
       ]);
-      const rows = [...dbRows, ...extras];
       setAllHistory(rows);
       setHospinetSnapshot(snapshot);
       onLabel?.(computeLabelCustomer(rows));
@@ -1938,7 +1936,7 @@ function PsspHistoryPanel({ kodeCustomer, kodePI, doctorName, onLabel, onHistory
             const rowPct = r.estBaris > 0 ? Math.round((r.totalLunas / r.estBaris) * 100) : null;
             return (
               <div key={r.id} className="text-xs">
-                <div style={{ color: "var(--color-text-muted)" }} className="truncate">{r.nmProduk ?? r.kdProduk ?? "Semua produk"}</div>
+                <div style={{ color: "var(--color-text-muted)" }} className="truncate">{r.nmProduk ?? r.kdProduk}</div>
                 <div className="flex items-center justify-between gap-2 tabular-nums" style={{ color: "var(--color-text-faint)" }}>
                   <span>Est: {formatRp(r.estBaris)}</span>
                   <span className="text-right">

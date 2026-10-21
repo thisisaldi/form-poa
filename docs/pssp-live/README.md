@@ -3,11 +3,10 @@
 **Sumber requirement:** permintaan user (2026-10-06): data PSSP di POA estimasi (histori + aktif) diambil live dari Exodus, bukan snapshot tabel `PsspKontrak` yang diisi manual lewat `scripts/importPsspKontrak.ts`.
 
 **Status:** 🟢 Fase 1 diimplementasikan 2026-10-06. Diubah 2026-10-20 (keputusan user):
-- Kontrak yang cuma ada di Exodus tampil di `PsspHistoryPanel` sebagai kontrak biasa (tanpa label/kartu terpisah, satu baris "Semua produk", pelunasan 0).
-- Pelunasan kontrak yang ada di `PsspKontrak` **ditimpa angka Exodus** (tulis ke `totalLunas`, jadi semua pembaca — panel, export, summary — ikut). Jalan otomatis tiap 00:00 WIB (`src/lib/sync/jobs.ts` job `pssp-lunas`, ~1 jam; status & run manual di Admin → Scheduler); manual/dry-run lewat `scripts/syncPsspLunasFromExodus.ts`, mis. langsung setelah `importPsspKontrak.ts`.
-- Indikator per kontrak di panel histori: badge "Terupdate <tanggal>" kalau pelunasan sudah dikonfirmasi Exodus (`PsspKontrak.lunasSyncedAt`, diisi sync, dikosongkan `importPsspKontrak.ts`), "Belum update" kalau masih angka Excel atau kontrak Exodus-only tanpa pelunasan. Footer: jumlah kontrak terupdate + tanggal Excel.
+- **Fase 2 (2026-10-20):** `PsspKontrak` diisi penuh dari Exodus per produk per bulan untuk setiap kontrak yang ada di Exodus (estimasi + pelunasan asli tanpa batas, termasuk produk non-estimasi, termasuk kontrak yang belum ada di Excel) — lihat `01-business-rules.md` §5b. Menggantikan pendekatan §3 (persen Exodus × estimasi Excel), yang terbukti salah untuk kontrak yang masanya keluar dari rentang Excel.
+- Semua pembaca (panel, export, summary) ikut karena data ditulis ke `PsspKontrak`. Jalan otomatis tiap 03:00 WIB (`src/lib/sync/jobs.ts` job `pssp-lunas`, ~30–45 menit; status & run manual di Admin → Scheduler); manual/dry-run lewat `scripts/syncPsspLunasFromExodus.ts`, mis. langsung setelah `importPsspKontrak.ts`.
+- Indikator per kontrak di panel histori: badge "Terupdate <tanggal>" kalau pelunasan sudah dikonfirmasi Exodus (`PsspKontrak.lunasSyncedAt`, diisi sync, dikosongkan `importPsspKontrak.ts`), "Belum update" kalau masih angka Excel (kontrak yang tidak ada di Exodus, atau sync belum jalan). Footer: jumlah kontrak terupdate + tanggal Excel.
 
-Fase 2 (per-produk) masih terblokir Exodus.
 
 ## Ringkasan
 

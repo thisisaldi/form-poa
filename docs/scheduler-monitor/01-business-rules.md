@@ -14,11 +14,13 @@
 
 | Key | Jadwal | Isi | Prasyarat env |
 |---|---|---|---|
-| `org-and-outlet-daily` | 00:00 WIB | Rantai 6 langkah: org-structure → outlet → outlet-coverage → vacant-territory-coverage → pending-approval-holder → owner-handover (`orgAndOutletScheduler.ts`) | MSSQL hanya untuk langkah vacant-territory (opsional) |
-| `outlet-sales-value-monthly` | 00:00 WIB | `outletSalesValueMonthlyScheduler.ts` | `MSSQL_CONNECTION_STRING` |
-| `omega-sales-value-monthly` | 00:00 WIB | `omegaSalesValueMonthlyScheduler.ts` | `MSSQL_CONNECTION_STRING` |
+| `org-and-outlet-daily` | 00:00 WIB | Rantai 6 langkah: org-structure → outlet → outlet-coverage → vacant-territory-coverage → pending-approval-holder → owner-handover | MSSQL hanya untuk langkah vacant-territory (opsional) |
+| `outlet-sales-value-monthly` | 01:00 WIB | `runOutletSalesValueMonthlySync` | `MSSQL_CONNECTION_STRING` |
+| `omega-sales-value-monthly` | 02:00 WIB | `runOmegaSalesValueMonthlySync` | `MSSQL_CONNECTION_STRING` |
 | `sales-history-monthly` | 08:00 WIB | `salesHistoryMonthlyScheduler.ts` | `MSSQL_CONNECTION_STRING` |
-| `pssp-lunas` | 00:00 WIB | `psspLunasScheduler.ts` (~1 jam) | `EXODUS_*` |
+| `pssp-lunas` | 03:00 WIB | `runPsspLunasSync` (~30–45 menit) | `EXODUS_*` |
+
+Jam dibuat bertahap (user, 2026-10-21) supaya job tidak berebut pool koneksi DB / MSSQL; org chain duluan karena sync sales membaca outlet yang di-refresh-nya. Semua didefinisikan di `src/lib/sync/jobs.ts`.
 
 Job rantai (`org-and-outlet-daily`) dicatat sebagai **satu run**; hasil tiap langkah masuk `detail` (lihat Q1).
 

@@ -1395,116 +1395,87 @@ export async function getExodusSpecialists(): Promise<string[] | null> {
   }
 }
 
-export interface ExodusPsspHeader {
-  refId: string;        // == PsspKontrak.cUrut / settlements pssp_number (verified 2026-10-06)
-  startPeriod: string;  // YYYYMM
-  endPeriod: string;    // YYYYMM
-  givenValue: number;
-  estimationValue: number;
-  outletCodes: string[];
+// ─── PSSP settlements (docs/pssp-live/01-business-rules.md §5b) ─────────────
+// Batch/sync use only (psspLunasSync.ts) — the listing is slow on deep pages,
+// never call these on a page render path.
+
+export interface ExodusPsspSettlementRow {
+  pssp_id: number;
+  pssp_number: string;
+  customer_code: string;
+  customer_name: string;
+  outlet_code: string;
+  outlet_name: string;
+  start_date: string;
+  end_date: string;
 }
 
-const psspByCustomerCache = new Map<number, { list: ExodusPsspHeader[]; expiresAt: number }>();
+export interface ExodusPsspSettlementDetailRow {
+  product_code: string;
+  product_name: string;
+  periode: string; // "Jun 2026"
+  monthly_estimated_value: number;
+  settlement_value: number;
+  is_estimated: boolean;
+  pssp_total_value: number;
+}
 
-/**
- * Approved, non-draft PSSP contracts of one Exodus customer
- * (/promotion/v1/pssp?customer_id=). One contract number can span several
- * header rows (same ref_id_header) — summed here into one entry per number.
- * Supplementary to PsspKontrak, see docs/pssp-live/. Null on any failure.
- */
-export async function getExodusPsspByCustomerId(customerId: number): Promise<ExodusPsspHeader[] | null> {
-  if (!isConfigured || !customerId) return null;
-  const cached = psspByCustomerCache.get(customerId);
-  if (cached && cached.expiresAt > Date.now()) return cached.list;
-
+async function exodusGet<T>(path: string, params: Record<string, string>, timeoutMs: number): Promise<T | null> {
   const token = await getAccessToken();
   if (!token) return null;
-
   try {
-    const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/pssp`);
-    url.searchParams.set("customer_id", String(customerId));
-    url.searchParams.set("page", "1");
-    url.searchParams.set("limit", "200");
-    const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 6000);
+    const url = new URL(`${env.EXODUS_API_BASE_URL}${path}`);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, timeoutMs);
     if (!res.ok) return null;
-    const body = (await res.json()) as { data?: Record<string, any>[]; error?: { status: boolean } };
-    if (body.error?.status || !Array.isArray(body.data)) return null;
-
-    const ym = (iso: unknown) => (typeof iso === "string" ? iso.slice(0, 7).replace("-", "") : "");
-    const byRef = new Map<string, ExodusPsspHeader>();
-    for (const h of body.data) {
-      if (h.request_status !== "approved" || h.is_draft || !h.ref_id_header) continue;
-      const cur: ExodusPsspHeader = byRef.get(h.ref_id_header) ?? {
-        refId: h.ref_id_header, startPeriod: ym(h.start_period), endPeriod: ym(h.end_period),
-        givenValue: 0, estimationValue: 0, outletCodes: [],
-      };
-      cur.givenValue += Number(h.total_given_value) || 0;
-      cur.estimationValue += Number(h.total_estimation_value) || 0;
-      for (const o of h.outlets ?? []) if (o.outlet_code && !cur.outletCodes.includes(o.outlet_code)) cur.outletCodes.push(o.outlet_code);
-      byRef.set(h.ref_id_header, cur);
-    }
-    const list = [...byRef.values()].sort((a, b) => b.endPeriod.localeCompare(a.endPeriod));
-    psspByCustomerCache.set(customerId, { list, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
-    return list;
+    const body = (await res.json()) as T & { error?: { status: boolean } };
+    return body.error?.status ? null : body;
   } catch {
     return null;
   }
 }
 
 /**
- * Rewrites totalLunas on per-product PSSP rows from a contract-level Exodus %.
- * The contract's new total (Σ estBaris × pct/100) is split across its rows in
- * proportion to their existing totalLunas, so per-product running rates keep
- * their shape; by estBaris when the contract had no lunas yet. Contracts
- * missing from pctByCUrut are returned unchanged.
+ * Every settlement row visible to `nip` (/promotion/v1/pssp/settlements —
+ * user_nip is mandatory for this client). 100 per page: limit=1000 hits 524
+ * timeouts, and deep pages slow down (1.3s at page 1, 9s at page 50, measured
+ * 2026-10-20). Each page is retried once; pages that still fail are reported,
+ * not thrown — contracts on them are simply not refreshed this run.
  */
-export function applySettlementPct<T extends { cUrut: string; estBaris: number; totalLunas: number }>(rows: T[], pctByCUrut: Map<string, number>): T[] {
-  const totals = new Map<string, { est: number; lunas: number; n: number }>();
-  for (const r of rows) {
-    const t = totals.get(r.cUrut) ?? { est: 0, lunas: 0, n: 0 };
-    t.est += r.estBaris; t.lunas += r.totalLunas; t.n++;
-    totals.set(r.cUrut, t);
-  }
-  return rows.map((r) => {
-    const pct = pctByCUrut.get(r.cUrut);
-    if (pct == null) return r;
-    const t = totals.get(r.cUrut)!;
-    const share = t.lunas > 0 ? r.totalLunas / t.lunas : t.est > 0 ? r.estBaris / t.est : 1 / t.n;
-    return { ...r, totalLunas: Math.round(((t.est * pct) / 100) * share * 100) / 100 };
-  });
-}
-
-const settlementPctCacheByNip = new Map<string, { map: Map<string, number>; expiresAt: number }>();
-
-/**
- * Pelunasan % per PSSP contract for one MR (/promotion/v1/pssp/settlements —
- * user_nip is the only filter that works). Keyed by PsspKontrak.cUrut (Exodus
- * number minus its leading "P"); value is Σ lunas / Σ estimasi × 100, verified
- * against PsspKontrak 2026-10-20. Null on failure (incl. 500 for unknown nip).
- */
-export async function getExodusPsspSettlementPctByNip(nip: string): Promise<Map<string, number> | null> {
+export async function listExodusPsspSettlements(
+  nip: string,
+  opts: { concurrency?: number; onPage?: (done: number, total: number) => void } = {},
+): Promise<{ rows: ExodusPsspSettlementRow[]; failedPages: number[] } | null> {
   if (!isConfigured || !nip) return null;
-  const cached = settlementPctCacheByNip.get(nip);
-  if (cached && cached.expiresAt > Date.now()) return cached.map;
+  type Page = { data?: ExodusPsspSettlementRow[]; metadata?: { total_page?: number } };
+  const fetchPage = async (page: number) =>
+    (await exodusGet<Page>("/promotion/v1/pssp/settlements", { user_nip: nip, page: String(page), limit: "100" }, 90000)) ??
+    (await exodusGet<Page>("/promotion/v1/pssp/settlements", { user_nip: nip, page: String(page), limit: "100" }, 90000));
 
-  const token = await getAccessToken();
-  if (!token) return null;
+  const first = await fetchPage(1);
+  if (!first) return null;
+  const totalPages = first.metadata?.total_page ?? 1;
+  const rows = [...(first.data ?? [])];
+  const failedPages: number[] = [];
+  let done = 1;
+  opts.onPage?.(done, totalPages);
 
-  try {
-    const url = new URL(`${env.EXODUS_API_BASE_URL}/promotion/v1/pssp/settlements`);
-    url.searchParams.set("user_nip", nip);
-    // Slow endpoint: 12-20s per nip measured 2026-10-20 — batch/script use only, never on a page render path.
-    const res = await fetchWithTimeout(url.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }, 60000);
-    if (!res.ok) return null;
-    const body = (await res.json()) as { data?: { pssp_number?: string; percentage?: number | null }[] };
-    const map = new Map<string, number>();
-    for (const r of body.data ?? []) {
-      if (!r.pssp_number?.startsWith("P") || typeof r.percentage !== "number" || !Number.isFinite(r.percentage)) continue;
-      map.set(r.pssp_number.slice(1), r.percentage);
+  const queue = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+  await Promise.all(Array.from({ length: opts.concurrency ?? 3 }, async () => {
+    for (let page = queue.shift(); page != null; page = queue.shift()) {
+      const p = await fetchPage(page);
+      if (p) rows.push(...(p.data ?? [])); else failedPages.push(page);
+      opts.onPage?.(++done, totalPages);
     }
-    settlementPctCacheByNip.set(nip, { map, expiresAt: Date.now() + CUSTOMERS_TTL_MS });
-    return map;
-  } catch {
-    return null;
-  }
+  }));
+  return { rows, failedPages };
+}
+
+/** Per product per month estimate + settlement of one contract (/promotion/v1/pssp/settlements/details). Null on failure. */
+export async function getExodusPsspSettlementDetails(psspId: number): Promise<ExodusPsspSettlementDetailRow[] | null> {
+  if (!isConfigured) return null;
+  const body = await exodusGet<{ data?: { product_list?: ExodusPsspSettlementDetailRow[] } }>(
+    "/promotion/v1/pssp/settlements/details", { pssp_id: String(psspId) }, 30000,
+  );
+  return body ? body.data?.product_list ?? [] : null;
 }
