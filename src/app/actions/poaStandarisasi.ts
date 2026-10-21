@@ -889,7 +889,7 @@ export interface PlanningProdukInput {
   estimasiDiskonDistributorPct: number | string | null;
   estimasiValueDpRp: number | string | null;
   estimasiBiayaListingRp: number | string | null;
-  /** Diskon kompetitor (%). Opsional di tipe supaya simpan draft tetap boleh kosong; wajib saat lanjut ke Approval Atasan. */
+  /** Diskon kompetitor (%) — opsional. */
   diskonKompetitorPct?: number | string | null;
   dokterKlinis: PlanningDokterKlinisInput[];
 }
@@ -1063,9 +1063,6 @@ function validateReadyForApprovalAtasan(input: PlanningInput) {
   if (input.produk.some((p) => p.dokterKlinis.length === 0)) {
     throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
   }
-  if (input.produk.some((p) => toNum(p.diskonKompetitorPct) === null)) {
-    throw new Error("Diskon kompetitor wajib diisi untuk setiap produk.");
-  }
 }
 
 /** Upserts KPDM rows for a pengajuan (can be more than one per outlet) — same
@@ -1198,9 +1195,6 @@ export async function advanceToApprovalAtasanAction(id: string): Promise<void> {
   if (pengajuan.produk.length === 0) throw new Error("Tambahkan minimal 1 produk sebelum lanjut.");
   if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => p.dokterApproval.length === 0)) {
     throw new Error("Setiap produk wajib punya minimal 1 dokter user.");
-  }
-  if (pengajuan.produk.some((p: (typeof pengajuan.produk)[number]) => p.diskonKompetitorPct === null)) {
-    throw new Error("Diskon kompetitor wajib diisi untuk setiap produk.");
   }
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -1712,6 +1706,16 @@ export async function uploadPoaStandarisasiFileAction(formData: FormData): Promi
   return runAction(() => uploadPoaStandarisasiFileActionImpl(formData));
 }
 
+/** Upload faktur diskon kompetitor (opsional) per produk — mengembalikan id/nama file supaya form Planning bisa update tanpa reload (state form yang belum disimpan tidak hilang). */
+export async function uploadFakturKompetitorAction(formData: FormData): Promise<ActionResult & { driveFileId?: string; namaFile?: string }> {
+  formData.set("kind", "fakturKompetitor");
+  const out: { driveFileId?: string; namaFile?: string } = {};
+  const res = await runAction(async () => {
+    Object.assign(out, await uploadPoaStandarisasiFileActionImpl(formData));
+  });
+  return { ...res, ...out };
+}
+
 async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<{ driveFileId: string; namaFile: string }> {
   if (await getAppSetting("standarisasi.upload.disabled")) throw new Error(settingMessage("standarisasi.upload.disabled"));
   const { session, actor } = await requireActor();
@@ -1719,7 +1723,7 @@ async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<
 
   const file = formData.get("file");
   const pengajuanId = (formData.get("pengajuanId") as string | null) ?? "";
-  const kind = (formData.get("kind") as string | null) ?? ""; // "formApproval" | "suratKft"
+  const kind = (formData.get("kind") as string | null) ?? ""; // "formApproval" | "suratKft" | "fakturKompetitor"
   const produkId = (formData.get("produkId") as string | null) || null;
 
   if (!(file instanceof File)) throw new Error("File wajib diisi.");
@@ -1737,7 +1741,7 @@ async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}`;
-  const label = kind === "suratKft" ? "Surat Approval Standarisasi KFT" : "Form Approval Standarisasi";
+  const label = kind === "suratKft" ? "Surat Approval Standarisasi KFT" : kind === "fakturKompetitor" ? "Faktur Diskon Kompetitor" : "Form Approval Standarisasi";
   const namaFile = `${timestamp} - ${label} - POA Standarisasi ${sanitizeForFileName(pengajuan.kodePI)} oleh ${sanitizeForFileName(session.name)}`;
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -1762,6 +1766,14 @@ async function uploadPoaStandarisasiFileActionImpl(formData: FormData): Promise<
       where: { id: pengajuanId },
       data: { suratApprovalStandarisasiKftPath: namaFile, suratApprovalStandarisasiKftDriveFileId: driveFileId },
     });
+  } else if (kind === "fakturKompetitor") {
+    if (!produkId) throw new Error("Produk tidak valid. Simpan draft dulu sebelum upload faktur.");
+    // Folder Drive yang sama dengan Form Approval Standarisasi (belum ada setting folder terpisah).
+    const { count } = await prisma.poaStandarisasiProduk.updateMany({
+      where: { id: produkId, pengajuanId },
+      data: { diskonKompetitorFakturPath: namaFile, diskonKompetitorFakturDriveFileId: driveFileId },
+    });
+    if (count === 0) throw new Error("Produk tidak ditemukan di pengajuan ini.");
   } else {
     if (!produkId) throw new Error("Produk tidak valid.");
     await prisma.poaStandarisasiProduk.update({
@@ -2264,7 +2276,7 @@ export async function deleteSpNonSalesDocumentAction(documentId: string): Promis
  * the 4 places a driveFileId can live — so the download route never has to
  * trust a client-supplied pengajuanId/label. */
 async function resolvePoaStandarisasiFileOwner(driveFileId: string) {
-  const [dokumen, produk, suratKft, dokterApproval, memo, spNonSalesDoc] = await Promise.all([
+  const [dokumen, produk, suratKft, dokterApproval, memo, spNonSalesDoc, fakturKompetitor] = await Promise.all([
     prisma.poaStandarisasiDokumen.findFirst({
       where: { driveFileId },
       include: { produk: { include: { pengajuan: true, product: true } } },
@@ -2285,6 +2297,10 @@ async function resolvePoaStandarisasiFileOwner(driveFileId: string) {
     // Sebelumnya TIDAK ke-cover di resolver ini sama sekali (pre-existing gap,
     // ketauan waktu nambahin akses Sales Support) — ditambah sekalian di sini.
     prisma.poaStandarisasiSpNonSalesDocument.findFirst({ where: { driveFileId }, include: { pengajuan: true } }),
+    prisma.poaStandarisasiProduk.findFirst({
+      where: { diskonKompetitorFakturDriveFileId: driveFileId },
+      include: { pengajuan: true, product: true },
+    }),
   ]);
 
   // salesSupportVisible: dokumen yang Sales Support (scope terbatas, BUKAN
@@ -2293,6 +2309,7 @@ async function resolvePoaStandarisasiFileOwner(driveFileId: string) {
   // (NIE/CPOB/KFT/Bukti TTD) TETAP tidak boleh diakses Sales Support.
   if (dokumen) return { pengajuan: dokumen.produk.pengajuan, label: `${dokumen.jenis} — ${dokumen.produk.product.namaProduk}`, salesSupportVisible: false };
   if (produk) return { pengajuan: produk.pengajuan, label: `Form Approval Standarisasi — ${produk.product.namaProduk}`, salesSupportVisible: false };
+  if (fakturKompetitor) return { pengajuan: fakturKompetitor.pengajuan, label: `Faktur Diskon Kompetitor — ${fakturKompetitor.product.namaProduk}`, salesSupportVisible: false };
   if (suratKft) return { pengajuan: suratKft, label: "Surat Approval Standarisasi KFT", salesSupportVisible: false };
   if (dokterApproval) return { pengajuan: dokterApproval.produk.pengajuan, label: `Bukti TTD — ${dokterApproval.customer.namaCustomer} (${dokterApproval.produk.product.namaProduk})`, salesSupportVisible: false };
   if (memo) return { pengajuan: memo, label: "Memo SP Non Sales", salesSupportVisible: true };

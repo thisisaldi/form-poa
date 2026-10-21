@@ -132,7 +132,7 @@ export function NewPoaStandarisasiForm({
   function handleSubmit() {
     // Field wajib kosong → highlight + scroll (error server action dimasking di production, jadi jangan andalkan throw server).
     const e = planningErrors({ kodePI, kpdmList, tipeStandarisasi, periodeBulan, produkList });
-    if (e.outlet || e.kpdm || e.periode || e.produk || e.dokter || e.kompetitor) {
+    if (e.outlet || e.kpdm || e.periode || e.produk || e.dokter) {
       setAttempted(true);
       scrollToFirstFieldErr();
       return;

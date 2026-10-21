@@ -1799,8 +1799,11 @@ model PoaStandarisasiProduk {
   estimasiDiskonPct            Decimal? @db.Decimal(10, 4)
   estimasiDiskonDistributorPct Decimal? @db.Decimal(10, 4)
   estimasiBiayaListingRp       Decimal? @db.Decimal(18, 2)
-  // Diskon kompetitor untuk produk ini di outlet ini (%, satu angka) — padanan "Produk Kompetitor Utama" di POA Estimasi; wajib diisi sebelum lanjut ke Approval Atasan.
+  // Diskon kompetitor untuk produk ini di outlet ini (%, satu angka) — padanan "Produk Kompetitor Utama" di POA Estimasi. OPSIONAL (2026-10-20, kecuali ada instruksi wajib dari pimpinan).
   diskonKompetitorPct          Decimal? @db.Decimal(10, 4)
+  // Faktur diskon kompetitor (opsional, PDF/JPG/PNG) di Google Drive — diunduh lewat /api/poa-standarisasi/dokumen/[driveFileId].
+  diskonKompetitorFakturPath        String?
+  diskonKompetitorFakturDriveFileId String?
 
   // ── Finalisasi Biaya ──────────────────────────────────────────────────
   finalDiscountPct     Decimal? @db.Decimal(10, 4)

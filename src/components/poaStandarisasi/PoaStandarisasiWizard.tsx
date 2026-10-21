@@ -33,6 +33,7 @@ import {
   saveFinalisasiAction,
   submitPoaStandarisasiAction,
   uploadPoaStandarisasiFileAction,
+  uploadFakturKompetitorAction,
   getStatusPengajuanPreviewAction,
   getActiveDplByOutletAction,
   getEstimasiDiskonPreviewAction,
@@ -354,6 +355,9 @@ export interface ProdukFormState {
   estimasiValueDpRp: string;
   estimasiBiayaListingRp: string;
   diskonKompetitorPct: string;
+  /** Faktur diskon kompetitor (opsional) — hanya bisa diupload setelah produk tersimpan (butuh id). */
+  fakturDriveFileId: string;
+  fakturFileName: string;
   dokterKlinis: DokterKlinisFormState[];
   finalDiscountPct: string;
   diskonDistributorPct: string;
@@ -374,6 +378,8 @@ export function emptyProduk(inherit?: ProdukFormState): ProdukFormState {
     estimasiValueDpRp: "",
     estimasiBiayaListingRp: "",
     diskonKompetitorPct: "",
+    fakturDriveFileId: "",
+    fakturFileName: "",
     // New product inherits WHICH dokter to consider, not their estimate figures.
     dokterKlinis: inherit
       ? inherit.dokterKlinis.map((dk) => ({ customerId: dk.customerId, jumlahPasien: "", jumlahHariPraktekPerBulan: "", resepPerPasienSt: "", entertainRp: "" }))
@@ -398,6 +404,8 @@ function produkFromDetail(p: PoaStandarisasiDetail["produk"][number]): ProdukFor
     estimasiValueDpRp: p.estimasiValueDpRp != null ? String(p.estimasiValueDpRp) : "",
     estimasiBiayaListingRp: p.estimasiBiayaListingRp != null ? String(p.estimasiBiayaListingRp) : "",
     diskonKompetitorPct: p.diskonKompetitorPct != null ? String(p.diskonKompetitorPct) : "",
+    fakturDriveFileId: p.diskonKompetitorFakturDriveFileId ?? "",
+    fakturFileName: p.diskonKompetitorFakturPath ?? "",
     dokterKlinis: p.dokterApproval.map((d) => ({
       customerId: d.customerId,
       jumlahPasien: d.jumlahPasien != null ? String(d.jumlahPasien) : "",
@@ -614,7 +622,7 @@ export function PoaStandarisasiWizard({
   /** Field wajib Planning kosong → highlight + scroll, bukan lempar error (pesan server action dimasking di production). strict = juga cek produk & dokter (lanjut ke Approval Atasan). */
   function planningValid(strict: boolean) {
     const e = planningErrors({ kodePI: pengajuan.kodePI, kpdmList, tipeStandarisasi, periodeBulan, produkList });
-    if (e.kpdm || e.periode || (strict && (e.produk || e.dokter || e.kompetitor))) {
+    if (e.kpdm || e.periode || (strict && (e.produk || e.dokter))) {
       setAttempted(true);
       scrollToFirstFieldErr();
       return false;
@@ -1058,7 +1066,6 @@ export function planningErrors(f: { kodePI: string; kpdmList: KpdmFormState[]; t
     periode: f.tipeStandarisasi !== "PERMANEN" && !Number(f.periodeBulan),
     produk: !f.produkList.some((p) => p.kodeProduk),
     dokter: f.produkList.some((p) => p.kodeProduk && p.dokterKlinis.length === 0),
-    kompetitor: f.produkList.some((p) => p.kodeProduk && !p.diskonKompetitorPct.trim()),
   };
 }
 
@@ -1116,6 +1123,31 @@ export function PlanningPhase(props: {
   const kpdmErr = attempted && planErr.kpdm;
   const periodeErr = attempted && planErr.periode;
   const produkEmptyErr = attempted && planErr.produk;
+
+  // Faktur diskon kompetitor (opsional) — upload per produk, hanya setelah produk tersimpan (butuh produk.id).
+  const fakturInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+  const [uploadingFaktur, setUploadingFaktur] = useState<number | null>(null);
+  const [fakturError, setFakturError] = useState<string | null>(null);
+  const uploadDisabled = useFeatureFlag("standarisasi.upload.disabled");
+  const uploadDisabledMessage = featureFlagMessage("standarisasi.upload.disabled");
+  async function handleUploadFaktur(idx: number, produkId: string, file: File) {
+    if (!pengajuanId) return;
+    setUploadingFaktur(idx);
+    setFakturError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("pengajuanId", pengajuanId);
+      fd.set("produkId", produkId);
+      const res = await uploadFakturKompetitorAction(fd);
+      if (res.error || !res.driveFileId) throw new Error(res.error ?? "Upload gagal.");
+      updateProduk(idx, { fakturDriveFileId: res.driveFileId, fakturFileName: res.namaFile ?? "" });
+    } catch (e) {
+      setFakturError(e instanceof Error ? e.message : "Upload gagal.");
+    } finally {
+      setUploadingFaktur(null);
+    }
+  }
 
   // Same labeling + kontes/kategori grouping as POA Estimasi's product picker
   // (LineItemEditor's buildProductOptions) — no single dokter is picked yet at
@@ -1415,18 +1447,36 @@ export function PlanningPhase(props: {
                 <span className="text-xs font-medium block mb-1 whitespace-nowrap">Estimasi Biaya Listing</span>
                 <RpInput value={p.estimasiBiayaListingRp} onChange={(v) => updateProduk(idx, { estimasiBiayaListingRp: v })} disabled={disabled} />
               </div>
-              {(() => {
-                const kompetitorErr = attempted && !!p.kodeProduk && !p.diskonKompetitorPct.trim();
-                return (
-                  <div className="w-[calc(50%-6px)] sm:w-36 shrink-0" {...(kompetitorErr ? { "data-field-err": "true" } : {})}>
-                    <span className="text-xs font-medium block mb-1 whitespace-nowrap" style={kompetitorErr ? { color: "var(--color-red)" } : undefined}>Diskon Kompetitor *</span>
-                    <div style={kompetitorErr ? ERR_RING : undefined}>
-                      <UnitCountInput unit="%" value={p.diskonKompetitorPct} onChange={(v) => updateProduk(idx, { diskonKompetitorPct: v })} disabled={disabled} />
-                    </div>
-                    {kompetitorErr && <span className="text-xs" style={{ color: "var(--color-red)" }}>Wajib diisi</span>}
-                  </div>
-                );
-              })()}
+              <div className="w-[calc(50%-6px)] sm:w-36 shrink-0">
+                <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon Kompetitor <span className="font-normal">(opsional)</span></span>
+                <UnitCountInput unit="%" value={p.diskonKompetitorPct} onChange={(v) => updateProduk(idx, { diskonKompetitorPct: v })} disabled={disabled} />
+              </div>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-medium">Faktur Diskon Kompetitor <span className="font-normal" style={{ color: "var(--color-text-faint)" }}>(opsional)</span>:</span>
+              <input
+                ref={(el) => { fakturInputRefs.current[idx] = el; }}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f && p.id) handleUploadFaktur(idx, p.id, f); e.target.value = ""; }}
+              />
+              {uploadingFaktur === idx ? (
+                <span style={{ color: "var(--color-text-faint)" }}>Mengupload…</span>
+              ) : p.fakturDriveFileId ? (
+                <a href={driveViewUrl(p.fakturDriveFileId)} target="_blank" rel="noreferrer" className="font-medium" style={{ color: "var(--color-status-approved, #008f42)" }}>
+                  ✓ {p.fakturFileName || "Lihat faktur"}
+                </a>
+              ) : (
+                <span style={{ color: "var(--color-text-faint)" }}>{pengajuanId && p.id ? "Belum diupload" : "Bisa diupload setelah draft disimpan"}</span>
+              )}
+              {!disabled && pengajuanId && p.id && (
+                <Button type="button" size="sm" variant="secondary" disabled={uploadingFaktur === idx || uploadDisabled} title={uploadDisabled ? uploadDisabledMessage : undefined} onClick={() => fakturInputRefs.current[idx]?.click()}>
+                  {p.fakturDriveFileId ? "Ganti" : "Upload"}
+                </Button>
+              )}
+              {fakturError && uploadingFaktur === null && <span style={{ color: "var(--color-error)" }}>{fakturError}</span>}
             </div>
 
             {/* Info statis produk (HNA + Rekomendasi Resep) — satu klaster, langsung di bawah baris Nama Produk, terpisah dari banner warning di bawah yang sifatnya hasil kalkulasi (redline 2026-09-08 item #2/#3). */}
