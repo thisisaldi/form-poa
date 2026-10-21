@@ -181,6 +181,14 @@ Export Excel gabungan — seluruh POA dari subordinate MR di bawah user yang log
 - **Response 200**: file `.xlsx`, filename `Rekap_POA_{period?}_{nama}.xlsx`. Sheets: **Ringkasan Tim**, **Per MR**, **Estimasi PSSP per Bulan**, **Semua Pengajuan** (header-nya memiliki struktur yang sama dengan sheet "Pengisian" pada export per-POA, lihat `docs/PERFORMANCE.md`/commit 2026-08-05), **PSSP Aktif**, **Summary Per Outlet**, **Summary by Produk**.
 - **Error**: `403` role diblokir · `404` tidak ada subordinate MR.
 
+### `GET /api/absensi-hospital/export?start=YYYY-MM-DD&end=YYYY-MM-DD`
+Excel absensi SIPP semua orang di struktur Hospital (`OutletStrukturBaru`, `project` null), dipakai halaman `/absensi-hospital` (2026-10-21). Logika di `src/lib/absensiHospitalExport.ts`, versi CLI `scripts/exportAbsensiHospital.ts`.
+- **Auth**: session cookie, role `SFE`/`ADMIN` saja (lainnya `403`, tanpa session `401`).
+- **Query param**: `start`, `end` (wajib, inklusif) — maks 31 hari (1 bulan).
+- **Response 200**: file `.xlsx`, filename `Absensi_Hospital_{start}_{end}.xlsx`, 1 sheet `absensi`: Nama, NIP, Jabatan, Hari, Tanggal, Jam Masuk, Jam Pulang, Keterangan (`Telat` dari `AbsTelatYN`; izin/cuti tidak tersedia dari SIPP). Termasuk user nonaktif; NIP lama orang yang sama (nama HR sama, masa kerja beririsan) digabung di bawah NIP struktur; record identik dobel dari SIPP dibuang; orang tanpa absen tetap 1 baris "Tidak ada data absen".
+- **Beban**: live ke SIPP, 1 panggilan per NIP (~365+), paralel 8 — ~26 detik untuk 3 bulan / ~24 detik untuk 2 minggu (diukur di SIPP staging; waktu didominasi jumlah NIP, bukan panjang rentang). Tidak ada snapshot di DB.
+- **Error**: `400` tanggal tidak valid / rentang > 31 hari · `502` SIPP gagal untuk semua orang (SIPP down).
+
 ---
 
 ## KPI Perpanjangan

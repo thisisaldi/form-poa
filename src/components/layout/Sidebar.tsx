@@ -106,6 +106,13 @@ const NAV_ITEMS: NavItem[] = [
     alsoActiveOn: ["/kpi-detail", "/kpi-perpanjangan", "/evaluasi-kontrak-non-hospital"],
   },
   {
+    href: "/absensi-hospital",
+    label: "Absensi Hospital",
+    icon: <IconTable />,
+    // Download Excel absensi SIPP divisi Hospital (2026-10-21, user request).
+    roles: ["SFE", "ADMIN"],
+  },
+  {
     href: "/sales-support",
     label: "Memo SP Non Sales",
     icon: <IconTable />,

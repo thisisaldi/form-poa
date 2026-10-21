@@ -23,10 +23,23 @@ interface AuthVendorResponse {
   error?: { status: boolean; msg: string; code: number };
 }
 
-async function getAccessToken(): Promise<string | null> {
-  if (!isConfigured) return null;
-  if (cachedToken && cachedToken.expiresAt > Date.now()) return cachedToken.token;
+// SIPP keeps only ONE valid token per client: issuing a new one makes the
+// previous one 401 immediately (verified 2026-10-21). So concurrent callers
+// must share a single in-flight auth request, never each fetch their own.
+let tokenInFlight: Promise<string | null> | null = null;
 
+/** `rejectedToken`: a token that just got a 401 — refresh, unless another caller already did. */
+async function getAccessToken(rejectedToken?: string): Promise<string | null> {
+  if (!isConfigured) return null;
+  if (cachedToken && cachedToken.expiresAt > Date.now() && cachedToken.token !== rejectedToken) return cachedToken.token;
+  cachedToken = null;
+  tokenInFlight ??= fetchAccessToken().finally(() => {
+    tokenInFlight = null;
+  });
+  return tokenInFlight;
+}
+
+async function fetchAccessToken(): Promise<string | null> {
   try {
     const res = await fetch(`${env.SIPP_BASE_URL}/hr/auth?auth=vendor`, {
       method: "POST",
@@ -83,16 +96,24 @@ export async function getAbsensiByNip(
   endDate: string
 ): Promise<AbsensiRecord[] | null> {
   if (!isConfigured || !nip) return null;
-  const token = await getAccessToken();
+  let token = await getAccessToken();
   if (!token) return null;
 
   try {
-    const res = await fetch(`${env.SIPP_BASE_URL}/hr/trademarketing?get=absensi`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ AbsNIP: nip, AbsPTID: ptId, AbsStartDate: startDate, AbsEndDate: endDate }),
-      cache: "no-store",
-    });
+    const call = (t: string) =>
+      fetch(`${env.SIPP_BASE_URL}/hr/trademarketing?get=absensi`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${t}` },
+        body: JSON.stringify({ AbsNIP: nip, AbsPTID: ptId, AbsStartDate: startDate, AbsEndDate: endDate }),
+        cache: "no-store",
+      });
+    let res = await call(token);
+    // Token invalidated by a newer one (another process/sync got a token) — retry once.
+    if (res.status === 401) {
+      token = await getAccessToken(token);
+      if (!token) return null;
+      res = await call(token);
+    }
     if (!res.ok) return null;
     const body = (await res.json()) as AbsensiResponse;
     if (body.error?.status) return null;
