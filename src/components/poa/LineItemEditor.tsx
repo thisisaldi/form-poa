@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useMemo, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { DiskonKlusterBadge } from "@/components/DiskonKlusterBadge";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import type { PoaLineItem } from "@prisma/client";
@@ -1665,6 +1666,7 @@ function BudgetFieldsRow({
             onChange={(v) => onChange({ persenDiskon: v })}
             unit="%"
             placeholder="0" />
+          <DiskonKlusterBadge value={entry.persenDiskon} />
           {diskonPeriodeLabel && (
             <span className="text-[10px] leading-tight" style={{ color: "var(--color-text-faint)" }}>
               {diskonPeriodeLabel}

@@ -14,6 +14,7 @@ import { GolonganBadge } from "@/components/poaStandarisasi/GolonganBadge";
 import { RekomendasiSidebar } from "@/components/poaStandarisasi/RekomendasiSidebar";
 import { buildProductOptions } from "@/components/poa/LineItemEditor";
 import { discountApprovalLevel } from "@/lib/discountApprovalLevel";
+import { DiskonKlusterBadge } from "@/components/DiskonKlusterBadge";
 import { PHASES } from "@/lib/poaStandarisasiPhases";
 import { formatWib } from "@/lib/formatWib";
 import type { ActivityRow } from "@/lib/poaStandarisasiActivity";
@@ -1402,6 +1403,7 @@ export function PlanningPhase(props: {
                   <div className="w-[calc(50%-6px)] sm:w-32 shrink-0">
                     <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (PI)</span>
                     <UnitCountInput unit="%" value={p.estimasiDiskonPct} onChange={(v) => updateProduk(idx, { estimasiDiskonPct: v })} disabled={disabled} />
+                    <DiskonKlusterBadge value={p.estimasiDiskonPct} />
                   </div>
                   <div className="w-[calc(50%-6px)] sm:w-32 shrink-0">
                     <span className="text-xs font-medium block mb-1 whitespace-nowrap">Diskon (Dist.)</span>
@@ -2171,7 +2173,10 @@ function FinalisasiPhase({
               ) : (
                 <>
                   {/* Default-nya live dari Exodus discount-request API (principal_percentage / distributor_percentage, lihat getPoaStandarisasiDetail), tapi tetap editable di Finalisasi (2026-09-09 user request — belum ada yang di-lock di fase ini). */}
-                  <UnitCountInput label="Discount Final PI" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled={disabled} />
+                  <div className="flex flex-col">
+                    <UnitCountInput label="Discount Final PI" unit="%" value={p.finalDiscountPct} onChange={(v) => updateProduk(idx, { finalDiscountPct: v })} disabled={disabled} />
+                    <DiskonKlusterBadge value={p.finalDiscountPct} />
+                  </div>
                   <UnitCountInput label="Discount Final Distributor" unit="%" value={p.diskonDistributorPct} onChange={(v) => updateProduk(idx, { diskonDistributorPct: v })} disabled={disabled} />
                 </>
               )}
