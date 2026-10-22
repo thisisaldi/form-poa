@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { canUseKpiPersonil } from "@/lib/kpiAccess";
 import { getKpiLeaderboard } from "@/app/actions/kpi";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
 import { KpiLeaderboardView } from "@/components/kpi/KpiLeaderboardView";
@@ -23,6 +24,7 @@ const SCHEMES = [
 export default async function KpiLeaderboardPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
+  if (!canUseKpiPersonil(session.role)) redirect("/dashboard"); // KPI Personil khusus ADMIN (src/lib/kpiAccess.ts)
 
   const params = await searchParams;
   const scheme = params.scheme === "non-hospital" ? "non-hospital" : "hospital";

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { canUseKpiPersonil } from "@/lib/kpiAccess";
 import { getKpiMonitoringData } from "@/app/actions/kpi";
 import { KpiTable } from "@/components/kpi/KpiTable";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
@@ -36,7 +37,7 @@ function recentPeriods(): string[] {
  * Evaluasi kontrak (KpiContractEvaluation) belum dibangun — halaman ini baru
  * scorecard bulanan + input manual Call Activity/Absensi.
  */
-const KPI_VIEWER_ROLES = ["ADMIN", "MR", "ASM", "SM", "NSM"];
+const KPI_VIEWER_ROLES = ["ADMIN", "MR", "ASM", "SM", "NSM"].filter(canUseKpiPersonil);
 
 export default async function KpiPerpanjanganPage({
   searchParams,

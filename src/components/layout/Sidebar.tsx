@@ -101,8 +101,9 @@ const NAV_ITEMS: NavItem[] = [
     // One menu entry, sub-pages via KpiPageNav (2026-10-05, mockup "KPI Personil"):
     // Leaderboard (all roles, point only), Detail KPI (ADMIN/SM/NSM) and
     // Monitoring (/kpi-perpanjangan + Non-Hospital tab). Per-page role checks
-    // live in each page; Leaderboard is open to every logged-in role, so no
-    // `roles` filter here. See docs/kpi-monitoring/04-final-layout.md.
+    // live in each page. ADMIN-only since 2026-10-22 (user request) — keep in
+    // sync with src/lib/kpiAccess.ts. See docs/kpi-monitoring/04-final-layout.md.
+    roles: ["ADMIN"],
     alsoActiveOn: ["/kpi-detail", "/kpi-perpanjangan", "/evaluasi-kontrak-non-hospital"],
   },
   {

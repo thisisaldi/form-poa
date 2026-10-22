@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { canUseKpiPersonil } from "@/lib/kpiAccess";
 import { getKpiSummary } from "@/app/actions/kpiDetail";
 import { Card } from "@/components/ui/Card";
 import { KpiPageNav } from "@/components/kpi/KpiPageNav";
@@ -15,7 +16,7 @@ export const metadata = { title: "Summary KPI Personil · Form POA" };
 export default async function KpiSummaryPage() {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  if (!["ADMIN", "SD", "NSM"].includes(session.role)) redirect("/kpi-leaderboard");
+  if (!["ADMIN", "SD", "NSM"].filter(canUseKpiPersonil).includes(session.role)) redirect("/dashboard");
 
   const d = await getKpiSummary();
   const stats: [string, string, string][] = [

@@ -12,13 +12,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
+import { canUseKpiPersonil } from "@/lib/kpiAccess";
 import { withKpiViewer } from "@/lib/kpiApiAuth";
 import { getKpiMonitoringData } from "@/app/actions/kpi";
 import { getNonHospitalMonitoring } from "@/app/actions/nonHospitalEvaluation";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
-const VIEWER_ROLES =["ADMIN", "MR", "ASM", "SM", "NSM"];
+const VIEWER_ROLES = ["ADMIN", "MR", "ASM", "SM", "NSM"].filter(canUseKpiPersonil);
 
 export function GET(req: NextRequest) {
   return withKpiViewer(req, () => handle(req));

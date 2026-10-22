@@ -2,6 +2,8 @@
 
 *(Ditulis 2026-07-30, mengikuti pendekatan spec-driven development: spesifikasi ditulis dan disetujui terlebih dahulu, sebelum kode ditulis. Sumber requirement: Memo Internal `NO.SM/ETH-II/PI/08.2026` — "KPI Personil Kinerja, Kontrak & Kaderisasi FF Hospital", berlaku efektif 01 Agustus 2026, menggantikan memo lama `SM/ETH-I/PI/05.2026`.)*
 
+> ⚠️ **2026-10-22 (permintaan user): seluruh menu KPI Personil dimatikan untuk selain ADMIN** — menu, halaman, `/api/kpi-*`, dan server action KPI. Satu-satunya sumber: `src/lib/kpiAccess.ts` (`KPI_PERSONIL_ROLES`); matriks role di `03-ui-and-access.md` dan `04-final-layout.md` di bawah menggambarkan akses yang dirancang, bukan yang aktif sekarang. Untuk membukanya lagi, ubah daftar itu (aturan role per halaman tetap berlaku di dalamnya).
+
 ## Dokumen
 
 1. [`01-business-rules.md`](./01-business-rules.md) — requirement dari memo, definisi indikator, formula scoring, band nilai, keputusan kontrak, dan open questions yang membutuhkan klarifikasi stakeholder sebelum implementasi dapat dimulai.

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { canUseKpiPersonil } from "@/lib/kpiAccess";
 import { getHospitalBreakdown, getKpiPersonDetail, getKpiSubordinates, lastCompletedPeriod, type Breakdown, type DetailMonth, type KpiScheme, type PersonDetail } from "@/app/actions/kpiDetail";
 import { Card } from "@/components/ui/Card";
 import { KpiEvaluationForm } from "@/components/kpi/KpiEvaluationForm";
@@ -18,7 +19,7 @@ export default async function KpiDetailCardPage({
 }: { params: Promise<{ nip: string }>; searchParams: Promise<Record<string, string>> }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  if (!["ADMIN", "SD", "ASM", "SM", "NSM"].includes(session.role)) redirect("/kpi-leaderboard");
+  if (!["ADMIN", "SD", "ASM", "SM", "NSM"].filter(canUseKpiPersonil).includes(session.role)) redirect("/dashboard");
 
   const { nip } = await params;
   const sp = await searchParams;

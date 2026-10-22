@@ -22,9 +22,10 @@ import { getSubordinateMRNips, getSubordinateOwnerNips } from "@/lib/authz";
 import { actionFor, chainFor, evaluatorFor, isFullyApproved, statusText, type Action, type ApprovalStep } from "@/lib/kpiApproval";
 import { getAbsensiByNip, monthDateRange } from "@/lib/sippApi";
 import type { Role, User } from "@prisma/client";
+import { canUseKpiPersonil } from "@/lib/kpiAccess";
 
 export type KpiScheme = "hospital" | "non-hospital";
-const VIEWER_ROLES = ["ADMIN", "SD", "ASM", "SM", "NSM"];
+const VIEWER_ROLES = ["ADMIN", "SD", "ASM", "SM", "NSM"].filter(canUseKpiPersonil);
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DECISION_MONTHS = [12, 9, 6, 0] as const;
 
@@ -523,7 +524,7 @@ const catOf = (role: string): SummaryGroup["key"] => (role === "ASM" ? "ASM" : r
  */
 export async function getKpiSummary(): Promise<KpiSummary> {
   const session = await getCurrentUser();
-  if (!session || !["ADMIN", "SD", "NSM"].includes(session.role)) throw new Error("Summary hanya untuk NSM, Sales Director, dan PIC.");
+  if (!session || !["ADMIN", "SD", "NSM"].filter(canUseKpiPersonil).includes(session.role)) throw new Error("Summary hanya untuk NSM, Sales Director, dan PIC (saat ini khusus admin).");
 
   const end = await lastCompletedPeriod();
   const [evals, ranked] = await Promise.all([

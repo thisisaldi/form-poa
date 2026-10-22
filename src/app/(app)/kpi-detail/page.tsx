@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
+import { canUseKpiPersonil } from "@/lib/kpiAccess";
 import { getKpiSubordinates, lastCompletedPeriod, type KpiScheme } from "@/app/actions/kpiDetail";
 import { Card } from "@/components/ui/Card";
 import { KpiPeriodPicker } from "@/components/kpi/KpiPeriodPicker";
@@ -24,7 +25,7 @@ const SCHEMES: { key: KpiScheme; label: string }[] = [
 export default async function KpiDetailListPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const session = await getCurrentUser();
   if (!session) redirect("/login");
-  if (!["ADMIN", "SD", "ASM", "SM", "NSM"].includes(session.role)) redirect("/kpi-leaderboard");
+  if (!["ADMIN", "SD", "ASM", "SM", "NSM"].filter(canUseKpiPersonil).includes(session.role)) redirect("/dashboard");
   const readOnly = session.role === "SD";
 
   const params = await searchParams;

@@ -202,6 +202,8 @@ Scorecard bulanan 4 pilar per MR/ASM/SM (isi sama dengan tabel `/kpi-perpanjanga
 - **Error**: `400` `period` kosong/format salah · `401` · `403`.
 
 ### Auth Exodus untuk endpoint KPI
+> ⚠️ **Sejak 2026-10-22 fitur KPI Personil khusus ADMIN** (`src/lib/kpiAccess.ts`): semua endpoint KPI di bawah ini mengembalikan `403` untuk viewer selain ADMIN — termasuk Basic Auth dengan `asNip` milik non-ADMIN. Basic Auth tanpa `asNip` (setara ADMIN) tetap jalan.
+
 Tiga endpoint KPI (`/api/kpi-perpanjangan`, `/api/kpi-leaderboard`, `/api/kpi-personil`) menerima **session cookie** ATAU **HTTP Basic Auth** dengan kredensial yang sama seperti `/api/poa-doctors` & `/api/target-value` (`PoaDoctorsApiCredential`, diatur ADMIN di halaman Admin) — ditambahkan 2026-10-16 supaya bisa ditampilkan di Exodus (`src/lib/kpiApiAuth.ts`).
 - Basic Auth + `?asNip={nip}` = request dijalankan **sebagai user itu**: scope/akses persis sama dengan kalau user itu login di app (mis. ASM hanya bisa buka detail bawahannya; MR `403` di `/api/kpi-personil`). NIP tidak ada → `404`.
 - Basic Auth tanpa `asNip` = setara ADMIN (company-wide), sama seperti route Basic Auth lain.

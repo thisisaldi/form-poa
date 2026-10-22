@@ -24,6 +24,7 @@ import { computeKpiRows, type KpiPersonnelRow } from "@/lib/kpiMonitoring";
 
 export type { KpiPersonnelRow } from "@/lib/kpiMonitoring";
 import type { Role, User } from "@prisma/client";
+import { canUseKpiPersonil, KPI_PERSONIL_DISABLED_MESSAGE } from "@/lib/kpiAccess";
 
 async function requireAdmin() {
   const session = await getCurrentUser();
@@ -37,7 +38,7 @@ async function requireAdmin() {
 // + their own subtree, same "self and bawahannya" pattern as everywhere else
 // in this app (getSubordinateOwnerNips — not a new RBAC concept). Editing
 // (manual input, sync) stays ADMIN-only for now, gated separately below.
-const KPI_VIEWER_ROLES = ["ADMIN", "MR", "ASM", "SM", "NSM"];
+const KPI_VIEWER_ROLES = ["ADMIN", "MR", "ASM", "SM", "NSM"].filter(canUseKpiPersonil);
 
 async function requireKpiViewer() {
   const session = await getCurrentUser();
@@ -98,6 +99,7 @@ export type LeaderboardRow = {
 export async function getKpiLeaderboard(scheme: "hospital" | "non-hospital", period: string): Promise<{ rows: LeaderboardRow[]; unscored: number }> {
   const session = await getCurrentUser();
   if (!session) throw new Error("Unauthorized");
+  if (!canUseKpiPersonil(session.role)) throw new Error(KPI_PERSONIL_DISABLED_MESSAGE);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new Error("Periode tidak valid");
 
   let rows: LeaderboardRow[] = [];
