@@ -1,5 +1,6 @@
 import { getIronSession, IronSession, SessionOptions } from "iron-session";
 import { cookies } from "next/headers";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface SessionData {
   userId: string;
@@ -30,7 +31,19 @@ export async function getSession(): Promise<IronSession<SessionData>> {
   return getIronSession<SessionData>(cookieStore, sessionOptions);
 }
 
+// Request-scoped viewer for external API calls (Exodus, HTTP Basic Auth) that
+// carry no session cookie — set ONLY by server route code via runAsViewer
+// (src/lib/kpiApiAuth.ts), so read actions reuse their own scope rules as-is.
+// Not reachable from the client: there is no action/route that takes a viewer.
+const apiViewer = new AsyncLocalStorage<SessionData>();
+
+export function runAsViewer<T>(viewer: SessionData, fn: () => Promise<T>): Promise<T> {
+  return apiViewer.run(viewer, fn);
+}
+
 export async function getCurrentUser(): Promise<SessionData | null> {
+  const viewer = apiViewer.getStore();
+  if (viewer) return viewer;
   const session = await getSession();
   if (!session.isLoggedIn) return null;
   return session;

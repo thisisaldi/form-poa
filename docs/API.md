@@ -198,7 +198,26 @@ Scorecard bulanan 4 pilar per MR/ASM/SM (isi sama dengan tabel `/kpi-perpanjanga
 - **Auth**: session cookie. `ADMIN` = semua personil aktif; `MR`/`ASM`/`SM`/`NSM` = diri sendiri + bawahan. Role lain `403`, tanpa session `401`.
 - **Query param**: `divisi` (opsional) — `hospital` (default) atau `non-hospital` (OMEGA: semua MR/ASM/SM aktif, tanpa syarat data kontrak; **ADMIN-only**, role lain `403`; row = `nip, name, role, jabatan, gt, akhirKontrak (opsional, null bila tidak ada), month{target,sales,ach,visit,hariAktif,achKunjungan,sc,telat}, indicators[], totalScore, recommendation, notes[]` — `totalScore`/`recommendation` masih `null` sampai band SC Menang & Absensi dikonfirmasi). `period` (wajib) — `YYYY-MM`, mis. `2026-08`. `nip` (opsional) — satu atau beberapa NIP dipisah koma; hanya NIP itu yang dihitung, dan tetap dibatasi scope role (NIP di luar scope diabaikan). `page` (default 1) dan `limit` (default 50, max 200) — `400` kalau tidak valid.
 - **Response 200**: `{ divisi, period, page, limit, total, count, rows[] }` (`total` = jumlah sebelum dipaginasi). Pagination di-slice setelah skor dihitung (urutan berdasar skor & skor ASM/SM bergantung timnya), jadi tanpa `nip` beban query ADMIN tetap company-wide. Tiap row: `nip, name, role, jabatan, salesTargetRp, salesActualRp, salesAchievementPct, salesScore, callActivityRealisasi, callActivityStandar, activityAchievementPct, activityScore, callActivitySource, customerAktifCount, customerScore, absensiValue, absensiScore, absensiSource, totalScore, recommendation`. Nilai `null` = belum ada data (bukan skor buruk). Urut: skor terendah / belum lengkap dulu.
+- **Auth tambahan (2026-10-16)**: juga menerima Basic Auth Exodus — lihat "Auth Exodus untuk endpoint KPI" di bawah.
 - **Error**: `400` `period` kosong/format salah · `401` · `403`.
+
+### Auth Exodus untuk endpoint KPI
+Tiga endpoint KPI (`/api/kpi-perpanjangan`, `/api/kpi-leaderboard`, `/api/kpi-personil`) menerima **session cookie** ATAU **HTTP Basic Auth** dengan kredensial yang sama seperti `/api/poa-doctors` & `/api/target-value` (`PoaDoctorsApiCredential`, diatur ADMIN di halaman Admin) — ditambahkan 2026-10-16 supaya bisa ditampilkan di Exodus (`src/lib/kpiApiAuth.ts`).
+- Basic Auth + `?asNip={nip}` = request dijalankan **sebagai user itu**: scope/akses persis sama dengan kalau user itu login di app (mis. ASM hanya bisa buka detail bawahannya; MR `403` di `/api/kpi-personil`). NIP tidak ada → `404`.
+- Basic Auth tanpa `asNip` = setara ADMIN (company-wide), sama seperti route Basic Auth lain.
+- Mekanisme: `runAsViewer` (`src/lib/session.ts`, AsyncLocalStorage) membuat `getCurrentUser()` mengembalikan viewer itu selama request — action KPI dipakai apa adanya, tidak ada logic scope baru.
+- Error dari action dipetakan: `401` Unauthorized · `400` periode tidak valid · `403` di luar akses role · `500` lainnya (pesan generik).
+
+### `GET /api/kpi-leaderboard?scheme=hospital|non-hospital&period=YYYY-MM`
+Leaderboard KPI Personil (isi sama dengan `/kpi-leaderboard`, `getKpiLeaderboard`): company-wide untuk semua role login, point saja.
+- **Query param**: `scheme` (default `hospital`), `period` (opsional, default bulan terakhir yang sudah selesai), `nip` (opsional, dipisah koma — filter baris, untuk "rank saya"), `page` (default 1), `limit` (default 50, max 500), `asNip` (Basic Auth saja).
+- **Response 200**: `{ scheme, period, page, limit, total, ranked, unscored, count, rows[] }`. Row: `rank, nip, name, role, area, prevRank, pillars{sales,activity,customer,absensi} | null, total`. `rank` dihitung dari seluruh personil yang sudah lengkap skornya, SEBELUM filter `nip`/pagination. `prevRank` & `pillars` hanya Hospital (Non-Hospital `null`). `unscored` = personil yang belum lengkap skornya (tidak di-rank). `total` = jumlah baris setelah filter `nip`.
+- Beban: compute on-demand company-wide (2 bulan untuk Hospital, demi `prevRank`) — sama dengan halaman, lihat `docs/PERFORMANCE.md` §5.
+
+### `GET /api/kpi-personil?scheme=hospital|non-hospital[&period=YYYY-MM][&nip=…][&breakdown=1]`
+Detail KPI (halaman `/kpi-detail`) sebagai JSON. Akses = akses halaman: `ADMIN`/`SD` semua personil, `ASM`/`SM`/`NSM` seluruh subtree-nya (tanpa diri sendiri), role lain `403`.
+- **Tanpa `nip`** — daftar bawahan satu bulan (`getKpiSubordinates`): `period` (default bulan terakhir selesai), `page`/`limit` (default 50, max 500). Response `{ scheme, period, page, limit, total, count, rows[] }`; row = `SubordinateRow` (`nip, name, role, jabatan, area, point, rec, akhirKontrak, complete, notes[], month{…}, decision, status, fullyApproved, act`). Urutan: menunggu tindakan viewer dulu, lalu belum final, lalu point tertinggi.
+- **Dengan `nip`** — kartu detail satu personil, window 6 bulan berakhir di bulan terakhir selesai (`getKpiPersonDetail`): `PersonDetail` (`window, months[]` per bulan dengan nilai mentah + skor, `avg` per pilar, `rec`, `decision`, `chain` approval, `status`, `evaluator`, …) + `breakdown`. `breakdown=1` (Hospital saja) mengisi rincian per outlet/MR/absensi harian (`getHospitalBreakdown`, memanggil SIPP — lebih lambat); selain itu `breakdown: null`. Di luar scope / tidak ada → `404`.
 
 ## POA Standarisasi
 

@@ -1,0 +1,119 @@
+{
+  "info": {
+    "name": "Exodus - PSSP Approval Level",
+    "description": "Cek approval ceiling (asm/sm/nsm/assistant-sales-director/sales-director) per dokter. Isi environment 'Exodus Production' dulu (client_secret ada di .env.production, EXODUS_AUTH_CLIENT_SECRET). Request #2 otomatis ambil token kalau belum ada / sudah expired.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Get token (client_credentials)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.test('got access_token', () => pm.expect(j.access_token).to.be.a('string'));",
+              "pm.environment.set('access_token', j.access_token);",
+              "pm.environment.set('token_expires_at', Date.now() + ((j.expires_in || 3600) - 60) * 1000);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/x-www-form-urlencoded" }],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "client_id", "value": "{{client_id}}" },
+            { "key": "client_secret", "value": "{{client_secret}}" },
+            { "key": "grant_type", "value": "client_credentials" }
+          ]
+        },
+        "url": { "raw": "{{auth_url}}", "host": ["{{auth_url}}"] }
+      }
+    },
+    {
+      "name": "2. Approval level (contoh: William Surya, 2 produk -> sales-director)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const exp = Number(pm.environment.get('token_expires_at') || 0);",
+              "if (pm.environment.get('access_token') && exp > Date.now()) return;",
+              "pm.sendRequest({",
+              "  url: pm.environment.get('auth_url'),",
+              "  method: 'POST',",
+              "  header: { 'Content-Type': 'application/x-www-form-urlencoded' },",
+              "  body: { mode: 'urlencoded', urlencoded: [",
+              "    { key: 'client_id', value: pm.environment.get('client_id') },",
+              "    { key: 'client_secret', value: pm.environment.get('client_secret') },",
+              "    { key: 'grant_type', value: 'client_credentials' } ] }",
+              "}, (err, res) => {",
+              "  if (err || res.code !== 200) { console.error('token fetch failed', err || res.text()); return; }",
+              "  const j = res.json();",
+              "  pm.environment.set('access_token', j.access_token);",
+              "  pm.environment.set('token_expires_at', Date.now() + ((j.expires_in || 3600) - 60) * 1000);",
+              "});"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "console.log('role =', (pm.response.json().data || {}).role);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+        "url": {
+          "raw": "{{base_url}}/promotion/v1/pssp/approval-level?start_period=2026-11-01&end_period=2027-03-31&r_percentage=0.14546298813267067&given_value=21511794&pssp_type=Cash&customer_code=F1046822&outlet_code=FN001269&nip=L260043",
+          "host": ["{{base_url}}"],
+          "path": ["promotion", "v1", "pssp", "approval-level"],
+          "query": [
+            { "key": "start_period", "value": "2026-11-01", "description": "YYYY-MM-DD, hari pertama bulan pertama. Format YYYYMM -> 500." },
+            { "key": "end_period", "value": "2027-03-31", "description": "YYYY-MM-DD, hari terakhir bulan terakhir" },
+            { "key": "r_percentage", "value": "0.14546298813267067", "description": "Fraksi 0-1 (10% = 0.1) = nilaiPsspTotal / estimasiTotal" },
+            { "key": "given_value", "value": "21511794", "description": "Σ rencanaTotalBiaya × persenPsspDokter × (pengaliNilaiR ?? 1) semua baris dokter" },
+            { "key": "pssp_type", "value": "Cash", "description": "Cash | Barang | Jasa | Primatax" },
+            { "key": "customer_code", "value": "F1046822" },
+            { "key": "outlet_code", "value": "FN001269" },
+            { "key": "nip", "value": "L260043", "description": "NIP owner POA (opsional)" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Approval level (pembanding: hanya ANTIPRESTIN -> nsm)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+        "url": {
+          "raw": "{{base_url}}/promotion/v1/pssp/approval-level?start_period=2026-11-01&end_period=2027-03-31&r_percentage=0.1364&given_value=6729294&pssp_type=Cash&customer_code=F1046822&outlet_code=FN001269&nip=L260043",
+          "host": ["{{base_url}}"],
+          "path": ["promotion", "v1", "pssp", "approval-level"],
+          "query": [
+            { "key": "start_period", "value": "2026-11-01" },
+            { "key": "end_period", "value": "2027-03-31" },
+            { "key": "r_percentage", "value": "0.1364" },
+            { "key": "given_value", "value": "6729294" },
+            { "key": "pssp_type", "value": "Cash" },
+            { "key": "customer_code", "value": "F1046822" },
+            { "key": "outlet_code", "value": "FN001269" },
+            { "key": "nip", "value": "L260043" }
+          ]
+        }
+      }
+    }
+  ]
+}

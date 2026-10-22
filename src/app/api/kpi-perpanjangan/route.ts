@@ -3,7 +3,7 @@
  *
  * Scorecard KPI Perpanjangan (Hospital) — payload yang sama persis dengan
  * tabel di halaman /kpi-perpanjangan (getKpiMonitoringData). Session cookie
- * saja; scope mengikuti role: ADMIN = semua personil, MR/ASM/SM/NSM = diri
+ * atau Basic Auth Exodus (src/lib/kpiApiAuth.ts, opsional `?asNip=`); scope mengikuti role: ADMIN = semua personil, MR/ASM/SM/NSM = diri
  * sendiri + bawahan. Read-only — edit/sync tetap lewat Server Action ADMIN.
  *
  * `?divisi=hospital` (default) | `non-hospital` (OMEGA — semua MR/ASM/SM aktif,
@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
+import { withKpiViewer } from "@/lib/kpiApiAuth";
 import { getKpiMonitoringData } from "@/app/actions/kpi";
 import { getNonHospitalMonitoring } from "@/app/actions/nonHospitalEvaluation";
 
@@ -19,7 +20,11 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const VIEWER_ROLES =["ADMIN", "MR", "ASM", "SM", "NSM"];
 
-export async function GET(req: NextRequest) {
+export function GET(req: NextRequest) {
+  return withKpiViewer(req, () => handle(req));
+}
+
+async function handle(req: NextRequest) {
   const session = await getCurrentUser();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!VIEWER_ROLES.includes(session.role)) {
