@@ -62,3 +62,5 @@ src/lib/mock/generated-data.json
 
 *.txt
 dist
+
+enable-sqlexpress-tcp.ps1
